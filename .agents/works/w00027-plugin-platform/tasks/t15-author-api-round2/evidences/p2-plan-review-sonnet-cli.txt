@@ -1,0 +1,171 @@
+# 审查报告：t15 第二期计划，nbook 命令行的合同与使用体验（Sonnet）
+
+对象：plan-phase2.md（master 28852924c）。实验目录 /tmp/review-t15-p2plan-cli/。以下按影响排序。
+
+### 阻断级：无
+
+### 重要 / 不变量 / 位置：计划第 3.1 节与第 8 节第一条风险（锁过期的处理）
+
+现象：持锁进程被暂停超过 10 秒（笔记本休眠、调试器、SIGSTOP）后，第二个 `nbook start` 会毫秒级取到同一把锁，于是同一状态根上有两个活着的服务端。计划只写“`holdLock` 的 `stillHeld` 能发现，此时记诊断，不自行退出”，等于认可这种状态继续存在。
+
+为什么是问题：单实例是第二期的核心不变量，计划靠“锁”一件事保证它，而这把锁的语义是“10 秒不刷新就算残留”，休眠恢复是桌面用户的常态，不是罕见情形。第二个实例的取锁还会因为缺省端口被占而顺延到 4317 与 4318，用户看到的是第二个窗口，数据却在同一个状态根（登记表、projects.json、日志）上被两个进程写，正是上一轮审查实测会丢数据的场景。`findRunning` 若按计划“要求锁被持有”，锁已被判残留时它会得出“没有实例在跑”，进一步放行第二个实例。
+
+如何核实（真实 holdLock，两个真实进程，/tmp/review-t15-p2plan-cli/lock-exp/holder.ts 与 taker.ts）：holder 取锁后 `kill -STOP`，11 秒后 taker 取锁，结果 `taker: acquired 2ms`；`kill -CONT` 后 holder 报告 `lock.compromised`，`stillHeld` 返回“锁在持有期间被判为残留、已被别的进程接管”，进程本身继续运行。
+
+建议改法：
+1. 失去锁（`onCompromised` 或 `stillHeld` 非空）时服务端请求停止，退出码沿用租约失效的 75（server-host 已有“租约失效立即进入停止”的先例），不要只记诊断。
+2. `findRunning` 与取锁前的判断不以锁状态为准：地址文件的 pid 还活着且 health 200 就是有实例，即使锁看起来过期了；锁只用来挡“同时启动”的竞态。
+3. 把“休眠恢复后旧实例退出，不会出现两个实例”写成 server-host 的验收条目，用 SIGSTOP 做进程测试（不需要睡 10 秒以外的时间，把 stale 作为可注入参数缩短）。
+
+### 重要 / 设计 / 位置：第 3.1 节 `claimStateRoot` 的返回类型，第 3.2 节 `nbook start` 第 1、2 步，第 8 节第一条风险
+
+现象：取锁失败只有 `{ok: false, running: InstanceInfo | null}` 一种，但实际有三种完全不同的原因：别的实例持有（锁被占）、状态根不可写（EACCES、EROFS）、状态根目录不存在（ENOENT）。`holdLock` 本身区分 `locked` 与 `failed`，计划的接口把它们压成一个，并且规定失败时写 `runtime.state-root.busy`。
+
+实测（lock-exp/t.ts）：
+- 锁被活着的持有者占着：约 3312 ms 后才返回 `locked`（`LOCK_RETRIES` 为 12 次、退避到 600 ms）。也就是说“第二个实例以 1 退出并给出地址”要先等 3.3 秒，而 `holdLock` 只开放 `stale` 参数，重试次数改不了。
+- 状态根只读（0555）：同样等 3307 ms，然后 `failed: 无法取得锁：EACCES`。EACCES 也被重试，白等 3.3 秒。
+- 状态根不存在：立刻 `failed: ENOENT`（锁目录的父目录必须已存在，计划“不存在时建出来”只在 nbook 里写了，直接跑 `bun dist/server/main.js` 时没有人建）。
+
+为什么是问题：只读状态根被报成“NeuroBook 已在运行”或“busy 且没有地址”，用户会去找一个不存在的实例；计划第 8 节自己也说 `bun dist/server/main.js` 会直接报 busy。另外 plugin-install 现有规则写明“租约写不下（例如状态根只读）不挡启动，记诊断”，单实例锁引入后只读状态根不再能启动，是行为回归，计划的“受影响的既有行为”没有列。
+
+建议改法：`claimStateRoot` 返回区分三类（`busy` 带地址或 null、`unwritable`、`failed`），各有自己的诊断码与文案；给 `holdLock` 加 `retries` 选项，实例锁用 0 次重试，由调用方决定要不要轮询；明确只读状态根是启动失败还是降级运行，并改 plugin-install 的那句话。
+
+### 重要 / 正确性 / 位置：第 3.2 节 `nbook start` 的流程，第 3.1 节“`runServerProcess` 在 prepareInstalledPlugins 之前取锁”
+
+现象：几处时序在计划里互相接不上。
+1. 地址文件在“HTTP 与 RPC 都监听之后”才写，而 HTTP 要等 `nbook.http` 激活才监听，其前还有 `prepareInstalledPlugins` 与全部插件装配。锁却在这之前就取了。在这段启动窗口里再运行一次 `nbook`（用户双击两次、Agent 与用户几乎同时启动），`findRunning` 看到锁被持有、没有地址文件，返回“没有实例”，然后走到 `runServerProcess` 取锁，等 3.3 秒后失败，`running` 为 null，用户得到一条没有地址的 busy 致命诊断，退出码 1。而这恰好是 VS Code 式“第二次运行打开已有实例”最该成功的时刻。
+2. `findRunning` 用 `GET <url>api/runtime/health` 判断，server-host 规定就绪前请求会等待（只有启动失败才 503）。计划没有给这个请求设超时，启动卡住（插件激活挂住、看门狗未触发）时，第二次 `nbook` 会一直挂在 health 上，既不退出也不给提示。
+3. 第 8 节说 `nbook start` 在锁残留时“等锁过期再试一次（至多 15 秒）”，但第 3.1 节说取不到锁时 `runServerProcess` 自己写致命诊断并 `process.exit(1)`（现有 `startOrExit` 也是这样），`nbook start` 在进程内调用它，没有机会重试。要重试，取锁就必须拆到 `runServerProcess` 外面，由 `nbook start` 先取锁、把持有的锁交进去；计划没有写这个接口，而 `holdLock` 不可重入（同一进程第二次取同一锁目录会得到 ELOCKED），两处各取一次会让 nbook 自己挡住自己。
+
+建议改法：把取锁与启动拆成两步（`claimStateRoot` 的结果作为 `runServerProcess` 的入参）；地址文件在取锁后立刻写一个 `{pid, startedAt, status: "starting"}`，监听成功后补全 url；`findRunning` 在 starting 状态时轮询到就绪或超时再报；health 请求设 2 到 3 秒超时，超时按“有实例但未就绪”处理，打印 pid 与日志位置。
+
+### 重要 / 设计 / 位置：第 3.2 节“Ctrl-C 经现有的 SIGINT 停止序列退出”，第 3.1 节地址文件“停止时删除”
+
+现象：计划只覆盖了 Ctrl-C（SIGINT）。关掉终端发的是 SIGHUP，`host.ts` 的 `DEFAULT_SIGNALS` 只有 SIGINT 与 SIGTERM。
+
+实测：Bun 进程收到 SIGHUP 立即结束，退出码 129，`process.on("exit")` 里的清理没有跑（lock-exp 外的 hup.ts）。后果：没有走停止序列，地址文件与锁留在原地，项目子进程要靠“发现链路断开后自行退出”，重新打开终端 10 秒内再 `nbook` 会进入前一条说的等锁分支。
+
+另外，`nbook start` 是前台阻塞命令，计划没有后台运行的选项，也没有说明。“同 VS Code 第二次运行 code”的类比里 `code` 会立刻返回命令行，而这里第一次 `nbook` 会占住终端，关终端即关服务。这是使用体验上的差异，用户和 README 都需要知道。
+
+建议改法：`nbook start` 的 `signals` 加上 SIGHUP（走与 SIGTERM 相同的有序停止）；cli.md 写明“前台运行，关闭终端即停止”并在 README 里给出放到后台的做法（systemd 用户单元、`nohup`、Windows 的任务计划），把“是否提供 `--detach`”留给开发者决定，但合同里要先说清。
+
+### 重要 / 设计 / 位置：第 3.2 节“退出码：0 成功，1 失败，2 用法错误”
+
+现象：这条合同与已有事实冲突。
+- `nbook start` 在进程内调用 `runServerProcess`，它以服务端的退出码结束，server-host 已规定 0、1、75（租约失效）、76（看门狗）。计划的“0/1/2”把 75 与 76 吞掉了，且 2 与 76 之外没有留白，Agent 无法区分“用法错”和“服务端停止失败”。
+- commander 的用法错误默认退出码是 1，不是 2。实测（commander 14.0.3，bun）：`nbook plugin install`（缺参数）、`nbook plugin list --bogus`、`nbook bogus` 的 `exitCode` 都是 1；`nbook plugin`（缺子命令）打印帮助并以 1 退出。要得到 2 必须 `exitOverride` 加 `configureOutput` 自己映射，计划只说用 commander，没有说这一层。
+- 同属 SDK 的 `nbooke` 明确是“0 成功、1 失败、2 用法”，nbook 若与它一致就要做这层映射；若不做，两个命令行同一约定在两个地方不同。
+
+建议改法：cli.md 的退出码表按子命令列：`start` 透传服务端退出码（0、1、75、76）；`plugin *` 只用 0、1、2；配置错误（端口非法）归 2 还是 1 写明（现状 `ServerConfigError` 走 1）；实现里用 `exitOverride` 统一映射并测 `plugin` 缺子命令的退出码。
+
+### 重要 / 设计 / 位置：第 3.2 节 `plugin.ts`，Agent 作为调用方
+
+现象：Agent 要分支处理，需要机器可读的结果，计划只给了 `list --json`。
+1. `install`、`enable`、`disable`、`uninstall`、`start` 没有 `--json`。失败码“原样打印”到终端文本里，退出码又都是 1，Agent 只能对中文文案做字符串匹配；`already-installed`（可以当成功）与 `registry-failed`（要重试或报告）无法靠退出码区分。全局规则也不允许按错误文案分支。
+2. `list` 在有运行实例时“首行写变化在 <url> 的服务端重启后生效”，这行在 `--json` 下会污染输出，计划没有说它是 stdout 还是 stderr、`--json` 时放哪个字段。
+3. 重启是“重启后生效”这条主线的必经一步，但第一版没有 `stop` 也没有 `status`：Agent 装完插件后，只能自己找 pid（地址文件里有，但没有被定为公开合同，路径、字段、`schema` 都可以随便变）、发 SIGTERM、再 `nbook start`。取地址同样只能解析 `Listening on …` 的文本，计划里 `start` 打印的措辞还没有定。
+4. “已有实例时打印已在 <url> 运行并退出 0”与“刚启动了一个”用同一个退出码，Agent 在后台运行 `nbook start` 时分不清自己是启动方还是被转发方，也就不知道关闭时该不该由自己负责。
+
+对照：`gh` 与 `docker` 对每个返回数据的命令都有 `--json`/`--format`，错误走 stderr；`ollama list`、`ollama ps` 用来查状态，`ollama serve` 与 `ollama stop` 配对。
+
+建议改法：不增加子命令（这是开发者定的），但把 `--json` 做成全局选项，成功输出 `{ok: true, ...}`，失败输出 `{ok: false, code, detail, problems?}` 到 stdout 并保持非 0 退出；`start` 的地址行定为稳定格式（例如 `url=…`），或 `--json` 时输出一行 JSON；把 `server.json` 的路径与字段写进 cli.md 当公开合同（Agent 可以读它取 pid 与 url）；`list` 的实例提示放进 JSON 的 `running` 字段，文本模式放 stderr。若开发者愿意破例，最小的补充是 `nbook status [--json]`（读地址文件加 health，不起服务）。
+
+### 重要 / 正确性 / 位置：第 3.2 节 `install <目录> [--yes]`，对照 plugin-install 输出 2 与输出 8
+
+现象：命令行 `install` 丢掉了插件页安装确认里的两项必须告知的内容。
+- 输出 2.2：“安装确认界面必须说明完全信任的后果”。插件页的对话框对安装、升级、降级三种关系都显示信任声明（PluginsPage.vue 约 481 行）。计划里的 `install` 没有任何信任提示，`--yes` 只用来跳过降级。
+- 输出 8.1：升级与降级的确认界面列出“重启后会新受阻的插件与原因”（`inspect` 返回的 `blocked` 与 `unchecked`）。计划只看 `relation === "downgrade"`，升级时 `inspect` 的 `blocked` 被丢弃，依赖该插件的其它插件重启后部分入口不可用，命令行却一声不吭。
+- 降级的数据迁移提醒也只提了要 `--yes`，没有说要把那句提示打印出来。
+- `--yes` 的含义因此含糊：它是“确认降级”还是“确认全部”？非交互环境（无 TTY）下不带 `--yes` 的降级是直接拒绝还是等输入，也没写。拒绝时用什么失败码也没有：不在 plugin-install 的失败表里。
+
+建议改法：cli.md 明确“命令行调用本身就是确认”还是“必须交互确认”，二选一并改 plugin-install 输出 2.2 的措辞（接口包括命令行）；无论怎样，`install` 成功后始终打印一行信任声明，`blocked`/`unchecked` 非空时打印明细（`--json` 里是字段）；降级无 `--yes` 时以固定码（如 `downgrade-needs-confirmation`）退出 1 并在文案里给出要加的参数。
+
+### 重要 / 设计 / 位置：第 3.2 节 `list [--json]`
+
+现象：`list` 直接读 `readRecord`，不经 `inventory.list()`，输出与 plugin-install 输出 1、输出 10 的列表合同不是一回事。
+- 没有内置插件（输出 1 要求“全部内置与第三方”），`--json` 里没有 `source`。
+- 没有显示名与说明，也没有“不登记的原因”：`manifest-invalid`、`entry-missing`、`unreadable`、`incompatible-engine`。其中前四项离线可算（`installedManifest`、`missingEntries`、`engineAccepts` 都是纯文件操作）。NeuroBook 升级后变得不兼容的已安装插件，在命令行里会显示“已启用”，而服务端不加载它。
+- 入口激活失败、入口受阻等运行问题只有运行中的服务端知道，计划把它们全归到“离线只知道目标状态”。于是作者“装上之后不开控制台就能看到为什么没出现”（输出 10 的初衷）在命令行路径上做不到：`list` 看不出，也没有告诉作者去哪看日志。
+- “首行写变化在重启后生效”对所有插件一视同仁。实例启动后没有任何改动时，这句也照样打印，用户无法判断哪些是已生效、哪些待生效。
+
+建议改法：离线能算的不登记原因算出来并显示；列表项带上 `installedAt` 或登记表修改时间与实例 `startedAt` 比较给出“可能待生效”的提示；输出末尾给出日志目录（`<状态根>/logs/`）作为查激活失败的入口；或者实例在运行时由 `nbook plugin list` 经地址文件里的 `rpcUrl`/HTTP 取运行视图（这样与插件页同源），离线时才退回登记表。cli.md 里必须说明这个差异。
+
+### 重要 / 文档 / 位置：第 4 节“Spec 与文档改动”表
+
+现象：表里没有列出作者侧仍指向“设置 → 插件 → 安装…”的几处文字，而第 1 节的期望是“作者从构建到用户安装这条路在命令行上闭合”。
+- `packages/neuro-book/plugin-sdk/cli.ts:50`：`nbooke create` 打印的下一步仍是“在 NeuroBook 的‘设置 → 插件’里点‘安装…’”。
+- `plugin-sdk/README.md:315`、`plugin-sdk/examples/README.md:131`、`plugin-sdk/template/README.md:9`：同样的指引。
+- plugin-api.md 的“作者工具”一节若描述了安装步骤，也要同步。
+
+这些都是用户读到的第一份文字，不改的话两条路径（页面与命令行）会同时存在而文档只讲一条。另外 SDK 与应用同版本发布后，`nbooke` 给出的 `nbook plugin install <dist>` 要求读者已装了应用包，create 的提示里应该一并说明 `bun add -g @notnotype/neuro-book`。
+
+建议改法：把这四处加入第 4 节表，并把 `cli.ts` 的输出改动列为 S3 的内容（需要同步更新 create 的场景测试）。
+
+### 建议 / 设计 / 位置：第 3.2 节“不给子命令等于 start”，commander 的用法体验
+
+实测（commander 14.0.3，`isDefault: true`，/tmp/review-t15-p2plan-cli/cmd-exp/t.ts）：
+- `nbook strat`、`nbook bogus` 报 `error: too many arguments for 'start'. Expected 0 arguments but got 1.`，完全看不出是子命令拼错了。
+- `nbook --state-root /x plugin list` 报 `too many arguments for 'start'`：选项放在子命令前面时被当成缺省子命令的参数。`--state-root` 对所有子命令都有意义，用户自然会把它写在前面。
+- `nbook --port 4300` 与 `nbook --no-open` 能按缺省子命令解析，行为不一致。
+- commander 内置的帮助与错误文案是英文（`display help for command`、`unknown option`、`missing required argument`），产品和 nbooke 都是中文。
+
+建议改法：`--state-root` 放成程序级选项并在子命令里取 `optsWithGlobals()`，或同时在两处声明；对未知的第一个位置参数给出“不认识的命令 x，可用：start、plugin”的自定义提示；用 `configureHelp`、`helpOption`、`configureOutput` 把内置文案改成中文，并测 `nbook --help` 的快照。
+
+### 建议 / 设计 / 位置：第 3.2 节 `start` 的端口参数，已有实例时的参数处理
+
+- 只给 `--port` 时，映射成 `NBOOK_PORT`，`shiftPorts` 随之为 false，RPC 端口仍是固定的 4218。另一个状态根的实例（或开发服务）占着 4218 时，`nbook start --port 4300` 报 RPC 端口监听失败，用户必须同时知道 `--rpc-port`。建议只给 `--port` 时 RPC 取 `port + 1`，或者仍允许 RPC 顺延。
+- 已有实例时，`--port`、`--state-root` 之外的参数（尤其是和实例不一致的 `--port`）被静默忽略，仍以 0 退出并打开旧地址。用户换了端口再启动却打开了旧页面，没有任何说明。应打印“已有实例在 <url>，忽略 --port”或在端口不一致时以 1 退出。
+- 计划写了 `--no-open`，没有写 SSH 无桌面时的体验：`open` 在没有桌面环境时可能静默成功（第 8 节已承认）。可以在 `SSH_CONNECTION` 存在或无 `DISPLAY`/`WAYLAND_DISPLAY`（Linux）时默认不打开并打印转发提示（服务端只允许回环地址监听，远程使用必须端口转发，这是用户最先会撞到的）。
+
+### 建议 / 设计 / 位置：第 3.2 节错误输出
+
+- `startServer` 的致命诊断是 JSON 行写到 stderr（`fatalLine`），`ServerConfigError` 也是（`readConfigOrExit`）。`nbook start` 直接复用，终端用户遇到端口被占用会看到 `{"level":"fatal","event":"runtime.startup.failed",...}`。`nbook` 需要把这些映射为一行中文文案加诊断位置，JSON 保留在日志里。
+- `process.ts` 已经打印 `Listening on <url>` 与 `RPC listening on <ws>`，计划又要求 `onListening` 时“打印地址”，会重复两行；cli.md 应规定 `nbook start` 的 stdout 到底是哪几行。
+- “状态根不存在时建出来”对 `plugin list` 也生效：`NBOOK_STATE_ROOT` 拼错时只读命令会悄悄建出一个新目录并列出空表。只读命令应当不建目录，目录不存在时提示并列出空。创建失败（权限）的错误处理没有写。
+
+### 建议 / 设计 / 位置：第 3.2 节 `--version`，第 3.3 节 `engines.bun`
+
+- `--version` 只打印产品版本。排障与 Agent 要的是：产品版本、Bun 版本、默认状态根；对照 `gh --version`、`docker version`。
+- `bun add -g` 不检查 `engines`，计划第 7 节也承认 `>=1.3.14` 只在 1.4.2 上跑过。`nbook` 入口应在启动时用 `Bun.semver.satisfies(Bun.version, …)` 自检并给出可读提示，而不是在低版本上炸出 API 缺失的堆栈。没装 Bun 时 shebang 的错误是 `env: bun: No such file`，README 要写明依赖。
+
+### 建议 / 设计 / 位置：第 3.2 节 `install <目录>`，对照 plugin-install 的失败表
+
+- 参数只能是目录（`prepare` 里 `stat().isDirectory()`）。作者很可能传 `.tgz` 或 npm 包名，得到的是 `path-rejected: 安装源不是文件夹` 或“不存在或不可读”，这条文案是为插件页的路径输入框写的。命令行应在 `path-rejected` 时按参数形态补一句“插件需要先用 nbooke build 构建，传 dist 目录”。tarball 不支持时在 cli.md 里写明。
+- 相对路径按当前工作目录解析（`resolve(sourcePath)`），与 `--state-root` 同理，cli.md 应写明；目录是符号链接时被 realpath，行为与插件页相同。
+- `manifest-invalid` 带 `problems`（出错字段），命令行必须逐条打印，否则作者只看到一句概括。
+- 同一版本已安装得到 `already-installed`（退出 1）。作者改了代码没升版本号时会反复撞它，文案要提示 `nbooke build --dev`（SDK README 说开发版本每次都比上一次新）。
+- 卸载一个运行中实例正在用的插件只写登记表，实例继续跑到重启；此后再装同一插件得到 `uninstall-pending`，而命令行没有重启手段（见 Agent 一条）。
+- `uninstall` 恒为保留数据（`deleteData: false`），与插件页一致，但 `plugin-install` 输出 3 写的是“确认界面让用户选择”，cli.md 要么加 `--delete-data`，要么写明本版不提供。
+- 恢复路径值得写进文档：插件拖垮启动时，离线 `nbook plugin disable|uninstall` 不需要安全模式，也不需要服务端能启动，这是命令行比插件页强的地方；但 `NEURO_BOOK_SAFE_MODE=1` 的入口（plugin-install 的前置条件写着 Manager 与 Desktop 提供）现在没有人提供，`nbook start` 至少要在 help 里写这个环境变量，或加 `--safe-mode`。
+- 诊断：Spec 要求安装、卸载各写一条诊断记录（`record` 回调是 `createPluginInventory` 的必填项），计划没有说命令行的 `record` 写到哪里（stderr、状态根日志，还是丢弃）。
+
+### 重要 / 文档 / 位置：第 4 节“新 Spec runtime/cli.md”，对照 docs/specs/README.md 的九节与“输出编号条目每条一个可判定的行为”
+
+按计划，cli.md 要写下面这些可判定条目才够实现与验收，计划目前没有（括号里是上面哪一条已展开）：
+1. 状态根取值顺序与三个平台的缺省值，不存在时是否建出（只读命令不建），相对路径的解析基准；环境变量里的空串、相对 `XDG_DATA_HOME` 如何处理。
+2. 退出码表按子命令列出：`start` 透传服务端 0/1/75/76，`plugin *` 的 0/1/2，配置错误归哪一类（退出码一条）。
+3. 标准输出与标准错误的分工；每个命令成功时 stdout 的固定格式（`start` 的地址行、`list` 的列与 `--json` 的 schema 与 `schema` 版本号）；失败时 `--json` 的结构（Agent 一条）。
+4. `start` 的状态机：无实例、启动中、运行中、残留（崩溃或休眠后）、取锁失败各自的行为、文案与退出码；`--port`、`--rpc-port`、`--state-root` 与已有实例冲突时的处理；`--no-open` 与无桌面环境的处理；信号（SIGINT、SIGTERM、SIGHUP）与停止序列（SIGHUP 一条）。
+5. `server.json` 与 `server.lock` 的字段、`schema`、写入与删除时机、读者的校验规则，是否是公开合同（单实例条目属于 server-host，应写在那里，cli.md 链接）。
+6. `plugin` 子命令：参数形态（只收目录）、`install` 的信任声明与受阻列表、降级与 `--yes`、非 TTY 行为、`enable`/`disable` 的幂等（已启用再启用成功）、`uninstall` 的数据保留、对内置插件的 `builtin-fixed`、失败码到退出码与文案的映射（失败码原样输出，需有稳定名称，包括新增的命令行专属码）。
+7. 离线语义：命令行不连服务端；写登记表时与运行中的服务端互相的并发保证（指向 plugin-install 的登记表规则）；`list` 的“待生效”如何表达，与插件页的差别。
+8. 帮助与版本：`--help` 的内容范围、`--version` 的输出字段。
+9. 验收与 Smoke：组合场景至少包括“运行中实例上装插件，重启后可见”“崩溃后重启”“休眠后第二次启动”“状态根只读”，这些在第 6 节的验收映射里只有前两个。
+
+另外 README 的规则要求 planned Spec 不指定函数名与目录布局，计划第 3.2 节的文件名与函数名放在计划里即可，不要进 cli.md。
+
+### 未发现问题的方面
+
+- 平台数据目录用手写函数而不是 `env-paths`：理由成立，且与现有 `user-directories.ts` 同风格，没有发现问题。
+- `open` v11 在找不到 `xdg-open` 时 reject 而不是抛出未捕获异常；打进 Bun bundle 后实测（PATH 为空）得到 `Executable not found in $PATH: "xdg-open"` 的 rejection，进程退出码 0，计划“打不开只打印一行提示”的写法可行（前提是 await 并 catch）。
+- `plugin enable/disable/uninstall` 对内置插件返回 `builtin-fixed`、对未装返回 `not-installed`、重复启用返回成功（幂等），与 `createPluginInventory` 的实现一致，命令行直接映射即可。
+- 离线命令写登记表与服务端并发是安全的（登记表写入锁，上一轮审查已实测），计划让 `plugin` 不取实例锁是对的。
+
+### 对第 8 节两条风险的判断
+
+- 第一条（崩溃后 10 秒内再启动看到锁）：被低估。崩溃只是其中一种；关终端（SIGHUP，实测不走清理）、kill -9 都会触发，而更严重的是休眠恢复造成的两个实例并存（见第一条发现，实测取锁 2 ms 成功），不是“等 15 秒再试”能解决的；同时计划里的“等一次再试”在进程内调用 `runServerProcess`（会 `process.exit(1)`）的结构下无法实现。
+- 第二条（`open` 静默成功）：判断基本成立，代价低，启动时总是打印地址足够；建议再按 SSH 或无显示环境默认不打开，并在 SSH 下提示端口转发。
+
+### 数量
+
+阻断 0，重要 10，建议 5（共 15 条）。最严重的几条：休眠后两个实例并存（不变量），取锁失败不分类且白等 3.3 秒，`nbook start` 的启动窗口与重试在进程内无法实现，`install` 丢掉信任与受阻告知，Agent 无机器可读结果与失败码分支。

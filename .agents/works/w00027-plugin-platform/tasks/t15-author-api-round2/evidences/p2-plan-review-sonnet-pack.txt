@@ -1,0 +1,88 @@
+# 审查报告：npm 包与安装（Sonnet）
+
+审查对象：plan-phase2.md 第 3.3 节及与之相连的第 3.2 节构建、第 5 节 S4、第 7 节验证。实验目录 /tmp/review-t15-p2plan-pack/，实验 worktree 构建于 28852924c。实验方法：用 `bun run build` 的真实产物（dist/server/main.js 加上抬头行与 `NBOOK_WEB_ROOT` 缺省值，当作 nbook.js 的替身；真实的 nbook.js 还多 commander 与 open，约增几百 KB），手工写 package.json，`bun pm pack` 打成 tarball，再真实安装与启动。
+
+### 重要 / 设计 / 第 3.3 节与第 3.1 节（包装进全局目录后的升级）/ 升级会把正在运行的服务端的文件在它脚下换掉，而单实例逻辑会让 `nbook` 继续附着到旧版本实例上
+
+- 现象：服务端启动后只在启动时读 JS 入口；`project.js` 在每次打开作品、起项目子进程时才按路径读取（`src/server/start.ts:129` 的 `productProjectEntry`，`manager.ts:472` 用 `process.execPath` 起它），前端静态文件每个请求从磁盘读（`src/plugins/http/backend/static.ts` 只在启动时解析根目录的 realpath，文件逐请求读取，`index.html` 每次重新验证，哈希资源长期缓存）。`bun add -g @notnotype/neuro-book@新版` 或 `npm i -g` 会换掉整个包目录。
+- 实验：从安装出来的目录起服务端，服务端 Listening 之后把同目录的 `server/project.js` 换成另一个文件（模拟升级换成新版本），再让浏览器握手绑定作品，得到 `{"type":"reject","reason":"project-unavailable","message":"项目子进程在启动中退出（退出码 3）"}`。即旧服务端进程（内存里是旧版）+ 新 project.js 混用，两者之间的 wire 协议、插件合同没有任何版本核对。前端同理：旧服务端会把新版 `index.html` 与新哈希资源发给浏览器，旧资源被删掉后已打开的页面按旧哈希取 chunk 得到 404（后一句从代码推断，未实测）。
+- 第二个耦合：计划 3.2 的 `nbook start` 第 1 步，发现已有实例就打印“已在 <url> 运行”并打开它。升级之后用户再敲 `nbook`，得到的是仍在跑的旧版本实例（`server.json` 里有 `version`，计划没用它），用户以为已经升级。开发者已定“状态根的版本与降级门禁到桌面端再定”，但这是“同一台机器上进程里的版本”与“磁盘上的包版本”不一致，与状态根格式降级是两回事，门禁不覆盖它。
+- 为什么是问题：全局安装是计划的主路径（期望结果就是 `bun add -g`），升级是它的第二次使用；失败表现为作品打不开、页面白屏，且 `nbook` 自己不会提示。
+- 核实：见上；命令 `bun /tmp/review-t15-p2plan-pack/s7b.ts <安装出来的 nbook.js> <临时根> <其 project.js 路径>`。
+- 建议改法：最小做法是 `findRunning` 返回实例的 `version`，与本进程的 `PRODUCT_VERSION` 不同时打印“正在运行的是 x，磁盘上的是 y：先停掉旧实例再启动”，且不自动附着；`nbook start` 起实例时把 `project.js` 路径与 web 根在启动时就固定（读成内存或持有目录句柄不现实，至少在 README 写“升级前先停止服务”）。更稳的做法是启动时记录 `server.json` 的 `entry` 路径与其 mtime/哈希，`plugin` 等命令看到不一致时提示；这件事要在第 8 节风险里写出来，目前完全没有。
+
+### 重要 / 正确性 / 第 3.3 节“打包前核对”/ `Bun.Transpiler.scanImports` 照字面写会直接抛错，而且它发现不了计划想防的那几类引用
+
+- 现象 1（会让脚本在第一次运行就失败）：`nbook.js` 第一行是 `#!/usr/bin/env bun`（计划 3.2 要求保留）。实测 `new Bun.Transpiler({loader:"js"}).scanImports(text)` 对以抬头行开头的文件抛 `BuildMessage: Unexpected #!/usr/bin/env bun`（loader 换成 ts 同样）。仓库里已经踩过并处理了：`scripts/release/packages.ts:250` 的 `scanScript` 注释写着“scanImports 不认文件开头的 shebang，只清掉那一行的内容，行号不变”，并有 `packageName()` 与 `BUILTINS` 判断内置模块（`packages.ts:261`）。计划没有提它，也没有说复用。
+- 现象 2（覆盖面）：在两个真实 bundle 上跑，`main.js` 报出 `fs、path、fs/promises、crypto、os、readline、module、bun:ffi、bun:sqlite`，`project.js` 少 `os`。内置模块在 scanImports 里不带 `node:` 前缀，且有 `bun:` 前缀的，所以规则要写成“内置或 `bun:`”，不能只对 Node 内置。bundle 里还有 2 处不可避免的动态 `import(file)`（第三方插件入口加载，`import(`${file}?attempt=...`)`）和约 30 处 `require(xxxKey)`（服务键，不是模块）。我另写了一个小入口验证扫描器的盲区：计算出的 `import(name)`、`new Worker(new URL(...))`、`import.meta.resolve("./x.js")`、字面 `import("pkg")`（会报，kind 为 `dynamic-import`）、`require("找不到的包")`（bun build 直接把它换成 `throw new Error("Cannot require module ...")`，bundle 里没有残留）。结论：字面的动态导入能发现；计算出的路径、Worker、resolve 发现不了；找不到的 `require` 在 bundle 里已经不存在，所以也没什么可查。
+- 为什么是问题：按计划实现，`pack-app` 第一次跑就抛错；修成清掉抬头行后，它对真正危险的情形（运行时按路径加载的文件、字符串拼出的包名）仍然没有保证。更根本的是：bun 把静态导入全部打进去了，找不到的静态导入在 `bun build` 阶段已经报错，所以 scanImports 这一步几乎总是空转，它给人“自含”的安全感，实际证据来自别处。
+- 更可靠的核对：（1）运行证据，把 tarball 装进没有 `node_modules`、没有仓库的目录，且 PATH 里只有 bun，走完“启动、打开作品（起项目子进程）、`plugin install`”整条路径（见下一条）；（2）在 `bun build` 命令上加 `--packages bundle`（缺省即是，写明防止以后被改成 external），并让 pack-app 复用 `scripts/release/packages.ts` 的 `scanScript` 与 `packageName`，只留“内置与 `bun:`、以及那 2 处已知的 `import(file)`”作为允许项；（3）约定 bundle 里不允许 `new Worker`、`import.meta.resolve`（在 nbook.js/project.js 上 grep 为 0 的现状作为断言写进脚本）。
+- 如何核实：`bun /tmp/review-t15-p2plan-pack/scan3.ts <文件>`（带抬头行的 stage/server/nbook.js 抛错，project.js 51 条），`bun scan.ts`，`bun scantest` 下的 e.ts。
+
+### 重要 / 测试 / 第 5 节 S4、第 7 节 / 装出来的包只测“health 与首页 200”，项目子进程与 `project.js` 完全没被覆盖
+
+- 现象：S4 的 `pack-app.test.ts` 只列了 `--version`、`start --no-open` 后 health 与首页 200、`plugin install` 示例插件。`project.js` 是第二个独立 bundle，只在打开作品时被 `Bun.spawn([process.execPath, entry])` 起，路径靠 `productProjectEntry()` 的 `import.meta.path.endsWith(".js")` 与 `import.meta.dir` 推出。仓库已有的 `smoke:server` S7 恰好覆盖这一点，但它写死跑 `dist/server/main.js`（`scripts/smoke-server.ts:30`），不是装出来的位置；而 3.2 又要把入口换成 `nbook.js`，`main.js` 不再随包。
+- 我补做的实验（真实运行时）：把 tarball 用 `bun add -g`（临时 BUN_INSTALL）装好，用 `bin/nbook` 符号链接作入口，登记一个作品目录，起服务，WebSocket 握手绑定作品，得到 `welcome` 并带 `binding.generation=1`，停止时退出码 0。项目子进程可以起来；在 `PATH` 里把 bun 换成 1.3.14 重做同样的实验，也通过。结论是现状是对的，但计划没有任何测试会在它坏的时候报警。
+- 另有两条路径计划测不到：`bunx`（bunx 缓存目录里的包）和 `npm i -g` 的布局，它们的 `import.meta.dir` 是否仍是真实路径（见“未发现问题的方面”，我实测是的），应该由测试固定而不是靠一次人工实验。
+- 建议改法：S4 的进程测试里复用 smoke S7 的做法（登记临时项目目录，握手绑定，断言 welcome 与退出码），把入口参数化为 `<装出来的包>/server/nbook.js`；`pack-app.test.ts` 还应断言 tarball 里文件清单与大小量级（见建议类的发布门禁一条）。
+
+### 重要 / 文档 / 第 3.3 节的包内容 / bundle 把第三方代码打进去之后，包里没有任何第三方许可声明，字体和图标的许可文本也不随包
+
+- 现象：`dist/server/main.js`（1.8 MB）与 `dist/web/assets/*.js`（176 个）里 `@license`、`/*!`、`Copyright` 的出现次数都是 0（grep 实测），即压缩与打包已经把各依赖头部的版权声明全部去掉。计划的白名单只有 `LICENSE`（仓库根的 AGPL-3.0）、给用户的 `README.md`、`package.json`、`server/*`、`web/**`。
+- 被打进去的依赖：服务端有 hono、typebox、semver、fast-xml-parser、proper-lockfile 及其传递依赖、entities、jsonc-parser、@vue/reactivity（MIT、ISC、BSD-2 等，条款都要求“所有副本里保留版权与许可声明”）。前端有 vue、monaco-editor、tiptap 等；并且有两个字体资产：`web/assets/fraunces-latin-*.woff2`（Fraunces，SIL OFL 1.1，要求随字体分发许可文本；仓库里有 `packages/nb-ui/themes/nbook/assets/fonts/OFL-Fraunces.txt`，但不在 `web/`）与 `codicon-*.ttf`（VS Code Codicons，字体与图标是 CC BY 4.0，要求署名；这一条的许可类型来自我对 Codicons 项目的了解，未在仓库里核对）。
+- AGPL 本身：npm 包里放的是压缩后的 bundle，不是“适合修改的形式”，AGPL 第 6 条对分发目标代码要求提供对应源码或书面承诺；`repository` 字段指向仓库只是弱满足，建议 README 写明源码所在位置，并在 package.json 写 `gitHead` 或在 README 写构建所用提交。
+- 为什么是问题：这是已发布后无法撤回的义务问题，发布在第三期，但包的内容白名单在第二期定，到第三期再发现就要改产物结构。
+- 建议改法：pack-app 生成 `THIRD-PARTY-NOTICES.md`（从 `bun.lock` 与 node_modules 里 bundle 实际包含的包读出名字、版本、许可、版权声明；可以用 bundle 的 sourcemap 或 `bun build --metafile` 取实际打入的包名列表，不要用全部依赖列表），把 `OFL-Fraunces.txt` 与 codicon 的许可文本一并放进 `web/` 旁，并把它们加进白名单测试。许可类型错了的包让 `pack-app` 失败（如出现 GPL 传染性之外的未知许可）。
+- 核实：`grep -c "@license\|Copyright" dist/server/main.js dist/web/assets/*.js` 全为 0。
+
+### 建议 / 设计 / 第 3.3 节 `engines.bun` / `engines.bun` 对 `bun add` 与 `npm` 都没有约束力，没有 Bun 时用户得到的是 `env: ‘bun’: No such file or directory`
+
+- 实验 1：把 tarball 的 `engines.bun` 改成 `>=99.0.0` 重新打包，`bun add <tgz>`、`npm i <tgz>`、`npm i --engine-strict <tgz>` 全部成功安装，没有警告（npm 的 engine-strict 只认 `node`、`npm`）。所以 `>=1.3.14` 在安装时不拦任何人；`pack.ts` 里 SDK 同样写了它。
+- 实验 2：`npm i -g --prefix <p> <tgz>` 成功（符号链接 `bin/nbook -> ../lib/node_modules/@notnotype/neuro-book/server/nbook.js`），然后在 PATH 里没有 bun 的环境里运行 `nbook` 与 `nbook --version`，都是 `env: ‘bun’: No such file or directory`，退出码 127。不会出现“请先装 Bun”的任何提示。
+- 为什么是问题：npm 是最容易误用的安装方式（`npm i -g @notnotype/neuro-book` 是第一反应），失败信息是 shell 的而不是产品的；Bun 版本过低时也不会提前失败。计划把 `>=1.3.14` 写进 `engines` 并在第 7 节承认“只在 1.4.2 上跑”：我另外在 Bun 1.3.14（`npm i bun@1.3.14` 取得）上做了同样的 S7 实验，起服务与项目子进程都通过，所以下限可信，但应由测试保证。
+- 建议改法：（1）README 开头第一屏写“需要 Bun ≥1.3.14，不能用 Node 运行”，安装命令只写 `bun add -g`；（2）`nbook` 入口启动即检查 `Bun.version`，低于下限打印可读的错误并以 2 退出；（3）可选：包里放一个 Node 写的极薄入口（`#!/usr/bin/env node`）检查 `bun` 在不在，再 `spawn` 到 `server/nbook.js`，代价是多一层进程、信号与 tty 转发要处理，价值是 npm 用户得到可读错误；不是必须。把 `engines.bun` 写进发布后的包仍然有用（`bun add` 的输出里会显示），但不要把它当成约束。
+
+### 建议 / 文档 / 第 3.3 节包名与命令名 / 包名 `@notnotype/neuro-book` 与命令名 `nbook` 不同，而 npm 上已有别人的 `nbook` 包
+
+- 实验：用一个本地假 registry（Bun.serve，只提供这一个包的 packument 与 tarball，已用 PID 结束）测试：`bunx @notnotype/neuro-book` 能起来（包只有一个 bin，bun 自动选它）；`bunx --bun @notnotype/neuro-book` 同样；`npx -y @notnotype/neuro-book` 同样；`bunx nbook` 会去 registry 找名为 `nbook` 的包（404 是我的假 registry 的回答）。真实 registry：`npm view nbook` 返回 `nbook@0.0.4`，bin 是 `book`，是另一个人的包，所以 `bunx nbook` 与 `bun add -g nbook` 会装上别人的程序。`nbooke`、`@notnotype/neuro-book`、`@notnotype/nb-plugin-sdk` 当前在 npm 上不存在（E404），可用。
+- 为什么是问题：计划的用户文档和 Agent 提示一定会写“运行 `nbook`”，用户和 Agent 会照着敲 `bunx nbook ...`。
+- 建议改法：README 与 `nbook --help` 一律写 `bunx @notnotype/neuro-book`、`bun add -g @notnotype/neuro-book`，不写 `bunx nbook`；也可以在 package.json 的 bin 里再加一个与包名同名的入口 `neuro-book`（同一个文件），让 `bunx` 对非 scope 简写也有稳定行为。第三期考虑是否抢注 `neuro-book` 这个非 scope 名，防止被他人占用。
+
+### 建议 / 设计 / 第 3.3 节生成的 `package.json` 与暂存目录 / 打包脚本与仓库已有的发布门禁各写一份，且缺少清空暂存目录的保护与版本核对
+
+- 现象：计划的 package.json 字段列了 `name`、`version`、`type`、`bin`、`engines.bun`、`license`、`repository`，没有 `description`、`files`、`publishConfig`。仓库的发布门禁 `scripts/release/packages.ts:117-126` 对每个要发的包要求：没有 `private`、license 为 AGPL-3.0-only、包目录里的 LICENSE 与根 LICENSE 逐字节相同、有 README.md、`files` 白名单含 LICENSE 与 README.md、`engines.bun`、`publishConfig.access: "public"`（scope 包缺省私有）、`repository: {type, url, directory}`（directory 必须是 `packages/<目录名>`）。`pack-smoke.ts:30` 还有一份“包里不该有的文件”的正则表。生成的暂存包不在 `RELEASE_PACKAGES`（`packages.ts:15`，9 个包，没有新应用也没有 SDK），门禁和冒烟都看不到它；`publish.ts:124` 是在包目录里执行 `bun publish --access public`，所以第三期要么把暂存目录接成第 10、11 个“包”，要么重写一遍这些检查。
+- 暂存目录：`pack.ts` 里的 SDK 有 `clearPreviousSdk`（只清不存在、为空或上次生成的 SDK 目录，防止输出目录传错被递归删除）；计划的 `dist/app-package/` 没有说怎么清上一次的内容。残留文件（上次的 README 改名、旧的 `web/assets/*` 哈希文件）会被 `bun pm pack` 原样打进去（实测：bun pm pack 不读祖先目录的 `.gitignore`，我在一个 `.gitignore` 含 `dist/`、`web/` 的 git 仓库的 `dist/` 里打包，219 个文件一个不少，所以既不会被 gitignore 误删，也没有任何过滤保护）。
+- 版本：`PRODUCT_VERSION` 是 `src/shared/product.ts` 里手写的常量，只由 `product.test.ts` 与 `package.json` 的 `version` 比对；SDK 的 `pack.ts` 与计划里的应用包都用它，所以两个包的版本号靠“都读同一常量”保证一致。`check:dist` 完全不涉版本。没有断言“暂存 package.json 的 version = `nbook.js --version` 打印的 = SDK 包的 version”，也没有断言 tarball 文件名的版本。
+- 建议改法：把 pack-app 的白名单、版本、manifest 检查写成对 `checkReleasePackages` 的调用（它按 `packages/<dir>` 找包，可以给 `--root` 一个临时仓库根，或把检查函数拆成不依赖目录布局的版本），`pack-smoke.ts` 的 FORBIDDEN 抽出来共用；暂存目录沿用 `clearPreviousSdk` 的“只认自己上次生成的目录”保护；`pack-app` 里加三项断言：manifest.version = PRODUCT_VERSION，打包后 `bun <stage>/server/nbook.js --version` = 同一个值，同目录若存在 SDK 的 tarball 则版本相同。
+
+### 建议 / 设计 / 第 3.3 节“同一个版本号”与发布 / 同一版本号分两次 `bun publish` 的半途失败没有恢复路径，且现有发布脚本是按目录发的
+
+- 现象：现有 `release:publish`（`publish.ts`）流程是：逐个 `npm view <名>@<版本>` 判断是否已发布，只发未发布的，中途失败打印已发与没发，重跑跳过已发。这个“可续跑”设计对“传输失败”足够，对“内容错了”不够：版本号一旦在 registry 上就不能再用，应用包与 SDK 包要求同一个版本号，其中一个发出去后发现内容有错，只能两个包都跳到下一个版本，另一个本来没问题的包也要重新发一次空版本。
+- 顺序问题：两个包没有互相依赖，半途失败时哪一个先发影响用户：先发应用后发 SDK：用户能装应用，作者暂时拿不到同版本 SDK；先发 SDK 后发应用：作者若按新 SDK 构建出声明了更高 `engines.neurobook` 的插件（我没有核实 `create` 是否这样填），而用户这时还没有对应的应用，`nbook plugin install` 会得到 `incompatible-engine`，这是可读的失败。哪个更好需要在第三期写明，目前计划没有定顺序（发布在第三期，这里只提出问题）。
+- 版本管理：ADR 0029 决定 5 写“版本手工管理，首发 nb-ui 0.2.0，其余 0.1.0”，而应用/SDK 要求同号、且内置插件的 `descriptor.version` 全部等于 `PRODUCT_VERSION`；升版需要同时改 `product.ts`、`package.json`，没有一条命令做这件事。
+- 建议改法：第三期的发布脚本把“应用与 SDK 两个包”作为一组发布，发布前先对两个 tarball 都做安装冒烟，再发；失败时的处理写进 Spec（跳版本号是预期做法）；`release:publish` 的“包目录”概念要为暂存目录开一个例外。
+
+### 建议 / 文档 / 第 7 节“未验证边界”/ Windows 与 macOS 的 `#!/usr/bin/env bun` 行为，计划只说“未在这两个平台跑”，没写出各自的预期
+
+- Linux（已实测）：`bun add -g`、`bun add`、`npm i -g` 三种安装都把 `bin/nbook` 做成指向 `server/nbook.js` 的符号链接，并保证文件可执行（我故意把 tarball 里的 nbook.js 做成 0644，`bun pm pack` 自己把它改成 0755，两种安装方式落地后都是 0755）；`import.meta.path`、`import.meta.dir`、`Bun.main`、`process.argv[1]` 在符号链接下都是真实路径，所以 `../web` 与 `project.js` 的定位在全局安装、项目内安装、`bunx` 缓存里都对。
+- macOS：同 Linux 的 npm 与 bun 行为（符号链接）；`/usr/bin/env bun` 要求 `bun` 在 GUI 启动的 PATH 里，但终端启动没问题。未实测。
+- Windows（未核实，只依据对 npm 与 Bun 实现的了解）：npm 用 cmd-shim 生成 `nbook.cmd`、`nbook.ps1`，它会解析 `#!/usr/bin/env bun` 并调用 PATH 里的 `bun`；Bun 全局安装在 Windows 上生成 `.exe` 垫片，不依赖抬头行。尚未确认：符号链接在 Windows 上被换成垫片之后，`import.meta.dir` 是否仍指向包目录里的真实文件（垫片直接以真实路径调用解释器，预期是的）；`open` 在 Windows 上用 `start`；`defaultStateRoot` 的 `%LOCALAPPDATA%\NeuroBook`；锁目录（proper-lockfile 用 `mkdir`，与平台无关，但 10 秒 stale 的 mtime 刷新在 Windows 上的分辨率未核对）。
+- 建议：第 7 节明确写“Windows 与 macOS 靠 CI 矩阵在第三期验证”，并要求 pack-app 的测试在运行时按 `process.platform` 记录实际跑了哪个平台，避免“绿了”被误读成“三平台都验证过”。
+
+## 未发现问题的方面
+
+- 包体积与内容：用真实 `bun run build` 产物（`check:dist` 通过）。tarball 3,162,033 字节（3.2 MB），解包 11.6 MB，219 个文件（含替身 nbook.js、project.js、LICENSE、package.json 与 web 的 215 个文件）；真实的 nbook.js 会多 commander 与 open，预计再增几百 KB。`dist/` 下没有 `.map` 文件，`dist/web` 里没有 Lab 与 e2e 外壳（`check:dist` 的开发标记已拦），没有测试夹具；两个 bundle 各自带一份全部依赖（main.js 1.8 MB，project.js 1.6 MB，是重复的但不影响正确性）。冷启动开销：`nbook.js` 在缺状态根时失败退出约 110 ms（空 bun 6 ms），可接受。
+- 全局安装与路径：`bun add -g <tgz>` 装进临时 `BUN_INSTALL`，`bin/nbook` 是指向真实 `.../server/nbook.js` 的符号链接，起服务后首页 200、health 200；`import.meta.dir` 与 `import.meta.path` 是真实路径，所以 `../web` 与同目录 `project.js` 在符号链接下都对（`bun add`、`npm i -g --prefix`、`bunx @notnotype/neuro-book`、`npx` 四种都实测起得来，后三种用本地假 registry）；项目子进程用 `process.execPath` 起，不依赖 PATH 里的 bun。
+- 项目子进程：在全局安装的包上实测握手绑定作品得到 `welcome`，停止时退出码 0；在 Bun 1.3.14 与 1.4.2 上都通过。
+- 可执行位：不用额外 chmod，`bun pm pack` 自己给 `bin` 指向的文件置 0755，bun 与 npm 两种安装也都会保证。
+- bun pm pack 不读祖先 `.gitignore`，暂存目录放在被忽略的 `dist/` 下不会丢文件（也见上一条建议里的反面：没有保护残留文件）。
+
+## 对第 8 节两条风险的判断
+
+- 风险一（崩溃后 10 秒内再启动看到锁还在、`nbook start` 等锁过期再试）：不在我的角度内细审；从包装角度只补一点：写进 README 的“启动失败”小节，且 `nbook start` 等待期间要打印原因，否则用户看到的是 15 秒静默。
+- 风险二（`open` 在没有桌面环境时静默成功）：判断成立，缓解（总是打印地址）足够；`open` 打包进 bundle 后的行为（退回系统 `xdg-open`）我没有实测，属 S2 的验证内容。
+
+
+## 各级数量
+
+阻断 0；重要 4（升级换文件与旧实例附着；scanImports 抛错与盲区；S4 不覆盖项目子进程；无第三方许可声明）；建议 5（engines.bun 与无 Bun 的报错；`nbook` 包名冲突；打包脚本与既有发布门禁分叉；同号两包半途失败；Windows/macOS 预期未写）。

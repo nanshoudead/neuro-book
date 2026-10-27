@@ -1,0 +1,136 @@
+# w00027/t15 第二期计划审查：测试、验收映射与 Spec 改动（Sonnet）
+
+审查对象：.agents/works/w00027-plugin-platform/tasks/t15-author-api-round2/plan-phase2.md（99 行）。代码读主工作区 master 28852924c。只读，实验文件在 /tmp/review-t15-p2plan-tests/。没有跑 e2e 与开发服务。
+
+### 重要 | 测试（兼不变量） | 计划 3.1 第三条、S1 自跑验证 | 锁只放进 runServerProcess，但测试与 e2e 的服务端入口不经它，约一半的测试进程不受锁约束
+
+现象：计划把 claimStateRoot 放在 runServerProcess 里（process.ts:62，prepareInstalledPlugins 之前）。但 src/server/testing/fixture-entry.ts 自己重复了启动序列：第 43 行 readServerConfig、第 60 行 startServer、第 67 行 prepareInstalledPlugins，完全不调用 runServerProcess。用 fixture-entry 起进程的有：
+- e2e 的 startProbeServer（e2e/fixtures.ts:77），9 个 e2e 文件在用：bookshelf-stats、projects、files-explorer、editor-area、rpc、state、storage、workbench-views、workbench-dnd；
+- src/server/server.test.ts（FIXTURE，第 30、61 行）、server-projects.test.ts、dev/sample.test.ts、dev/supervisor.test.ts，以及经 dev/testing/fixture-dev.ts 起后端的 dev/run.test.ts。
+为什么是问题：
+1. S1 的“两个真实进程同一状态根：第二个以 1 退出带地址”如果照现有测试的惯例用 FIXTURE 起进程，两个进程都不取锁，第二个不会失败，测试要么写不出来要么测空；必须改用 MAIN（main.ts）。计划没提这点。
+2. 开发监督的重启（Spec server-host 场景 7：旧后端停了新后端再起）在 supervisor.test.ts、run.test.ts、dev.e2e 里是用 fixture-entry 作后端跑的，所以“新后端取锁时旧后端的锁必须已放下”这条竞态在测试里永远碰不到，只有手工起 bun run dev 才走真实路径。
+3. 启动序列有两份，以后谁改了一份漏了另一份，不会有任何测试失败（计划“不变量：取锁先于任何写状态根的动作”没有对应的机检）。
+如何核实：grep -n "readServerConfig\|prepareInstalledPlugins\|startServer(" packages/neuro-book/src/server/testing/fixture-entry.ts；grep -ln startProbeServer packages/neuro-book/e2e/*.e2e.ts（9 个）。
+建议改法：把“取锁并在 server.stopped 之后放下”抽成一个 instance.ts 里的函数，让 runServerProcess 与 fixture-entry 都调用它（或让 fixture-entry 改走 runServerProcess，把测试插件作为选项传入）；S1 的进程测试同时覆盖 MAIN 与 FIXTURE 各一次，并在 smoke-server.ts 加一条打包产物的单实例场景（见下面 Spec 遗漏一条）。
+
+### 重要 | 正确性 | 计划 3.1 第三条、第 8 节第一条风险 | 开发入口也受锁约束，但只给 nbook start 设计了等锁；nbdev/TaskStop 杀掉开发会话后马上重起会进入“后端启动失败、等改动”的死状态
+
+现象：dev-panel 的 dev-ops.ts:22 写明 Claude Code 的 TaskStop 对整棵树发 SIGTERM，约 1.5 秒后整棵 SIGKILL；开发监督的第二个信号也是 supervisor.kill() 即 SIGKILL（dev/backend-process.ts kill()）。开发状态根缺省是每个 worktree 固定的 packages/neuro-book/.dev-state（dev/config.ts），重起时是同一个目录。
+实测（真实 holdLock，Bun）：process.exit(0)、process.exit(1)、带 SIGTERM 处理的退出、无处理的 SIGTERM，锁目录都被 proper-lockfile 的退出钩子清掉；只有 SIGKILL 会留下锁目录。SIGKILL 之后新进程取锁：在约 10 秒内失败，实测 3312 ms 才返回 locked（holdLock 内置约 3.3 秒退避），约第 10 秒后才取得。
+后果：后端首次用 SIGKILL 结束后 10 秒内再 nbdev dev start，新后端 runServerProcess 取不到锁、写 runtime.state-root.busy 并以 1 退出；监督进程（supervisor.ts）把它判为 backend-start-failed，进入 waiting，“下一次改动才重试，不循环重启”，页面服务活着、/api 一直 503。计划里的等锁重试只写在 `nbook start`，开发入口走 runServerProcess 的同一路径却没有。
+如何核实：锁行为见 /tmp/review-t15-p2plan-tests/holder.ts、run.sh、probe.ts；监督行为读 supervisor.ts 的 launch()/exited 分支。SIGKILL 与 nbdev 的时间关系是从代码推断，未跑 nbdev。
+建议改法：等锁过期的重试放进共用的取锁函数（runServerProcess 层），nbook start 与开发入口共用，busy 的诊断里写“上一个实例 N 秒内异常结束，等待锁过期”；或者开发入口的状态根锁用更短的 stale（开发进程仍须与产品进程一致，不可行时第一种）。dev.e2e 加一条“SIGKILL 后重起”用例（配合下条的拨回 mtime 技巧，不要真等 10 秒）。
+
+### 重要 | 测试 | 计划 S1 自跑验证、第 8 节第一条风险 | “崩溃后 10 秒”无法按仓库规则写成测试，计划没写怎么测
+
+现象：S1 要求“第一个被 SIGKILL 后重新启动成功”，第 8 节要求 nbook start “等锁过期再试一次（至多 15 秒）”。真实时间下：锁要约 10 秒才能被接管，bun test 缺省单测 5 秒超时；docs/testing/README.md 禁止固定等待（fixed-wait 机检）并给 200 ms 的快速层预算。busy 的返回本身也要 3.3 秒（holdLock 的 LOCK_RETRIES 约 12 次退避，locked-replace.ts 第 33 行），所以“第二个进程以 1 退出带地址”这条每次也固定多花 3.3 秒（实测 3312 ms）。
+为什么是问题：写测试时只剩两个选择，真等（违反规则、慢、flaky），或在产品代码里给 stale 开一个测试专用的环境变量（AGENTS.md 禁止“在产品代码里加测试专用分支”）。
+如何核实：/tmp/review-t15-p2plan-tests/probe.ts 的输出（live 持有者 3312 ms 失败；SIGKILL 后第一次探测失败，约 11 秒后成功）。
+建议改法：沿用现成的做法：plugins.test.ts:521 用 utimes 把锁目录的 mtime 拨回，再启动第二个进程，立刻成功，无需等待。计划里写明这一点，并让 claimStateRoot 接受 retries/stale 选项（pins.ts 的租约测试已经传 stale），nbook start 的“等过期再试”用注入时钟做单测。再决定第二个进程对 busy 的退避：用于“是不是有实例”的判断不该白等 3.3 秒。
+
+### 重要 | 测试（兼设计） | 计划 3.1 第二条、3.2 start 第 1 步 | 第二次启动落在“第一个实例已持锁、尚未写地址文件”的窗口里，行为没写、也没测；findRunning 的健康探测没有超时
+
+现象：地址文件在“HTTP 与 RPC 都监听之后”才写，而取锁在 prepareInstalledPlugins 之前，中间还有插件装配与启动激活（几百毫秒到数秒，装了第三方插件更久）。这段窗口里：
+1. 持锁、server.json 不存在：findRunning 得到 null（running: null）。nbook start 于是走第 2 步，进程内 runServerProcess 取不到锁，以 1 退出报 runtime.state-root.busy，诊断里没有地址。用户双击两次、或两个终端几乎同时 nbook，结果是第二个报错，而不是“打开已有实例”，这正是计划要对标的“第二次运行 code”场景。
+2. server.json 已写、插件还在激活：GET <url>api/runtime/health 在就绪前会挂起等待（backend-process.ts 头注释、server-host Spec 启动序列第 5 步：“就绪前的请求会等待，启动失败时得到 503”）。计划没有给探测设超时，nbook start 与 nbook plugin list（也调 findRunning）会一直等第一个实例就绪，实例卡在启动里就永远等。
+S1/S2 的自跑验证只测了“实例已就绪之后再启动第二个”，这两个窗口都没覆盖。
+如何核实：读 plan 3.1/3.2；health 的挂起语义见 src/server/dev/backend-process.ts 头注释与 docs/specs/runtime/server-host.md 启动序列。窗口时长未实测。
+建议改法：Spec 里先定第二次启动落在窗口里怎么办（建议：持锁但没有地址或没有就绪时，等到有地址再打开它，带上限；上限到了报 busy 并说明“正在启动”）；findRunning 的探测加短超时（例如 2 秒），把“超时”和“连不上”区分成不同结果；S1 加一条“两个进程几乎同时启动，恰好一个运行、另一个或者打开前者的地址或者带地址报 busy”（用两个真实进程，等 Listening 之前就放第二个）。
+
+### 重要 | 测试 | 计划 5 节 S2 到 S4 的自跑验证 | S2 至 S4 的进程测试依赖完整的 dist/ 产物，仓库里没有任何快速层测试依赖构建产物
+
+现象：S2“真实进程从 dist/server/nbook.js 启动……health 与首页 200”、S3 同样用 nbook.js、S4 的 pack-app.test.ts 要先 bun run build。核实：grep 测试文件，引用 dist/server 或 dist/web 的只有 scripts/smoke-server.ts、scripts/perf/*、e2e/fixtures.ts（e2e 由 test:e2e 脚本先 build），没有一个 *.test.ts。主工作区的 packages/neuro-book/dist 只有 server/，没有 web/（审查时看到的状态；某个 worktree 里有人构建过 web/，说明它靠手工 build 才存在）。所以 bun run test 与 test:affected 在没 build 的环境里这些测试直接失败；要么测试里自己跑 vite build（耗时未测，明显超出快速层“几十毫秒级子进程”的定义），并且测试会改写包内的 dist/，同一 worktree 里的 e2e 与这些测试并行时互相踩产物。
+对照：plugin-sdk/pack.test.ts 的做法是测试自己 buildSdk 到临时目录。服务端 bundle 构建很快：我在 worktree 里实测 bun build src/server/main.ts --target bun --outdir <临时目录> 用时 0.078 秒。
+建议改法：
+- src/cli 的进程测试在测试里把 src/cli/main.ts 与 src/project/main.ts 构建到临时目录（亚秒级），webRoot 用一个只有 index.html 的 fixture 目录（nbook 的 webRoot 必须是可注入的参数，不能只写成“bundle 旁边的 ../web”）；
+- pack-app 的暂存函数参数化 distRoot，pack-app.test.ts 用同样的临时产物；
+- 需要真实 vite 产物的 tarball 验收放进 smoke:server 那一类脚本（它本来就自己 build）或 test:e2e 层，不放 bun test。
+
+### 重要 | 测试 | 计划 5 节 S4、第 7 节端到端 | npm 包验收只到“health 与首页 200”，没有覆盖这条路径独有的三件事
+
+这条发行路径与已有 e2e 的差别正是：webRoot 靠 bundle 相对位置、project.js 与 nbook.js 同目录、插件装进状态根后重启生效。pack-app.test.ts 列出的断言（--version、start --no-open 后 health 与首页 200、plugin install 示例插件）测不到：
+1. project.js 能否真起项目子进程。上一轮方向审查明确指出 bun build --compile 起不来项目子进程，是这个方向的头号风险；首页 200 与 health 200 都不经过它。现有的 smoke S7（登记目录、经 RPC 绑定、项目实例报告身份）才是对应的检查，计划没把它搬到 tarball 上。
+2. 页面真的能启动。index.html 返回 200 不代表静态资源与 RPC 引导可用；第 7 节的“浏览器打开打印的地址能进工作台”是手工步骤，没有任何自动化的真浏览器验证。按 testing README，用户入口到可见结果属于浏览器 E2E 层。
+3. “重启后插件生效”。S3/S4 用 nbook plugin list --json 验证装上了，但 list 读的是登记表（计划 3.2：不连服务端、不调 prepareInstalledPlugins），它只能证明登记成功，证明不了服务端重启后装载了插件。需要服务端侧可观察的结果（插件页的列表、插件的 http 路由或远程服务调用；现有 e2e/plugins.e2e.ts 与 testing/rpc-client.ts 有做法）。
+建议改法：tarball 验收脚本（smoke 或 e2e 层）按顺序做：装 tgz；nbook start --no-open；用 RPC 登记并打开一个临时作品（等同 smoke S7）；Playwright 打开打印的地址，等到 data-rpc-state=online；nbook plugin install 示例插件；停止、再 start；断言服务端报告该插件已激活。
+
+### 重要 | 测试 | 计划 6 节“nbook start”一行、S2 | 打开浏览器、已有实例时打开它的页面、Ctrl-C、地址文件的生命周期都没有对应测试
+
+计划的验收映射把“启动、已有实例时打开它、--no-open、状态根取值顺序”都映射到 S2，而 S2 的自跑验证全程 --no-open。结果：
+- 产品的主路径（启动即打开浏览器）和“第二次运行打开已有实例页面”零覆盖。Linux 上可以测：open@11 打包后走系统 xdg-open（node_modules/open/index.js 第 215 至 227 行），测试把 PATH 指向临时目录里一个记录参数的假 xdg-open，真实进程观察到传入的 URL；找不到 xdg-open 时 open 会 reject（spawn 的 error 事件被它接住，第 298 至 308 行），nbook 不应失败，也应有一条测试。
+- “Ctrl-C 经现有的 SIGINT 停止序列退出”：nbook start 在进程内调用 runServerProcess，要有一条真实进程发 SIGINT 的测试：退出码 0、锁目录与 server.json 都不在了。
+- server.json 的“只删自己写的（比对 pid）”与“崩溃遗留的 server.json”：锁已过期而文件还在时 findRunning 必须返回 null，不能把遗留地址当实例打开。这两条也无测试。
+- 测试进程的状态根隔离：defaultStateRoot 的纯函数测试可以注入平台与环境，但真实进程的测试若漏传 --state-root/NBOOK_STATE_ROOT，会写到测试者真实的 ~/.local/share/neuro-book。测试助手应统一把 HOME、XDG_DATA_HOME、LOCALAPPDATA 指到临时目录，并有一条“什么都不给时落在临时 HOME 下的缺省位置”的真实进程用例（这同时覆盖缺省路径的真实创建）。
+建议改法：按上面补，S2 的自跑验证里写明用哪种方式观察“打开”。三平台的缺省路径只能靠单测，这一点第 7 节已如实写出，没有问题。
+
+### 重要 | 文档 | 计划第 4 节 | 新 ADR 编号 0032 已被占用；新 Spec 与新 ADR 的注册表行没列
+
+现象：docs/adr/ 里 0032 已经是“nb-story 的密钥只认进程启动时的环境”（docs/adr/0032-nb-story-keys-from-startup-env.md，docs/adr/README.md 表末行），下一个空闲编号是 0033（.worktree/*/docs/adr 里没有别的 003x 在途）。计划里“新 ADR 0032”与第 3.3、S4 等处对它的引用都要改。ADR 接受后正文不改、编号唯一、一级标题编号必须与文件名一致（docs/adr/README.md），写错会被 docs:check 拦下。
+同时第 4 节的表没有写两处必改的登记：
+- docs/specs/README.md 的注册表要加 runtime.cli 一行（成熟度、capability、owners 必须与 frontmatter 一致，capability 全库唯一，owner 要真实；README 规定“没有两个近义 capability 重叠”，要说明它与 runtime.server-host、runtime.plugin-install 的分工）；
+- docs/adr/README.md 的决策表要加新 ADR 一行。
+如何核实：ls docs/adr；sed -n 1,40p docs/adr/README.md；docs/specs/README.md 的“注册表”与机检一节（第 276 行）。
+建议改法：编号改 0033（动手前再看一次，防别的分支先占）；第 4 节的表加上两个登记行。
+
+### 重要 | 文档 | 计划第 4 节 Spec 改动表 | 单实例之后会变假或失效、但计划没列的条目
+
+按“同一状态根只有一个服务端”逐处核对了 docs/specs 与代码注释。计划已列：server-host、plugin-install（78、92、验收 15）、component-lab 验收 22、monorepo-boundaries。没列的：
+1. docs/specs/runtime/projects.md 第 111 行与验收 17（第 198 行）：“两个服务端进程打开同一作品时，后算完的胜出”“两个写者冲突时较新的 computedAt 胜出”。projects.stats 是 user 分区的记录，user 分区在状态根里；两个服务端要写同一条，必须共用状态根，单实例之后这个情形不存在（不同状态根各有一份 user 分区）。对应的代码注释 src/plugins/projects/project/stats-writer.ts:5“可能有不止一个写者（两个服务端进程打开同一作品时各有一个项目实例）”随之失效，stats-writer.test.ts:136 的“两个写者冲突”用例（第二个写者在测试里代表另一个服务端的项目实例）模拟的就是这个同一状态根下不再可达的状态：要决定是保留为防御性行为（改写理由）还是删。
+2. projects.md 第 21、175 行（“不防止两个服务端进程同时打开同一个项目目录”“不加目录锁”）依然成立，但理由变了：现在只有不同状态根的两个服务端才能同时打开同一作品，Storage 的项目分区与项目层配置的写入锁（settings/configuration.md 第 139 行、验收 5；storage/persistence.md 第 20、135 行）仍然需要。这几处应补一句“同一状态根只有一个服务端（runtime.server-host）”，免得读者以为多进程保护可以删。顺带：plugin-install.md:92 写“同一状态根可以同时跑几个服务端（runtime.projects）”，而 projects.md 里根本没有这句话（它说的是同一项目目录），这条来源引用本来就不实，改写时一并改掉。
+3. 插件 SDK 的示例：plugin-sdk/examples/plugins/focus/backend/plugin.ts:4-5（“同一状态根上跑着几个服务端”）、scenarios/07-focus.test.ts:170 的用例“同一状态根上的两个服务端都到点结算，只记一次”（及 newStage(root) 助手注释第 67 行）、plugin-sdk/examples/README.md:148。示例随 SDK 一起发布给作者，教的是单实例之后不被支持的部署形态。场景本身（条件保存防丢更新）在多窗口下仍成立，需要改写措辞与场景名。
+4. 代码注释：src/server/dev/sample.ts:7“同一个状态根上同时跑两份后端会互相覆盖登记，这是登记表现有的限制”（单实例后这条限制被解决）；src/plugin-platform/backend/pins.ts:4、record.ts:7、inventory.ts:116 与 323、startup.ts:138 的“另一个服务端”，计划只说租约本期不删，但这些注释和对应分支为什么还在要重新交代（计划第 8 节只一句“单实例下多余”）。
+5. docs/specs/runtime/server-host.md 的“Smoke”段（第 162 行：“生产打包产物……运行场景 1、2、4、11”）与 scripts/smoke-server.ts：新增的单实例场景应进打包产物的 smoke（S1 到 S9 目前是顺序启停，S8、S9 同一状态根先后起两个进程，它们恰好是“锁在 stop 后确实放下”的现成检查），计划的文件清单里没有 smoke-server.ts。
+6. docs/specs/runtime/stall-watchdog.md（planned）第 49、76 行写“Manager 删除遗留租约锁”“重启后的实例等待锁过期后取得租约”，而计划不恢复 Manager；新增的 server.lock 与 server.json 在这份 Spec 里没有位置。至少加一句交叉引用。
+7. docs/specs/runtime/server-host.md 第 37、154 行：NBOOK_STATE_ROOT“必填”与参数校验场景 11 对 main.js 仍成立，但 nbook 会替用户填缺省值；cli.md 必须写清“空字符串的 NBOOK_STATE_ROOT 算没给还是算无效”（smoke 现有 S3 对 main.js 传空串期待报错）。
+如何核实：grep -rnE "两个服务端|同一状态根|多个服务端" docs/specs packages/neuro-book（上面所有行号都来自这次搜索）。
+
+### 建议 | 测试 | 计划 3.1“受影响的既有行为”、第 4 节 component-lab 行 | Lab 场景 22 的改写：放行没问题，但丢掉了“全新进程读到磁盘上的偏好”，而 Spec 原文是“先后”
+
+核实（从代码，没跑 e2e）：
+- localhost 与 127.0.0.1 是两个不同的浏览器来源，localStorage 与客户端身份（web/host/client-identity.ts，存在各来源自己的 localStorage）都不同；
+- 开发服务放行：dev/run.ts:66 把 loopbackOrigins(pageUrl)（127.0.0.1、localhost、[::1] 三个别名）传给后端的 NBOOK_ALLOWED_ORIGINS；HTTP 的 Host 核对 LOOPBACK_HOSTS 含 localhost（plugins/http/backend/dispatch.ts:70）；Vite 缺省允许 localhost。页面服务只绑 127.0.0.1，Chrome 对 localhost 先试 ::1 失败后退回 127.0.0.1，能用。所以改写在机制上可行。
+问题在覆盖：原用例（lab.e2e.ts:352 起）里第二个开发服务是全新的后端进程，从磁盘读 first 写下的 shared 偏好；改写后读的还是同一个后端进程的内存与同一个 SQLite 连接，“进程重启后偏好仍在”这半条不再被这条用例碰到。component-lab.md 验收 22 的原文是“同一状态根先后用两个端口启动开发服务”，“先后”本身与单实例相容：先停第一个、再起第二个。
+注意：原用例里第二个页面用 browser.newPage()，本来就是新的浏览器上下文（新的客户端身份），所以改成别名之后，“换来源”这一半其实由 newPage 单独就保证了，别名没有增加覆盖。
+建议改法：保持原场景与 Spec 原文（“先后”）：这条用例自己起一个专用的开发会话（独立的 tmp 状态根），写偏好后停掉它（SIGTERM，退出码 0），再在同一状态根起第二个，用 browser.newPage() 打开，断言偏好相同。代价是多一次开发服务的启动时间（未测）。如果坚持用别名，则 Spec 验收 22 的措辞要改成覆盖面更小的说法，并另说明“进程重启后偏好保留”由哪条用例承担。
+
+### 建议 | 测试（兼设计） | 计划 3.2 main.ts / plugin.ts | 退出码 2 与 `list --json` 的输出形状要有测试，commander 的缺省行为与计划不同
+
+- 计划写“退出码 0 成功，1 失败，2 用法错误”。实测 commander 14.0.3：未知选项、缺参数都以 1 退出（/tmp/review-t15-p2plan-tests/cmd.ts），要得到 2 必须 exitOverride 或自定义输出；不写测试的话最先实现出来的是 1。另外 isDefault 的 start 下，把子命令拼错（nbook plguin list）得到的是误导的“too many arguments for 'start'”并以 1 退出（cmd2.ts），用法错误的提示和退出码都值得一条用例。
+- plugin list 有运行中实例时“首行写‘变化在 <url> 的服务端重启后生效’”：带 --json 时这行如果写到标准输出，JSON 就不可解析。S3 的“list --json”用例要在服务端正在运行时跑一次，断言标准输出整体是合法 JSON，提示走标准错误或进 JSON 字段。
+- nbook plugin 子命令每次都调用 findRunning（含 HTTP 探测）；没有实例时不应有任何等待，S3 加一条“没有实例时 list 在亚秒内返回”。
+
+### 建议 | 不变量 | 计划第 8 节第一条风险 | 主线程被同步任务卡住 5 到 10 秒就足以让持锁的活实例被判为残留，第二个 nbook 会再起一个
+
+锁靠主线程的计时器每 5 秒刷新（proper-lockfile 的 update 取 stale/2），锁在 mtime 超过 10 秒时被判为残留。主线程同步阻塞（Storage 用 bun:sqlite 的同步接口（partition.ts:12）、大目录扫描、第三方插件的同步计算——stall-watchdog.md 的阈值也是 10 秒，说明这类阻塞是被预期的）从最近一次刷新之后超过 5 秒就可能让锁过期，而看门狗还没触发。此时：健康探测同样因主线程阻塞而失败，findRunning 判为无实例，第二个 nbook start 取到被判为残留的锁，在同一状态根起第二个实例，正是单实例要防的状态。计划对“暂停超过 10 秒”的处理是 stillHeld 发现后“记诊断，不自行退出”，等于允许两个活实例并存。
+这条无法在测试里自然复现（需要阻塞主线程 5 到 10 秒），我没有实测；机制来自 locked-replace.ts 的 LOCK_STALE_MS 与 proper-lockfile 默认刷新间隔，加上实测的“SIGKILL 后约 10 秒可接管”。
+建议改法：要么把状态根锁的 stale 设得比看门狗阈值与预期最长阻塞明显更长（例如 30 秒，代价是崩溃后重启要等得更久，nbook start 的等待上限同步调整），要么 findRunning 在“锁过期但 server.json 的 pid 仍存活”时不接管，而是报告“实例无响应”。选哪个要在 cli.md/server-host 里定下来。
+
+## 逐项回答焦点问题
+
+1. 现有测试与设施里让两个及以上服务端进程共用状态根的地方（核实过全部 e2e 文件、src/server 测试、scripts、dev-panel）：
+   - 同时存活的共用：只有 e2e/lab.e2e.ts:352 至 372 一处（计划已列）。
+   - 先停后起的同状态根重启，单实例下仍成立，前提是 stop 返回时锁已放下（实测除 SIGKILL 外所有退出路径都放锁）：e2e/editor-area.e2e.ts:1149 至 1151、e2e/plugins.e2e.ts:45 至 48、e2e/plugin-authoring.e2e.ts:72 至 75、scripts/smoke-server.ts 的 S8（writer 再 reader）与 S9（editor 再 broken）、src/server/dev/supervisor.test.ts 与 run.test.ts 的后端重启、scripts/perf/browser-runner.ts 的逐轮 serve/shut。
+   - 同进程模拟多个服务端、不经 runServerProcess，因此不受锁影响但前提与新规矩矛盾：src/plugin-platform/backend/plugins.test.ts 447 至 540（经 install-child.ts、prepare-child.ts 子进程模拟“另一个服务端”）、plugin-sdk/examples/scenarios/07-focus.test.ts:170。计划只提到了插件场景 15，后两类（尤其 07-focus 与它的教学注释）没列。
+   - Playwright：e2e/playwright.config.ts 为 workers: 1 且没有多 project，没有并行共用；各用例的状态根都在自己的 tmp 下。
+   - packages/dev-panel：nbdev dev start 起 bun run dev，每个 checkout 一份 .dev-state，不依赖多实例；但它对 TaskStop 的 SIGKILL 描述（dev-ops.ts:22）正是第二条重要发现的触发条件。scripts/ 下没有依赖多实例的脚本。
+2. Lab 场景 22：见上面“Lab 场景 22 的改写”一条，放行已从代码核实，没跑 e2e。
+3. 验收映射：见发现 3、4、5、6、7；三平台状态根缺省只能靠单测（计划已写）；打开浏览器、Ctrl-C、崩溃窗口的可行测试做法已在对应条目给出。
+4. Spec 与登记：见发现 8、9。
+
+## 未发现问题的方面
+
+- 计划引用的 holdLock 在 Bun 下的放锁行为：process.exit 0/1、SIGTERM 均能清除锁目录，只有 SIGKILL 例外（实测），“进程活着时刷新、崩溃后约 10 秒可接管”与计划描述一致。
+- 命令行库选型：commander 的 isDefault 默认子命令与根上的 --no-open、--state-root 选项传递可用（实测 cmd2.ts）。
+- open 的行为：node_modules/open 是 11.0.0，打包后落到系统 xdg-open；spawn 失败会 reject，不会抛未处理的 error 事件；启动后 xdg-open 非 0 退出不会被发现，计划第 8 节第二条风险的描述（静默成功）准确。
+- scripts/、perf 脚本、dev-panel、Playwright 配置没有需要改的多实例依赖。
+- 每片的切分顺序（单实例先、命令行、插件命令、打包）从测试依赖角度看合理。
+
+## 数量
+
+阻断 0；重要 9（fixture-entry 绕过锁、开发入口无等锁、崩溃窗口测不了、启动窗口与探测超时、测试依赖 dist、tarball 验收缺项、打开浏览器与 Ctrl-C 缺测、ADR 编号与登记、Spec 遗漏）；建议 3（Lab 22、退出码与 --json、主线程阻塞下的锁）。合计 12 条。
+
+## 对计划第 8 节两条风险的判断
+
+- 第一条（崩溃后 10 秒内再启动看到锁、nbook start 等锁过期再试一次至多 15 秒、暂停超过 10 秒时锁被接管只记诊断）：对 nbook start 本身合理，但覆盖不全：开发入口没有同样的等待（发现 2），不自行退出等于允许两个活实例并存，5 到 10 秒的同步阻塞同样触发（最后一条建议），而且“至多 15 秒”的上限与“重试一次”的次数没有测试方案（发现 3，用拨回 mtime 的办法）。
+- 第二条（open 在无桌面环境可能静默成功，所以总是打印地址）：判断准确，已从 open 11 的源码核实；“总是打印地址”是正确的缓解，保留。需要补的是测试做法（假 xdg-open），不是风险本身。

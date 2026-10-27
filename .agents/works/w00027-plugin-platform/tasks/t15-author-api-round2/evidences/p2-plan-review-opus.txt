@@ -1,0 +1,98 @@
+# t15 第二期计划审查：架构与上游选择（Opus）
+
+审查对象：.agents/works/w00027-plugin-platform/tasks/t15-author-api-round2/plan-phase2.md（master 28852924c）。代码读主工作区；实验在 /tmp/review-t15-p2plan-opus/，用审查 worktree（同一提交）里已有的 dist 与源码，Bun 1.4.2，Linux。逐条追加。
+
+### 重要｜正确性｜取锁放在 runServerProcess 里，`nbook start` 的“等锁过期再试”和“启动中的实例”都没法实现
+
+- 位置：计划 3.1 第 3 条（`runServerProcess` 取不到锁写 `runtime.state-root.busy` 并以 1 退出）、3.2 `start.ts` 步骤 1 与 2、第 8 节第一条风险（“`nbook start` 等锁过期再试一次（至多 15 秒）”）；`src/server/process.ts:33-41,73-82`（失败路径一律 `process.exit`）。
+- 现象：计划让 `nbook start` 先 `findRunning`，找不到再在本进程里调用 `runServerProcess`，而锁由 `runServerProcess` 取、取不到就在里面 `process.exit(1)`。`runServerProcess` 只新增了 `config` 选项，没有“已取得的锁”或“取不到时交回调用方”的出口。于是第 8 节承诺的“`nbook start` 等锁过期再试一次”没有落点：一旦进了 `runServerProcess`，取锁失败进程就结束了，CLI 拿不回控制权。
+- 另一个没处理的情形是启动中的实例。`findRunning` 要求锁被持有且 health 返回 200；地址文件“HTTP 与 RPC 都监听之后写”，health 要等运行实例就绪才 200。第一个 `nbook start` 已取锁、尚未就绪时（实测生产产物从启动到 health 约 200 ms，装了插件、打开项目会更长），第二个 `nbook start`（用户双击两次、Agent 并行调用、桌面壳与终端同时启动）会看到“没有在跑的实例”，进入 `runServerProcess`，取锁失败，以 1 退出并报 busy，而 `running` 为 null（地址文件还没写）。即使改成“等锁过期再试”，活着的锁永远不过期，等满 15 秒仍报 busy，实例其实早已起来。
+- 为什么是问题：照字面实现，S2 的“再启动一次打印已有地址、退出 0”只在第一个实例已完全就绪时成立；竞态窗口里得到的是失败退出，Agent 会据此判断“启动失败”。修这个要改 `runServerProcess` 的签名与取锁位置，属于 S1 的接口返工。
+- 如何核实：读 `process.ts:73-82` 与计划 3.1、3.2；时序上用两个并发的 `nbook start --no-open`（同一临时状态根、端口 0）即可复现，第二个在第一个打印 `Listening on` 之前进入即触发。
+- 建议改法：把“认领状态根”提到 `runServerProcess` 之外，成为调用方先做的一步：`claimStateRoot` 返回 `{ok:true, claim}` 或 `{ok:false, running}`，`runServerProcess(manifest, {config, claim})` 只接受已认领的句柄（`main.ts`、`development-main.ts` 取不到就报 busy 退出，保持现在 `bun main.js` 的行为）。`nbook start` 取不到时进入“等待已有实例就绪”循环：在截止时间内反复 `findRunning`（地址文件出现且 health 200 即成功、打印并打开）和重试认领（锁过期即自己启动），两者都不成才报 busy。这样崩溃后的等待与启动中的等待是同一个循环，不需要区分。另外：已有实例时 `--port`、`--rpc-port` 被忽略，应打印一行“已有实例在 <url>，忽略 --port”，否则用户以为换了端口。
+
+### 重要｜不变量｜“一个状态根一个实例”是硬不变量还是尽力而为没有定：失锁后“记诊断、不自行退出”会留下同根两个实例，又同时把租约等机制判为“多余”
+
+- 位置：计划 3.1 第 1 条（`stale` 10 秒）、第 8 节第一条风险后半句（“进程被暂停超过 10 秒（调试器、休眠）时锁会被判为残留……此时记诊断，不自行退出”）、3.1“受影响的既有行为”第 3 条与第 8 节“不做”（租约在单实例下多余，另记后续）；`src/backend/locked-replace.ts:91-131`；`node_modules/proper-lockfile/lib/lockfile.js:99-170`（刷新逻辑）。
+- 现象：锁目录只靠 mtime 判活。进程被暂停（终端里 Ctrl-Z、调试器断点、`kill -STOP`、容器冻结）超过 10 秒，另一个启动者就会把它当残留接管。实测（`/tmp/review-t15-p2plan-opus/hold.ts`，直接调用 `holdLock`）：A 持锁 → 第二个进程在 A 活着时取锁失败（预期）→ A 被 `SIGSTOP` 12 秒 → 第三个进程 C 取锁成功 → A 收到 `SIGCONT` 后 `stillHeld` 报“已被别的进程接管”。按计划，A 此时只记诊断、继续服务，C 也在服务：同一状态根两个实例，ports 一对在 4217/4218，另一对顺延到 4317/4318。顺带观察到：A 发现失锁后若立刻退出，proper-lockfile 的退出钩子（`lockfile.js` 末尾 `onExit` 无条件 `rmdirSync`）在 A 自己的刷新计时器尚未把锁标为失效时会删掉 C 的锁目录，结果 C 也报失锁，两个实例都没有锁（这一步依赖 A 发现失锁后立即退出的时序，是本实验脚本的写法，不是计划的路径，作为风险旁证）。真正的系统休眠不触发接管：proper-lockfile 醒来时核对 mtime 仍是自己的就继续刷新（`lockfile.js:113` 注释 “we can still recover from a system sleep”），所以计划里“休眠”这个例子不准，真正的触发源是暂停单个进程，而 Ctrl-Z 一个前台 `nbook start` 正是普通用户可能做的事。
+- 为什么是问题：计划一边把单实例当前提（Lab 场景 22、插件场景 15 改写、租约“在单实例下多余”、`projects.json` 的进程内写队列就够），一边接受“失锁后两个实例并存”。两者只能取一个：如果单实例是硬不变量，失锁后旧实例必须停止（或至少停止写状态根），租约、`version-in-use`、`inventory.ts:117-119` 与 `pins.ts` 头注释里“同一状态根的另一个服务端启动时会消费……”这些都可以删；如果它只是尽力而为，那么租约不是“多余”，而是失锁后唯一的保护，`projects.json` 在这个状态下仍会丢登记（上一轮审查实测 40 次登记只剩 20 条）。不定下来，第一版会带着一套“名义上多余、实际上兜底”的机制发布，Spec 也会同时写“一个状态根一个实例”和“同一状态根可以同时跑几个服务端”（`plugin-install.md:78,92`）。
+- 如何核实：`bun /tmp/review-t15-p2plan-opus/hold.ts <锁路径>`，按上文顺序 `kill -STOP`/`kill -CONT`；输出见 `/tmp/review-t15-p2plan-opus/h1.txt`、`h3.txt`。
+- 建议改法：选硬不变量（与开发者“一个状态根只跑一个服务端实例”的决定一致）。失锁即视为致命：`stillHeld` 周期核对（或 `onCompromised`）一旦报失锁，记 `runtime.state-root.lost` 并以专用退出码有序停止，不再写状态根。然后把租约与相关文本在本期删掉而不是“另记后续”：S1 本来就在改 plugin-install 的租约段与场景 15、`plugins.test.ts`，此时删 `pins.ts`（187 行）、`startup.ts` 写租约与按租约推迟回收、`version-in-use` 失败码，比第三期再动同一批文件便宜。保留不能删的：登记表写入锁（CLI 离线写与服务端并发，仍需要）、`locked-replace` 的跨进程锁（不同状态根的服务端可以打开同一项目，`projects.md:21,175`、`files.md:62` 仍成立）。`projects.json` 的进程内写队列在硬不变量下够用，但以后 `nbook project` 离线写它时要么加登记表同款的锁，要么经服务端，届时再定。若选更换机制（见下一条），暂停不再导致接管，这一条的大半自然消失。
+
+### 重要｜设计｜实例认领可以用“监听一个本地套接字”一件事代替“锁目录 + 地址文件 + health 双判 + 崩溃后等 15 秒”，消掉 10 秒窗口和三处误判
+
+- 位置：计划第 2 节“状态根的实例锁”一行（否决 flock FFI 后选 `holdLock`）、3.1 第 1、2 条（`findRunning` 要求锁被持有且 health 200）、第 8 节第一条风险。
+- 现象：计划的机制由三件东西拼成，各自补另一件的漏洞：锁目录判“有人认领”，但只能靠 10 秒 mtime 判活；地址文件给出地址，但崩溃后会残留；health 判“真的在跑”，但不知道响应的是不是这个状态根的实例。由此产生：
+  1. 崩溃（SIGKILL、OOM、断电）后 10 秒内再启动看到锁还在，`bun main.js` 直接 busy，`nbook start` 要等至多 15 秒。开发模式同样受影响：开发会话的第二个 Ctrl-C 会 `SIGKILL` 后端（`src/server/dev/backend-process.ts:88`），10 秒内重新 `bun run dev`，后端以 busy 失败，而监督进程按 `server-host.md:98` 不循环重启，只等下一次文件变化。
+  2. 暂停超过 10 秒被接管（上一条）。
+  3. 身份误判：A（状态根 X）崩溃后 10 秒内，B（状态根 Y）用缺省端口占了 4217；此时对 X 运行 `nbook start`，锁看起来被持有、`server.json` 里的 `http://127.0.0.1:4217/` health 返回 200（`src/plugins/http/backend/plugin.ts:71` 只回 `{status:"ok"}`，不带实例身份），于是打印“NeuroBook 已在运行”并打开 Y 的工作台。窗口小，但结果是打开了别的数据。
+- 更普遍的做法：VS Code 桌面端的 `claimInstance`（`src/vs/code/electron-main/main.ts`，本次取 main 分支源码核对）：在由用户数据目录派生的地址上 `serve` 一个本地套接字（Unix 域套接字；Windows 命名管道 `\\.\pipe\<sha256 前 8 位>-<版本>-main-sock`，见 `src/vs/base/parts/ipc/node/ipc.net.ts` 的 `createStaticIPCHandle`；Linux 优先放 `XDG_RUNTIME_DIR` 以避开路径长度上限）。监听成功即是第一个实例；`EADDRINUSE` 就作客户端连上去，把参数交给已有实例后退出；连接得到 `ECONNREFUSED`（非 Windows）说明是崩溃留下的套接字文件，删掉重试一次。套接字由内核持有：进程活着（包括被暂停）就一直占着，进程死了立刻释放，没有过期时间可调。实测 Bun 1.4.2 用 `node:net` 照做（`/tmp/review-t15-p2plan-opus/claim.ts`）：第一个进程认领；第二个连上并读到第一个的 pid、以 0 退出；第一个被 `SIGKILL` 后套接字文件残留，第三个 `ECONNREFUSED` → 删除 → 认领成功，用时 6.6 ms（对比计划的至多 15 秒）。暂停中的实例仍占着监听，连接能建立但不应答，启动者按超时报“已有实例未响应”（VS Code 10 秒后弹同样的提示），不会出现第二个实例。
+- 其它参照（凭文档与记忆，本次未核对源码，标“未核实”）：Jupyter 只写 `jpserver-<pid>.json` 运行时文件、`jupyter server list` 读文件后按 pid 判活，它不保证单实例，相当于计划里的“地址文件”这一半；ollama 与 dockerd 以固定 TCP 端口或固定套接字为守护进程的唯一入口，客户端连不上就（桌面版）拉起守护进程，单实例来自“地址被占”。三者都没有用 mtime 心跳锁判活。
+- 代价与要核实的：Windows 上 Bun 的 `node:net` 能否监听命名管道未核实（本机无 Windows）；Unix 套接字路径上限约 104 到 108 字节，状态根深的时候要像 VS Code 那样放到 `XDG_RUNTIME_DIR`（macOS 放 `$TMPDIR`）并用状态根路径哈希命名，地址就不再“在状态根里一眼可见”；两个启动者同时看到残留套接字时，一方删掉另一方刚建的套接字的竞态要用“只重试一次 + 认领后再连一次自检”收住（VS Code 也只重试一次）。地址文件仍可保留作为给人看与给桌面壳读的“当前地址”，但不再参与判活；或者更简单，认领后的套接字直接应答 `{pid, url, rpcUrl, version, stateRoot}`，第二个启动者从这里拿地址，地址文件可以不要。health 双判与等待 15 秒的逻辑都可删除。
+- 为什么值得在本期定：认领机制是 server-host 的新合同与 S1 的核心，桌面壳与以后的“第二次启动把参数交给已有实例”（例如 `nbook open <作品>`、文件关联）都要沿用。用锁目录起步再换套接字，要改 Spec、地址文件格式与全部进程测试。
+- 如何核实：`bun /tmp/review-t15-p2plan-opus/claim.ts <套接字路径>`，按上文顺序启动、`kill -9`、再启动；身份误判按第 3 点手工构造（两个状态根、缺省端口、对 X 的实例 `kill -9` 后 10 秒内起 Y）。
+- 建议改法：把套接字认领作为候选连同代价交开发者定（它改变计划第 2 节的选型）。若维持锁目录：至少把实例身份放进地址文件和 health（例如启动时生成的 `instanceId`，health 回显），`findRunning` 比对身份再算“在跑”；第 8 节的风险改写为“暂停单个进程超过 10 秒”，并按上一条把失锁定为致命。
+
+### 重要｜设计｜`nbook start` 在本进程前台跑服务端：关终端不走停止序列（实测退出码 129），Agent 调用会阻塞，也与作为参照的 VS Code `code` 行为相反
+
+- 位置：计划 3.2 `start.ts` 步骤 2（“在进程内 `runServerProcess`……Ctrl-C 经现有的 `SIGINT` 停止序列退出”）；`src/server/host.ts:59`（`DEFAULT_SIGNALS` 只有 `SIGINT`、`SIGTERM`）。
+- 现象：
+  1. 关终端窗口、SSH 断线时进程收到 `SIGHUP`，宿主没有挂接它。实测生产产物（`/tmp/review-t15-p2plan-opus/` 下的对照实验，同一临时状态根、端口 0）：`SIGTERM` 以 0 退出，日志末尾是各作用域 `stopping → closed` 与 `close nbook.http/server：closed`；`SIGHUP` 以 129 退出，日志停在启动阶段，没有任何停止记录，即排空 HTTP 与 RPC、停止项目子进程、按逆序关闭插件全部跳过。项目子进程在同一前台进程组里同样直接收到 `SIGHUP`。对写作应用，“关掉终端”是用户最可能的退出方式。
+  2. Agent 的典型需求是“确保服务在跑、拿到地址、继续干活”。首次调用 `nbook start --no-open` 永不返回（前台服务），Agent 的命令执行会一直等到超时，超时后被杀，服务随之结束；只有第二次调用（已有实例）才立即返回。计划把 `nbook` 定位为“用户与 Agent”的命令行，却没有给 Agent 一个幂等、非阻塞的入口。
+  3. 开发者用来类比的 VS Code：`code` 命令行用 `detached: true`、`stdio: 'ignore'` 拉起 Electron 后立即返回（`src/vs/code/node/cli.ts` 约 482-502 行，本次核对 main 分支），应用寿命与终端无关；`--wait` 才阻塞。计划只沿用了“第二次打开已有实例”这一半。
+- 为什么是问题：第 1 点是现有代码在新使用方式下暴露的数据安全缺口（插件关闭钩子、项目子进程的有序停止都被跳过）；第 2 点让第一版对 Agent 基本不可用，除非 Agent 自己懂得放到后台再轮询；第 3 点决定了以后桌面壳、TUI 与 `nbook` 的关系：前台进程内的设计意味着“谁启动谁拥有服务寿命”，桌面壳先起、终端再 `nbook start` 时还好（打开已有实例），终端先起、桌面壳后起时，关掉终端就把桌面壳的后端带走了。
+- 如何核实：同一状态根启动 `bun dist/server/main.js`（`NBOOK_PORT=0 NBOOK_RPC_PORT=0`），health 200 后分别 `kill -HUP`、`kill -TERM`，比较退出码与 `<状态根>/logs/server-current.jsonl` 末尾。本次结果：HUP 129、无停止记录；TERM 0、有完整停止记录。
+- 建议改法：
+  - 无论选哪种模式都应做的、代价很小的一步：把 `SIGHUP` 加进停止信号（`DEFAULT_SIGNALS`，或由 `nbook start` 传 `signals`），并在 server-host 的“停止来源”里写明。
+  - 候选（改变第一版的形状，交开发者定）：`nbook start` 缺省拉起一个脱离终端的服务端进程（`bun <nbook.js> serve` 之类的内部入口，`stdio` 写进 `<状态根>/logs/`，`setsid`/`detached`），等认领与 health 就绪后打印地址、打开浏览器、以 0 退出；`--foreground` 保留现在的行为（调试、systemd、Docker、服务器部署都要前台）。代价：脱离终端后用户需要一个停止与重启的方式，而开发者定的第一版只有 `start` 与 `plugin` 子命令，“插件变化下一次启动生效”也依赖重启；所以要么第一版加 `nbook stop`（或 `nbook restart`），要么工作台里给“重启服务”按钮，这触及已定范围，必须由开发者决定。若维持前台：在 `runtime/cli.md` 写明“终端拥有服务寿命”，并给 Agent 一个明确用法（例如 `nbook start --no-open` 放后台，再用 `nbook start --no-open` 的“已有实例”分支或读地址文件取地址），S2 的进程测试覆盖关终端（`SIGHUP`）的有序停止。
+
+### 重要｜不变量｜全局包原地升级时，运行中的实例会混用新旧两版：页面与项目子进程按需从磁盘读，单实例又让 `nbook start` 继续打开旧实例
+
+- 位置：计划 3.2 `start.ts` 步骤 1（已有实例就打开它）、3.3（包布局 `server/nbook.js`、`server/project.js`、`web/**`）、地址文件的 `version` 字段（计划没有说谁读它）；`src/server/start.ts:129-130`（`productProjectEntry` 每次打开项目时按 bundle 目录取 `project.js`）；`src/plugins/http/backend/static.ts:1-9`（页面按请求读盘，`index.html` 每次重新验证，“部署新版本后外壳立即生效”）；`src/server/projects/ipc.ts`（信封没有版本字段，从代码推断）。
+- 现象：`bun add -g @notnotype/neuro-book@<新版>`（或 `bun update -g`、`npm i -g`）在原路径替换文件。旧服务端进程的主 bundle 已在内存里，但：浏览器刷新后拿到新版 `index.html` 与新哈希的资源，连的是旧后端的引导接口与 RPC；之后打开的作品由旧服务端拉起新版 `project.js`，两边的 IPC 与插件装配来自不同版本。此时用户再运行 `nbook start`，按计划会“打开已有实例”，旧版本继续服务，用户以为已经升级。
+- 为什么是问题：插件平台为“运行中的代码不能被换掉”专门做了版本目录与租约，应用自身却在 npm 这条唯一的发行渠道上没有对应保护；而且单实例把“升级后重启”这一步从自然发生（每次 `nbook` 都起新进程）变成了必须由用户记得做。这不是“状态根的版本与降级门禁”（开发者定到桌面端），而是同一个实例内进程与页面的版本一致性，第二期发 npm 时就会遇到。
+- 如何核实：从代码推断，未做真实升级实验。可复现：把 dist 复制到临时目录起服务端，运行中用另一版构建覆盖该目录的 `web/` 与 `project.js`，刷新页面并打开一个作品，观察引导与项目绑定。
+- 建议改法（由小到大）：
+  - `nbook start` 发现已有实例时比较地址文件的 `version` 与自身 `PRODUCT_VERSION`，不同就打印“运行中的是 X，已安装 Y，重启服务后生效”，以非零或明确的提示退出，不静默打开旧实例。
+  - 服务端启动时把 `web/` 与 `project.js` 的位置解析为真实路径并固定（或启动时核对 `project.js` 旁的版本标记），运行中发现磁盘上的版本变了就拒绝拉起新的项目子进程、记诊断；页面的引导接口带上后端版本，前端与之不符时提示刷新失败而不是带着错版运行。
+  - 更彻底的做法是“版本化布局”：包里的产物放在 `<版本>/` 子目录、`bin` 只是一个很薄的转发器，与插件版本目录同一思路；但 npm 包的原地替换决定了旧版本目录不会保留，只有目录包或桌面壳能做到，可作为桌面壳提案的输入。
+
+### 建议｜设计｜插件子命令离线写登记表是对的，但与插件页不是“同一条路”：`list` 丢了待生效变化，`install` 丢了受阻预览
+
+- 位置：计划 3.2 `plugin.ts`（`startup` 给空集合；`list` 只报目标状态；`install` 先 `inspect`，只在降级时要 `--yes`）；`src/plugin-platform/backend/inventory.ts:115-140`（`itemOf` 用启动集合与登记表之差算待生效变化）；`src/plugin-platform/shared/types.ts:129-137`（`InstallPreview` 带 `blocked`、`unchecked`）；`src/plugins/plugins/web/components/PluginsPage.md:73`（升级确认框列出 `blocked` 与 `unchecked`）。
+- 先说结论：离线写登记表不必改成经服务端。参照 VS Code，`code --install-extension`、`--uninstall-extension` 即使已有窗口在跑，也由独立的 CLI 进程（`cliProcessMain`）直接改扩展目录（`src/vs/code/node/cli.ts` 的 `shouldSpawnCliProcess`，本次核对 main 分支）；登记表已有跨进程写入锁（上一轮实测三写者不丢），“下一次启动生效”与插件页的语义一致（热插拔在 `runtime.plugin-hot-plug`）。经服务端的做法要多一套“有实例走 RPC、无实例走离线”的分叉，还要处理服务端停止中的情形，收益不抵代价。
+- 现象：
+  1. 有实例在跑时，插件页的列表按“启动集合 vs 登记表”显示“重启后升级到 x”“重启后禁用”等，命令行 `list` 只给目标状态，同一时刻两处显示不同的东西，Agent 拿不到“哪些变化还没生效”。
+  2. 插件页的升级确认会列出重启后会受阻的插件与没核对的插件（`blocked`、`unchecked`），命令行只在降级时停下，Agent 用命令行升级一个被别的插件按版本范围依赖的插件时，什么提示都没有。
+- 为什么是问题：两个入口对同一操作给出的信息不一致，Spec `plugin-install` 输出 8.1、9 只能对一个入口成立；以后要补齐时得改输出格式与 `--json` 的形状。
+- 建议改法：
+  - 让运行中的实例把自己的启动集合（`StartupPlugins` 里的 id、版本、状态，已经在内存里）写进地址文件（或认领套接字的应答）；`nbook plugin list` 读到就把它作为 `startup` 传给 `createPluginInventory`，与插件页走同一个 `itemOf`，没有实例时才用空集合并注明“没有运行中的实例”。这样不需要任何 RPC。
+  - `install` 的人类输出与 `--json` 都带上 `inspect` 的 `relation`、`blocked`、`unchecked`；交互终端里 `blocked` 非空也要确认（与插件页的确认框对应），非交互且没有 `--yes` 时以用法错误退出并说明原因，降级只是其中一种需要确认的情形。
+
+### 建议｜设计｜单实例的不变量只挂在 `runServerProcess` 这一层，以后桌面壳在自己进程里调 `startServer` 会绕过它；地址文件的写入也散在进程入口
+
+- 位置：计划 3.1 第 3、4 条（取锁在 `runServerProcess` 里；“开发入口同样受锁约束”）、第 2 条（地址文件在 HTTP 与 RPC 都监听之后写、停止时删）；`src/server/process.ts:43-82`；上一轮审查对 Electrobun 的结论（桌面壳若把服务端放进主进程，不能调用结尾 `process.exit` 的 `runServerProcess`，应由宿主拥有 `startServer` 的停止与退出）。
+- 现象：`startServer` 是公开的装配入口（测试、以后的桌面壳都直接用），它不知道状态根有没有被认领。计划写的不变量“取锁先于任何写状态根的动作”只对经过 `runServerProcess` 的两个入口成立；地址文件靠 `onListening`、`onRpcListening` 回调在 `process.ts` 里写，桌面壳要自己再拼一遍“认领、写地址、停止后删地址、放锁”的顺序。
+- 为什么是问题：桌面壳是已定的下一步，这套顺序一旦被复制第二份，单实例的保证就取决于每个宿主都抄对了。
+- 建议改法：`src/server/instance.ts` 导出一个认领句柄，例如 `claimStateRoot(...)` 返回 `{ok:true, claim}`，`claim.publish({url, rpcUrl, startup})` 写地址，`claim.release()` 删地址并放锁；`startServer` 的选项加一个必填的 `claim`（测试用一个不碰文件系统的测试句柄，桌面壳与 `runServerProcess` 用真句柄），由 `startServer` 在监听后调用 `publish`、在 `stopped` 之后调用 `release`。不变量由类型保证，而不是由入口约定；也顺带解决第一条“取锁位置”的问题。代价是 `startServer` 的同进程测试都要传测试句柄，属机械改动。
+
+## 未发现问题的方面
+
+- 第 5 问“有没有为以后留错接口”里的几项：`nbook.js` 用 `#!/usr/bin/env bun` 不妨碍目录包与桌面壳（它们用自带的 Bun 直接 `bun nbook.js`，不经 shebang）；Web 根取 bundle 旁的 `../web`、`project.js` 与 `nbook.js` 同目录，目录包可以原样沿用这个布局（单文件另需内嵌，上一轮审查已有结论）。地址文件的 `schema` 字段留了演进余地；缺的只是实例身份（见第 3 条）与启动集合（见第 6 条）。
+- 默认状态根由命令行层决定、`readServerConfig` 仍要求显式 `NBOOK_STATE_ROOT`（`config.ts:69-72`）：分层正确，服务端宿主不猜目录，没有发现问题。
+- `nbook.js` 整包含服务端，只跑 `plugin list` 也要加载约 1.8 MB 的 bundle：实测 `bun dist/server/main.js --bogus`（加载全部模块后在参数校验处退出）三次 111 到 119 ms，空脚本 6 ms，对命令行可以接受，不值得为此拆包或改动态导入。
+- 插件子命令离线、不经服务端：有 VS Code 先例，登记表锁已验证，结论见第 6 条，不建议改。
+- 系统休眠本身不会让锁被接管（proper-lockfile 醒来时 mtime 仍是自己的就继续），计划里把“休眠”列为触发源不准确，但这不造成额外问题。
+
+## 对计划第 8 节两条风险的判断
+
+- 风险一（崩溃后 10 秒内锁还在；暂停超过 10 秒锁被判残留时只记诊断不退出）：前半句描述属实，但“等至多 15 秒”在计划的取锁位置下无法实现（第 1 条），后半句的处置会留下同根两个实例，与单实例前提矛盾（第 2 条）；换成套接字认领可以把两种情形一起消掉（第 3 条）。
+- 风险二（`open` 在无桌面环境时可能静默成功）：处置合理，总是打印地址就够了，不需要更多机制。
+
+## 数量
+
+- 阻断：0
+- 重要：5（取锁位置与 `nbook start` 的等待冲突；单实例软硬未定与失锁处置；锁目录三件套对比套接字认领；前台进程内与 SIGHUP、Agent 阻塞；全局包原地升级混用新旧版）
+- 建议：2（插件子命令与插件页信息不一致；不变量只挂在进程入口）
+
+实验文件：/tmp/review-t15-p2plan-opus/（claim.ts、hold.ts 与 h1/h3.txt、out-/err-/state-HUP 与 TERM、vscode-main.ts、ipc.net.ts、vscode-cli.ts）。实验进程均已结束（按路径核对剩余 0）。
