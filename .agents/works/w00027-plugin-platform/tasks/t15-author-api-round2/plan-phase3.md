@@ -34,6 +34,12 @@
 
 ## 3. 关键设计
 
+### 3.0 先修第二期漏下的打包错误：`packages/neuro-book/scripts/pack-app.ts`（审查 F16）
+
+- `bundle()` 把 Bun metafile 的输入路径按 `repoRoot` 解析，而这些路径相对当前工作目录：从 `packages/neuro-book` 运行时得到 `../../node_modules/…`，落到仓库根往上两层。在 Work 的 worktree 里往上两层正好是主工作区，所以第二期的测试与 e2e 是绿的，生成的许可清单读的是另一个 checkout 的包；主工作区里 `pack-app.test.ts` 5 例 3 败（2026-10-27 复现），干净克隆里 `build:app-package` 失败。改成按 `process.cwd()` 解析。
+- 输出目录先写标记文件再写内容，失败后重跑不用手工删目录。
+- `pack-app.test.ts` 加“从包目录运行”的用例。今后打包与 CI 的本机验证在主工作区或干净克隆里做，不在 `.worktree/` 下做。
+
 ### 3.1 版本 0.11.0：`packages/neuro-book/package.json`、`src/shared/product.ts`
 
 - 两处的 `0.1.0` 改成 `0.11.0`（`product.test` 核对两者一致）。内置插件的版本、SDK 包、`engines.neurobook` 的缺省（`^0.11.0`）随之变化。
@@ -42,19 +48,20 @@
 
 ### 3.2 发布链：`scripts/release/`
 
-把“生成后发布”的包接进同一套命令，开发者的步骤不变（check、smoke、publish、registry smoke）：
+把“生成后发布”的两个包接进同一套命令，开发者的步骤不变（check、smoke、publish、registry smoke）；并让发出去的字节就是 smoke 验过的那一份（审查 F02）：
 
-- `packages.ts`：新增 `BUILT_PACKAGES`（应用包与 SDK 包），每项写包名、源码包目录、生成命令（`bun run build:app-package`、`bun run build:sdk`）与生成目录（`dist/app-package`、`dist/plugin-sdk`）。`release:check` 对它们只做不用生成就能查的：源码包的版本等于 `PRODUCT_VERSION`、两包版本一致。生成物本身的检查已在 `pack-app.test.ts` 与 `plugin-sdk/pack.test.ts`。
-- `pack-smoke.ts`：两种来源（`--from pack` 用新生成的 tarball，`--from registry` 按版本从 registry 装）都加一段“用户加作者”的闭环，在仓库外的临时目录里：
-  1. 应用：`BUN_INSTALL` 指到临时目录后 `bun add -g` 应用包；`nbook --version`；`nbook start --no-open --json --state-root <临时>`，取首页、`health` 为 200，用现有的 Chromium 打开页面看到工作台（书架页）；SIGINT 以 0 退出。
-  2. 作者：`bunx -p <SDK 来源> nbooke create hello`（`pack` 模式加 `--sdk file:<tarball>`），`bun install`，`bun run build`，`bun run typecheck`。
+- `packages.ts`：新增 `BUILT_PACKAGES`（应用包与 SDK 包），每项写包名、源码包目录与生成命令（`bun run build:app-package`、`bun run build:sdk`）。`release:check` 对它们查源码包的版本等于 `PRODUCT_VERSION`，并在生成的清单上复用现有的发布清单检查（`license`、`files`、`repository`、`publishConfig`、`LICENSE`，审查 F01）。`RELEASE_PACKAGES` 的注释改成“加包时同步根 README 两份的包表”；应用与 SDK 的发布形态已由 ADR 0033 补充 ADR 0029 决定 6，不改 ADR 0029（审查 F06）。
+- `pack-smoke.ts`（`--from pack`）：11 个包各打一次 tarball，放进 `dist/release/<版本>/`，写一份 `release-manifest.json`（包名、版本、SHA-256、构建所在的提交）；smoke 从这些 tarball 安装。两种来源（`pack`、`registry`）都加一段“用户加作者”的闭环，每一步都在仓库外的空临时目录、用临时的 `BUN_INSTALL` 与 `HOME`（审查 F08）：
+  1. 应用：`bun add -g` 应用包；`nbook --version`；`nbook start --no-open --json --state-root <临时>`，取首页、`health` 为 200，用现有的 Chromium 打开页面看到书架；SIGINT 以 0 退出。
+  2. 作者：`bunx -p <SDK 来源> nbooke create hello`（`pack` 模式加 `--sdk file:<tarball>`），`bun install`，核对 `node_modules` 里 SDK 的版本等于 `nbooke` 自己的版本，`bun run build`，`bun run typecheck`。
   3. 回到用户：`nbook plugin install hello/dist --state-root <同一个>`，`nbook plugin list --json` 里有它；再 `start` 一次，实例应答的启动集合里它是已加载。
-- `publish.ts`：门禁加上 `packages/neuro-book` 没有未提交的改动；先跑两条生成命令，再跑 smoke；发布时 9 个源码包仍在各自目录 `bun publish`，两个生成的包在生成目录里 `bun publish`。已在 registry 上的版本照旧跳过。发布顺序：源码包、SDK、应用。
+- `publish.ts`：门禁读 `release-manifest.json`：提交等于当前 HEAD、文件的 SHA-256 对得上，否则要求先重跑 smoke；会发布的目录没有未提交的改动（加上 `packages/neuro-book`）；`HEAD` 已在 `origin/master` 上（`git fetch` 后 `merge-base --is-ancestor`），否则提示先推送（README 的图片用 GitHub 地址，没推送时 npm 页面是 404，审查 F11）。发布逐个 `bun publish <tarball>`（`bun publish [dist]` 收 tarball），不在目录里重新打包。已在 registry 上的版本照旧跳过。顺序：源码包、SDK、应用。
 - 发布后的 `release:smoke --from registry` 同时覆盖两个新包，作为发布证据。
 
 ### 3.3 SDK 发布后的作者流程：`plugin-sdk/cli.ts`、`create-plugin.ts`、`pack.ts`、作者文档
 
-- `nbooke create` 不再提示“SDK 还没有发布到 npm”：缺省写 `^<SDK 版本>`，装得上。`--sdk` 留着，给仓库里的测试与想用本地 tarball 的作者。`create-plugin.ts` 里“registry 版本装不上”的返回字段与调用方的提示一起删。
+- `nbooke create` 不再提示“SDK 还没有发布到 npm”：缺省写 `^<SDK 版本>`，装得上。`--sdk` 留着，给仓库里的测试与想用本地 tarball 的作者。作为一个接口改动一起删：结果字段 `sdkFromRegistry`、判断函数 `isRegistrySpec` 与只给它用的辅助、`cli.ts` 的提示、`template.test.ts` 里断言提示的用例；测试改成断言生成的依赖写法（审查 F07）。已有 `package.json` 里的 SDK 依赖照旧保留，这是 Spec 写明的“作者自己钉的版本”，不隐式改写。
+- SDK 生成的 `package.json` 补上 `license`、`files`、`repository`（含 `directory`）与 `publishConfig.access`，包里带仓库根的 `LICENSE`；构建期实现打进了 nb-ui 与内核以外的第三方代码时，同应用包一样生成 `THIRD-PARTY-NOTICES.md`（复用 `pack-app.ts` 的许可清单函数）。`plugin-sdk/pack.test.ts` 加断言（审查 F01）。
 - 作者文档（`plugin-sdk/README.md` 的开头一节、模板 README、示例 README）改成：`bunx -p @notnotype/nb-plugin-sdk nbooke create my-plugin`，`cd my-plugin && bun install`，`bun run build`，`nbook plugin install dist`。“从仓库生成 tarball”降为一小段，写给要试未发布改动的人。
 - `pack.ts` 模块头里“SDK 不发布”的理由改写：Spec 副本仍随包带，理由换成与这个 SDK 版本一致、离线可读。
 - 这一节先确认 `bunx -p` 装到的 `nbooke` 在作者目录里运行 `create` 时，写进 `package.json` 的 SDK 依赖与 `bun install` 装上的是同一个版本（验收在 3.2 的 smoke 第 2 步）。
@@ -63,12 +70,16 @@
 
 参考：CI 只做“本地门禁在干净机器上再跑一遍”，不另立一套规则（很多 Bun、pnpm 单仓库的 CI 都是 install 加 affected 测试两步）。现有三份 workflow（Code Baseline、Community and Docs Checks、Workspace Packages）删掉，换成一份 `ci.yml`：
 
-- 触发：推 `master`、PR、手动（`workflow_dispatch` 时跑全部）。不按 paths 过滤：选不选、选哪些由 `test:affected` 判断，workflow 里不再维护一份路径表。权限只有 `contents: read`；同一分支或 PR 新的一轮取消旧的。
-- 基准：PR 用 `pull_request.base.sha`；推 master 用 `github.event.before`，它是全零（新分支）或不在历史里（强推）时加 `--all`。`actions/checkout` 取完整历史（治理检查要核对迁移记录的提交）。
-- job `check`（ubuntu，30 分钟）：setup-bun、setup-node（Vitest 与 vue-tsc 的抬头行是 node）；`bun install --frozen-lockfile`；`bun run governance:check --since <基准>`；`bun run docs:check --since <基准>`；`bun scripts/ci/validate-community-files.ts`（只剩 Issue 表单、标签与贡献指南）；`bun run test:affected --since <基准> --typecheck`。
+- 触发：推 `master`、PR、手动（`workflow_dispatch` 时跑全部）。不按 paths 过滤：选不选、选哪些由 `test:affected` 判断，workflow 里不再维护一份路径表。权限只有 `contents: read`。只有 PR 的新一轮取消旧的；推 master 的排队、不取消：按 `github.event.before` 选包时，取消一轮就等于那次推送的改动没人测，结果还是绿的（审查 F15）。
+- 基准：PR 用 `pull_request.base.sha`；推 master 用 `github.event.before`。一个 shell 步骤先跑 `git merge-base <基准> HEAD`，失败（全零、对象不存在、强推后没有共同祖先）就改用 `--all`（审查 F05）。`actions/checkout` 取完整历史（治理检查要核对迁移记录的提交）。
+- job `check`（ubuntu，时限按 S4 在干净克隆上实测的 `--all` 时长的两倍左右定，审查 F17）：setup-bun、setup-node（Vitest 与 vue-tsc 的抬头行是 node）；`bun install --frozen-lockfile`；llmlint 网页的前置（见下）；`bun run governance:check --since <基准>`；`bun run docs:check --since <基准>`；`bun run test:affected --since <基准> --typecheck`。
 - job `app-package`（ubuntu，30 分钟，与 `check` 并行）：在 `packages/neuro-book` 里 `bun run build:app-package`（含 `build` 与 `check:dist`）、`bun run build:sdk`、`bun run smoke:server`。每次都跑：几分钟，换来“发布用的两个包在干净机器上打得出来”。
-- 删掉的检查代码：`scripts/ci/workspace-workflows.test.ts`（逐字核对 workflow 内容）；`validate-community-files.ts` 里核对 workflow 的部分（`validateWorkflows` 与只给它用的常量）；`workspace-package-matrix.ts` 里 CI 专用的写死包表与 `selectWorkspaceMatrix`（`test:affected` 用的依赖图 `workspaceDependencyGraph`、`expandConsumerClosure` 留下，文件按用途改名或并进 `change-scope`，实施时看引用决定）。`agent-governance` 里若有核对 workflow 文件的条目，一并删。
-- llmlint 的 Nuxt 网页（`packages/llmlint/web`，自带锁文件）不进 CI：它的构建与上传产物是旧时期给部署用的，改它时本地跑。
+- 删掉的检查代码：
+  - `scripts/ci/workspace-workflows.test.ts`（逐字核对 workflow 内容）。
+  - `validate-community-files.ts` 作为单独的脚本：核对 workflow 的部分（`validateWorkflows`、只给它用的常量、`yamlPaths` 里的三份旧 workflow）删掉；剩下的 Issue 表单、标签、贡献指南与公开模板检查并进 `governance:check`，本地与 CI 同一个命令，不再有只在 CI 上跑的检查（审查 F03、F12）。
+  - `workspace-package-matrix.ts` 里 CI 专用的写死包表与 `selectWorkspaceMatrix`。`test:affected` 用的 `workspaceDependencyGraph`、`expandConsumerClosure` 挪进 `change-scope.ts`，补一条读临时 `packages/` 目录（两三个假包）、断言反向闭包的测试：它原来唯一的测试在被删的元测试里。跟着改的引用：`scripts/tsconfig.json` 的 `include`、`test-affected.ts` 的导入与两处注释、`test-affected.test.ts` 用旧 workflow 当例子的地方（审查 F13）。
+- 旧矩阵里不只 `typecheck` 加 `test` 的三项不再在 CI 上跑：`nb-ui` 的 playground 构建、`neuro-agent-harness` 的 `verify` 与 `pack:smoke`（已冻结）、`llmlint` 的 `verify`（命令行冒烟）。理由：CI 只跑本地门禁；要它们一直被测，就并进各包的 `test` 脚本（审查 F13）。
+- llmlint：网页（`packages/llmlint/web`，自带锁文件）的构建与产物上传不进 CI；但 `llmlint` 包自己的 `typecheck` 与 `test` 有 20 多个测试导入 `../web/`，要网页的依赖与 `nuxt prepare` 生成的 `.nuxt/tsconfig.json`，干净机器上不做这两步就失败（审查 F14，本机也一样，只是以前的 CI 替它补了前置）。处理见第 9 节第 2 项。
 - 只在 ubuntu 上跑；Windows、macOS 等桌面端时再加。
 
 ### 3.5 文档
@@ -95,14 +106,15 @@
 
 | 片 | 内容 | 关键设计 | 自跑验证 |
 |---|---|---|---|
+| S0 | 修打包的路径解析 | 3.0 | 在主工作区跑 `bun test scripts/pack-app.test.ts`，干净克隆里跑 `bun run build:app-package` |
 | S1 | 版本 0.11.0 | 3.1 | `bun run typecheck`，`bun run test:affected` |
 | S2 | SDK 发布后的作者流程与 Spec | 3.3、第 4 节 | `plugin-sdk/` 测试，`plugin-authoring` e2e |
 | S3 | 发布链：`BUILT_PACKAGES`、smoke 的闭环、publish 门禁 | 3.2 | `scripts/release` 的 Vitest，`prox bun run release:smoke`（`--from pack`），`bun run release:publish`（不带 `--yes`，只过门禁、列出要发的包） |
-| S4 | CI 重建 | 3.4 | `scripts/` 的 Vitest 与类型检查，`bun scripts/ci/validate-community-files.ts`；本机照 `ci.yml` 的步骤跑一遍 `check` 与 `app-package` 的命令（基准取 `HEAD~1` 与 `--all` 各一次）；装了 `actionlint` 就跑一次 |
-| S5 | 文档 | 3.5 | `bun run docs:check`，`bun run governance:check`，`release:check`（README 的包列表） |
-| 收口 | 合入 master | — | 全量 e2e（先确认没有别的会话在跑 omp 审查），`release:smoke` 再跑一次 |
+| S4 | CI 重建 | 3.4 | `scripts/` 的 Vitest 与类型检查，`bun scripts/ci/validate-community-files.ts`；在干净克隆（`git clone`、空 `HOME`、`bun install --frozen-lockfile`）里照 `ci.yml` 的步骤跑一遍 `check` 与 `app-package` 的命令（基准取 `HEAD~1` 与 `--all` 各一次，记下 `--all` 的时长）；装了 `actionlint` 就跑一次 |
+| S5 | 文档 | 3.5 | `bun run docs:check`，`bun run governance:check`；根 README 两份的包表与 `RELEASE_PACKAGES`、`BUILT_PACKAGES` 逐个核对 |
+| 收口 | 合入 master | — | 全量 e2e（含 `e2e/app-package.e2e.ts`：浏览器打开生成的应用包，补 CI 只构建不打开的部分，审查 F10；先确认没有别的会话在跑 omp 审查），主工作区里 `release:smoke` 再跑一次 |
 
-S2 在 S3 之前：smoke 的作者一步依赖 `create` 不再要 tarball。
+S0 最先：发布链与 CI 都依赖 `build:app-package`。S2 在 S3 之前：smoke 的作者一步依赖 `create` 不再要 tarball。
 
 ## 6. 验收映射
 
@@ -116,16 +128,45 @@ S2 在 S3 之前：smoke 的作者一步依赖 `create` 不再要 tarball。
 ## 7. 验证
 
 - 本地：每片的自跑验证；收口跑全量 e2e 与 `release:smoke --from pack`（真实 tarball、仓库外临时目录、Chromium）。
-- 发布由开发者执行，顺序写进 Task README：合入 master → `bun run release:check` → `prox bun run release:smoke` → `npm login` → `bun run release:publish`，确认后加 `--yes` → `prox bun run release:smoke --from registry`，结果记进证据 → `npm deprecate @notnotype/neuro-book-manager "NeuroBook 0.10.x 的 Manager 不再维护；新版本用 bun add -g @notnotype/neuro-book"`。
+- 发布由开发者执行，顺序写进 Task README：合入 master → 推 master（门禁会查）→ `bun run release:check` → `prox bun run release:smoke` → `npm login` → `bun run release:publish`，确认后加 `--yes` → `prox bun run release:smoke --from registry`，结果记进证据 → `npm deprecate @notnotype/neuro-book-manager "NeuroBook 0.10.x 的 Manager 不再维护；新版本用 bun add -g @notnotype/neuro-book"`。
 - 未验证的边界：GitHub Actions 只有推上去才跑得到（push 由开发者执行），之后看一次结果，失败再修；Windows 与 macOS 上的 `nbook` 仍没有实测（第二期已记）。
 
 ## 8. 不做与风险
 
 - 不做：GitHub Release 与 tag（npm 是发布渠道；旧 Releases 页面留给 0.10.x）；CI 里跑 e2e；CI 里的 llmlint 网页构建；Windows、macOS 的 CI；CI 自动发布；官网文档站重建；后台运行（`nbook service`）与旧作品管理命令的合并（都在 Work 的后续事项）；9 个源码包的版本变化。
+- 不做：`asset-urls.test.ts` 的“失同步”用例在整包负载下 5 秒超时（单跑都过），记进 Work 的后续事项，不在本期改。
 - 风险：0.11.0 一旦发出去就不能再用这个号。门禁会先跑生成与 smoke，失败就停；smoke 用的是即将发布的那份生成物。
 - 风险：`bunx -p` 第一次运行要从 registry 下载 SDK 与构建依赖（Vite 等），直连慢时作者会以为卡住；作者文档写一句“第一次要下载依赖”。
 
 ## 9. 待开发者确认
 
-1. 看板娘用 `.local/brand/mascot.png`（神谕叙事织者）的正面全身像（推荐）；`.local/mascot/` 下另有十几张候选母版，要换哪一张告诉我。
-2. CI 删掉 llmlint 网页的构建（推荐，它自带锁文件、构建产物原本给部署用）；还要的话保留成一个按需的 job。
+1. 看板娘用 `.local/brand/mascot.png`（神谕叙事织者）的正面全身像（推荐）。这是第一张进入公开仓库的角色图，仓库是 AGPL-3.0，要定图片按什么许可：随仓库的 AGPL（推荐，最简单），还是另行保留权利（在 `docs/images/readme/README.md` 写明“品牌图片不随代码许可授权”）。
+2. llmlint 包的测试在干净机器上缺网页的前置（审查 F14），三选一：
+   - (a) CI 的 `check` job 在 `test:affected` 前给 llmlint 网页装依赖、跑 `nuxt prepare`（只装、不构建、不上传），本地的说明写进 llmlint 的 README（推荐：改动最小，llmlint 仍在用）；
+   - (b) 把导入 `../web/` 的测试挪到网页自己那边，`llmlint` 包的检查不再碰网页（更干净，但要动 llmlint 二十多个测试文件，超出本期）；
+   - (c) llmlint 待退役的话，`test:affected` 像旧应用一样跳过它。
+
+## 10. 计划审查的处理
+
+omp 审查（`evidences/p3-plan-review.txt`）写到 F11 时额度用完退出，剩下的部分由 Claude Opus 接手补审（F12 到 F17）。阻断 1、重要 11、建议 4。
+
+| 编号 | 级别 | 处理 |
+|---|---|---|
+| F16 | 阻断 | 成立，要改：新增 S0（3.0）；第二期漏下的错误，复现见 3.0 |
+| F01 | 重要 | 成立，要改：SDK 清单补发布元数据、LICENSE 与许可清单，`release:check` 查生成的清单（3.2、3.3） |
+| F02 | 重要 | 成立，要改：smoke 打的 tarball 带 SHA-256 清单，发布直接发这些 tarball（3.2） |
+| F03、F09 | 重要 | 成立，要改：`yamlPaths` 的旧 workflow 随核对 workflow 的部分一起删，剩下的并进 `governance:check`（3.4） |
+| F04 | 重要 | 不成立：`^0.11.0` 不接受 0.12 是 0.x 下有意的语义（plugin-api 写明 minor 变化可能不兼容）；示例与模板不写 `engines` 时构建取当时的产品版本，跟着走；SDK 从没发布，外面没有按 0.1.0 构建的插件。示例 `notes` 的 `pluginVersions` 指的是示例插件 clock 自己的版本，与产品版本无关 |
+| F05 | 重要 | 成立，要改：先 `merge-base`，失败就 `--all`（3.4） |
+| F06 | 重要 | 部分成立：ADR 0033 已补充 ADR 0029 决定 6，ADR 不改；计划里“`release:check` 核对 README”是错的，删掉，改成实施时逐个核对，注释改写（3.2、第 5 节） |
+| F07 | 重要 | 成立，要改：接口与测试一起删；已有依赖照 Spec 保留（3.3） |
+| F11 | 重要 | 成立，要改：发布门禁查 HEAD 已在 `origin/master`，步骤里先推送（3.2、第 7 节） |
+| F12 | 重要 | 成立，要改：社区文件检查并进 `governance:check`（3.4） |
+| F14 | 重要 | 成立，处理方式交开发者（第 9 节第 2 项） |
+| F15 | 重要 | 成立，要改：推 master 不取消旧轮（3.4） |
+| F08 | 建议 | 成立，要改：smoke 每步用空临时目录与临时 `BUN_INSTALL`、`HOME`，核对 SDK 版本一致（3.2） |
+| F10 | 建议 | 成立，要改：收口写明跑应用包 e2e（第 5 节） |
+| F13 | 建议 | 成立，要改：依赖图补测试，列出不再跑的三项与理由，引用清单写全（3.4） |
+| F17 | 建议 | 成立，要改：时限按实测定；负载下超时的用例记后续（3.4、第 8 节） |
+
+补审对第 9 节原两项的判断：看板娘同意，另提出许可问题（现第 1 项）；llmlint 网页构建同意删，但前置不能一起删（现第 2 项）。

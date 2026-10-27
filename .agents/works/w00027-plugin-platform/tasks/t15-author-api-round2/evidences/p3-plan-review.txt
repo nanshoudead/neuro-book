@@ -1,0 +1,202 @@
+# w00027 t15 第三期计划只读设计审查
+
+审查基线：`0f627a12f`；计划：主工作区 `plan-phase3.md`（2026-10-27）。E1 到 E6 按已定决定处理，不重新讨论。以下按核实顺序追加发现；最终影响排序与数量在文末。
+
+## 发现 F01：SDK 生成清单没有发布元数据与许可证，计划明确绕过这部分门禁
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：计划第 3.2 节、第 3.3 节；`packages/neuro-book/plugin-sdk/pack.ts:385-401`；`scripts/release/packages.ts:117-129`；`packages/neuro-book/plugin-sdk/pack.test.ts:155-170`。
+- **现象**：计划让 `release:check` 对两个生成包只查版本，并声称生成物检查已由现有测试覆盖；SDK 的生成 `package.json` 实际没有 `license`、`files`、`repository`、`publishConfig`，打包过程也没有复制 `LICENSE`。应用打包器有这 5 项，SDK 没有。现有 SDK 测试只核对 peer、入口、文件与作者可用性，没有发布元数据或许可证断言。
+- **为什么是问题**：新增公开分发的 SDK 直接绕过现有 npm 清单合同；SDK bundle 包含内核与 nb-ui 的实现，却不随包提供仓库的 AGPL 文本，npm 页面也没有许可证与源码归属信息。`bun publish --access public` 只能补访问级别，不能补这些内容。
+- **如何核实**：逐行读取上述生成清单、`buildSdk` 全部文件复制步骤、SDK 打包测试与 `checkReleasePackages` 的实际检查；没有执行 registry 写入。
+- **建议改法**：在 S2/S3 明确补齐 SDK 的 `LICENSE`、`license`、`files` 白名单、`repository` 与 `publishConfig.access`，在真实生成目录上复用适用于生成包的发布清单检查；不要把“只查版本”当成发布资格。为许可证和白名单补实际 tarball 验收。
+
+## 发现 F02：Smoke 验证的 tarball 与实际发布输入不是同一份物件
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：计划第 3.2 节第 3 点与第 4 点、第 8 节风险。
+- **现象**：计划发布前先生成 `dist/app-package` 与 `dist/plugin-sdk`，`--from pack` 为 smoke 再从生成目录打 tarball；实际发布仍对生成目录运行 `bun publish`，会重新打包，而不是发布 smoke 刚验过的 tarball。`publish.ts` 现有 9 个源码包也是直接在目录里 `bun publish`（`scripts/release/publish.ts:121-129`）；新增生成目录位于 Git 忽略的 `dist/`，现有 dirty gate 不覆盖它们（`publish.ts:74-80`）。
+- **为什么是问题**：没有不可变的发布输入或摘要关联，Smoke 成功并不能证明最终上传的字节就是那份已验证包；重新打包时可能因目录内容变化、文件筛选、元数据或打包器行为不同而发布未验证物件。违反“发出去的就是 smoke 过的那份生成物”的发布不变量。
+- **如何核实**：读取 `scripts/release/publish.ts:74-80,121-129`、`scripts/release/pack-smoke.ts:53-67` 与计划第 3.2 节；不需 registry 写入。
+- **建议改法**：发布与 smoke 共用同一组 tarball 文件：build 一次，生成 tarball，Smoke 从这些文件安装并验收，发布也从这些文件发布；保存并核对每个 tarball 的 SHA-256，禁止 Smoke 后重新构建或重新打包。若 Bun publish 无法直接发布指定 tarball，改成发布 smoke 后冻结的目录快照并核对其 tarball 字节/哈希。
+
+## 发现 F03：重建 workflow 后，社区校验仍会读取已删除的三个旧 YAML
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 3.4 节第 3 点、第 5 节 S4。
+- **现象**：计划删除 `community-docs.yml`、`code-baseline.yml`、`workspace-packages.yml` 并加入 `ci.yml`，但仅列出删 `validateWorkflows` 与它专用的常量，没有列出更新 `validate-community-files.ts` 的 `yamlPaths`。当前 `yamlPaths` 在校验开头无条件解析上述三个旧文件（`scripts/ci/validate-community-files.ts:165-172,493-510`），删除后 `bun scripts/ci/validate-community-files.ts` 会因读取不存在文件直接失败。
+- **为什么是问题**：计划自身的 CI S4 验证命令与社区文件门禁必然失败；若只删 workflow 语义校验而遗漏 YAML 列表，所有 CI 推送都会失败。
+- **如何核实**：运行 `bun scripts/ci/validate-community-files.ts`；当前基线仍有旧 workflow，因此预期当前通过；在实现中删除旧 workflow 后会在 `validateYaml()` 处读到 ENOENT。静态依据如上行号。
+- **建议改法**：把 `yamlPaths` 中旧 workflow 条目替换为 `ci.yml`，或明确把 workflow YAML 解析也全部移出该检查并由必跑的 actionlint/等价校验覆盖；加一条覆盖“新 workflow 能被解析、旧路径不再被读取”的检查。
+
+## 发现 F04：`^0.11.0` 会拒绝当前所有 `0.1.0` 插件示例，计划把“版本更新”写成只改版本号
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 3.1 节第 2 点、第 6 节“版本一致”；`docs/specs/runtime/plugin-api.md:175`；`packages/neuro-book/src/plugin-platform/build/build-plugin.ts:554-556`；`packages/neuro-book/plugin-sdk/template/_package.json:4` 与 `template/shared/contracts.ts:12`。
+- **现象**：新建插件缺省 engine 是 `^<产品版本>`，产品从 `0.1.0` 升至 `0.11.0` 后模板生成 `^0.11.0`。semver 的 caret 对 0.x 锁定 minor；现有示例声明 `engines.neurobook: ">=0.1.0"` 的可运行性要重新核验；未指定 engine 的旧插件默认 `^0.1.0` 不再兼容 `0.11.0`。计划说“示例插件自己的版本与产品无关，不动”，但 engine 约束并非插件自己的版本。另有 `pluginVersions` 依赖可能同样按 `^0.1.0` 与示例插件版本耦合。
+- **为什么是问题**：SDK 兼容合同明说 NeuroBook 0.x 的 minor 号变化可能不兼容；同一 0.x minor 内的 `^` 不跨 minor。只改产品版本就会让新用户生成的插件不能安装到稍后发布的 0.12.x，且当前内置演示插件/插件互依赖可能因构建清单、插件兼容范围变化而失效。计划没有定义示例插件的最低兼容版本与对照验证。
+- **如何核实**：读 `plugin-api` 的兼容条款、`build-plugin.ts` 默认 engine、模板 package 与 SDK tests；按 Node semver 规则判断 `^0.11.0` 不匹配 `0.12.0`，并需在实施时跑模板和示例闭环。
+- **建议改法**：版本切片列出所有用户可安装示例中的 `engines.neurobook` 与 `pluginVersions`，将“示例插件自己的 version 不动”与“兼容范围要随产品改变”分开。更新适用范围并用真实构建的全部示例/插件组合验证当前版本可安装、依赖可满足；将预期兼容区间写到 SDK 文档/Spec，不只改测试。
+
+## 发现 F05：`test:affected` 的 GitHub `--since` 缺少三种边界处理，强推边界没有被覆盖
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 3.4 节第 2 点、第 5 节 S4、第 6 节“CI”；`scripts/ci/change-scope.ts:78-89`。
+- **现象**：计划给 `test:affected --since <基准>` 传 PR base SHA 或 push 的 `github.event.before`，只在 before 全零或“不在历史里”时传 `--all`。实际 `changedFiles()` 对 `--since` 无回退逻辑，直接 `git merge-base <since> HEAD`，不存在或非共同祖先时执行器抛错；PR 的 base SHA 在分支改写/浅历史缺失时同样失败。`github.event.before` 对删除分支、首次推送和非快进更新应明确分支条件，而不只是全零检测。
+- **为什么是问题**：新工作流在合法 push 边界可直接红灯，而非运行全量验证。计划把“不在历史里”近似为可检查条件，但没有定义这是指对象不存在还是无 merge-base；强推的 before 常仍是可达对象，只是与 HEAD 无 merge-base，正好不会被“无效 SHA”判断捕获。
+- **如何核实**：读 `scripts/ci/change-scope.ts:78-89` 并确认它无异常转换；在临时 Git 仓库造一个与当前 HEAD 不相交的 before，执行 `bun run governance:check --since <sha>` / `bun run test:affected --since <sha> --dry-run`，应在 merge-base 失败退出；不要改仓库。
+- **建议改法**：先在 workflow 中对基准执行 `git merge-base`，退出非零（包括合法 SHA 但无共同祖先）时明确传 `--all`；覆盖 push 删除/新建分支、首次推送、强推、checkout fetch 完整性及正常 fast-forward 的工作流合同测试。PR base 缺失也按明确定义回退全量。
+
+## 发现 F06：README 包列表的强制同步规则没有被新计划满足，`release:check` 也不检查根 README
+
+- **严重程度**：重要；**类别**：文档。
+- **位置**：计划第 3.5 节根 README/npm 包表、第 5 节 S5、第 6 节“README 包列表”；`scripts/release/packages.ts:14-25,110-147`；`README.md:184-203`；`README.en.md:169-167`。
+- **现象**：发布清单源码注释要求“加包时同步 ADR 0029 与根 README 的列表”；本期会新增 `@notnotype/neuro-book` 与 `@notnotype/nb-plugin-sdk`，但计划只说“npm 包表加上应用与 SDK”，没有写进 ADR 0029 更新（该 ADR 标题/决定仍只覆盖 9 个源码包，决定 6 仍排除应用），也未列出让 `release:check` 核对根 README 的实现。现有 `release:check` 只读 `RELEASE_PACKAGES` 对应包，不读取 README。
+- **为什么是问题**：发布成功时可能出现根 README、ADR 与实际新增包清单不一致；S5 写的 `release:check（README 的包列表）` 当前并不具备这个行为，验收是假门禁。该项目已有明确的发布清单维护约定，新增两个发布物正是它要求同步的情况。
+- **如何核实**：读 `packages.ts:14-25,110-147`，调用路径为 `bun run release:check`；该脚本的默认参数加载 9 个目录，没有 README 校验。
+- **建议改法**：计划明确 ADR 0029 的适用范围和“新应用/SDK”与 9 个源码包的关系：旧 ADR 保持历史决策时，新增补充 ADR/决定记录，不把历史 ADR 的范围悄悄扩写；根 README 两种语言的实际包名列表要和 `RELEASE_PACKAGES + BUILT_PACKAGES` 对齐。要把 README 写进 `release:check` 就在计划列出实现与可观察测试，否则删掉 S5 对它的验收声称，改用 `docs:check` 或专门文档合同验证。
+
+## 发现 F07：`create-plugin.ts` 返回合同变化没有明确跟进类型与所有测试调用方
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 3.3 节第 1 点；`packages/neuro-book/plugin-sdk/create-plugin.ts:55-62,66-101`；`packages/neuro-book/plugin-sdk/cli.ts:41-50`；`packages/neuro-book/plugin-sdk/template.test.ts:137-146`。
+- **现象**：计划指出删除“registry 版本装不上”的返回字段与提示，但 `CreatePluginResult.sdkFromRegistry` 不只用于 CLI 提示：`template.test.ts` 直接断言提示；`create-plugin.ts` 中 `sdkFromRegistry` 仍由 `isRegistrySpec` 判断并被 `createPlugin` 返回。计划没有要求删掉不再使用的 `isRegistrySpec`、`sdkSpecOf` 和创建结果字段的所有引用，也没有说明现有测试要改成何种新行为。
+- **为什么是问题**：照文字只删 CLI 提示会留下失效的结果字段/计算；若直接删除字段但没更新模板测试和类型引用，测试失败或无意义的状态仍保留。并且模板允许保留已有 `@notnotype/nb-plugin-sdk` 范围：默认创建出来会改成 `^0.11.0`，但已有 `^0.1.0` 会原样保留；所谓“装得到”并不保证用户安装的是运行 `create` 的同一 SDK 版本。
+- **如何核实**：检查 `createPlugin` 的 `sdkFromRegistry` 完整生产与消费调用点、`template.test.ts` 断言；读 `mergePackage`（`create-plugin.ts:175-205`）确认已有依赖优先保留。
+- **建议改法**：把结果类型、内部检测函数、CLI 文案、所有调用方与测试作为一个接口切片一并删除，测试改测可观察行为（生成的依赖版本与后续安装结果）；计划第 3.3 节第 3 点显式处理 `create` 对已有 SDK 依赖的保留政策，保证其运行版本与文件写出的范围一致，或明确这是作者自选 pin 而不做隐式改写。
+
+## 发现 F08：作者的“同版本 SDK”烟测没有建立目录隔离，命令会在存在的 package.json 上下文中解析 SDK
+
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：计划第 3.2 节第 2 点与第 3.3 节第 3 点、第 6 节；`packages/neuro-book/plugin-sdk/create-plugin.ts:26-30,66-75`。
+- **现象**：计划脚手架 smoke 把 `bunx -p <SDK> nbooke create hello` 与 `bun install` 放在“仓库外的临时目录”描述不清楚，也未说明 `bunx` 的执行工作目录与 SDK 安装缓存、作者项目根如何隔离。`create` 允许目标目录已有 `package.json`，并会按它已有 SDK 依赖保留；若目标是现存项目的子目录或将当前目录直接拿作 create 目标，生成 manifest 可能继续用旧的依赖范围，而 `bunx -p` 使用的 SDK 版本由 Bun 的 package 安装/缓存决定，不由该现存项目依赖决定。
+- **为什么是问题**：烟测可能只证明临时空目录默认路径，不覆盖产品点名的“在已有 package.json 的上级目录里执行”。`bunx` 与 `bun install` 可能解析不同包版本；该组合是计划第 3.3 节要证明的关键前提。现有 `createPlugin` 对已有 `package.json` 的明确优先级证明了输入状态会影响输出范围。
+- **如何核实**：`bunx --help` 显示 `-p` 直接安装到全局共享 cache；读 `create-plugin.ts:175-205` 可见已有依赖被 merge 保留。需要在 smoke 增加真实命令调用，分别在干净的临时作者根、以及已有 `package.json` 的父目录/项目中运行并读解析后的 SDK 版本；本次未联网操作，不声称已验证该特定 Bun 解析时序。
+- **建议改法**：把 smoke 的作者项目、执行 cwd、BUN_INSTALL/cache、`--sdk`/已有 SDK 依赖版本与安装命令逐项写清。用隔离的临时 `BUN_INSTALL` 与临时作者项目实测版本号相等；另测已有项目的显式依赖策略，不依赖 `bunx` 缓存碰巧与项目 lockfile 相同。若要保证一致，CLI 应使用自身实际版本重写 SDK 依赖范围，或对冲突范围报错并要求显式选择。
+
+## 发现 F09：CI 新 workflow 删除旧 workflow 后，计划仍保留旧 YAML 的无条件解析入口
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 3.4 节第 3 点；`scripts/ci/validate-community-files.ts:165-172,493-510`。
+- **现象**：与 F03 同属一个已核实根因，补充具体调用链：`validate-community-files.ts` 的 `main()` 每次先 `validateYaml()`，旧 workflow 名在 `yamlPaths` 内；后面才执行 `validateWorkflows()`。计划说移除后者的“逐字核对 workflow 内容”，但没提前置 YAML 解析清单。
+- **为什么是问题**：不管旧结构测试如何删，新的 `ci.yml` 只要没有同步替换旧的 YAML 路径，S4 指定的 `bun scripts/ci/validate-community-files.ts` 会在尝试读旧文件时先报 `ENOENT`，无法跑到 Issue Form、贡献指南检查。
+- **如何核实**：实际代码 `validateYaml()` 遍历所有 `yamlPaths`，`readRepoFile` 用 `readFile` 无 `ENOENT` fallback；构建本地隔离副本删除旧 workflow 后执行即可复现。由于是同根因，最终计数与 F03 合并，不重复计条。
+- **建议改法**：如 F03，将 `yamlPaths` 旧项替换成 `ci.yml` 或删除 workflow YAML 解析责任，并将新检查纳入 CI。
+
+## 发现 F10：计划允许 CI 运行 affected 的新应用检查，但 `app-package` 提交产物未包含可见 UI/browser 验收
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：计划第 3.4 节第 2 点、第 5 节 S4、第 6 节 CI 映射。
+- **现象**：CI 的 `app-package` job 会构建 Web 与两包并跑 `smoke:server`；`test:affected` 的 fast tier 包脚本是 Bun + Vitest，排除 `test:e2e`。虽然按 E4 不应在 GitHub Actions 跑 e2e，计划只把“干净机器构建成功”作为 CI 判据，没有把 browser runtime 检查放到本地 S4/S5 的正式 Smoke 验收之外。计划收口列了全量 e2e，因此属于边界说明不足而非遗漏全部测试。
+- **为什么是问题**：`build:app-package` / `build:sdk` 只能证明能生成目录与 tarball，`smoke:server` 不会打开生成应用包的页面；若把 CI 作为唯一自动化回归证据，生成包的浏览器入口未被这个新 CI job 实际加载。此处不能通过 CI Chrome 解决，因为产品合同规定 browser e2e 在本地跑。
+- **如何核实**：读 `packages/neuro-book/package.json:13-27` 与 `scripts/ci/workspace-package-matrix.ts:73-76`，观察 `test:affected --tier fast` 只调用 `test`，没有 `test:e2e`；`smoke-server.ts` 是服务器进程测试。
+- **建议改法**：保留 E4，不给 CI 加 e2e；计划在 S4 的本机验证与收口中明确用真实生成的 `app-package` tarball 做已有 `e2e/app-package.e2e.ts` smoke（Chrome、Node，真实 `BUN_INSTALL`），并说明这条本地证据是 CI build job 的浏览器运行时补充，而不是构建成功的替代。
+
+## 发现 F11：npm README 的绝对图片地址会在本地发布先于 GitHub push 时返回 404
+
+- **严重程度**：重要；**类别**：文档。
+- **位置**：计划第 3.5 节第 6–7 点与第 8 节；发布命令第 7 节第 2 点。
+- **现象**：计划要把图片放进 `docs/images/readme/`，并在 npm 页面用 GitHub 上的绝对地址；发布流程是先合入本地 `master` 再 `release:check`/`release:smoke`/`release:publish`，没有先 push 此提交的步骤（远端 push 还要另授权）。GitHub 上的 raw/README 路径在新文件提交尚未 push 时不存在。
+- **为什么是问题**：npm 包页面在发布当下读到的绝对 URL 是 404，且因为本次明确不建 GitHub Release/tag，没有已上传的版本化附件兜底；待后续 push 后 URL 才恢复。计划未定义“图片要随远端提交可读后才能 npm publish”的顺序或一致性门禁。
+- **如何核实**：追踪发布第 7 节的步骤列表与 README 绝对地址目标；使用 `curl -I <拟用的 raw GitHub URL>` 在未 push 时会返回未找到（该 URL 尚未在计划中确定，本次不伪造 HTTP 结果）。
+- **建议改法**：文档写明图片 raw URL 的永久路径与 branch；发布流程必须先保证对应文件已在远端可读，再发布 npm（push 必须由开发者逐次授权），或使用 npm 包内相对路径且只让包内 README 使用相对图片；根 README 仍用 GitHub raw URL。加上无网络写入的链接合同检查并在远端可读后做一次只读 HEAD 验证。
+
+
+## 以下由 Claude Opus 接手补审（omp 额度用完）
+
+补审范围：重点第 3 条在干净机器上的可行性、审查维度第 7 条（别扭与反常）、第 9 节待确认项、各级数量。编号从 F12 起，与 F01 到 F11 不重复。
+
+## 发现 F12：新 CI 仍保留一份只有 CI 会跑的检查（`validate-community-files.ts`），与计划自己定的“CI 只是本地门禁再跑一遍”相反
+
+- **严重程度**：重要；**类别**：代码质量（结构）。
+- **位置**：计划第 2 节“CI 跑什么”、第 3.4 节 job `check` 第 4 步；`scripts/ci/validate-community-files.ts`；`scripts/tsconfig.json:19-32`；根 `package.json:36-47`。
+- **现象**：计划第 2 节说 CI 与本地验证门禁用同一套命令、否决 CI 专用检查；第 3.4 节却在 `check` job 里单独跑 `bun scripts/ci/validate-community-files.ts`。在基线 `0f627a12f` 上 `git grep validate-community-files` 只命中 `.github/workflows/community-docs.yml` 与脚本自身、`workspace-workflows.test.ts`：没有 npm script，`governance:check`、`docs:check`、`test:affected` 都不调用它，`scripts/tsconfig.json` 的 `include` 也不含它（根脚本的 `tsc -p scripts/tsconfig.json` 不检查它的类型）。本地门禁（`docs/testing/README.md#验证门禁`）同样不提它。
+- **为什么是问题**：计划第 1 节给出的现状正是这种检查的后果：Community and Docs Checks 从 10-14 起一直红，没人在本地看到。重建后它仍然只在 CI 上跑，Issue 表单、标签、贡献指南的任何改动或这份脚本自身的漂移，本地 `governance:check` 照样全绿，只在推上去后才红；而且推 master 后才发现，修复要再提交一次。这不是“本地门禁在干净机器上再跑一遍”，而是继续另立一套规则。
+- **如何核实**：`git -C .worktree/review-t15-p3 grep -n validate-community-files -- ':!.agents'`；读 `scripts/tsconfig.json` 的 `include`；读 `scripts/ci/agent-governance.ts` 无相关调用。
+- **建议改法**：二选一，在 S4 写明：把剩下的 Issue 表单、标签、贡献指南检查并进 `governance:check`（或 `docs:check`），CI 只跑这两个命令；或者至少给它一个根 `package.json` 脚本、加进 `scripts/tsconfig.json`，并在 `docs/testing/README.md#验证门禁` 写明改 `.github/` 或贡献指南时本地要跑它。前者更符合计划第 2 节的原则。
+
+## 发现 F13：删 `workspace-package-matrix.ts` 的 CI 部分会带走依赖图唯一的真实测试，并悄悄丢掉三个包的额外检查；引用清单不全
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：计划第 3.4 节“删掉的检查代码”；`scripts/ci/workspace-package-matrix.ts:11-87,129-191`；`scripts/ci/workspace-workflows.test.ts:161-185`；`scripts/cli/test-affected.ts:9,64-66,96-98,213`；`scripts/cli/test-affected.test.ts:14-20,54`；`scripts/tsconfig.json:24`。
+- **现象**：
+  1. `workspaceDependencyGraph`（读真实 `packages/*/package.json` 建反向依赖）唯一的测试是 `workspace-workflows.test.ts:161` 经 `selectWorkspaceMatrix` 间接跑的“按反向依赖闭包收缩矩阵”；`test-affected.test.ts` 用手写的 `CONSUMERS_OF` 假图，不碰真实图。计划删掉这份元测试、保留依赖图，图读取就没有测试了，而它正是 CI 选包是否漏包的根据。
+  2. 旧矩阵里有三条不只是 `typecheck`+`test` 的命令：`nb-ui` 的 `bun run build`（`nuxt build playground`）、`neuro-agent-harness` 的 `verify`+`pack:smoke`、`llmlint` 的 `verify`（含 `llmlint.ts --version`、`rules`、`guide` 三条命令行冒烟）。`test:affected` 只跑 `typecheck` 与 `test`，这几项在新 CI 里不再有人跑；`neuro-book` 的 `smoke:server`、`build:web`、`check:dist` 由 `app-package` job 接上了，另外三项计划没提。
+  3. 实施时要跟着改的引用，计划只写了“实施时看引用决定”：`scripts/tsconfig.json:24` 的 `include` 项、`test-affected.ts:9` 的导入、`test-affected.ts:64-66` 的注释（“根脚本测试覆盖……workflow 文件的结构合同”，删后不成立）、`:96-98` 的注释（“与 CI 选包同一套依赖闭包”）、`test-affected.test.ts:54` 用 `.github/workflows/code-baseline.yml` 当例子。`tsc` 对 `include` 里不存在的单个路径不报错，漏改不会被类型检查拦下。
+- **为什么是问题**：第 1 条让“CI 选包靠依赖图”这一前提没有测试守着，新包写错依赖字段或换成 `peerDependencies` 时 CI 静默少测；第 2 条是删了检查却没在计划里写明取舍，后来者以为还在跑；第 3 条留下与事实相反的注释。
+- **如何核实**：`git grep -n "workspaceDependencyGraph\|selectWorkspaceMatrix" -- scripts`；读 `workspace-package-matrix.ts:11-87` 各行 `commands`。
+- **建议改法**：依赖图挪进 `change-scope.ts`（或独立文件）时，给它补一条读临时 `packages/` 目录的测试（两三个假包，断言反向闭包），放进 `scripts/ci/change-scope.test.ts`；计划第 3.4 节列出被丢掉的三项额外检查并写明“不再在 CI 跑”的理由（`neuro-agent-harness` 已冻结、`llmlint` 网页不进 CI 等），或者把需要保留的放进各包 `test` 脚本；把上面 5 处引用写进 S4 的改动清单。
+
+## 发现 F14：干净机器上 `llmlint` 的 `typecheck` 与 `test` 都失败；它们依赖计划要从 CI 去掉的 llmlint 网页依赖与 `nuxt prepare`
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 3.4 节 job `check` 末步与“llmlint 的 Nuxt 网页不进 CI”、第 9 节第 2 项；`packages/llmlint/package.json` 的 `typecheck`、`test`；`packages/llmlint/web/tsconfig.json`（`"extends": "./.nuxt/tsconfig.json"`）；`packages/llmlint/web/app/utils/llm-merge.ts:12`；旧 `.github/workflows/workspace-packages.yml:68-75`。
+- **现象**：旧 CI 在跑 `llmlint` 包检查前专门做两步：`packages/llmlint/web` 里 `bun install --frozen-lockfile` 与 `bunx nuxt prepare`（`workspace-packages.yml:68-75`）。原因是 `llmlint/tests/` 有 20 多个文件直接导入 `../web/...`，而 `web/tsconfig.json` 继承 Nuxt 生成的 `.nuxt/tsconfig.json`；`web/app/utils/llm-merge.ts` 导入的 `diff-match-patch` 只在网页自带的 `web/package.json` 里，根锁文件没有。计划把网页依赖与 `nuxt prepare` 一并移出 CI，`check` job 只做根 `bun install`。
+  实测（干净克隆 `0f627a12f`，空 `HOME`，`CI=true`，根 `bun install --frozen-lockfile` 成功，1594 个包）：
+  - `bun run typecheck`（`packages/llmlint`）：退出码 2，`web/app/utils/llm-merge.ts(12,28): error TS2307: Cannot find module 'diff-match-patch'`；
+  - `bun run test`：退出码 1，`Test Files 24 failed | 12 passed (36)`，失败原因都是 `[TSCONFIG_ERROR] Failed to load tsconfig for 'web/...': Tsconfig not found`。
+  主工作区与各 worktree 也都没有 `packages/llmlint/web/.nuxt` 与网页 `node_modules`，所以本机同样失败，是既有失败，只是以前的 CI 替它补了前置。
+- **为什么是问题**：`test:affected` 在以下情况都会选中 `llmlint`：`llmlint` 本身有改动；`neuro-agent-harness` 有改动（反向依赖闭包）；`bun.lock`、`bunfig.toml`、`patches/` 有改动（全选）；`workflow_dispatch` 或 F05 的回退走 `--all`。这些情况下 `check` job 必红，而且与本次改动无关。计划 S4 的本机 `--all` 一次也会撞上，届时只能临场决定怎么处理。第 9 节第 2 项“删掉 llmlint 网页的构建”问的是网页构建，这条耦合没有写进去，开发者据此拍板时看不到代价。
+- **如何核实**：在 `scratch/clean`（干净克隆）里 `HOME=<空目录> CI=true bun install --frozen-lockfile` 后，`cd packages/llmlint && bun run typecheck; bun run test`。日志在 `scratch/tc-llmlint.log`、`scratch/test-llmlint.log`。
+- **建议改法**：计划第 3.4 节明确三选一：（1）`check` job 在 `test:affected` 前照旧给 llmlint 网页装依赖并 `nuxt prepare`（只装、不构建、不上传产物），网页构建仍不进 CI；（2）把导入 `../web/` 的测试挪进网页自己的测试，`llmlint` 包的 `typecheck`/`test` 不再碰网页；（3）`neuro-agent-harness` 已冻结、llmlint 待退役的话，`test:affected` 给 `llmlint` 一个明确的跳过理由（与旧应用同样处理）。不管选哪种，都要把“本机照 `ci.yml` 跑一遍”改成在干净克隆上跑（`git clone` + 空 `HOME` + `bun install --frozen-lockfile`），否则本机残留的生成物会掩盖这类前置缺失。
+
+## 发现 F15：推 master 时“新的一轮取消旧的”与按 `github.event.before` 选包叠加，被取消那次推送的改动永远不会在 CI 上测
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划第 3.4 节“触发”（“同一分支或 PR 新的一轮取消旧的”）与“基准”（推 master 用 `github.event.before`）。
+- **现象**：两条规则单看都常见，合在一起有洞。推送 P1（`A..B`，改了 `nb-ui`）触发运行 R1，基准 `A`；几分钟内推送 P2（`B..C`，只改文档）触发 R2，按计划的 concurrency 取消 R1；R2 的基准是 P2 的 `github.event.before`，即 `B`，`test:affected --since B` 只看到文档改动，不选 `nb-ui`。`B` 的改动从此没有任何一轮 CI 跑完过，而 R2 是绿的。本仓库的做法是本地连续合入、再推 master，几次推送挨得近是常态（计划第 1 节也说各包测试从 09-12 起就没在 CI 上跑过，说明没人盯着每次运行）。
+- **为什么是问题**：CI 的意义是“合入的东西在干净机器上验证过”；按改动选包时，每轮只对自己那段提交负责，取消一轮就等于跳过一段提交，且结果显示为绿，没有任何信号。PR 上取消旧轮没问题（新一轮的基准是 PR base，覆盖全部提交），push 上不行。
+- **如何核实**：读计划第 3.4 节两条规则；GitHub Actions 的 `concurrency.cancel-in-progress` 会把同组排队或运行中的旧运行标为 cancelled，`push` 事件的 `before` 只是这次推送前的分支头，不是“上次成功验证的提交”。不需要实验，按定义推演即可。
+- **建议改法**：二选一写进 `ci.yml` 的设计：（1）concurrency 只对 `pull_request` 取消旧轮，`push` 到 master 排队不取消（`cancel-in-progress: ${{ github.event_name == 'pull_request' }}`），代价是密集推送时多跑几轮；（2）push 时基准不用 `github.event.before`，而取 master 上一次 `check` 成功的提交（`gh run list --workflow ci.yml --branch master --status success --limit 1 --json headSha`，需要 `actions: read` 权限），取不到就 `--all`。（1）更简单，推荐。S4 的工作流验收补一条“连续两次推送、第一轮被取消时第二轮覆盖哪些包”的说明或测试。
+
+## 发现 F16：`bun run build:app-package` 在主工作区与干净机器上都失败；第二期的绿是 worktree 碰巧解析到主工作区的 `node_modules`
+
+- **严重程度**：阻断；**类别**：正确性。
+- **位置**：计划第 3.2 节（`publish.ts` 先跑 `bun run build:app-package`）、第 3.4 节 job `app-package`、第 5 节 S3/S4；`packages/neuro-book/scripts/pack-app.ts:33,84-92`（`bundle()`：`packages.add(resolve(repoRoot, match[1]!))`）、`:63-67,168-170`（`clearPreviousApp`）；`packages/neuro-book/scripts/pack-app.test.ts`；`packages/neuro-book/e2e/app-package.e2e.ts:32`。
+- **现象**：`bundle()` 把 Bun metafile 的输入路径按 `repoRoot` 解析，但 Bun 的 metafile 路径是相对**当前工作目录**的。实测同一入口：在 `packages/neuro-book` 下运行得到 `../../node_modules/commander/esm.mjs`，在仓库根运行得到 `node_modules/commander/index.js`，在 `/tmp` 运行得到 `../home/.../node_modules/...`。`bun run build:app-package`、`bun test`、e2e 都以 `packages/neuro-book` 为工作目录，于是 `resolve(repoRoot, "../../node_modules/<包>")` 落到仓库根往上两层。
+  - 干净克隆（`0f627a12f`）`packages/neuro-book` 下 `bun run build:app-package`：`build`（server、web、`check:dist`）通过，`pack-app.ts` 以 `ENOENT ... plan-p3-review/node_modules/@nodable/entities/package.json` 失败，退出码 1。
+  - 同一克隆在仓库根运行 `bun packages/neuro-book/scripts/pack-app.ts <新目录>`：成功，打出 tarball。
+  - 主工作区（master `ad424bc76`）`packages/neuro-book` 下 `bun test scripts/pack-app.test.ts`：5 例 3 败，同样是 `ENOENT '/home/notnotype/node_modules/@nodable/entities/package.json'`；干净克隆里跑 `bun run test` 同样这 3 例失败。
+  - 第二期在 `.worktree/w00027-plugin-platform` 里验证：那里 `repoRoot/../../node_modules` 正好是主工作区的 `node_modules`（存在，含 `@nodable/entities`），所以测试与 e2e 都绿。也就是说当时生成的 THIRD-PARTY-NOTICES 读的是**另一个 checkout** 的包目录，版本不一定对。
+  - 附带：失败后 `dist/app-package` 里留下 `server/`、`web/` 而没有标记文件 `.nbook-app-package`，再跑一次被 `clearPreviousApp` 拒绝（“不是空的，也不是上次生成的……不清理”），必须手工删目录才能重跑。
+- **为什么是问题**：计划第 3.2 节的发布链、第 3.4 节的 `app-package` job、`check` job 里 `neuro-book` 的 `test`（`pack-app.test.ts` 3 例）都建立在 `build:app-package` 能用的前提上。照计划实施，CI 两个 job 第一次推送就红，`release:publish` 在“先跑两条生成命令”这一步停住；而在 Work 的 worktree 里实施与自测时一切照常通过，问题只会在主工作区、CI 或开发者本人执行发布时出现。重跑还要人工清目录，和计划第 8 节“失败就停”配合得不好。
+- **如何核实**：上面四条命令；日志在 `scratch/app-package.log`、`scratch/test-neuro-book.log`；metafile 路径的探针脚本 `scratch/probe/meta.ts`（`bun scratch/probe/meta.ts <入口> <输出目录>`，在不同目录下运行对比）。
+- **建议改法**：计划加一个先行切片（在 S3 之前）：`bundle()` 按 `process.cwd()` 解析 metafile 输入（或给 `Bun.build` 传 `root` 后按它解析），并在 `pack-app.test.ts` 里加一条“从包目录运行”的用例（现在的测试恰好不覆盖工作目录）；打包先写标记文件再写内容，或失败时删除未完成的输出目录，让重跑不需要人工介入。S4 的“本机照 `ci.yml` 跑一遍”必须在主工作区或干净克隆里做，不能在 `.worktree/` 下做：worktree 往上两层就是主工作区，这类相对路径错误在那里永远看不见。
+
+## 发现 F17：`check` job 的 30 分钟上限没有依据；全量时所有包串行，已经见到负载下的超时
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：计划第 3.4 节 job `check`（“ubuntu，30 分钟”）；`scripts/cli/test-affected.ts:242-245`（逐个包串行运行）；`packages/neuro-book/src/plugins/markdown/asset-urls.test.ts`。
+- **现象**：`--all`（`workflow_dispatch`、改 `bun.lock`、F05 的回退）时，`check` job 在一台机器上串行跑 19 个包的 `typecheck` 与 `test`。本机（干净克隆）部分实测：`nb-story` 的 `bun test` 236 秒，`neuro-book` 的 `bun test` 253 秒（之后的 Vitest 因前面失败没跑），`nb-story` 的 `typecheck` 约 75 秒；`dev-panel` 测试没跑（见下）。GitHub 的 ubuntu 标准机器是 4 核，比本机慢。另外，`neuro-book` 整包 `bun test` 时 `asset-urls.test.ts` 的“失同步（一批变化过多）”用例在 5002 毫秒超时，单独跑 3 次都通过，说明它对负载敏感，CI 上会是间歇失败。
+- **为什么是问题**：30 分钟是拍的数，全量一旦超时，job 被取消，看到的是“cancelled”而不是哪个包失败；间歇超时会让人习惯性地重跑而不看。
+- **如何核实**：日志 `scratch/test-nb-story.log`、`scratch/test-neuro-book.log`；`cd scratch/clean/packages/neuro-book && bun test src/plugins/markdown/asset-urls.test.ts` 连跑三次。
+- **建议改法**：S4 在干净克隆上实测一次 `bun run test:affected --all --typecheck` 的总时长，`timeout-minutes` 按实测的两倍左右定，写进计划；`asset-urls` 那条用例按 `docs/testing/README.md` 的“等可观察的状态”改掉固定时长依赖，或单独记一条 followup。时长不够时再考虑按包拆 job，现在不必。
+
+## 对前面发现的补充证据
+
+- F03：干净克隆上 `bun scripts/ci/validate-community-files.ts` 当前以 `Code Baseline governance 缺少命令：scripts/ci/workspace-workflows.test.ts` 失败；这是 `main()` 的最后一步 `validateWorkflows()`，说明前面的 YAML 解析、Issue 表单、标签、贡献指南、公开模板全部通过。删掉 `validateWorkflows` 并按 F03 改 `yamlPaths` 后，剩下的部分在干净机器上能过。
+- F08：`bunx -p <SDK tarball 的绝对路径> nbooke --help` 在临时 `BUN_INSTALL`、仓库外目录下可用（解析并下载 227 个包后打印 `nbooke` 用法），没有往当前目录或仓库写锁文件；所以计划 `--from pack` 模式里 `bunx -p <tarball>` 这一机制本身存在，F08 说的是版本一致与已有 `package.json` 的问题，不是机制不存在。
+
+## 第 9 节待确认项的判断
+
+1. 看板娘用 `mascot.png` 的正面全身像：同意推荐。要补一句：这是第一张进入公开仓库的角色设定图，仓库整体是 AGPL-3.0，README 或 `docs/images/readme/README.md` 里要写明图片的许可（随仓库许可，或另行保留权利），由开发者定；字标与心情小猫已有先例（`src/ui/brand/`），不涉及新问题。
+2. CI 删掉 llmlint 网页的构建：同意删构建与上传产物，但不能连网页依赖安装与 `nuxt prepare` 一起删，否则 `llmlint` 包自己的 `typecheck` 与 `test` 在 CI 上必红（见 F14）；开发者拍板时应同时看到 F14 的三种处理。
+
+## 未发现问题的方面（第 3 条重点逐项）
+
+- `resolveAgentScratchPath("test-affected")` 落在 `os.tmpdir()/neuro-book/test-affected`，junit 报告目录用 `mkdtempSync` 建、`finally` 删；在 Linux 干净机器上没有前置要求，路径长度远低于 240。
+- `@notnotype/neuro-book-test-support/vitest` 的 globalSetup 只依赖系统临时目录，不读 `HOME` 下的配置；各包 Vitest 都是 `happy-dom`，没有浏览器模式。`scripts` 的 Vitest 在干净克隆、空 `HOME` 下 10 个文件 121 例全过。
+- 用到 git 提交的测试（`dev-panel` 的 `git-fixture.ts`、`agent-governance.test.ts`、`dev-panel-records.test.ts`）都自己设 `user.name`、`user.email`，`dev-panel` 还把 `GIT_CONFIG_GLOBAL` 指向 `/dev/null`；GitHub runner 没有全局 git 身份也不受影响。
+- herdr 的真实用例都是 `test.skipIf(!herdrInstalled)`，runner 上没有 herdr 会跳过；`owned-process` 的 Windows 用例 `runIf(win32)`，Linux 上 15 过 3 跳；`nb-story` 的密钥用例自建临时 `HOME` 与 `XDG_CONFIG_HOME`，干净克隆 499 例全过；真实模型测试都在 `*.llm.test.ts` 且 `fast` 档不跑。
+- 快速档里没有用例启动 Chrome 或 Playwright（`@playwright/test` 只出现在 e2e 与类型配置里）；`nb-story` 的 `e2e/tsconfig.json` 类型检查只要 `@playwright/test` 的类型，不要浏览器。
+- `--typecheck` 的前置：干净克隆上 `nb-ui`（`nuxt prepare playground` 离线可做）、`neuro-book`（`tsc` + 两次 `vue-tsc`）、`nb-story`、`dev-panel` 的 `typecheck` 都通过；`neuro-agent-harness` 的 `dist` 由根 `postinstall` 生成；`file-icons`、`monaco-languages` 两个生成文件已入库，不需要先跑生成命令。唯一失败的是 `llmlint`（F14）。
+- 根 `bun install --frozen-lockfile` 在空 `HOME`、`CI=true` 下成功（1594 个包，约 87 秒，用了本机的下载缓存）；之后跑完 typecheck、测试与构建，`git status --porcelain` 为空，生成物都被忽略，不会让 `test:affected` 把它们当成改动。
+- `governance:check --since HEAD~1` 与 `docs:check --since HEAD~1` 在干净克隆（非 worktree、不在 `.worktree/` 下）上都以 0 退出；两者都不读 `.github/workflows` 的具体文件名，也不依赖 `workspace-workflows.test.ts`。
+- `app-package` job 的其余前置：`build:sdk` 在干净克隆上成功（打出 tarball）；`smoke:server` 成功；Web 构建用到的字体只有已入库的 `fraunces-latin.woff2` 与 Monaco 的 `codicon`，许可声明都在仓库里，不依赖系统字体或网络；`build:app-package` 本身失败见 F16。
+
+## 各级数量（含前一位的 F01 到 F11；F09 与 F03 同根因按一条计）
+
+- 阻断：1（F16）
+- 重要：11（F01、F02、F03/F09、F04、F05、F06、F07、F11、F12、F14、F15）
+- 建议：4（F08、F10、F13、F17）
+- 合计 16 条。
