@@ -7,14 +7,19 @@
  */
 import {computed, ref} from "vue";
 
+import type {TextRef} from "@notnotype/nb-ui/text";
+import {useText} from "@notnotype/nb-ui/text-port";
+
 import type {WindowState} from "./host/window";
+import {hostText} from "./host-text";
 
 const props = defineProps<{state: Exclude<WindowState, {status: "ready"}>}>();
 const emit = defineEmits<{retry: []; reload: []}>();
+const {t} = useText();
 
 interface PageView {
-    readonly title: string;
-    readonly hint: string;
+    readonly title: TextRef;
+    readonly hint: TextRef | null;
     readonly reason: string | null;
     readonly action: "retry" | "reload" | null;
     /** 给“不打开项目”的链接（整页加载 `/`）。 */
@@ -26,21 +31,21 @@ const view = computed<PageView>(() => {
     switch (state.status) {
         case "idle":
         case "starting":
-            return {title: "正在连接服务端…", hint: "", reason: null, action: null, home: false};
+            return {title: hostText("failure.starting.title"), hint: null, reason: null, action: null, home: false};
         case "connection-failed":
-            return {title: "无法连接服务端", hint: "服务端可能正在重启或网络中断，稍后重试。", reason: state.reason, action: "retry", home: false};
+            return {title: hostText("failure.connectionFailed.title"), hint: hostText("failure.connectionFailed.hint"), reason: state.reason, action: "retry", home: false};
         case "project-unavailable":
-            return {title: "无法打开项目", hint: "项目可能还没有登记、目录不可用或服务端正在停止。可以重试，或不打开项目。", reason: state.reason, action: "retry", home: true};
+            return {title: hostText("failure.projectUnavailable.title"), hint: hostText("failure.projectUnavailable.hint"), reason: state.reason, action: "retry", home: true};
         case "incompatible":
-            return {title: "页面与服务端版本不一致", hint: "刷新页面以加载与服务端匹配的版本。", reason: state.reason, action: "reload", home: false};
+            return {title: hostText("failure.incompatible.title"), hint: hostText("failure.incompatible.hint"), reason: state.reason, action: "reload", home: false};
         case "startup-failed":
-            return {title: "工作台启动失败", hint: "刷新页面重试；仍然失败时请查看服务端日志。", reason: state.reason, action: "reload", home: false};
+            return {title: hostText("failure.startupFailed.title"), hint: hostText("failure.startupFailed.hint"), reason: state.reason, action: "reload", home: false};
         case "server-restarted":
-            return {title: "服务端已重启", hint: "刷新页面以重新连接服务端。", reason: state.reason, action: "reload", home: false};
+            return {title: hostText("failure.serverRestarted.title"), hint: hostText("failure.serverRestarted.hint"), reason: state.reason, action: "reload", home: false};
         case "project-gone":
-            return {title: "项目已关闭", hint: "项目已在服务端关闭（长时间没有窗口使用、意外退出或服务端重启）。刷新页面重新打开它，或不打开项目。", reason: state.reason, action: "reload", home: true};
+            return {title: hostText("failure.projectGone.title"), hint: hostText("failure.projectGone.hint"), reason: state.reason, action: "reload", home: true};
         case "closed":
-            return {title: "窗口已关闭", hint: "", reason: null, action: "reload", home: false};
+            return {title: hostText("failure.closed.title"), hint: null, reason: null, action: "reload", home: false};
     }
 });
 const loadingTitle = computed(() => (props.state.status === "starting" ? props.state.projectTitle ?? "" : ""));
@@ -59,28 +64,28 @@ const copy = async (index: number, text: string): Promise<void> => {
 
 <template>
     <!-- 启动中与 index.html 的静态加载页同一个样子（host-loading.css），失败后重试时不换版式。 -->
-    <main v-if="state.status === 'idle' || state.status === 'starting'" class="nb-host-loading" :data-browser-host-status="state.status" role="status" aria-label="正在启动 NeuroBook">
+    <main v-if="state.status === 'idle' || state.status === 'starting'" class="nb-host-loading" :data-browser-host-status="state.status" role="status" :aria-label="t(hostText('loading.label'))">
         <p class="nb-host-loading__title">{{ loadingTitle }}</p>
         <div class="nb-host-loading__bar"></div>
-        <p class="nb-host-loading__hint">{{ loadingTitle === "" ? "正在连接服务端" : "正在打开" }}</p>
+        <p class="nb-host-loading__hint">{{ t(hostText(loadingTitle === '' ? 'loading.connecting' : 'loading.opening')) }}</p>
     </main>
     <main v-else class="nb-host-page" :data-browser-host-status="state.status" role="alert">
-        <h1>{{ view.title }}</h1>
+        <h1>{{ t(view.title) }}</h1>
         <p v-if="view.reason" class="nb-host-reason">{{ view.reason }}</p>
-        <p v-if="view.hint">{{ view.hint }}</p>
-        <button v-if="view.action === 'retry'" type="button" @click="emit('retry')">重试</button>
-        <button v-else-if="view.action === 'reload'" type="button" @click="emit('reload')">刷新页面</button>
-        <a v-if="view.home" class="nb-host-home" href="/">不打开项目</a>
+        <p v-if="view.hint">{{ t(view.hint) }}</p>
+        <button v-if="view.action === 'retry'" type="button" @click="emit('retry')">{{ t(hostText('failure.action.retry')) }}</button>
+        <button v-else-if="view.action === 'reload'" type="button" @click="emit('reload')">{{ t(hostText('failure.action.reload')) }}</button>
+        <a v-if="view.home" class="nb-host-home" href="/">{{ t(hostText('failure.action.noProject')) }}</a>
         <section v-if="rescued.length > 0" class="nb-host-rescued" data-host-rescued>
-            <h2>未保存的修改</h2>
-            <p>刷新之前复制下面的正文；刷新后它们不会保留。</p>
+            <h2>{{ t(hostText('failure.rescued.title')) }}</h2>
+            <p>{{ t(hostText('failure.rescued.hint')) }}</p>
             <div v-for="(item, index) in rescued" :key="index" class="nb-host-rescued-item" data-host-rescued-item>
                 <div class="nb-host-rescued-head">
                     <code>{{ item.path }}</code>
-                    <button type="button" @click="copy(index, item.text)">{{ copied === index ? "已复制" : "复制正文" }}</button>
+                    <button type="button" @click="copy(index, item.text)">{{ t(hostText(copied === index ? 'failure.rescued.copied' : 'failure.rescued.copy')) }}</button>
                 </div>
                 <p v-if="item.note !== undefined" data-host-rescued-note>{{ item.note }}</p>
-                <textarea readonly :value="item.text" :aria-label="`${item.path} 未保存的正文`" rows="6" />
+                <textarea readonly :value="item.text" :aria-label="t(hostText('failure.rescued.textLabel', {path: item.path}))" rows="6" />
             </div>
         </section>
     </main>

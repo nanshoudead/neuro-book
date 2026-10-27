@@ -1,0 +1,58 @@
+{
+    "loading": {
+        "label": "Starting NeuroBook",
+        "connecting": "Connecting to the server",
+        "opening": "Opening"
+    },
+    "failure": {
+        "starting": {
+            "title": "Connecting to the server…"
+        },
+        "connectionFailed": {
+            "title": "Can't Connect to the Server",
+            "hint": "The server may be restarting or the network may be down. Try again in a moment."
+        },
+        "projectUnavailable": {
+            "title": "Can't Open the Project",
+            "hint": "The project may not be registered, its folder may be unavailable, or the server may be stopping. Retry, or continue without a project."
+        },
+        "incompatible": {
+            "title": "Page and Server Versions Don't Match",
+            "hint": "Reload the page to load the version that matches the server."
+        },
+        "startupFailed": {
+            "title": "The Workbench Failed to Start",
+            "hint": "Reload the page to try again. If it still fails, check the server log."
+        },
+        "serverRestarted": {
+            "title": "The Server Restarted",
+            "hint": "Reload the page to reconnect to the server."
+        },
+        "projectGone": {
+            "title": "The Project Was Closed",
+            "hint": "The project was closed on the server (no window used it for a while, it exited unexpectedly, or the server restarted). Reload the page to reopen it, or continue without a project."
+        },
+        "closed": {
+            "title": "The Window Was Closed"
+        },
+        "action": {
+            "retry": "Retry",
+            "reload": "Reload Page",
+            "noProject": "Continue Without a Project"
+        },
+        "rescued": {
+            "title": "Unsaved Changes",
+            "hint": "Copy the text below before reloading. It won't be kept after the reload.",
+            "copy": "Copy Text",
+            "copied": "Copied",
+            "textLabel": "Unsaved text of {{path}}"
+        }
+    },
+    "offline": {
+        "banner": "The connection to the server was lost. Reconnecting…"
+    },
+    "notFound": {
+        "title": "Page Not Found",
+        "home": "Back to Workbench"
+    }
+}

@@ -7,9 +7,12 @@
 import {createRouter} from "vue-router";
 import type {Router, RouterHistory} from "vue-router";
 
+import type {TextPort} from "@notnotype/nb-ui/text-port";
+
 import type {WorkbenchPage} from "nbook/plugins/workbench/web/contracts";
 
 import NotFoundPage from "./NotFoundPage.vue";
+import {hostText} from "./host-text";
 
 declare module "vue-router" {
     interface RouteMeta {
@@ -23,16 +26,18 @@ export interface PageRouterOptions {
     readonly history: RouterHistory;
     /** 整页加载到 `href`；生产是 `location.assign`。 */
     readonly navigateDocument: (href: string) => void;
+    /** 设文档标题用：页面表之外的路径标题是宿主目录里的“页面不存在”，随界面语言。 */
+    readonly text: TextPort;
 }
 
-const NOT_FOUND_TITLE = "页面不存在";
+const NOT_FOUND_TITLE = hostText("notFound.title");
 
 export function createPageRouter(options: PageRouterOptions): Router {
     const router = createRouter({
         history: options.history,
         routes: [
             ...options.pages.map((page) => ({path: page.path, component: () => page.load(), meta: {title: page.title, reloadOnLeave: page.reloadOnLeave === true}})),
-            {path: "/:unknown(.*)*", component: NotFoundPage, meta: {title: NOT_FOUND_TITLE}},
+            {path: "/:unknown(.*)*", component: NotFoundPage, meta: {}},
         ],
     });
     router.beforeEach((to, from) => {
@@ -42,7 +47,7 @@ export function createPageRouter(options: PageRouterOptions): Router {
         return new Promise<never>(() => undefined);
     });
     router.afterEach((to) => {
-        document.title = to.meta.title ?? NOT_FOUND_TITLE;
+        document.title = to.meta.title ?? options.text.t(NOT_FOUND_TITLE);
     });
     return router;
 }

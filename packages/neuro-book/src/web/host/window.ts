@@ -46,7 +46,7 @@ import {BrowserRuntimeHost} from "./browser-host";
 import type {BrowserHost, PageLifecycleTarget} from "./browser-host";
 import type {Connection, RpcEndpoint} from "./connection";
 import {createRemoteSession} from "./remote-session";
-import {createTextEngine} from "./text-engine";
+import {createHostTextEngine} from "./text-engine";
 import {createWindowPlugins} from "./window-plugins";
 import type {RemoteSession} from "./remote-session";
 
@@ -140,7 +140,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         replaceUrl: (href: string) => options.navigation.replaceUrl(href),
     });
     const clock = options.clock ?? systemClock;
-    const text = options.text ?? createTextEngine({locale: "zh-CN"});
+    const text = options.text ?? createHostTextEngine({locale: "zh-CN"});
     const clientIdentity = options.clientIdentity ?? crypto.randomUUID();
     const adapter = new BrowserRuntimeHost();
     const listeners = new Set<(state: WindowState) => void>();

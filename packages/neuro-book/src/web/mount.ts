@@ -48,7 +48,7 @@ export async function mountWindowUi(options: WindowUiOptions): Promise<void> {
 }
 
 async function mountPages(options: WindowUiOptions, ready: ReadyWindowState): Promise<void> {
-    const router = createPageRouter({pages: ready.root.pages(), history: options.history, navigateDocument: options.navigateDocument});
+    const router = createPageRouter({pages: ready.root.pages(), history: options.history, navigateDocument: options.navigateDocument, text: options.browserWindow.text.port});
     const app = withText(createApp(PageOutlet, {browserWindow: options.browserWindow, onReload: options.reloadDocument}), options);
     app.use(router);
     try {

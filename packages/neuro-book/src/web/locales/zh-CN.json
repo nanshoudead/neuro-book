@@ -1,0 +1,58 @@
+{
+    "loading": {
+        "label": "正在启动 NeuroBook",
+        "connecting": "正在连接服务端",
+        "opening": "正在打开"
+    },
+    "failure": {
+        "starting": {
+            "title": "正在连接服务端…"
+        },
+        "connectionFailed": {
+            "title": "无法连接服务端",
+            "hint": "服务端可能正在重启或网络中断，稍后重试。"
+        },
+        "projectUnavailable": {
+            "title": "无法打开项目",
+            "hint": "项目可能还没有登记、目录不可用或服务端正在停止。可以重试，或不打开项目。"
+        },
+        "incompatible": {
+            "title": "页面与服务端版本不一致",
+            "hint": "刷新页面以加载与服务端匹配的版本。"
+        },
+        "startupFailed": {
+            "title": "工作台启动失败",
+            "hint": "刷新页面重试；仍然失败时请查看服务端日志。"
+        },
+        "serverRestarted": {
+            "title": "服务端已重启",
+            "hint": "刷新页面以重新连接服务端。"
+        },
+        "projectGone": {
+            "title": "项目已关闭",
+            "hint": "项目已在服务端关闭（长时间没有窗口使用、意外退出或服务端重启）。刷新页面重新打开它，或不打开项目。"
+        },
+        "closed": {
+            "title": "窗口已关闭"
+        },
+        "action": {
+            "retry": "重试",
+            "reload": "刷新页面",
+            "noProject": "不打开项目"
+        },
+        "rescued": {
+            "title": "未保存的修改",
+            "hint": "刷新之前复制下面的正文；刷新后它们不会保留。",
+            "copy": "复制正文",
+            "copied": "已复制",
+            "textLabel": "{{path}} 未保存的正文"
+        }
+    },
+    "offline": {
+        "banner": "与服务端的连接已断开，正在重新连接…"
+    },
+    "notFound": {
+        "title": "页面不存在",
+        "home": "回到工作台"
+    }
+}

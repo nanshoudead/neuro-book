@@ -13,12 +13,17 @@ import i18next from "i18next";
 import type {i18n as I18n} from "i18next";
 import {shallowRef} from "vue";
 
+import {NB_UI_CATALOGS, NB_UI_NAMESPACE} from "@notnotype/nb-ui/locales";
 import {isLocaleMap, isTextRef, resolveLocaleMap, sanitizeParams} from "@notnotype/nb-ui/text";
 import type {Catalog, ReportTextProblem, Text, TextParams, TextProblem} from "@notnotype/nb-ui/text";
 import type {TextPort} from "@notnotype/nb-ui/text-port";
 
 import {HOST_LOCALES} from "nbook/shared/host-locales";
 import type {WindowText} from "nbook/shared/window-text";
+
+import {HOST_NAMESPACE} from "../host-text";
+import enUS from "../locales/en-US.json";
+import zhCN from "../locales/zh-CN.json";
 
 export interface TextEngineOptions {
     /** 启动时的语言（本地记录或缺省）。 */
@@ -133,4 +138,15 @@ export function createTextEngine(options: TextEngineOptions): WindowText {
             version.value += 1;
         },
     };
+}
+
+/**
+ * 宿主窗口用的引擎：在 `createTextEngine` 之上登记 nb-ui 的目录（`nb-ui`）与宿主自己的目录（`nbook.host`，源语言
+ * `zh-CN`）。窗口缺省与浏览器引导都用它，页面和失败页才翻得出文字；插件的目录由各插件自己登记。
+ */
+export function createHostTextEngine(options: TextEngineOptions): WindowText {
+    const text = createTextEngine(options);
+    text.register(NB_UI_NAMESPACE, NB_UI_CATALOGS, "zh-CN");
+    text.register(HOST_NAMESPACE, {"zh-CN": zhCN, "en-US": enUS}, "zh-CN");
+    return text;
 }
