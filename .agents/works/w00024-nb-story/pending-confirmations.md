@@ -30,3 +30,7 @@ autonomous-delivery 推进时照推荐做了、本该由开发者决定的点。
 | 2026-10-27 | t22 | 偏离已定 | 抽取的“不降档”改成：网关 400 明确列出合法推理档时，改发最近的启用档并重发一次（minimal 优先 low，永不选 none），同进程记住；t06 起 Spec 写的是“不降档、不省略” | #257：严格转发参数的网关对 `minimal` 报 400，抽取开箱失败；规则照 OMP，可见、不进重试表，Spec 与 `config test --ingest` 都写明改发了哪一档（[设计审查第 3 条](tasks/t22-github-issues-256-259/evidences/design-review.txt)） | 删 `ingest/model.ts` 的 `nearestEffort` 与重发分支，回改 ingest.md 输出 95 与 F4 | 待开发者追认 |
 | 2026-10-27 | t22 | 产品取舍 | 自定义模型没写 `maxTokens` 且目录查不到同名模型时，输出上限默认 32768（不再不发）；流以 `[DONE]` 收尾却没给 finish_reason，问答记为被截断 | #258：OMP 对 OpenAI 兼容端点的发现默认就是 32768，不发会被网关的默认预算静默截断；耗尽预算时网关常不送 finish_reason（[设计审查第 2 条](tasks/t22-github-issues-256-259/evidences/design-review.txt)） | 改 `DEFAULT_CUSTOM_MAX_TOKENS`；或删 `nb-harness/src/finish-watch.ts` 及两处引用 | 待开发者追认 |
 | 2026-10-27 | t22 | 产品取舍 | #256 不读 omp 的 models.yml，只改报错与 README；`config set ingest.model` 增加 `--base-url --model --api-key-env` 三段式；`--version` 与 `config <动作> --help` | 开发者 2026-10-27 定 nb-story 与 omp 完全独立；#259 的建议 2、3、1 | 删 `cli/commands.ts` 的 `CONFIG_ACTIONS` 与 `config.ts` 的三段式分支 | 开发者 2026-10-27 已定 |
+| 2026-10-27 | t23 | 偏离评审板 | 选中浮条放在图的顶部居中，不是评审板写的底部 | 实现审查实测：390 宽时底部浮条压住缩放按钮与图例，按钮点不到；顶部没有控件 | 改回底部要给图例与缩放留出位置（独立操作带），改 `graph/SelectionBar.vue` 的定位与两个图页的布局 | 待开发者追认 |
+| 2026-10-27 | t24 | 偏离评审板 | 状态条在对话区下方（不是输入框上方）；检查器没有上下文构成、缓存保留方式与诊断 | 输入框在 nb-agent-ui 内部，页面插不进去；问答记录不记分项 token | 要放到输入框上方得给 nb-agent-ui 加插槽；要做构成与诊断得让 harness 报告分项 | 待开发者追认 |
+| 2026-10-27 | t27 | 范围拆分 | 网页补“导入 V9 记忆图文件”“安装 Skill”不在 t27，单列 t29 | 要新增服务端方法、合同与权限判断（Skill 安装写用户目录） | 并回 t27 要先定权限模型 | 待开发者追认 |
+

@@ -95,7 +95,7 @@ type Ref = string; // "38.57" 或 "38.50—38.81"
 type Perspective = "reader" | EntityId;
 type IdentityState = "uncertain" | "unaware" | "no-record" | "heard" | "believes" | "suspects";
 
-type RelationNode = {id: NodeId; label: string; kind: EntityKind; mentions: number; entities: EntityId[]};
+type RelationNode = {id: NodeId; label: string; kind: EntityKind; mentions: number; entities: EntityId[]; names?: string[]};  // names：其他称呼（别名），见输出 16；核心库总是给，旧的生产者可以不给，使用方按空数组处理
 // 一对点一条线，几种联系合在一起给
 type RelationEdge = {
     a: NodeId; b: NodeId;
