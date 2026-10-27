@@ -18,7 +18,7 @@ import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
 import {integrityOf, RELEASE_DIRECTORY, RELEASE_MANIFEST, releaseFilesChangedSince, sha256Of, type ReleaseManifest} from "#scripts/release/manifest";
-import {BUILT_PACKAGES, checkReleasePackages, loadReleasePackages, releaseDirectories} from "#scripts/release/packages";
+import {BUILT_PACKAGES, checkReleasePackages, loadBuiltPackages, loadReleasePackages, releaseDirectories, type ReleasePackage} from "#scripts/release/packages";
 
 // 不用 import.meta.dir：测试在 Node 里导入本文件。
 const REPOSITORY = fileURLToPath(new URL("../../", import.meta.url));
@@ -89,6 +89,27 @@ export function releaseManifestProblems(manifest: ReleaseManifest, changedSinceS
         else if (actual !== entry.sha256) problems.push(`${entry.tarball} 在冒烟之后被改过（SHA-256 对不上）：重跑 bun run release:smoke`);
     }
     return problems;
+}
+
+/**
+ * 已发的版本里与这次验过的字节不同、又被要发的包（直接或间接）依赖的：用户装上要发的包时会配上 registry 上那份没验过的，
+ * 这时不能发。没人依赖的只是“源码改了没提版本”，提醒即可（例如应用与 SDK 把依赖打进了 bundle，不依赖任何源码包）。
+ */
+export function blockingStalePackages(pending: readonly string[], stale: readonly string[], dependenciesOf: ReadonlyMap<string, readonly string[]>): string[] {
+    const reached = new Set<string>();
+    const queue = [...pending];
+    for (let name = queue.pop(); name !== undefined; name = queue.pop()) {
+        for (const dependency of dependenciesOf.get(name) ?? []) {
+            if (reached.has(dependency)) continue;
+            reached.add(dependency);
+            queue.push(dependency);
+        }
+    }
+    return stale.filter((name) => reached.has(name));
+}
+
+function runtimeDependencies(entry: ReleasePackage): string[] {
+    return [...Object.keys(entry.manifest.dependencies ?? {}), ...Object.keys(entry.manifest.peerDependencies ?? {})];
 }
 
 async function gates(): Promise<ReleaseManifest> {
@@ -168,9 +189,12 @@ async function main(): Promise<number> {
         const published = (await run(["npm", "view", `${entry.name}@${entry.version}`, "dist.integrity"], REPOSITORY)).stdout.trim();
         const same = published === await integrityOf(join(RELEASE_DIRECTORY, entry.tarball));
         console.log(`  已发布，跳过  ${entry.name}@${entry.version}${same ? "" : "（registry 上的与这次验过的 tarball 不同）"}`);
-        if (!same) differing.push(`${entry.name}@${entry.version}`);
+        if (!same) differing.push(entry.name);
     }
-    if (differing.length > 0) throw new GateFailure(`这些版本已经发过，但与这次验过的 tarball 不同：${differing.join("、")}。版本号不能重发，改了代码就提高版本号再冒烟`);
+    const dependenciesOf = new Map([...loadReleasePackages(REPOSITORY), ...loadBuiltPackages(REPOSITORY)].map((entry) => [entry.manifest.name, runtimeDependencies(entry)]));
+    const blocking = blockingStalePackages(pending.map((entry) => entry.name), differing, dependenciesOf);
+    if (blocking.length > 0) throw new GateFailure(`要发的包依赖这些已发的版本，而它们与这次验过的 tarball 不同：${blocking.join("、")}。版本号不能重发，提高它们的版本号再冒烟`);
+    if (differing.length > 0) console.log(`  提醒：${differing.join("、")} 的源码自上次发布以来改过但没提版本号，这次不发它们；下次发布前提版本号`);
     if (pending.length === 0) {
         console.log("全部版本都已在 registry 上，没有要发的");
         return 0;

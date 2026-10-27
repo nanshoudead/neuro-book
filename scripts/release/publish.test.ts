@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
 
-import {parsePublishArguments, publishedState, releaseManifestProblems} from "#scripts/release/publish";
+import {blockingStalePackages, parsePublishArguments, publishedState, releaseManifestProblems} from "#scripts/release/publish";
 
 // 输出照 npm 10 的 `npm view <名>@<版本> version --json` 实际打印的形状（2026-10-24 对 registry.npmjs.org 取的）。
 const NOT_FOUND = JSON.stringify({error: {code: "E404", summary: "Not Found - GET https://registry.npmjs.org/@notnotype%2fnb-ui - Not found"}});
@@ -47,5 +47,17 @@ describe("发布前核对冒烟留下的 tarball", () => {
         expect(problems[1]).toContain("ui.tgz 不在");
         expect(problems[2]).toContain("SHA-256 对不上");
         for (const problem of problems) expect(problem).toContain("release:smoke");
+    });
+});
+
+describe("已发版本与验过的字节不同", () => {
+    const dependenciesOf = new Map([["@x/story", ["@x/harness"]], ["@x/harness", ["@x/runtime"]], ["@x/app", []]]);
+
+    it("要发的包直接或间接依赖它：拦下", () => {
+        expect(blockingStalePackages(["@x/story"], ["@x/runtime", "@x/ui"], dependenciesOf)).toEqual(["@x/runtime"]);
+    });
+
+    it("要发的包不依赖它（应用把依赖打进了 bundle）：不拦，只提醒", () => {
+        expect(blockingStalePackages(["@x/app"], ["@x/runtime", "@x/harness", "@x/story"], dependenciesOf)).toEqual([]);
     });
 });
