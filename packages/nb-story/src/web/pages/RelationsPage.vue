@@ -6,10 +6,11 @@
  */
 import {ContextMenu, Checkbox, Input, Select, IconButton, Popover, SegmentedControl, Slider} from "@notnotype/nb-ui/components";
 import type {ContextMenuItem} from "@notnotype/nb-ui/components";
-import {computed, ref} from "vue";
+import {computed, ref, watch} from "vue";
 
 import type {EntityKind} from "../../core/dataset";
 import {useBook} from "../host/book";
+import {readRelationsView, writeRelationsView} from "../host/relations-view";
 import {useStoryQuery} from "../host/query";
 import PageState from "../parts/PageState.vue";
 import SelectionBar from "../graph/SelectionBar.vue";
@@ -26,16 +27,20 @@ const KIND_GROUPS: ReadonlyArray<{id: string; label: string; kinds: EntityKind[]
 ];
 const LAYERS = [{id: "relation", label: "关系说法"}, {id: "co", label: "同场"}, {id: "know", label: "认知"}] as const;
 
-const kindIds = ref<string[]>(["person", "group"]);
-const layers = ref<string[]>(["relation", "co"]);
-const minTogether = ref(2);
-const layout = ref<GraphLayout>("force");
+// 控件的选择（类别、连线层、门槛、排版、只看周边、无名角色）存在浏览器偏好里，刷新、换书后仍是这样（反馈 4）。
+const saved = readRelationsView();
+const kindIds = ref<string[]>(saved.kindIds);
+const layers = ref<string[]>(saved.layers);
+const minTogether = ref(saved.minTogether);
+const layout = ref<GraphLayout>(saved.layout);
 const relayoutKey = ref(0);
-const neighborhood = ref(false);
+const neighborhood = ref(saved.neighborhood);
+const showAnonymous = ref(saved.showAnonymous);
+watch([kindIds, layers, minTogether, layout, neighborhood, showAnonymous], () => writeRelationsView({kindIds: kindIds.value, layers: layers.value, minTogether: minTogether.value, layout: layout.value, neighborhood: neighborhood.value, showAnonymous: showAnonymous.value}), {deep: true});
 const search = ref("");
 const kinds = computed(() => KIND_GROUPS.filter(group => kindIds.value.includes(group.id)).flatMap(group => group.kinds));
 
-const graph = useStoryQuery("graph.relations", () => ({kinds: kinds.value, perspective: book.perspective.value}));
+const graph = useStoryQuery("graph.relations", () => ({kinds: kinds.value, perspective: book.perspective.value, ...(showAnonymous.value ? {includeAnonymous: true} : {})}));
 const character = computed(() => book.perspective.value !== "reader");
 const shownLayers = computed(() => (character.value ? layers.value.filter(layer => layer !== "know") : layers.value));
 const perspectiveOptions = computed(() => [{value: "reader", label: "读者"}, ...(graph.data.value?.perspectives ?? []).map(item => ({value: item.id, label: item.label}))]);
@@ -123,6 +128,7 @@ function onSelect(id: string): void {
             <SegmentedControl v-model="layout" size="xs" :options="[{value: 'force', label: '力导向'}, {value: 'concentric', label: '同心'}, {value: 'circle', label: '环形'}]" aria-label="排版方式" />
             <IconButton size="xs" icon-class="i-lucide-refresh-cw" aria-label="重新排版" title="重新排版" @click="relayoutKey += 1" />
             <Checkbox v-model="neighborhood" label="只看选中的周边" />
+            <Checkbox v-model="showAnonymous" label="显示无名角色" title="只有“学姐”“新生”这类泛称的人物，默认不画" data-testid="show-anonymous" />
             <span class="text-[length:var(--text-2xs)] text-[var(--text-secondary)]" data-testid="graph-hint">单击选中 · 双击打开 · 右键更多 · F 只看周边 · Esc 取消</span>
             <div class="ml-auto w-40"><Input v-model="search" size="sm" icon-class="i-lucide-search" placeholder="在图里找" /></div>
         </div>

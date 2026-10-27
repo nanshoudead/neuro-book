@@ -417,6 +417,31 @@ test("全书图（输出 27）：选中一个对象点后隐藏“对象”类�
     await expect(bar).toHaveCount(0);
 });
 
+test("关系图的控件选择刷新后保留（输出 22，反馈 4）：类别、连线层、排版、只看周边、显示无名角色都存进浏览器偏好；坏偏好回到缺省", async ({page}) => {
+    await open(page, "/book/fox/relations?at=38&perspective=reader");
+    await expect(page.getByTestId("relation-graph").locator("canvas").first()).toBeVisible();
+    const coLayer = page.locator('[data-layer="co"]');
+    await expect(coLayer).toHaveAttribute("aria-pressed", "true");
+    await coLayer.click();
+    await page.getByRole("button", {name: "物品", exact: true}).click();
+    await page.getByText("同心", {exact: true}).click();
+    await page.getByTestId("show-anonymous").click();
+    await page.getByText("只看选中的周边", {exact: true}).click();
+    await page.reload();
+    await expect(page.getByTestId("relation-graph").locator("canvas").first()).toBeVisible();
+    await expect(page.locator('[data-layer="co"]')).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByRole("button", {name: "物品", exact: true})).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("checkbox", {name: "显示无名角色"})).toBeChecked();
+    await expect(page.getByRole("checkbox", {name: "只看选中的周边"})).toBeChecked();
+    await expect(page.getByRole("radio", {name: "同心"})).toBeChecked();
+    // 偏好被改坏：回缺省，不报错。
+    await page.evaluate(() => window.localStorage.setItem("nbstory:relations-view", "{坏的"));
+    await page.reload();
+    await expect(page.locator('[data-layer="co"]')).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("checkbox", {name: "显示无名角色"})).not.toBeChecked();
+    await expect(page.getByTestId("page-error")).toHaveCount(0);
+});
+
 test("明暗切换与设置入口（输出 34，t27）：书架、导入、设置页顶部都有明暗切换，同一份偏好；书页导航底部的设置入口打开设置页，返回回到原来的页", async ({page}) => {
     // 书库里有两本以上时才留在书架（只有一本时登录后会直接打开它）。
     const file = `${server.library}/../sample.json`;

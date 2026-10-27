@@ -328,11 +328,17 @@ export function layoutConcentric(graph: Graph, center: string): void {
         const level = depth.get(node) ?? maxDepth;
         rings.set(level, [...(rings.get(level) ?? []), node]);
     });
-    for (const [level, nodes] of rings) {
+    // 半径：每一圈至少放得下它的点（相邻两点弧长不小于 ARC），且比里一圈至少大 RING_GAP；不然一圈里点多时挤成一团、
+    // 名字叠在一起。
+    const ARC = 5.5;
+    const RING_GAP = 14;
+    let previous = 0;
+    for (const [level, nodes] of [...rings].sort((a, b) => a[0] - b[0])) {
         nodes.sort((a, b) => graph.degree(b) - graph.degree(a) || a.localeCompare(b));
+        const radius = level === 0 ? 0 : Math.max(level * RING_GAP, (nodes.length * ARC) / (2 * Math.PI), previous + RING_GAP);
+        previous = radius;
         nodes.forEach((node, index) => {
             const angle = Math.PI / 2 - index * 2 * Math.PI / nodes.length + level * 0.35;
-            const radius = level * 12;
             graph.mergeNodeAttributes(node, {x: Math.cos(angle) * radius, y: Math.sin(angle) * radius});
         });
     }

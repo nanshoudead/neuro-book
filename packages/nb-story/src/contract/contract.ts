@@ -110,6 +110,8 @@ const RosterItem = Type.Object({
     names: Type.Object({top: Type.Array(Type.String()), total: Type.Integer()}),
     /** 组成这个点的对象 id。 */
     entities: Type.Array(Type.String()),
+    /** 无名：组成这个点的对象可见称呼全是泛称（或没有称呼）。缺省按否。 */
+    anonymous: Type.Optional(Type.Boolean()),
 });
 
 const EntityCard = Type.Object({
@@ -333,7 +335,7 @@ const SearchItem = Type.Object({
 
 // ---- 图 ----
 
-export const RelationNodeSchema = Type.Object({id: Type.String(), label: Type.String(), kind: EntityKindSchema, mentions: Type.Integer(), entities: Type.Array(Type.String()), names: Type.Optional(Type.Array(Type.String()))});
+export const RelationNodeSchema = Type.Object({id: Type.String(), label: Type.String(), kind: EntityKindSchema, mentions: Type.Integer(), entities: Type.Array(Type.String()), names: Type.Optional(Type.Array(Type.String())), anonymous: Type.Optional(Type.Boolean())});
 export const RelationEdgeSchema = Type.Object({
     a: Type.String(),
     b: Type.String(),
@@ -467,7 +469,7 @@ export const STORY_METHODS = {
         errors: {...BookErrors, ...PageErrors},
     },
     "graph.relations": {
-        input: Type.Object({...BookParams, kinds: Type.Optional(Type.Array(EntityKindSchema)), minTogether: Type.Optional(Type.Integer({minimum: 1}))}, strict),
+        input: Type.Object({...BookParams, kinds: Type.Optional(Type.Array(EntityKindSchema)), minTogether: Type.Optional(Type.Integer({minimum: 1})), includeAnonymous: Type.Optional(Type.Boolean())}, strict),
         output: RelationGraph,
         effect: "read",
         errors: EntityErrors,

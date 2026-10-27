@@ -57,6 +57,7 @@ export function entitiesList(ctx: QueryContext, params: StoryParams<"entities.li
             mentions: row.mentions,
             names: {top: row.names.slice(0, TOP_NAMES).map(name => name.text), total: row.names.length},
             entities: row.members.map(member => member.id),
+            ...(row.members.every(member => member.anonymous) ? {anonymous: true} : {}),
         })),
     );
 }
