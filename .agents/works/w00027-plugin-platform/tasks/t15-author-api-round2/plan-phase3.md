@@ -79,7 +79,7 @@
   - `validate-community-files.ts` 作为单独的脚本：核对 workflow 的部分（`validateWorkflows`、只给它用的常量、`yamlPaths` 里的三份旧 workflow）删掉；剩下的 Issue 表单、标签、贡献指南与公开模板检查并进 `governance:check`，本地与 CI 同一个命令，不再有只在 CI 上跑的检查（审查 F03、F12）。
   - `workspace-package-matrix.ts` 里 CI 专用的写死包表与 `selectWorkspaceMatrix`。`test:affected` 用的 `workspaceDependencyGraph`、`expandConsumerClosure` 挪进 `change-scope.ts`，补一条读临时 `packages/` 目录（两三个假包）、断言反向闭包的测试：它原来唯一的测试在被删的元测试里。跟着改的引用：`scripts/tsconfig.json` 的 `include`、`test-affected.ts` 的导入与两处注释、`test-affected.test.ts` 用旧 workflow 当例子的地方（审查 F13）。
 - 旧矩阵里不只 `typecheck` 加 `test` 的三项不再在 CI 上跑：`nb-ui` 的 playground 构建、`neuro-agent-harness` 的 `verify` 与 `pack:smoke`（已冻结）、`llmlint` 的 `verify`（命令行冒烟）。理由：CI 只跑本地门禁；要它们一直被测，就并进各包的 `test` 脚本（审查 F13）。
-- llmlint：网页（`packages/llmlint/web`，自带锁文件）的构建与产物上传不进 CI；但 `llmlint` 包自己的 `typecheck` 与 `test` 有 20 多个测试导入 `../web/`，要网页的依赖与 `nuxt prepare` 生成的 `.nuxt/tsconfig.json`，干净机器上不做这两步就失败（审查 F14，本机也一样，只是以前的 CI 替它补了前置）。处理见第 9 节第 2 项。
+- llmlint：网页（`packages/llmlint/web`，自带锁文件）的构建与产物上传不进 CI；但 `llmlint` 包自己的 `typecheck` 与 `test` 有 20 多个测试导入 `../web/`，要网页的依赖与 `nuxt prepare` 生成的 `.nuxt/tsconfig.json`，干净机器上不做这两步就失败（审查 F14，本机也一样，只是以前的 CI 替它补了前置）。开发者 2026-10-27 定：llmlint 准备退役，`test:affected` 像旧应用一样跳过它（写明理由），CI 不再为它装网页依赖。
 - 只在 ubuntu 上跑；Windows、macOS 等桌面端时再加。
 
 ### 3.5 文档
@@ -138,13 +138,11 @@ S0 最先：发布链与 CI 都依赖 `build:app-package`。S2 在 S3 之前：s
 - 风险：0.11.0 一旦发出去就不能再用这个号。门禁会先跑生成与 smoke，失败就停；smoke 用的是即将发布的那份生成物。
 - 风险：`bunx -p` 第一次运行要从 registry 下载 SDK 与构建依赖（Vite 等），直连慢时作者会以为卡住；作者文档写一句“第一次要下载依赖”。
 
-## 9. 待开发者确认
+## 9. 开发者的答复（2026-10-27）
 
-1. 看板娘用 `.local/brand/mascot.png`（神谕叙事织者）的正面全身像（推荐）。这是第一张进入公开仓库的角色图，仓库是 AGPL-3.0，要定图片按什么许可：随仓库的 AGPL（推荐，最简单），还是另行保留权利（在 `docs/images/readme/README.md` 写明“品牌图片不随代码许可授权”）。
-2. llmlint 包的测试在干净机器上缺网页的前置（审查 F14），三选一：
-   - (a) CI 的 `check` job 在 `test:affected` 前给 llmlint 网页装依赖、跑 `nuxt prepare`（只装、不构建、不上传），本地的说明写进 llmlint 的 README（推荐：改动最小，llmlint 仍在用）；
-   - (b) 把导入 `../web/` 的测试挪到网页自己那边，`llmlint` 包的检查不再碰网页（更干净，但要动 llmlint 二十多个测试文件，超出本期）；
-   - (c) llmlint 待退役的话，`test:affected` 像旧应用一样跳过它。
+1. 看板娘用 `.local/brand/mascot.png` 的正面全身像，随仓库按 AGPL-3.0 授权；`docs/images/readme/README.md` 写明来源与许可。
+2. llmlint 准备退役：`test:affected` 跳过它，与旧应用同样处理（审查 F14 的 (c)）。
+3. 新问题：开发者希望应用也像 deepseek-harness 一样随源码发布，装好后 agent 能自己给自己写插件，并参照它的桌面版。已派调研（`reports/dsh-research/`）；结论可能改 3.2、3.3、3.5 与 ADR 0033 的决定 1，这几节等调研与开发者决定后再实施。S0、S1、S4 与发行形态无关，先做。
 
 ## 10. 计划审查的处理
 
