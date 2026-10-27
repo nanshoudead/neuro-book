@@ -17,6 +17,10 @@ updated: 2026-10-27
 2. #256 不读 `~/.omp` 下任何配置：nb-story 与 omp 完全独立，只改报错与 README；
 3. issue、文档、示例里不写中转站的域名与服务商名，用中性占位（清理旧写法记在 [t21](../t21-usage-feedback/README.md)）。
 
+## 设计审查
+
+omp 一轮，3 条（重要 3），全部成立并已改计划：共享 schema 不加 64000 上限、流结束完整性要做（在 nb-harness）、降档照 OMP 不夹到 none。报告见 [evidences/design-review.txt](evidences/design-review.txt)。
+
 ## 当前状态
 
 2026-10-27 开工，分支 `feat/w00024-t22-issues-256-259`（worktree `.worktree/w00024-t22`）。

@@ -14,13 +14,13 @@
 
 OMP 的做法（读自 pi-coding-agent / pi-catalog / pi-ai 的源码，不依赖任何用户配置）：目录里有的模型用目录值；自定义模型没写时取同名目录模型的值，再没有取 16384（`custom-models.ts`）；发现的 OpenAI 兼容模型取 `min(上下文窗口, 32768)`；总输出封顶 64000（`OPENAI_MAX_OUTPUT_TOKENS`）。
 
-`modelOf` 对自定义服务商的模型：`model.maxTokens ?? suggested?.maxTokens ?? 32768`，并且不超过 64000，不再是 `null`。`config` 里写了 `maxTokens` 照用（校验上限 64000 以内；已有配置里更大的值不改，只在发请求时夹到 64000）。取 32768 而不是 OMP 配置文件那档 16384：网关把隐藏思考算进预算时，长回答在 16384 下仍易被截断。
+`modelOf` 对自定义服务商的模型：`model.maxTokens ?? suggested?.maxTokens ?? 32768`，不再是 `null`。64000 的封顶只在发 OpenAI 系请求（`api` 为 `openai-*`）时由 `modelOf` 夹，**不进 `ConfigSchema` 的校验**：磁盘格式仍是正整数，已有的更大值照常读写（设计审查第 1 条：共享 schema 加上限会让旧配置整个读不进来，还会误伤 Anthropic、Google 的自定义模型）。取 32768 而不是 OMP 配置文件那档 16384：网关把隐藏思考算进预算时，长回答在 16384 下仍易被截断。
 
-不做 #258 的第 3 条（流结束没有 finish_reason 就标截断）：pi-ai 已在“没有 finish_reason 也没有 `[DONE]`”时报 incomplete-stream；#258 里网关送了 `[DONE]` 却没送 finish_reason，nb-story 经 harness 拿不到这个区别，改它要动 OMP 库。真正的原因是没发上限，由上面一条解决。抽取一侧（`ingest/model.ts`）早已把“没有结束原因”按渠道失败重发，不变。
+**流结束的完整性（设计审查第 2 条，改为要做）**：预算只解决“被默认预算截断”，不解决“网关送了 `[DONE]` 却没送 `finish_reason`、半句话被记成正常结束”。pi-ai 公开了 `onSseEvent`。在 `nb-harness`（`harness.ts` 里 `baseStream` 的包装、`complete.ts`）给每次请求挂观察：见到 chat-completions 形状的块（带 `choices`）而一直没见到非空的 `finish_reason`，这次请求记 `finishMissing`；这一轮最后一条助手消息的 `stopReason` 是 `stop` 且 `finishMissing` 时，`TurnResult`/`CompleteResult` 的 `stopReason` 报 `length`（nb-story 侧记录因此是 `truncated: true`，界面已有“输出到上限，回复被截断”的提示；探针 `probeModel` 对 `length` 报 `not_finished`）。其他 API（Anthropic、Responses）没有 `choices` 块，不受影响。要守住：这是对网关的兼容判断，不改变带了 `finish_reason` 的正常结束；工具调用那一类（`toolUse`）不改。
 
 ### #257：推理档降档（`src/ingest/model.ts`）
 
-请求被拒 400，且错误正文列出 “Supported values are: …” 时，把请求的档位夹到列出的最近合法档位（顺序 none < minimal < low < medium < high < xhigh < max；向低夹，没有更低的向高夹）后立即重发一次，不进延迟表；夹后的档位记在进程内的 `Map<baseUrl|model, 请求档→实际档>`，同一进程里之后的请求直接用，不再先吃一个 400。夹不出（正文没列档位、列表里没有任何认识的档位）按原样失败，错误说明里带上网关列出的档位（#257 的第 3 条）。该 400 没有被受理，用量按已拒绝记为完整的 0（把 400 且是“档位不支持”的情形加入 `REJECTED_UNPROCESSED` 的判定，不扩到所有 400）。`config test --ingest` 同样走这条路径，所以测试能通过并提示实际用了哪一档。不加 `effort.*` 配置项（#257 的第 2 条），默认行为不变，先不扩配置面。
+请求被拒 400，且错误正文列出 “Supported values are: …” 时，把请求的档位夹到列出的合法档位后立即重发一次，不进延迟表。**夹法照 OMP（`pi-ai/src/providers/openai-reasoning-fallback.ts`，`@internal` 未导出，所以手写一份同规则的小函数并在注释里写明来源）**：只在“启用推理”的档位 minimal < low < medium < high < xhigh < max 里选，`none`（关闭推理）永远不选（设计审查第 3 条：把 minimal 夹成 none 会让原来要求推理的步骤静默变成不推理）；`minimal` 优先 `low`，`xhigh` 优先 `max` 再 `high`，`max` 优先 `xhigh`，其余取距离最近、平局取更高的档。列表里没有任何启用档（只剩 none）或正文列不出档位时，按原样失败，错误说明里带上网关列出的档位。夹后的档位记在进程内的 `Map<baseUrl|model, 请求档→实际档>`，同一进程里之后的请求直接用，不再先吃一个 400（Worker 是独立进程，各自吃一次，可以接受）。该 400 没有被受理，用量按已拒绝记为完整的 0（只对“档位不支持”这一情形，不扩到所有 400）。`config test --ingest` 同样走这条路径，所以测试能通过并提示实际用了哪一档。不加 `effort.*` 配置项，默认行为不变。
 
 ### #256：目录外服务商的报错（`src/cli/config.ts`）
 
@@ -40,7 +40,7 @@ OMP 的做法（读自 pi-coding-agent / pi-catalog / pi-ai 的源码，不依�
 ## 切片
 
 1. #259（版本、动作帮助、三段式 `config set`）+ #256 报错；测试走真命令行进程（沿用 `cli.test.ts`、`config.test.ts` 的写法）。
-2. #258 输出上限；测试：自定义模型不写 `maxTokens` 时请求带 `max_completion_tokens: 32768`，写了就用写的，超过 64000 夹到 64000。
+2. #258 输出上限与流结束完整性；测试：自定义模型不写 `maxTokens` 时请求带 `max_completion_tokens: 32768`，写了就用写的，OpenAI 系超过 64000 夹到 64000，已有 100000 的配置照常读出；本机端点回 `[DONE]` 却没有 `finish_reason` 时记 `truncated`，带 `finish_reason` 的正常结束不变，无 `choices` 的 API 不受影响。
 3. #257 降档；测试用本机端点（`testing/openai-endpoint.ts`）按请求的档位回 400 与合法档位列表。
 
 ## 验收映射
@@ -53,5 +53,5 @@ OMP 的做法（读自 pi-coding-agent / pi-catalog / pi-ai 的源码，不依�
 
 ## 不做与风险
 
-- 不读 omp 配置（开发者定）；不做 #258 第 3 条（理由见上）；不加 `effort.*` 配置项；不做 `--preview` 的疑似标题提示。
+- 不读 omp 配置（开发者定）；不加 `effort.*` 配置项；不做 `--preview` 的疑似标题提示。
 - 风险：32768 在个别网关上超过其真实上限会得 400——错误说明里要提示“在 config 里把该模型的 maxTokens 调小”。
