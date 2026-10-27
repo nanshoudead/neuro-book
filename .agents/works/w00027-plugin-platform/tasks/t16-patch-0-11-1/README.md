@@ -25,7 +25,7 @@ updated: 2026-10-27
 - S4 `23f34d66c`：nb-story 的 `GraphLayout` 挪进 `src/web/graph/layout.ts`，typecheck 恢复。验证：nb-story typecheck 与测试（负载 19 时两例 5 秒超时，单独重跑 22 例过）。
 - S5 `a342d7f36`：0.11.1；两个 npm 包补 keywords、homepage、bugs，应用包描述改中文；README 写明没有文档目录时的作品目录；发布文档写明 Bun 的 bin 警告无害。验证：打包测试 68 例。
 - 实现审查（Sonnet，[evidences/impl-review.txt](evidences/impl-review.txt)）：阻断 0、重要 2、建议 7，处理见 [plan.md 第 9 节](plan.md)，修正 `63b74fa4c`，Spec `fc1e3f2ad`、`cda85af83`。
-- 收口：`test:affected --typecheck` 全过；全量 e2e 294 例全过（33 分钟）。合入 master（`5ad28f876`）时与 w00024 在 `relations-view.ts` 的导入冲突，两边的导入都保留，nb-story typecheck 通过；nb-story 的命令行测试在另一个会话占满 CPU 时有 3 例 5 秒超时（每次不是同一批，每例都是新起 bun 子进程），本 Task 对 nb-story 只挪了一个类型（运行时擦除），等负载降下来重跑确认。
+- 收口：`test:affected --typecheck` 全过；全量 e2e 294 例全过（33 分钟）。合入 master（`5ad28f876`）时与 w00024 在 `relations-view.ts` 的导入冲突，两边的导入都保留，nb-story typecheck 通过；nb-story 的命令行测试在另一个会话占满 CPU 时有 3 例 5 秒超时（每次不是同一批，每例都是新起 bun 子进程），本 Task 对 nb-story 只挪了一个类型（运行时擦除）；负载降到 3.2 后重跑这两个文件 37 例全过。
 
 ## 下一步
 
