@@ -142,25 +142,44 @@ interface GramBase {
 
 interface TierBase {
     statements: Map<string, StatementBase>;
-    grams: Map<string, GramBase>;
+    /** 说法里某个词组的出现情况；只接受说法里的词组。 */
+    gram(gram: string): GramBase;
 }
 
 const WORD_CHAR = /[\p{L}\p{N}]/u;
+/** 基本平面字符是否算字的缓存：0 未判断，1 是，2 否。底表要扫全书原文，逐字跑正则占了建表的大半时间。 */
+const bmpWordChar = new Uint8Array(0x10000);
 
-/** 逐字的 4 字词组及起点：标点与空白处断开，不跨句。 */
-function gramsAt(chars: readonly string[]): {gram: string; start: number}[] {
-    const result: {gram: string; start: number}[] = [];
+function isWordChar(code: number): boolean {
+    if (code > 0xffff) return WORD_CHAR.test(String.fromCodePoint(code));
+    if (bmpWordChar[code] === 0) bmpWordChar[code] = WORD_CHAR.test(String.fromCharCode(code)) ? 1 : 2;
+    return bmpWordChar[code] === 1;
+}
+
+/**
+ * 逐字扫出 4 字词组：标点与空白处断开，不跨句。visit 收到词组与它的起点（按字计，与 Array.from 的下标一致）。
+ * 词组直接从原串按 UTF-16 偏移切出，不先拆成字的数组。
+ */
+function scanGrams(text: string, visit: (gram: string, start: number) => void): void {
+    // 最近 GRAM 个字各自的 UTF-16 起点，环形存放。
+    const offsets = new Array<number>(GRAM).fill(0);
     let run = 0;
-    for (let index = 0; index < chars.length; index += 1) {
-        run = WORD_CHAR.test(chars[index]!) ? run + 1 : 0;
-        if (run >= GRAM) result.push({gram: chars.slice(index - GRAM + 1, index + 1).join(""), start: index - GRAM + 1});
+    let char = 0;
+    for (let offset = 0; offset < text.length; char += 1) {
+        const code = text.codePointAt(offset)!;
+        const next = offset + (code > 0xffff ? 2 : 1);
+        offsets[char % GRAM] = offset;
+        run = isWordChar(code) ? run + 1 : 0;
+        if (run >= GRAM) visit(text.slice(offsets[(char + 1) % GRAM]!, next), char - GRAM + 1);
+        offset = next;
     }
-    return result;
 }
 
 /** 文字里的 4 字词组，去重。 */
 function gramsOf(text: string): string[] {
-    return [...new Set(gramsAt(Array.from(text)).map(item => item.gram))];
+    const result = new Set<string>();
+    scanGrams(text, gram => result.add(gram));
+    return [...result];
 }
 
 function earlier(a: Position | null, b: Position): Position {
@@ -170,10 +189,12 @@ function earlier(a: Position | null, b: Position): Position {
 /** 词组从哪里起算作称呼：与它互相包含的称呼里最早出现的位置。 */
 function nameAtOf(gram: string, exact: ReadonlyMap<string, Position>, inside: ReadonlyMap<string, Position>): Position | null {
     let result: Position | null = inside.get(gram) ?? null;
-    const chars = Array.from(gram);
-    for (let length = 1; length <= chars.length; length += 1) {
-        for (let start = 0; start + length <= chars.length; start += 1) {
-            const at = exact.get(chars.slice(start, start + length).join(""));
+    // 全是基本平面字符时（几乎总是）直接按下标切子串，免得每个词组都拆成数组再拼回。
+    const chars = gram.length === GRAM ? null : Array.from(gram);
+    const count = chars?.length ?? GRAM;
+    for (let length = 1; length <= count; length += 1) {
+        for (let start = 0; start + length <= count; start += 1) {
+            const at = exact.get(chars ? chars.slice(start, start + length).join("") : gram.slice(start, start + length));
             if (at !== undefined) result = earlier(result, at);
         }
     }
@@ -221,8 +242,8 @@ function buildBase(index: BookIndex): TierBase {
         const cover = nameCover(chars, namesByFirst);
         const grams: StatementGram[] = [];
         const seenGram = new Set<string>();
-        for (const {gram, start} of gramsAt(chars)) {
-            if (seenGram.has(gram)) continue;
+        scanGrams(statement.text, (gram, start) => {
+            if (seenGram.has(gram)) return;
             seenGram.add(gram);
             wanted.add(gram);
             let nameAt: Position | null = null;
@@ -231,7 +252,7 @@ function buildBase(index: BookIndex): TierBase {
                 if (at) nameAt = earlier(nameAt, at);
             }
             grams.push({gram, start, nameAt});
-        }
+        });
         statements.set(statement.id, {chapter: statement.at.chapter, prior: priorTier(statement), family: statement.family, chars, grams, refs: []});
     }
     const addRef = (id: string, type: RefType, at: Position, who?: string) => {
@@ -250,25 +271,41 @@ function buildBase(index: BookIndex): TierBase {
 
     // 词组出现在哪些章：原文之外也看记录的文字（说法、情节的标题、概要与步骤）。记录是抽取时的转述，与说法同一种
     // 用词；文白差别大的书（例如西游记）原文里几乎找不到说法的词组，只看原文时回响会系统性偏低。
-    const seen = new Map<string, Map<number, number>>();
+    // 按章的先后记，每个词组的章就是升序追加的，不用再排序；同一章里留最早的段。
+    const seen = new Map<string, {chapters: number[]; firstParagraph: number[]; nameAt?: Position | null}>();
+    for (const text of wanted) seen.set(text, {chapters: [], firstParagraph: []});
     const note = (text: string, at: Position) => {
-        for (const gram of gramsOf(text)) {
-            if (!wanted.has(gram)) continue;
-            let byChapter = seen.get(gram);
-            if (!byChapter) seen.set(gram, (byChapter = new Map()));
-            const first = byChapter.get(at.chapter);
-            if (first === undefined || at.paragraph < first) byChapter.set(at.chapter, at.paragraph);
-        }
+        scanGrams(text, gram => {
+            const info = seen.get(gram);
+            if (!info) return;
+            const last = info.chapters.length - 1;
+            if (last >= 0 && info.chapters[last] === at.chapter) {
+                if (at.paragraph < info.firstParagraph[last]!) info.firstParagraph[last] = at.paragraph;
+            } else {
+                info.chapters.push(at.chapter);
+                info.firstParagraph.push(at.paragraph);
+            }
+        });
     };
-    for (const chapter of index.chapters.values()) chapter.paragraphs.forEach((paragraph, offset) => note(paragraph, {chapter: chapter.chapter, paragraph: offset + 1}));
-    for (const statement of index.statements) note(statement.text, statement.at);
-    for (const episode of index.episodes) note([episode.title, episode.summary, ...episode.steps.map(step => step.text)].join("。"), episode.at);
-    const grams = new Map<string, GramBase>();
-    for (const gram of wanted) {
-        const byChapter = [...(seen.get(gram) ?? [])].sort((x, y) => x[0] - y[0]);
-        grams.set(gram, {chapters: byChapter.map(([chapter]) => chapter), firstParagraph: byChapter.map(([, paragraph]) => paragraph), nameAt: nameAtOf(gram, exact, inside)});
+    const records = new Map<number, {text: string; at: Position}[]>();
+    const addRecord = (text: string, at: Position) => {
+        const list = records.get(at.chapter);
+        if (list) list.push({text, at});
+        else records.set(at.chapter, [{text, at}]);
+    };
+    for (const statement of index.statements) addRecord(statement.text, statement.at);
+    for (const episode of index.episodes) addRecord([episode.title, episode.summary, ...episode.steps.map(step => step.text)].join("。"), episode.at);
+    for (const chapter of [...new Set([...index.chapters.keys(), ...records.keys()])].sort((a, b) => a - b)) {
+        index.chapters.get(chapter)?.paragraphs.forEach((paragraph, offset) => note(paragraph, {chapter, paragraph: offset + 1}));
+        for (const record of records.get(chapter) ?? []) note(record.text, record.at);
     }
-    return {statements, grams};
+    // 称呼位置在第一次用到时才算：一次查询只碰到被问到的说法的词组。
+    const gram = (text: string): GramBase => {
+        const info = seen.get(text)!;
+        if (info.nameAt === undefined) info.nameAt = nameAtOf(text, exact, inside);
+        return info as GramBase;
+    };
+    return {statements, gram};
 }
 
 const bases = new WeakMap<BookIndex, TierBase>();
@@ -302,7 +339,7 @@ function seenChapters(info: GramBase, at: Position): number {
     return info.chapters[before] === at.chapter && info.firstParagraph[before]! <= at.paragraph ? before + 1 : before;
 }
 
-function statementTier(base: StatementBase, grams: ReadonlyMap<string, GramBase>, at: Position): StatementTier {
+function statementTier(base: StatementBase, gramOf: (gram: string) => GramBase, at: Position): StatementTier {
     const refs: RefCounts = {confirms: 0, contradicts: 0, revises: 0, knowers: 0, secrets: 0, answers: 0};
     const knowers = new Set<string>();
     for (const ref of base.refs) {
@@ -314,7 +351,7 @@ function statementTier(base: StatementBase, grams: ReadonlyMap<string, GramBase>
     const cap = Math.max(ECHO_MIN_CAP, Math.ceil(ECHO_CAP_RATIO * at.chapter));
     const echoed: StatementGram[] = [];
     for (const item of base.grams) {
-        const info = grams.get(item.gram)!;
+        const info = gramOf(item.gram);
         if ((info.nameAt !== null && visibleAt(info.nameAt, at)) || (item.nameAt !== null && visibleAt(item.nameAt, at))) continue;
         const seen = seenChapters(info, at);
         // 后文出现过：在说法所在章之后、P 以前的章里有它。
@@ -374,7 +411,7 @@ export function tiersAt(index: BookIndex, at: Position): TierTable {
             const record = index.statementById.get(id);
             const statementBase = base.statements.get(id);
             if (!record || !statementBase || !visibleAt(record.at, at)) return undefined;
-            const result = statementTier(statementBase, base.grams, at);
+            const result = statementTier(statementBase, base.gram, at);
             computed.set(id, result);
             return result;
         },
