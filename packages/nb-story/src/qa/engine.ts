@@ -33,6 +33,7 @@ import type {KeyEnv} from "../platform/startup-env";
 import {keyVariables, onlyKeysIn, resolveQaModel, thinkingOption, type QaModelChoice} from "./harness-model";
 import {QaError} from "./errors";
 import {clipRead, ReadLedger} from "./read-ledger";
+import {readRange, resolveReach, type Reach} from "./reach";
 import {recheckMessage} from "./rules";
 import profile from "./story-qa.profile";
 import {storyQaPlugin, type QaToolState} from "./tools";
@@ -119,10 +120,11 @@ function describeTool(tool: string, args: Record<string, unknown>): string {
 }
 
 /** 全读的第一条消息：P 以前的全部原文，再接问题。超上限报 full_read_unavailable（F3）。 */
-async function fullReadMessage(input: AskInput, book: Awaited<ReturnType<StoryApi["openBook"]>>, at: Position, maxChars: number): Promise<string> {
-    const outcome = await book.call("source.read", {at, from: {chapter: 1, paragraph: 1}, to: at});
-    if (!outcome.ok) throw new StoryError(outcome.error.code, outcome.error.message);
-    const paragraphs = outcome.value.paragraphs;
+async function fullReadMessage(input: AskInput, book: Awaited<ReturnType<StoryApi["openBook"]>>, reach: Reach, maxChars: number): Promise<string> {
+    const at = reach.at;
+    const outcome = await readRange(book, reach, {chapter: 1, paragraph: 1}, at);
+    if ("error" in outcome) throw outcome.error;
+    const paragraphs = outcome.paragraphs;
     const chars = paragraphs.reduce((sum, item) => sum + item.text.length, 0);
     if (chars > maxChars) throw new QaError("full_read_unavailable", `阅读位置 ${at.chapter}.${at.paragraph} 以前的原文有 ${chars} 字，超过全读上限 ${maxChars} 字：改用图当目录，或调大 fullReadMaxChars`);
     return `${FULL_READ_HEAD}\n${paragraphs.map(item => `${item.chapter}.${item.paragraph} ${item.text}`).join("\n")}${FULL_READ_QUESTION}${input.question}`;
@@ -154,6 +156,8 @@ export function withoutFullText(entry: SessionEntry, question: string): SessionE
 interface Start {
     book: Awaited<ReturnType<StoryApi["openBook"]>>;
     features: BookFeatures;
+    /** 这一问能到达的范围：已提交的章加未抽取的尾部（qa/reach.ts）。 */
+    reach: Reach;
     /** 续问时的上一份对话；新对话为 null。 */
     previous: QaConversation | null;
     id: string;
@@ -173,23 +177,23 @@ async function startNew(input: AskInput, started: number): Promise<Start> {
     const limits = qaLimits(input.config);
     const mode = input.mode ?? "graph";
     const book = await input.api.openBook(input.book);
-    const info = await book.call("book.info", input.at === undefined ? {} : {at: input.at});
-    if (!info.ok) throw new StoryError(info.error.code, info.error.message);
-    const at: Position = info.value.at;
+    const reach = await resolveReach(book, input.at);
+    const at: Position = reach.at;
     const maxChapters = mode === "graph" ? limits.maxChapters : null;
     return {
         book,
-        features: info.value.features,
+        features: reach.features,
+        reach,
         previous: null,
         id: input.conversationId ?? newQaRecordId(new Date(started)),
         at,
         mode,
         maxChapters,
         answer: input.answer ?? input.config.qa?.answer ?? "markdown",
-        ledger: new ReadLedger({paragraphs: book.meta.paragraphs, at, maxChapters, readAll: mode === "full"}),
+        ledger: new ReadLedger({paragraphs: reach.paragraphs, at, maxChapters, readAll: mode === "full"}),
         positionChanges: 0,
         entries: null,
-        firstMessage: mode === "full" ? await fullReadMessage(input, book, at, limits.fullReadMaxChars) : input.question,
+        firstMessage: mode === "full" ? await fullReadMessage(input, book, reach, limits.fullReadMaxChars) : input.question,
     };
 }
 
@@ -228,16 +232,22 @@ async function startContinued(input: AskInput, id: string): Promise<Start> {
     }
     // 这一问用的位置：对话里改过位置的取改后的（`currentPosition`），不是开始时的 `at`（t25）。
     const at = currentPosition(previous);
-    const info = await book.call("book.info", {at});
-    if (!info.ok) throw new StoryError(info.error.code, info.error.message);
+    let reach: Reach;
+    try {
+        reach = await resolveReach(book, at);
+    } catch (error) {
+        // 位置落在未抽取的尾部、而这一代的尾部已经读不到了（抽取记录没了）：接不上，不改成别的位置。
+        if (error instanceof StoryError && error.code === "position_out_of_range") throw notContinuable(`阅读位置 ${at.chapter}.${at.paragraph} 所在的章现在读不到了`);
+        throw error;
+    }
     let ledger: ReadLedger;
     try {
         // 位置往回调过：晚于现在位置的已读范围不再算读过。
-        ledger = new ReadLedger({paragraphs: book.meta.paragraphs, at, maxChapters: previous.maxChapters, readAll: previous.mode === "full", read: clipRead(previous.read, at)});
+        ledger = new ReadLedger({paragraphs: reach.paragraphs, at, maxChapters: previous.maxChapters, readAll: previous.mode === "full", read: clipRead(previous.read, at)});
     } catch (error) {
         throw notContinuable(error instanceof Error ? error.message : String(error));
     }
-    return {book, features: info.value.features, previous, id, at, mode: previous.mode, maxChapters: previous.maxChapters, answer: answerModeOf(previous), ledger, positionChanges: diskChanges, entries, firstMessage: input.question};
+    return {book, features: reach.features, reach, previous, id, at, mode: previous.mode, maxChapters: previous.maxChapters, answer: answerModeOf(previous), ledger, positionChanges: diskChanges, entries, firstMessage: input.question};
 }
 
 /** 位置在提醒里的写法：停在一章最后一段的写“第 N 章”，否则写“N.M”。 */
@@ -249,12 +259,15 @@ function reminderPosition(position: Position, paragraphs: readonly number[]): st
  * 改位置时写进会话的提醒（`<system-reminder>` 包着的程序生成文字，不含用户输入）：往后调说可以访问了，往回调说之后的
  * 内容不能再访问或引用。
  */
-export function positionReminder(from: Position, to: Position, paragraphs: readonly number[]): string {
+export function positionReminder(from: Position, to: Position, paragraphs: readonly number[], graphThrough: number | null = null): string {
     const a = reminderPosition(from, paragraphs);
     const b = reminderPosition(to, paragraphs);
-    const body = before(from, to)
-        ? `阅读位置从${a}改为${b}。你可以访问${b}及之前的内容了。`
-        : `阅读位置从${a}改为${b}。${b}之后的内容现在不能访问或引用，即使前面的对话里出现过也不要再用。`;
+    const body =
+        (before(from, to)
+            ? `阅读位置从${a}改为${b}。你可以访问${b}及之前的内容了。`
+            : `阅读位置从${a}改为${b}。${b}之后的内容现在不能访问或引用，即使前面的对话里出现过也不要再用。`) +
+        // 目标在没抽取的尾部里：图只到抽取进度，之后的章只能读原文（w00024 t30）。
+        (graphThrough === null ? "" : `图只抽到第 ${graphThrough} 章，第 ${graphThrough + 1} 章之后只能用 read 读原文。`);
     return `<system-reminder>\n${body}\n</system-reminder>`;
 }
 
@@ -289,14 +302,13 @@ export async function changePosition(input: {api: StoryApi; book: string | undef
  */
 async function planPositionChange(book: Awaited<ReturnType<StoryApi["openBook"]>>, previous: QaConversation, entries: readonly SessionEntry[], target: PositionInput): Promise<{conversation: QaConversation; entries: SessionEntry[]} | null> {
     if (previous.mode === "full") throw new QaError("qa_position_fixed", `对话 ${previous.id} 是全读对话，阅读位置不能改：开新对话`);
-    const info = await book.call("book.info", {at: target});
-    if (!info.ok) throw new StoryError(info.error.code, info.error.message);
-    const to = info.value.at;
+    const reach = await resolveReach(book, target);
+    const to = reach.at;
     const from = currentPosition(previous);
     if (to.chapter === from.chapter && to.paragraph === from.paragraph) return null;
     const seq = (entries.at(-1)?.seq ?? 0) + 1;
     const now = new Date();
-    const reminder: SessionEntry = {kind: "agent_message", seq, at: now.toISOString(), message: {role: "user", content: [{type: "text", text: positionReminder(from, to, book.meta.paragraphs)}], timestamp: now.getTime()}};
+    const reminder: SessionEntry = {kind: "agent_message", seq, at: now.toISOString(), message: {role: "user", content: [{type: "text", text: positionReminder(from, to, reach.paragraphs, to.chapter > reach.committed ? book.meta.extractedThrough.chapter : null)}], timestamp: now.getTime()}};
     const meta: SessionEntry = {kind: "meta", seq: seq + 1, at: now.toISOString(), key: POSITION_META_KEY, value: {chapter: to.chapter, paragraph: to.paragraph, from: {chapter: from.chapter, paragraph: from.paragraph}}};
     return {conversation: {...previous, currentAt: to, positionChanges: (previous.positionChanges ?? 0) + 1}, entries: [...entries, reminder, meta]};
 }
@@ -393,7 +405,7 @@ export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion
     const chosen = resolveQaModel(input.config, {...(previous === null ? {} : continuedChoice(input.config, previous)), ...input.model});
     const qaModel = input.keyEnv === undefined ? chosen : {...chosen, resolved: onlyKeysIn(chosen.resolved, keyVariables(input.config, chosen.ref), input.keyEnv)};
 
-    const state: QaToolState = {book, at, ledger, answer: null};
+    const state: QaToolState = {book, at, graphAt: start.reach.graphAt, reach: start.reach, ledger, answer: null};
     // 作答被退回的次数：不只是我们的校验，OMP 的参数校验与“收尾要单独调用”的退回也算，所以按工具结束事件数。
     let rejections = 0;
     const registry = createToolRegistry();

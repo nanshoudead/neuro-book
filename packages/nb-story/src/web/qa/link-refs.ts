@@ -10,6 +10,7 @@
 import type {Token} from "marked";
 
 import {findRefs, normalizeRef} from "../../contract/refs";
+import {ALWAYS_LINKABLE, refChapter, type RefLinkable} from "./linkable";
 
 /** 词法器：显示端用的那一份（`defaultMarkdownLanguage().lexer()`），由调用方给，本模块不直接引编辑内核。 */
 export type MarkdownLexer = () => {lex(text: string): Token[]};
@@ -60,7 +61,8 @@ export function plainTextRanges(source: string, tokens: readonly Token[]): Array
 }
 
 /** 改写后的正文。`streaming` 为真时文末的出处先不改。 */
-export function linkRefs(text: string, lexer: MarkdownLexer, options: {streaming?: boolean} = {}): string {
+export function linkRefs(text: string, lexer: MarkdownLexer, options: {streaming?: boolean; linkable?: RefLinkable} = {}): string {
+    const linkable = options.linkable ?? ALWAYS_LINKABLE;
     const spans = findRefs(text);
     if (spans.length === 0) return text;
     const ranges = plainTextRanges(text, lexer().lex(text));
@@ -70,6 +72,9 @@ export function linkRefs(text: string, lexer: MarkdownLexer, options: {streaming
     for (const span of spans) {
         if (!inside(span.start, span.end)) continue;
         if (options.streaming === true && span.end === text.length) continue;
+        // 指向查看器打不开的章（没抽取的尾部）：保持纯文字。
+        const chapter = refChapter(span.text);
+        if (chapter !== null && !linkable(chapter)) continue;
         result += `${text.slice(at, span.start)}[${text.slice(span.start, span.end)}](${refTarget(span.text)})`;
         at = span.end;
     }

@@ -11,7 +11,7 @@ import {join} from "node:path";
 import {expect, test, type Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {login, makeLibrary, startQaEndpoint, startServe, type QaEndpoint, type StoryServer} from "./fixtures";
+import {login, makeLibrary, makePartialLibrary, startQaEndpoint, startServe, type QaEndpoint, type StoryServer} from "./fixtures";
 
 const KEY_ENV = "NBSTORY_E2E_QA_CREDENTIAL";
 
@@ -394,6 +394,36 @@ test.describe("输入框与模型", () => {
         await expect(page.getByText("好的。")).toBeVisible();
         expect((await endpoint.bodies()).slice(before).map(body => body.model)).toEqual(["qa-model"]);
     });
+});
+
+test("没抽完的书（t30）：位置控件能选到未抽取的章并提示图只到抽取进度，提问时模型收到的位置是尾部章", async ({page}) => {
+    const partial = await makePartialLibrary("qa-tail", 20, 25);
+    const configHome = join(root, "xdg-tail");
+    await mkdir(join(configHome, "nbstory"), {recursive: true});
+    await writeFile(join(configHome, "nbstory", "config.json"), JSON.stringify(baseConfig()));
+    const own = await startServe(partial.library, {XDG_CONFIG_HOME: configHome, [KEY_ENV]: "fake-e2e-qa-credential"});
+    try {
+        await login(page.context(), own);
+        await endpoint.script([{kind: "text", text: "尾部的回答"}]);
+        await page.goto(`${own.base}/book/fox/qa?at=20`);
+        await page.getByRole("button", {name: "新对话"}).first().click();
+        await expect(page.locator("[data-qa-beyond-graph]")).toHaveCount(0);
+        await page.getByTestId("qa-position").click();
+        await page.getByTestId("qa-position-chapter").click();
+        await page.getByRole("option", {name: "第 25 章"}).click();
+        await page.getByTestId("qa-position-confirm").click();
+        await expect(page.getByTestId("qa-position")).toContainText("第 25 章");
+        await expect(page.locator("[data-qa-beyond-graph]")).toContainText("图只抽到第 20 章");
+        await expect(page.getByRole("option", {name: "第 26 章"})).toHaveCount(0);
+        const before = (await endpoint.bodies()).length;
+        await ask(page, "尾部发生了什么？");
+        await expect(page.getByText("尾部的回答", {exact: true})).toBeVisible();
+        const body = (await endpoint.bodies()).slice(before)[0]!;
+        expect(JSON.stringify(body.messages)).toContain("读到了第 25 章");
+    } finally {
+        await own.stop();
+        await partial.cleanup();
+    }
 });
 
 test.describe("设置页", () => {

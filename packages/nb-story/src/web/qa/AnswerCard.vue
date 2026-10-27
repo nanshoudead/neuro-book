@@ -7,6 +7,7 @@ import {argArray, argString, type HostComponentEmits, type ToolComponentProps} f
 import {QA_NAME_LOOKUP} from "./names";
 import {refSegments, visibleRefCount, type RefSegment} from "./ref-line";
 import {refTarget} from "./link-refs";
+import {ALWAYS_LINKABLE, QA_LINKABLE, refChapter} from "./linkable";
 
 const props = defineProps<ToolComponentProps>();
 const emit = defineEmits<HostComponentEmits>();
@@ -41,7 +42,15 @@ const detailed = ref(true);
 const STATE_TONE: Record<string, string> = {"知道": "is-yes", "怀疑": "is-maybe", "不知道": "is-no", "原文没有表明": "is-unknown"};
 const TYPE_TONE: Record<string, string> = {"明说": "is-yes", "推断": "is-maybe", "解读": "is-reading", "无法确定": "is-unknown"};
 
+// 指向查看器打不开的章（没抽取的尾部）的出处：按钮停用，不发 reference.open。
+const linkable = inject(QA_LINKABLE, ALWAYS_LINKABLE);
+const canOpen = (refText: string): boolean => {
+    const chapter = refChapter(refText);
+    return chapter === null || linkable(chapter);
+};
+
 function openRef(refText: string): void {
+    if (!canOpen(refText)) return;
     emit("action", {type: "reference.open", target: refTarget(refText)});
 }
 
@@ -66,7 +75,7 @@ function openPerson(id: string): void {
     emit("action", {type: "reference.open", target: `entity://${id}`});
 }
 
-const segments = (text: string): RefSegment[] => refSegments(text);
+const segments = (text: string): RefSegment[] => refSegments(text, linkable);
 
 // 依据一行：量出放得下几个出处，其余收成“等 N 处”（宽度变了才重算，点击不改变个数）。
 const line = ref<HTMLElement | null>(null);
@@ -117,7 +126,7 @@ const hidden = computed(() => Math.max(0, evidence.value.length - shown.value));
                     <td><span v-if="row.state" class="answer-badge" :class="STATE_TONE[row.state]">{{ row.state }}</span></td>
                     <td class="answer-how">{{ row.how }}</td>
                     <td class="answer-row-refs">
-                        <button v-for="(refText, refIndex) in row.refs" :key="refIndex" type="button" class="answer-ref" @click="openRef(refText)">{{ refText }}</button>
+                        <button v-for="(refText, refIndex) in row.refs" :key="refIndex" type="button" class="answer-ref" :disabled="!canOpen(refText)" @click="openRef(refText)">{{ refText }}</button>
                         <span v-if="row.refs.length === 0" class="answer-muted">—</span>
                     </td>
                 </tr>
@@ -129,14 +138,14 @@ const hidden = computed(() => Math.max(0, evidence.value.length - shown.value));
                     <button v-if="part.ref" type="button" class="answer-ref" @click="openRef(part.ref)">{{ part.text }}</button>
                     <template v-else>{{ part.text }}</template>
                 </template>
-                <button v-for="(refText, refIndex) in point.refs" :key="refIndex" type="button" class="answer-ref" @click="openRef(refText)">{{ refText }}</button>
+                <button v-for="(refText, refIndex) in point.refs" :key="refIndex" type="button" class="answer-ref" :disabled="!canOpen(refText)" @click="openRef(refText)">{{ refText }}</button>
             </li>
         </ol>
 
         <div class="answer-foot">
             <span class="answer-muted shrink-0">依据</span>
             <span ref="line" class="answer-line">
-                <button v-for="(refText, refIndex) in evidence.slice(0, shown)" :key="refIndex" type="button" class="answer-ref" @click="openRef(refText)">{{ refText }}</button>
+                <button v-for="(refText, refIndex) in evidence.slice(0, shown)" :key="refIndex" type="button" class="answer-ref" :disabled="!canOpen(refText)" @click="openRef(refText)">{{ refText }}</button>
                 <button v-if="hidden > 0" type="button" class="answer-more-refs" @click="detailed = true">等 {{ hidden }} 处</button>
                 <span v-if="evidence.length === 0" class="answer-muted">没有</span>
             </span>
@@ -159,7 +168,7 @@ const hidden = computed(() => Math.max(0, evidence.value.length - shown.value));
             <p class="answer-muted"><span class="answer-label">覆盖范围</span>{{ coverage }}</p>
             <p v-if="evidence.length > 0" class="answer-all-refs">
                 <span class="answer-label">全部依据</span>
-                <button v-for="(refText, refIndex) in evidence" :key="refIndex" type="button" class="answer-ref" @click="openRef(refText)">{{ refText }}</button>
+                <button v-for="(refText, refIndex) in evidence" :key="refIndex" type="button" class="answer-ref" :disabled="!canOpen(refText)" @click="openRef(refText)">{{ refText }}</button>
             </p>
         </div>
     </div>
@@ -208,6 +217,7 @@ const hidden = computed(() => Math.max(0, evidence.value.length - shown.value));
 .answer-person { padding: 0; }
 .answer-more-refs { color: var(--text-secondary); min-width: 4.5em; text-align: left; }
 .answer-ref:hover, .answer-person:hover, .answer-more-refs:hover { background: var(--bg-hover); }
+.answer-ref:disabled { color: inherit; cursor: default; background: none; }
 .answer-toggle { display: inline-flex; flex-shrink: 0; align-items: center; gap: 2px; color: var(--text-secondary); }
 .answer-toggle:hover { color: var(--text-main); }
 .answer-muted { color: var(--text-muted); }

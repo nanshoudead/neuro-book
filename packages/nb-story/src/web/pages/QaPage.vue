@@ -33,6 +33,7 @@ import ModeNotice from "../parts/ModeNotice.vue";
 import AnswerCard from "../qa/AnswerCard.vue";
 import {REF_SCHEME} from "../qa/link-refs";
 import {CHAPTER_SCHEME, createMentionSearch, ENTITY_SCHEME, MENTION_LIMIT, mentionMenu, mentionPlainText, type MentionEntity} from "../qa/mentions";
+import {QA_LINKABLE} from "../qa/linkable";
 import {createNameResolver, QA_NAME_LOOKUP} from "../qa/names";
 import {candidateInfos, clampThinking, contextTokensOf, priceCurrency, resolveChoice, type CatalogProvider} from "../qa/models";
 import {createQaSource, type QaSource, type QaSourceState} from "../qa/source";
@@ -81,6 +82,10 @@ const resolveName = createNameResolver(async name => {
 });
 const nameScope = () => `${book.bookId}@${formatAt(book.at.value)}#${book.dataVersion.value}`;
 provide(QA_NAME_LOOKUP, {scope: nameScope, resolve: who => resolveName(nameScope(), who)});
+// 没抽取的尾部章（w00024 t30）：问答能读到，查看器没有。答案里指向那些章的出处保持纯文字，不发 reference.open。
+provide(QA_LINKABLE, chapter => chapter <= book.info.chapters);
+/** 已提交加未抽取尾部各章的段数：位置控件、草稿位置、@ 的章节与段落候选都用这一张表。 */
+const fullParagraphs = computed(() => [...book.info.paragraphs, ...book.info.unextracted]);
 
 // ---- 设置：没配置时输入框停用，给“去设置”；候选模型与目录给输入框的模型下拉 ----
 const config = shallowRef<QaConfig | null>(null);
@@ -202,12 +207,14 @@ const conversationMode = computed(() => record.value?.mode ?? run.value?.mode ??
 /** 新对话第一问的章；null 跟着查看器的位置。@ 候选与提交用它，不按查看器的位置给后文的人物。 */
 const draftChapter = ref<number | null>(null);
 const mentionAt = computed(() => (selectedId.value === null ? (draftChapter.value === null ? book.at.value : {chapter: draftChapter.value}) : (conversationAt.value ?? book.at.value)));
+/** 对象与记录只到抽取进度：阅读位置在没抽取的尾部里时，查对象用抽取进度的位置。 */
+const graphAtOf = (at: {chapter: number; paragraph?: number}): {chapter: number; paragraph?: number} => (at.chapter > book.info.chapters ? book.info.extractedThrough : at);
 /** 人物取到一次加一：services 换一个新的菜单函数，编辑器按当前查询重取（resolveTriggerMenu 的约定）。 */
 const mentionTick = ref(0);
 const mentions = createMentionSearch({
     async search(query): Promise<MentionEntity[]> {
         // 空查询给提及最多的几个人物（决定 4）：多取一些再筛人物与身份。
-        const result = await client.call("entities.list", {book: book.bookId, at: mentionAt.value, ...(query === "" ? {limit: 20} : {query, limit: MENTION_LIMIT})});
+        const result = await client.call("entities.list", {book: book.bookId, at: graphAtOf(mentionAt.value), ...(query === "" ? {limit: 20} : {query, limit: MENTION_LIMIT})});
         const entities = result.items.map(item => ({id: item.id, label: item.label, kind: item.kind, names: item.names.top}));
         return query === "" ? entities.filter(item => item.kind === "person" || item.kind === "persona").slice(0, 6) : entities;
     },
@@ -229,7 +236,7 @@ const services = computed(() => {
     const at = mentionAt.value;
     return {
         resolveTriggerMenu: (context: {trigger: string; query: string}) =>
-            context.trigger === "@" ? mentionMenu(context.query, {entities: mentions.lookup(context.query), book: book.info, at}) : {items: []},
+            context.trigger === "@" ? mentionMenu(context.query, {entities: mentions.lookup(context.query), book: {...book.info, paragraphs: fullParagraphs.value}, at}) : {items: []},
     };
 });
 
@@ -396,8 +403,10 @@ const statusCurrency = computed<string | null>(() => {
 const changingPosition = ref(false);
 const positionAt = computed(() => {
     if (selectedId.value !== null) return conversationAt.value;
-    return draftChapter.value === null ? book.at.value : {chapter: draftChapter.value, paragraph: book.info.paragraphs[draftChapter.value - 1] ?? 1};
+    return draftChapter.value === null ? book.at.value : {chapter: draftChapter.value, paragraph: fullParagraphs.value[draftChapter.value - 1] ?? 1};
 });
+/** 阅读位置在没抽取的尾部里：图只到抽取进度，之后只能读原文。 */
+const beyondGraph = computed(() => positionAt.value !== null && positionAt.value.chapter > book.info.chapters);
 /** 位置控件不能改的原因；能改时为 null。 */
 const positionBlock = computed<string | null>(() => {
     if (selectedId.value === null) return null;
@@ -536,13 +545,15 @@ const unsaved = computed(() => {
                 </Popover>
                 <template v-if="selectedId !== null && conversationAt !== null">
                     <span v-if="wide" class="qa-title" :title="title">{{ title }}</span>
-                    <QaPositionControl v-if="positionAt" :at="positionAt" :paragraphs="book.info.paragraphs" :max-chapter="book.info.extractedThrough.chapter" :disabled-reason="positionBlock" :busy="changingPosition" @change="onPositionChange" />
+                    <QaPositionControl v-if="positionAt" :at="positionAt" :paragraphs="fullParagraphs" :max-chapter="fullParagraphs.length" :disabled-reason="positionBlock" :busy="changingPosition" @change="onPositionChange" />
+                    <span v-if="beyondGraph" class="qa-meta" data-qa-beyond-graph>图只抽到第 {{ book.info.chapters }} 章，之后只读原文</span>
                     <span v-if="conversationMode" class="qa-meta">{{ MODE_LABEL[conversationMode] }}</span>
                     <span v-if="behindViewer && highestAt" class="qa-warn" data-qa-ahead><span class="i-lucide-eye" />这个对话读到过 {{ formatAt(highestAt) }}，晚于你现在的位置 {{ formatAt(book.at.value) }}，答案可能含后文</span>
                     <span v-else-if="aheadOfViewer" class="qa-meta">早于你现在的位置 {{ formatAt(book.at.value) }}</span>
                 </template>
                 <template v-else-if="selectedId === null && positionAt">
-                    <QaPositionControl :at="positionAt" :paragraphs="book.info.paragraphs" :max-chapter="book.info.extractedThrough.chapter" :disabled-reason="null" :busy="false" @change="onPositionChange" />
+                    <QaPositionControl :at="positionAt" :paragraphs="fullParagraphs" :max-chapter="fullParagraphs.length" :disabled-reason="null" :busy="false" @change="onPositionChange" />
+                    <span v-if="beyondGraph" class="qa-meta" data-qa-beyond-graph>图只抽到第 {{ book.info.chapters }} 章，之后只读原文</span>
                     <span class="qa-meta">新对话从这里读起</span>
                 </template>
                 <span class="ml-auto" />

@@ -19,6 +19,17 @@ const BELL: MentionEntity = {id: "e9", label: "旧钟", kind: "item", names: ["�
 
 const shown = (menu: ReturnType<typeof mentionMenu>) => menu.items.map(item => [item.group, item.label, item.description, item.disabled ?? false, item.insertText]);
 
+describe("@ 菜单：阅读位置在没抽取的尾部章里（w00024 t30）", () => {
+    // 段数表含尾部第 4 章（6 段），toc 里尾部章没有标题。
+    const WITH_TAIL: MentionBook = {paragraphs: [10, 12, 8, 6], toc: [...BOOK.toc, {chapter: 4, title: null}]};
+
+    test("尾部章和它的段落能被引用：空查询给当前章，写“4.3”给第 3 段", () => {
+        const at = {chapter: 4, paragraph: 6};
+        expect(shown(mentionMenu("", {entities: [], book: WITH_TAIL, at})).map(row => row[1])).toContain("第 4 章");
+        expect(shown(mentionMenu("4.3", {entities: [], book: WITH_TAIL, at})).map(row => row[4])).toContain("[4.3](paragraph://4.3)");
+    });
+});
+
 describe("@ 菜单", () => {
     test("人物与对象在前、章节与段落在后；插进去的是带 id 的引用", () => {
         const menu = mentionMenu("", {entities: [SU, BELL], book: BOOK, at: {chapter: 2, paragraph: 5}});
