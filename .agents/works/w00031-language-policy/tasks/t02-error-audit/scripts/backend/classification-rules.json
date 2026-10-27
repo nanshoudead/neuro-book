@@ -1,0 +1,5048 @@
+[
+  {
+    "id": "R01",
+    "file": "packages/nb-profile/src/define.ts",
+    "callees": [
+      "ProfileError"
+    ],
+    "category": "诊断",
+    "channel": "B-PROFILE-CONTRACT",
+    "evidence": "define.ts:12-21,108-130; nb-harness/harness.ts:84-86"
+  },
+  {
+    "id": "R02",
+    "file": "packages/nb-profile/src/loader.ts",
+    "callees": [
+      "ProfileError"
+    ],
+    "category": "诊断",
+    "channel": "B-PROFILE-CONTRACT",
+    "evidence": "loader.ts:12-20"
+  },
+  {
+    "id": "R03",
+    "file": "packages/nb-profile/src/jsx-runtime.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-PROFILE-CONTRACT",
+    "evidence": "jsx-runtime.ts:35-36"
+  },
+  {
+    "id": "R04",
+    "file": "packages/nb-profile/src/nodes.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-PROFILE-CONTRACT",
+    "evidence": "nodes.ts:80-82"
+  },
+  {
+    "id": "R05",
+    "file": "packages/nb-session/src/jsonl-log.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-SESSION-JSONL",
+    "evidence": "jsonl-log.ts:40-45,73-81"
+  },
+  {
+    "id": "R06",
+    "file": "packages/nb-session/src/memory-log.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-SESSION-JSONL",
+    "evidence": "memory-log.ts:60-67"
+  },
+  {
+    "id": "R07",
+    "file": "packages/owned-process/src/posix-adapter.ts",
+    "callees": [
+      "OwnedProcessError",
+      "Error",
+      "armWatchdog"
+    ],
+    "category": "诊断",
+    "channel": "B-OWNED-PROCESS",
+    "evidence": "posix-adapter.ts:100,107-180"
+  },
+  {
+    "id": "R08",
+    "file": "packages/owned-process/src/windows-adapter.ts",
+    "callees": [
+      "OwnedProcessError",
+      "Error",
+      "armWatchdog"
+    ],
+    "category": "诊断",
+    "channel": "B-OWNED-PROCESS",
+    "evidence": "windows-adapter.ts:106-177"
+  },
+  {
+    "id": "R09",
+    "file": "packages/owned-process/src/index.ts",
+    "callees": [
+      "OwnedProcessError"
+    ],
+    "category": "诊断",
+    "channel": "B-OWNED-PROCESS",
+    "evidence": "index.ts:22-25"
+  },
+  {
+    "id": "R10-paths.ts",
+    "file": "packages/nb-history/src/paths.ts",
+    "callees": [
+      "HistoryError",
+      "HistoryInboxMutationError"
+    ],
+    "category": "诊断",
+    "channel": "B-HISTORY-ERROR",
+    "evidence": "types.ts:168-181; workspace-history.ts:123-145,253-279,608-642"
+  },
+  {
+    "id": "R10-rows.ts",
+    "file": "packages/nb-history/src/rows.ts",
+    "callees": [
+      "HistoryError",
+      "HistoryInboxMutationError"
+    ],
+    "category": "诊断",
+    "channel": "B-HISTORY-ERROR",
+    "evidence": "types.ts:168-181; workspace-history.ts:123-145,253-279,608-642"
+  },
+  {
+    "id": "R10-workspace-history.ts",
+    "file": "packages/nb-history/src/workspace-history.ts",
+    "callees": [
+      "HistoryError",
+      "HistoryInboxMutationError"
+    ],
+    "category": "诊断",
+    "channel": "B-HISTORY-ERROR",
+    "evidence": "types.ts:168-181; workspace-history.ts:123-145,253-279,608-642"
+  },
+  {
+    "id": "R11",
+    "file": "packages/nb-memory/src/ingest/extract.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-MEMORY-FAILURE",
+    "evidence": "extract.ts:92,109-122,156-169"
+  },
+  {
+    "id": "R12",
+    "file": "packages/nb-memory/src/index.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-MEMORY-FAILURE",
+    "evidence": "index.ts:182-199"
+  },
+  {
+    "id": "R13-core/jsonl.ts",
+    "file": "packages/nb-memory/src/core/jsonl.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-MEMORY-FAILURE",
+    "evidence": "错误域 memory.failure 所列逐个 throw 边界"
+  },
+  {
+    "id": "R13-core/state-store.ts",
+    "file": "packages/nb-memory/src/core/state-store.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-MEMORY-FAILURE",
+    "evidence": "错误域 memory.failure 所列逐个 throw 边界"
+  },
+  {
+    "id": "R13-core/subject-registry.ts",
+    "file": "packages/nb-memory/src/core/subject-registry.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-MEMORY-FAILURE",
+    "evidence": "错误域 memory.failure 所列逐个 throw 边界"
+  },
+  {
+    "id": "R13-ports/sqlite-index-store.ts",
+    "file": "packages/nb-memory/src/ports/sqlite-index-store.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-MEMORY-FAILURE",
+    "evidence": "错误域 memory.failure 所列逐个 throw 边界"
+  },
+  {
+    "id": "R14-harness.ts",
+    "file": "packages/nb-harness/src/harness.ts",
+    "callees": [
+      "Error",
+      "HarnessError",
+      "SseClosedError",
+      "AggregateError",
+      "localError",
+      "incompatible",
+      "fail"
+    ],
+    "category": "诊断",
+    "channel": "B-HARNESS-RUN",
+    "evidence": "harness.ts:146-156,272-324,328-428; model.ts:18-25,64-67,126-149; sse-writer.ts:88-124; tools/effective.ts:54-134; registry.ts:96,147-152"
+  },
+  {
+    "id": "R14-model.ts",
+    "file": "packages/nb-harness/src/model.ts",
+    "callees": [
+      "Error",
+      "HarnessError",
+      "SseClosedError",
+      "AggregateError",
+      "localError",
+      "incompatible",
+      "fail"
+    ],
+    "category": "诊断",
+    "channel": "B-HARNESS-RUN",
+    "evidence": "harness.ts:146-156,272-324,328-428; model.ts:18-25,64-67,126-149; sse-writer.ts:88-124; tools/effective.ts:54-134; registry.ts:96,147-152"
+  },
+  {
+    "id": "R14-sse.ts",
+    "file": "packages/nb-harness/src/sse.ts",
+    "callees": [
+      "Error",
+      "HarnessError",
+      "SseClosedError",
+      "AggregateError",
+      "localError",
+      "incompatible",
+      "fail"
+    ],
+    "category": "诊断",
+    "channel": "B-HARNESS-RUN",
+    "evidence": "harness.ts:146-156,272-324,328-428; model.ts:18-25,64-67,126-149; sse-writer.ts:88-124; tools/effective.ts:54-134; registry.ts:96,147-152"
+  },
+  {
+    "id": "R14-sse-writer.ts",
+    "file": "packages/nb-harness/src/sse-writer.ts",
+    "callees": [
+      "Error",
+      "HarnessError",
+      "SseClosedError",
+      "AggregateError",
+      "localError",
+      "incompatible",
+      "fail"
+    ],
+    "category": "诊断",
+    "channel": "B-HARNESS-RUN",
+    "evidence": "harness.ts:146-156,272-324,328-428; model.ts:18-25,64-67,126-149; sse-writer.ts:88-124; tools/effective.ts:54-134; registry.ts:96,147-152"
+  },
+  {
+    "id": "R14-tools/effective.ts",
+    "file": "packages/nb-harness/src/tools/effective.ts",
+    "callees": [
+      "Error",
+      "HarnessError",
+      "SseClosedError",
+      "AggregateError",
+      "localError",
+      "incompatible",
+      "fail"
+    ],
+    "category": "诊断",
+    "channel": "B-HARNESS-RUN",
+    "evidence": "harness.ts:146-156,272-324,328-428; model.ts:18-25,64-67,126-149; sse-writer.ts:88-124; tools/effective.ts:54-134; registry.ts:96,147-152"
+  },
+  {
+    "id": "R14-tools/registry.ts",
+    "file": "packages/nb-harness/src/tools/registry.ts",
+    "callees": [
+      "Error",
+      "HarnessError",
+      "SseClosedError",
+      "AggregateError",
+      "localError",
+      "incompatible",
+      "fail"
+    ],
+    "category": "诊断",
+    "channel": "B-HARNESS-RUN",
+    "evidence": "harness.ts:146-156,272-324,328-428; model.ts:18-25,64-67,126-149; sse-writer.ts:88-124; tools/effective.ts:54-134; registry.ts:96,147-152"
+  },
+  {
+    "id": "R15",
+    "file": "packages/nb-harness/src/tools/read.ts",
+    "callees": [
+      "errorResult",
+      "lines.push"
+    ],
+    "category": "提示词",
+    "channel": "B-TOOLS-BUILTIN",
+    "evidence": "read.ts:42-47,74-110,115-125,138-161"
+  },
+  {
+    "id": "R16",
+    "file": "packages/nb-harness/src/tools/edit.ts",
+    "callees": [
+      "errorResult"
+    ],
+    "category": "提示词",
+    "channel": "B-TOOLS-BUILTIN",
+    "evidence": "edit.ts:111-137"
+  },
+  {
+    "id": "R17",
+    "file": "packages/nb-story/src/qa/tools.ts",
+    "callees": [
+      "text"
+    ],
+    "category": "提示词",
+    "channel": "B-TOOLS-DOMAIN",
+    "evidence": "tools.ts:101-114,137-143"
+  },
+  {
+    "id": "R18",
+    "file": "packages/nb-story/src/qa/tools.ts",
+    "callees": [
+      "[summary, TOOL_USAGE[name], PERSPECTIVE_METHODS.has(method) ? \"可加 \\\"perspective\\\"：按某个角色知道的事回答（写角色 id 或名字）。\" : \"\", paged ? PAGING_HINT : \"\"].filter"
+    ],
+    "category": "提示词",
+    "channel": "B-TOOLS-DOMAIN",
+    "evidence": "tools.ts:94-99"
+  },
+  {
+    "id": "R19",
+    "file": "packages/nb-story/src/qa/engine.ts",
+    "callees": [
+      "console.error"
+    ],
+    "category": "诊断",
+    "channel": "B-HARNESS-RUN",
+    "evidence": "engine.ts:241-246"
+  },
+  {
+    "id": "R20",
+    "file": "packages/nb-story/src/qa/engine.ts",
+    "callees": [
+      "QaError",
+      "notContinuable",
+      "localFailure",
+      "Error",
+      "claim"
+    ],
+    "category": "诊断",
+    "channel": "B-QA-RECORD",
+    "evidence": "engine.ts:198-215,322-350,416-425,437-455"
+  },
+  {
+    "id": "R21",
+    "file": "packages/nb-story/src/core/api.ts",
+    "callees": [
+      "StoryError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-STORY-HTTP",
+    "evidence": "api.ts:208-220"
+  },
+  {
+    "id": "R22",
+    "file": "packages/nb-story/src/server/qa-service.ts",
+    "callees": [
+      "StoryError",
+      "Error",
+      "busy"
+    ],
+    "category": "诊断",
+    "channel": "B-STORY-HTTP",
+    "evidence": "qa-service.ts:214-315,552-563"
+  },
+  {
+    "id": "R23",
+    "file": "packages/nb-story/src/server/qa-service.ts",
+    "callees": [
+      "console.error",
+      "console.warn"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-FALLBACK",
+    "evidence": "qa-service.ts:138-145,262,295-298"
+  },
+  {
+    "id": "R24",
+    "file": "packages/nb-story/src/server/ingest-service.ts",
+    "callees": [
+      "StoryError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-STORY-HTTP",
+    "evidence": "ingest-service.ts:154-163"
+  },
+  {
+    "id": "R25",
+    "file": "packages/nb-story/src/ingest/runner.ts",
+    "callees": [
+      "StoryError",
+      "console.error",
+      "finish"
+    ],
+    "category": "诊断",
+    "channel": "B-INGEST-STATE",
+    "evidence": "runner.ts:73-81,108-154"
+  },
+  {
+    "id": "R26",
+    "file": "packages/nb-story/src/ingest/worker.ts",
+    "callees": [
+      "self.postMessage"
+    ],
+    "category": "诊断",
+    "channel": "B-INGEST-STATE",
+    "evidence": "worker.ts:59-62"
+  },
+  {
+    "id": "R27",
+    "file": "packages/nb-story/src/ingest/job.ts",
+    "callees": [
+      "StoryError",
+      "IngestBadReply",
+      "console.error"
+    ],
+    "category": "诊断",
+    "channel": "B-INGEST-STATE",
+    "evidence": "job.ts:119-129,135; 其余未核定文字用途保留候选"
+  },
+  {
+    "id": "R28",
+    "file": "packages/nb-story/src/ingest/model.ts",
+    "callees": [
+      "ModelError",
+      "redact",
+      "redactKey"
+    ],
+    "category": "诊断",
+    "channel": "B-INGEST-STATE",
+    "evidence": "model.ts:211-230; 输入原文不翻译"
+  },
+  {
+    "id": "R29-ask.ts",
+    "file": "packages/nb-story/src/cli/ask.ts",
+    "callees": [
+      "io.stderr",
+      "fail",
+      "done"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "cli/main.ts:147-154; ask.ts:67-70,107-131; ingest.ts:69-78,281-286; qa.ts:29-30,51-58; config.ts:132-143,290-313"
+  },
+  {
+    "id": "R29-ingest.ts",
+    "file": "packages/nb-story/src/cli/ingest.ts",
+    "callees": [
+      "io.stderr",
+      "fail",
+      "done"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "cli/main.ts:147-154; ask.ts:67-70,107-131; ingest.ts:69-78,281-286; qa.ts:29-30,51-58; config.ts:132-143,290-313"
+  },
+  {
+    "id": "R29-main.ts",
+    "file": "packages/nb-story/src/cli/main.ts",
+    "callees": [
+      "io.stderr",
+      "fail",
+      "done"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "cli/main.ts:147-154; ask.ts:67-70,107-131; ingest.ts:69-78,281-286; qa.ts:29-30,51-58; config.ts:132-143,290-313"
+  },
+  {
+    "id": "R29-qa.ts",
+    "file": "packages/nb-story/src/cli/qa.ts",
+    "callees": [
+      "io.stderr",
+      "fail",
+      "done"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "cli/main.ts:147-154; ask.ts:67-70,107-131; ingest.ts:69-78,281-286; qa.ts:29-30,51-58; config.ts:132-143,290-313"
+  },
+  {
+    "id": "R29-config.ts",
+    "file": "packages/nb-story/src/cli/config.ts",
+    "callees": [
+      "io.stderr",
+      "fail",
+      "done"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "cli/main.ts:147-154; ask.ts:67-70,107-131; ingest.ts:69-78,281-286; qa.ts:29-30,51-58; config.ts:132-143,290-313"
+  },
+  {
+    "id": "R30",
+    "file": "packages/nb-story/src/cli/commands.ts",
+    "callees": [
+      "command"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "commands.ts:109-250; qa/tools.ts:93-99 的 summary 同时进工具说明，分类主归给人读的 CLI 声明"
+  },
+  {
+    "id": "R31",
+    "file": "packages/nb-story/src/server/http.ts",
+    "callees": [
+      "json",
+      "html"
+    ],
+    "category": "用户文案",
+    "channel": "B-STORY-HTTP",
+    "evidence": "http.ts:111-145,154-157,237-262; 当前固定 HTTP 失败说明而非纯内部异常"
+  },
+  {
+    "id": "R32",
+    "file": "packages/nb-story/src/server/http.ts",
+    "callees": [
+      "console.error"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-FALLBACK",
+    "evidence": "http.ts:116-117,143-144,258-259"
+  },
+  {
+    "id": "R33",
+    "file": "packages/neuro-book/src/cli/main.ts",
+    "callees": [
+      "CliFailure"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-NBOOK",
+    "evidence": "main.ts:108-148; output.ts:34-36"
+  },
+  {
+    "id": "R34-plugin.ts",
+    "file": "packages/neuro-book/src/cli/plugin.ts",
+    "callees": [
+      "CliFailure",
+      "context.output.hint",
+      "context.output.result"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-NBOOK",
+    "evidence": "output.ts:23-36; plugin.ts:89-93,120-123; start.ts 输出"
+  },
+  {
+    "id": "R34-start.ts",
+    "file": "packages/neuro-book/src/cli/start.ts",
+    "callees": [
+      "CliFailure",
+      "context.output.hint",
+      "context.output.result"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-NBOOK",
+    "evidence": "output.ts:23-36; plugin.ts:89-93,120-123; start.ts 输出"
+  },
+  {
+    "id": "R34-state-root.ts",
+    "file": "packages/neuro-book/src/cli/state-root.ts",
+    "callees": [
+      "CliFailure",
+      "context.output.hint",
+      "context.output.result"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-NBOOK",
+    "evidence": "output.ts:23-36; plugin.ts:89-93,120-123; start.ts 输出"
+  },
+  {
+    "id": "R35",
+    "file": "packages/neuro-book/plugin-sdk/cli.ts",
+    "callees": [
+      "UsageError",
+      "console.log",
+      "console.error"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-SDK",
+    "evidence": "cli.ts:17-24,28-94"
+  },
+  {
+    "id": "R36",
+    "file": "packages/neuro-book/src/plugins/http/backend/dispatch.ts",
+    "callees": [
+      "errorResponse"
+    ],
+    "category": "用户文案",
+    "channel": "B-HTTP-HOST",
+    "evidence": "dispatch.ts:75-144,221-222"
+  },
+  {
+    "id": "R37",
+    "file": "packages/neuro-book/src/plugins/projects/backend/cover-routes.ts",
+    "callees": [
+      "Response.json",
+      "c.json"
+    ],
+    "category": "用户文案",
+    "channel": "B-HTTP-COVER",
+    "evidence": "cover-routes.ts:42,60-89,115-144"
+  },
+  {
+    "id": "R38",
+    "file": "packages/neuro-book/src/plugins/projects/backend/cover-routes.ts",
+    "callees": [
+      "sources.record"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-JSONL",
+    "evidence": "cover-routes.ts:99-100,125-132,145-146"
+  },
+  {
+    "id": "R39-backend/loader.ts",
+    "file": "packages/neuro-book/src/plugin-platform/backend/loader.ts",
+    "callees": [
+      "record",
+      "options.record",
+      "Error",
+      "PluginCodeError"
+    ],
+    "category": "诊断",
+    "channel": "B-PLUGIN-CODE-SERVER",
+    "evidence": "loader.ts:103-139; definitions.ts:读取装配; styles.ts:诊断"
+  },
+  {
+    "id": "R39-shared/definitions.ts",
+    "file": "packages/neuro-book/src/plugin-platform/shared/definitions.ts",
+    "callees": [
+      "record",
+      "options.record",
+      "Error",
+      "PluginCodeError"
+    ],
+    "category": "诊断",
+    "channel": "B-PLUGIN-CODE-SERVER",
+    "evidence": "loader.ts:103-139; definitions.ts:读取装配; styles.ts:诊断"
+  },
+  {
+    "id": "R39-web/styles.ts",
+    "file": "packages/neuro-book/src/plugin-platform/web/styles.ts",
+    "callees": [
+      "record",
+      "options.record",
+      "Error",
+      "PluginCodeError"
+    ],
+    "category": "诊断",
+    "channel": "B-PLUGIN-CODE-SERVER",
+    "evidence": "loader.ts:103-139; definitions.ts:读取装配; styles.ts:诊断"
+  },
+  {
+    "id": "R40",
+    "file": "packages/neuro-book/src/plugin-platform/backend/inventory.ts",
+    "callees": [
+      "options.record"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-JSONL",
+    "evidence": "inventory 的 record 是 DiagnosticInput 端口"
+  },
+  {
+    "id": "R41",
+    "file": "packages/neuro-book/src/plugins/commands/shared/plugin.ts",
+    "callees": [
+      "diagnostics.record"
+    ],
+    "category": "诊断",
+    "channel": "B-COMMAND-RESULT",
+    "evidence": "shared/plugin.ts:88-94"
+  },
+  {
+    "id": "R42",
+    "file": "packages/neuro-book/src/plugins/commands/shared/registry.ts",
+    "callees": [
+      "problems.push",
+      "shape.map",
+      "Error",
+      "reject",
+      "fail"
+    ],
+    "category": "用户文案",
+    "channel": "B-COMMAND-RESULT",
+    "evidence": "registry.ts:123-137,296-358; failure-notice.ts:23-29 当前直接使用 reason"
+  },
+  {
+    "id": "R43-layer-owner.ts",
+    "file": "packages/neuro-book/src/plugins/settings/backend/layer-owner.ts",
+    "callees": [
+      "record"
+    ],
+    "category": "诊断",
+    "channel": "B-SETTINGS-WRITE",
+    "evidence": "layer-owner.ts:142-164,198-249"
+  },
+  {
+    "id": "R43-layer-file.ts",
+    "file": "packages/neuro-book/src/plugins/settings/backend/layer-file.ts",
+    "callees": [
+      "record"
+    ],
+    "category": "诊断",
+    "channel": "B-SETTINGS-WRITE",
+    "evidence": "layer-owner.ts:142-164,198-249"
+  },
+  {
+    "id": "R44-backend/partition.ts",
+    "file": "packages/neuro-book/src/plugins/storage/backend/partition.ts",
+    "callees": [
+      "PartitionError",
+      "diagnostics.record"
+    ],
+    "category": "诊断",
+    "channel": "B-STORAGE-STATE",
+    "evidence": "partition.ts:299-329,361-366; plugin.ts diagnostics"
+  },
+  {
+    "id": "R44-backend/plugin.ts",
+    "file": "packages/neuro-book/src/plugins/storage/backend/plugin.ts",
+    "callees": [
+      "PartitionError",
+      "diagnostics.record"
+    ],
+    "category": "诊断",
+    "channel": "B-STORAGE-STATE",
+    "evidence": "partition.ts:299-329,361-366; plugin.ts diagnostics"
+  },
+  {
+    "id": "R45",
+    "file": "packages/neuro-book/src/server/projects/manager.ts",
+    "callees": [
+      "this.#options.record"
+    ],
+    "category": "诊断",
+    "channel": "B-PROJECT-OUTPUT",
+    "evidence": "manager.ts:482,518,534,550-566"
+  },
+  {
+    "id": "R46-start.ts",
+    "file": "packages/neuro-book/src/server/start.ts",
+    "callees": [
+      "reportFatal",
+      "store.record",
+      "fatal",
+      "this.#emergency",
+      "ServerAssemblyError",
+      "ServerStartupError",
+      "Error",
+      "AggregateError"
+    ],
+    "category": "诊断",
+    "channel": "B-HOST-EMERGENCY",
+    "evidence": "server/start.ts:311-318,401-415; process.ts:28-62; host.ts:124-132"
+  },
+  {
+    "id": "R46-process.ts",
+    "file": "packages/neuro-book/src/server/process.ts",
+    "callees": [
+      "reportFatal",
+      "store.record",
+      "fatal",
+      "this.#emergency",
+      "ServerAssemblyError",
+      "ServerStartupError",
+      "Error",
+      "AggregateError"
+    ],
+    "category": "诊断",
+    "channel": "B-HOST-EMERGENCY",
+    "evidence": "server/start.ts:311-318,401-415; process.ts:28-62; host.ts:124-132"
+  },
+  {
+    "id": "R46-host.ts",
+    "file": "packages/neuro-book/src/server/host.ts",
+    "callees": [
+      "reportFatal",
+      "store.record",
+      "fatal",
+      "this.#emergency",
+      "ServerAssemblyError",
+      "ServerStartupError",
+      "Error",
+      "AggregateError"
+    ],
+    "category": "诊断",
+    "channel": "B-HOST-EMERGENCY",
+    "evidence": "server/start.ts:311-318,401-415; process.ts:28-62; host.ts:124-132"
+  },
+  {
+    "id": "R47",
+    "file": "packages/neuro-book/src/project/start.ts",
+    "callees": [
+      "store.record",
+      "reportFatal",
+      "report"
+    ],
+    "category": "诊断",
+    "channel": "B-PROJECT-IPC",
+    "evidence": "project/start.ts:115-118,148-156"
+  },
+  {
+    "id": "R48-config.ts",
+    "file": "packages/neuro-book/src/server/config.ts",
+    "callees": [
+      "ServerConfigError",
+      "DevConfigError",
+      "BackendStartError"
+    ],
+    "category": "诊断",
+    "channel": "B-HOST-EMERGENCY",
+    "evidence": "server/config.ts:32-40; dev/config.ts:22-46; dev/backend-process.ts:97-101"
+  },
+  {
+    "id": "R48-dev/config.ts",
+    "file": "packages/neuro-book/src/server/dev/config.ts",
+    "callees": [
+      "ServerConfigError",
+      "DevConfigError",
+      "BackendStartError"
+    ],
+    "category": "诊断",
+    "channel": "B-HOST-EMERGENCY",
+    "evidence": "server/config.ts:32-40; dev/config.ts:22-46; dev/backend-process.ts:97-101"
+  },
+  {
+    "id": "R48-dev/backend-process.ts",
+    "file": "packages/neuro-book/src/server/dev/backend-process.ts",
+    "callees": [
+      "ServerConfigError",
+      "DevConfigError",
+      "BackendStartError"
+    ],
+    "category": "诊断",
+    "channel": "B-HOST-EMERGENCY",
+    "evidence": "server/config.ts:32-40; dev/config.ts:22-46; dev/backend-process.ts:97-101"
+  },
+  {
+    "id": "R49",
+    "file": "packages/dev-panel/src/cli/output.ts",
+    "callees": [
+      "io.stderr.write",
+      "writeEntry"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "output.ts:24-32,99-124"
+  },
+  {
+    "id": "R50",
+    "file": "packages/dev-panel/src/server/writes.ts",
+    "callees": [
+      "NbdevError",
+      "usage",
+      "envelope"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "writes.ts:36-38,79-100,286-298"
+  },
+  {
+    "id": "R51",
+    "file": "packages/dev-panel/src/server/writes.ts",
+    "callees": [
+      "log"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-FALLBACK",
+    "evidence": "writes.ts:294,297"
+  },
+  {
+    "id": "R52",
+    "file": "packages/dev-panel/src/core/operations.ts",
+    "callees": [
+      "NbdevError",
+      "assertTitle"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-VALIDATION",
+    "evidence": "operations.ts:129-133,165-167,308-309,330-359"
+  },
+  {
+    "id": "R53",
+    "file": "packages/dev-panel/src/core/questions.ts",
+    "callees": [
+      "add",
+      "problem"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-VALIDATION",
+    "evidence": "questions.ts:54-98,204-206; AnswerForm.vue:78-89,129"
+  },
+  {
+    "id": "R54",
+    "file": "packages/dev-panel/src/core/text-rules.ts",
+    "callees": [
+      "NbdevError"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-VALIDATION",
+    "evidence": "text-rules.ts:14-37"
+  },
+  {
+    "id": "R55",
+    "file": "packages/dev-panel/src/server/terminal-hub.ts",
+    "callees": [
+      "this.closeConn",
+      "this.error"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-TERMINAL",
+    "evidence": "terminal-hub.ts:95-105,269-271,297-347"
+  },
+  {
+    "id": "R56",
+    "file": "packages/dev-panel/src/server/terminal-hub.ts",
+    "callees": [
+      "this.options.log"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-FALLBACK",
+    "evidence": "terminal-hub 的 log 诊断端口；不含控制帧"
+  },
+  {
+    "id": "R57-state.ts",
+    "file": "packages/dev-panel/src/server/state.ts",
+    "callees": [
+      "this.log",
+      "log",
+      "report",
+      "this.options.log"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-FALLBACK",
+    "evidence": "这些 server 文件的 log 参数；错误出口另经 HTTP/WS"
+  },
+  {
+    "id": "R57-session-titles.ts",
+    "file": "packages/dev-panel/src/server/session-titles.ts",
+    "callees": [
+      "this.log",
+      "log",
+      "report",
+      "this.options.log"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-FALLBACK",
+    "evidence": "这些 server 文件的 log 参数；错误出口另经 HTTP/WS"
+  },
+  {
+    "id": "R57-herdr-monitor.ts",
+    "file": "packages/dev-panel/src/server/herdr-monitor.ts",
+    "callees": [
+      "this.log",
+      "log",
+      "report",
+      "this.options.log"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-FALLBACK",
+    "evidence": "这些 server 文件的 log 参数；错误出口另经 HTTP/WS"
+  },
+  {
+    "id": "R57-notifier.ts",
+    "file": "packages/dev-panel/src/server/notifier.ts",
+    "callees": [
+      "this.log",
+      "log",
+      "report",
+      "this.options.log"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-FALLBACK",
+    "evidence": "这些 server 文件的 log 参数；错误出口另经 HTTP/WS"
+  },
+  {
+    "id": "R58",
+    "file": "packages/nb-memory/src/ingest/extract.ts",
+    "callees": [
+      "parts.push",
+      "input.subjects.map"
+    ],
+    "category": "提示词",
+    "channel": "B-MEMORY-FAILURE",
+    "evidence": "extract.ts:100-111,125-153"
+  },
+  {
+    "id": "R59",
+    "file": "packages/nb-memory/src/retrieval/llm-planner.ts",
+    "callees": [
+      "input.subjects.map"
+    ],
+    "category": "提示词",
+    "channel": "B-MEMORY-FAILURE",
+    "evidence": "llm-planner.ts:78-83,100-113"
+  },
+  {
+    "id": "R60",
+    "file": "packages/nb-history/scripts/demo.ts",
+    "lines": [
+      49,
+      51,
+      52,
+      70
+    ],
+    "category": "领域内容",
+    "channel": "B-HISTORY-ERROR",
+    "evidence": "demo.ts:49-52,70 的小说正文样本，不是错误文案"
+  },
+  {
+    "id": "R61",
+    "file": "packages/nb-workflow/demo/generate.ts",
+    "lines": [
+      29,
+      44,
+      48,
+      53,
+      181,
+      186,
+      209,
+      211,
+      212
+    ],
+    "category": "领域内容",
+    "channel": "B-WORKFLOW-STATE",
+    "evidence": "generate.ts:29-55,181-212 的示例小说、MockAgent 回复和角色扮演输入"
+  },
+  {
+    "id": "R62-runner.ts",
+    "file": "packages/nb-workflow/src/runner.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-WORKFLOW-CONTROL",
+    "evidence": "runner.ts:233-325,419-455; runner-run-store.ts:65-73,102-109,151-155; 各调用候选附完整 new Error 表达式"
+  },
+  {
+    "id": "R62-runner-run-store.ts",
+    "file": "packages/nb-workflow/src/runner-run-store.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-WORKFLOW-CONTROL",
+    "evidence": "runner.ts:233-325,419-455; runner-run-store.ts:65-73,102-109,151-155; 各调用候选附完整 new Error 表达式"
+  },
+  {
+    "id": "R62-agent-extension.ts",
+    "file": "packages/nb-workflow/src/agent-extension.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-WORKFLOW-CONTROL",
+    "evidence": "runner.ts:233-325,419-455; runner-run-store.ts:65-73,102-109,151-155; 各调用候选附完整 new Error 表达式"
+  },
+  {
+    "id": "R62-agents.ts",
+    "file": "packages/nb-workflow/src/agents.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-WORKFLOW-CONTROL",
+    "evidence": "runner.ts:233-325,419-455; runner-run-store.ts:65-73,102-109,151-155; 各调用候选附完整 new Error 表达式"
+  },
+  {
+    "id": "R62-session-store.ts",
+    "file": "packages/nb-workflow/src/session-store.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-WORKFLOW-CONTROL",
+    "evidence": "runner.ts:233-325,419-455; runner-run-store.ts:65-73,102-109,151-155; 各调用候选附完整 new Error 表达式"
+  },
+  {
+    "id": "R63-runtime.ts",
+    "file": "packages/nb-workflow/src/runtime.ts",
+    "callees": [
+      "super"
+    ],
+    "category": "诊断",
+    "channel": "B-WORKFLOW-CONTROL",
+    "evidence": "runtime.ts:39-48; ports.ts:18-20"
+  },
+  {
+    "id": "R63-ports.ts",
+    "file": "packages/nb-workflow/src/ports.ts",
+    "callees": [
+      "super"
+    ],
+    "category": "诊断",
+    "channel": "B-WORKFLOW-CONTROL",
+    "evidence": "runtime.ts:39-48; ports.ts:18-20"
+  },
+  {
+    "id": "R64-contracts.ts",
+    "file": "packages/nb-runtime/src/lifecycle/contracts.ts",
+    "callees": [
+      "super",
+      "TypeError",
+      "Error",
+      "this.#stateError",
+      "this.#assertAlive",
+      "abortReason"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-QUERY",
+    "evidence": "lifecycle/contracts.ts:310-331; scope.ts:69-84,312-313,424-560,681-694,737-746,831,929"
+  },
+  {
+    "id": "R64-scope.ts",
+    "file": "packages/nb-runtime/src/lifecycle/scope.ts",
+    "callees": [
+      "super",
+      "TypeError",
+      "Error",
+      "this.#stateError",
+      "this.#assertAlive",
+      "abortReason"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-QUERY",
+    "evidence": "lifecycle/contracts.ts:310-331; scope.ts:69-84,312-313,424-560,681-694,737-746,831,929"
+  },
+  {
+    "id": "R65-application.ts",
+    "file": "packages/nb-runtime/src/application/application.ts",
+    "callees": [
+      "TypeError"
+    ],
+    "category": "诊断",
+    "channel": "B-HOST-EMERGENCY",
+    "evidence": "每个候选保留 throw TypeError 完整表达式；children.ts:335-338"
+  },
+  {
+    "id": "R65-instances.ts",
+    "file": "packages/nb-runtime/src/application/instances.ts",
+    "callees": [
+      "TypeError"
+    ],
+    "category": "诊断",
+    "channel": "B-HOST-EMERGENCY",
+    "evidence": "每个候选保留 throw TypeError 完整表达式；children.ts:335-338"
+  },
+  {
+    "id": "R65-children.ts",
+    "file": "packages/nb-runtime/src/application/children.ts",
+    "callees": [
+      "TypeError"
+    ],
+    "category": "诊断",
+    "channel": "B-HOST-EMERGENCY",
+    "evidence": "每个候选保留 throw TypeError 完整表达式；children.ts:335-338"
+  },
+  {
+    "id": "R66",
+    "file": "packages/nb-runtime/src/application/bootstrap.ts",
+    "callees": [
+      "this.#emergency",
+      "this.#fail"
+    ],
+    "category": "诊断",
+    "channel": "B-HOST-EMERGENCY",
+    "evidence": "bootstrap.ts:158,192,248,290-295; store.ts:421-430"
+  },
+  {
+    "id": "R67",
+    "file": "packages/nb-runtime/src/diagnostics/store.ts",
+    "callees": [
+      "TypeError",
+      "DiagnosticsError",
+      "store.record"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-QUERY",
+    "evidence": "store.ts:48-69,177-235,340-361"
+  },
+  {
+    "id": "R68",
+    "file": "packages/nb-runtime/src/remote/json-codec.ts",
+    "callees": [
+      "FrameEncodingError"
+    ],
+    "category": "诊断",
+    "channel": "B-REMOTE-ROUTE",
+    "evidence": "json-codec.ts:37-73; peer.ts:143-161"
+  },
+  {
+    "id": "R69",
+    "file": "packages/nb-runtime/src/remote/contract.ts",
+    "callees": [
+      "TypeError",
+      "problems.push"
+    ],
+    "category": "诊断",
+    "channel": "B-REMOTE-ROUTE",
+    "evidence": "contract.ts:104-152; 错误合同定义校验"
+  },
+  {
+    "id": "R70",
+    "file": "packages/nb-runtime/src/remote/node.ts",
+    "callees": [
+      "fail",
+      "settle",
+      "Error",
+      "channel.reject",
+      "this.#record",
+      "Object.freeze",
+      "resolve"
+    ],
+    "category": "诊断",
+    "channel": "B-REMOTE-ROUTE",
+    "evidence": "node.ts:356,537-567,770-946,1007,1163-1164; 含握手终态诊断"
+  },
+  {
+    "id": "R71",
+    "file": "packages/nb-runtime/src/remote/peer.ts",
+    "callees": [
+      "pending.settle",
+      "resolve",
+      "this.send",
+      "reply.result",
+      "channel.reject"
+    ],
+    "category": "诊断",
+    "channel": "B-REMOTE-ROUTE",
+    "evidence": "peer.ts:143-161,281-288,331"
+  },
+  {
+    "id": "R72",
+    "file": "packages/nb-runtime/src/remote/router.ts",
+    "callees": [
+      "TypeError",
+      "this.#hub.recordDiagnostic",
+      "violation",
+      "refuse",
+      "reply.result",
+      "channel.reject"
+    ],
+    "category": "诊断",
+    "channel": "B-REMOTE-ROUTE",
+    "evidence": "router.ts:139,281-363,436,464,523"
+  },
+  {
+    "id": "R73",
+    "file": "packages/nb-runtime/src/remote/result.ts",
+    "callees": [
+      "super"
+    ],
+    "category": "诊断",
+    "channel": "B-REMOTE-ROUTE",
+    "evidence": "result.ts:15-25 保留 failure 再造异常 message"
+  },
+  {
+    "id": "R74-build.ts",
+    "file": "packages/nb-runtime/src/plugin-manifest/build.ts",
+    "callees": [
+      "add",
+      "addOnce"
+    ],
+    "category": "诊断",
+    "channel": "B-PLUGIN-VALIDATION",
+    "evidence": "ManifestProblem.path/message; read.ts:46-170; build.ts:78-160"
+  },
+  {
+    "id": "R74-read.ts",
+    "file": "packages/nb-runtime/src/plugin-manifest/read.ts",
+    "callees": [
+      "add",
+      "addOnce"
+    ],
+    "category": "诊断",
+    "channel": "B-PLUGIN-VALIDATION",
+    "evidence": "ManifestProblem.path/message; read.ts:46-170; build.ts:78-160"
+  },
+  {
+    "id": "R75",
+    "file": "packages/nb-runtime/src/plugins/schema.ts",
+    "callees": [
+      "problems.push"
+    ],
+    "category": "诊断",
+    "channel": "B-PLUGIN-VALIDATION",
+    "evidence": "schema.ts:98-178 的声明 schema 失败"
+  },
+  {
+    "id": "R76",
+    "file": "packages/nb-runtime/src/plugins/host.ts",
+    "callees": [
+      "PluginStateError",
+      "TypeError",
+      "Error",
+      "refusedRemote",
+      "denial",
+      "attempt.work.register"
+    ],
+    "category": "诊断",
+    "channel": "B-PLUGIN-VALIDATION",
+    "evidence": "plugins/contracts.ts:500-515; host.ts:878-894,908,999-1111,1651-1683"
+  },
+  {
+    "id": "R77",
+    "file": "packages/nb-runtime/src/plugins/contracts.ts",
+    "callees": [
+      "super"
+    ],
+    "category": "诊断",
+    "channel": "B-PLUGIN-VALIDATION",
+    "evidence": "contracts.ts:500-515"
+  },
+  {
+    "id": "R78-contract-content.ts",
+    "file": "packages/nb-runtime/src/plugins/contract-content.ts",
+    "callees": [
+      "TypeError"
+    ],
+    "category": "诊断",
+    "channel": "B-PLUGIN-VALIDATION",
+    "evidence": "contract-content.ts:25,39; plugins.ts:35"
+  },
+  {
+    "id": "R78-plugins.ts",
+    "file": "packages/nb-runtime/src/plugins/plugins.ts",
+    "callees": [
+      "TypeError"
+    ],
+    "category": "诊断",
+    "channel": "B-PLUGIN-VALIDATION",
+    "evidence": "contract-content.ts:25,39; plugins.ts:35"
+  },
+  {
+    "id": "R79-definition.ts",
+    "file": "packages/nb-runtime/src/plugin-manifest/definition.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-PLUGIN-VALIDATION",
+    "evidence": "definition.ts:51,74"
+  },
+  {
+    "id": "R80-composition.ts",
+    "file": "packages/nb-runtime/src/services/composition.ts",
+    "callees": [
+      "TypeError",
+      "Error",
+      "super"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-QUERY",
+    "evidence": "ServiceRevokedError 及服务装配入口断言，候选中逐调用保留源码"
+  },
+  {
+    "id": "R80-services.ts",
+    "file": "packages/nb-runtime/src/services/services.ts",
+    "callees": [
+      "TypeError",
+      "Error",
+      "super"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-QUERY",
+    "evidence": "ServiceRevokedError 及服务装配入口断言，候选中逐调用保留源码"
+  },
+  {
+    "id": "R80-per-consumer.ts",
+    "file": "packages/nb-runtime/src/services/per-consumer.ts",
+    "callees": [
+      "TypeError",
+      "Error",
+      "super"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-QUERY",
+    "evidence": "ServiceRevokedError 及服务装配入口断言，候选中逐调用保留源码"
+  },
+  {
+    "id": "R81",
+    "file": "packages/nb-runtime/src/lifecycle/lifecycle.ts",
+    "callees": [
+      "TypeError"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-QUERY",
+    "evidence": "lifecycle.ts:34-37"
+  },
+  {
+    "id": "R82",
+    "file": "packages/nb-memory/src/ingest/resolve-facts.ts",
+    "callees": [
+      "registry.all.map",
+      "s.aliases.map",
+      "activeStates.map"
+    ],
+    "category": "提示词",
+    "channel": "B-MEMORY-FAILURE",
+    "evidence": "resolve-facts.ts:80-88,105-108"
+  },
+  {
+    "id": "R83-core/library.ts",
+    "file": "packages/nb-story/src/core/library.ts",
+    "callees": [
+      "StoryError",
+      "QaError",
+      "IngestUsageError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-STORY-HTTP",
+    "evidence": "StoryError/QaError 进程内合同错误；候选附 code/message 原调用；core/api.ts:208-220 与 qa-service.ts:552-563 在边界摘出"
+  },
+  {
+    "id": "R83-core/cursor.ts",
+    "file": "packages/nb-story/src/core/cursor.ts",
+    "callees": [
+      "StoryError",
+      "QaError",
+      "IngestUsageError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-STORY-HTTP",
+    "evidence": "StoryError/QaError 进程内合同错误；候选附 code/message 原调用；core/api.ts:208-220 与 qa-service.ts:552-563 在边界摘出"
+  },
+  {
+    "id": "R83-core/position.ts",
+    "file": "packages/nb-story/src/core/position.ts",
+    "callees": [
+      "StoryError",
+      "QaError",
+      "IngestUsageError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-STORY-HTTP",
+    "evidence": "StoryError/QaError 进程内合同错误；候选附 code/message 原调用；core/api.ts:208-220 与 qa-service.ts:552-563 在边界摘出"
+  },
+  {
+    "id": "R83-core/qa-records.ts",
+    "file": "packages/nb-story/src/core/qa-records.ts",
+    "callees": [
+      "StoryError",
+      "QaError",
+      "IngestUsageError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-STORY-HTTP",
+    "evidence": "StoryError/QaError 进程内合同错误；候选附 code/message 原调用；core/api.ts:208-220 与 qa-service.ts:552-563 在边界摘出"
+  },
+  {
+    "id": "R83-core/queries/episodes.ts",
+    "file": "packages/nb-story/src/core/queries/episodes.ts",
+    "callees": [
+      "StoryError",
+      "QaError",
+      "IngestUsageError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-STORY-HTTP",
+    "evidence": "StoryError/QaError 进程内合同错误；候选附 code/message 原调用；core/api.ts:208-220 与 qa-service.ts:552-563 在边界摘出"
+  },
+  {
+    "id": "R83-core/queries/ledger.ts",
+    "file": "packages/nb-story/src/core/queries/ledger.ts",
+    "callees": [
+      "StoryError",
+      "QaError",
+      "IngestUsageError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-STORY-HTTP",
+    "evidence": "StoryError/QaError 进程内合同错误；候选附 code/message 原调用；core/api.ts:208-220 与 qa-service.ts:552-563 在边界摘出"
+  },
+  {
+    "id": "R83-core/queries/source.ts",
+    "file": "packages/nb-story/src/core/queries/source.ts",
+    "callees": [
+      "StoryError",
+      "QaError",
+      "IngestUsageError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-STORY-HTTP",
+    "evidence": "StoryError/QaError 进程内合同错误；候选附 code/message 原调用；core/api.ts:208-220 与 qa-service.ts:552-563 在边界摘出"
+  },
+  {
+    "id": "R83-ingest/start.ts",
+    "file": "packages/nb-story/src/ingest/start.ts",
+    "callees": [
+      "StoryError",
+      "QaError",
+      "IngestUsageError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-STORY-HTTP",
+    "evidence": "StoryError/QaError 进程内合同错误；候选附 code/message 原调用；core/api.ts:208-220 与 qa-service.ts:552-563 在边界摘出"
+  },
+  {
+    "id": "R83-ingest/status.ts",
+    "file": "packages/nb-story/src/ingest/status.ts",
+    "callees": [
+      "StoryError",
+      "QaError",
+      "IngestUsageError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-STORY-HTTP",
+    "evidence": "StoryError/QaError 进程内合同错误；候选附 code/message 原调用；core/api.ts:208-220 与 qa-service.ts:552-563 在边界摘出"
+  },
+  {
+    "id": "R83-ingest/store.ts",
+    "file": "packages/nb-story/src/ingest/store.ts",
+    "callees": [
+      "StoryError",
+      "QaError",
+      "IngestUsageError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-STORY-HTTP",
+    "evidence": "StoryError/QaError 进程内合同错误；候选附 code/message 原调用；core/api.ts:208-220 与 qa-service.ts:552-563 在边界摘出"
+  },
+  {
+    "id": "R83-ingest/text.ts",
+    "file": "packages/nb-story/src/ingest/text.ts",
+    "callees": [
+      "StoryError",
+      "QaError",
+      "IngestUsageError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-STORY-HTTP",
+    "evidence": "StoryError/QaError 进程内合同错误；候选附 code/message 原调用；core/api.ts:208-220 与 qa-service.ts:552-563 在边界摘出"
+  },
+  {
+    "id": "R83-qa/config.ts",
+    "file": "packages/nb-story/src/qa/config.ts",
+    "callees": [
+      "StoryError",
+      "QaError",
+      "IngestUsageError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-STORY-HTTP",
+    "evidence": "StoryError/QaError 进程内合同错误；候选附 code/message 原调用；core/api.ts:208-220 与 qa-service.ts:552-563 在边界摘出"
+  },
+  {
+    "id": "R83-qa/harness-model.ts",
+    "file": "packages/nb-story/src/qa/harness-model.ts",
+    "callees": [
+      "StoryError",
+      "QaError",
+      "IngestUsageError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-STORY-HTTP",
+    "evidence": "StoryError/QaError 进程内合同错误；候选附 code/message 原调用；core/api.ts:208-220 与 qa-service.ts:552-563 在边界摘出"
+  },
+  {
+    "id": "R84-src/core/identity.ts",
+    "file": "packages/nb-story/src/core/identity.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-STORY-HTTP",
+    "evidence": "普通异常直接向包调用方抛出，非 CLI 帮助"
+  },
+  {
+    "id": "R84-src/platform/flock.ts",
+    "file": "packages/nb-story/src/platform/flock.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-STORY-HTTP",
+    "evidence": "普通异常直接向包调用方抛出，非 CLI 帮助"
+  },
+  {
+    "id": "R85-commands.ts",
+    "file": "packages/nb-story/src/cli/commands.ts",
+    "callees": [
+      "UsageError",
+      "SkillInstallError"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "commands.ts:26-58,312-319; cli/skill.ts 的安装用法失败"
+  },
+  {
+    "id": "R85-skill.ts",
+    "file": "packages/nb-story/src/cli/skill.ts",
+    "callees": [
+      "UsageError",
+      "SkillInstallError"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "commands.ts:26-58,312-319; cli/skill.ts 的安装用法失败"
+  },
+  {
+    "id": "R86",
+    "file": "packages/dev-panel/src/core/errors.ts",
+    "callees": [
+      "super"
+    ],
+    "category": "诊断",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "NbdevError 自身构造；若无中文候选不增加数量"
+  },
+  {
+    "id": "R87-artifacts.ts",
+    "file": "packages/dev-panel/src/core/artifacts.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "tx.warn",
+      "outcome.warnings.push",
+      "first.warnings.push",
+      "notEditable",
+      "problems.push",
+      "result.problems.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "B-NBDEV-CLI/HTTP 的共同核心出口；实际调用与 message 参数逐个列在 classified-calls.jsonl，不按文字触发控制"
+  },
+  {
+    "id": "R87-artifact-ops.ts",
+    "file": "packages/dev-panel/src/core/artifact-ops.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "tx.warn",
+      "outcome.warnings.push",
+      "first.warnings.push",
+      "notEditable",
+      "problems.push",
+      "result.problems.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "B-NBDEV-CLI/HTTP 的共同核心出口；实际调用与 message 参数逐个列在 classified-calls.jsonl，不按文字触发控制"
+  },
+  {
+    "id": "R87-edit-ops.ts",
+    "file": "packages/dev-panel/src/core/edit-ops.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "tx.warn",
+      "outcome.warnings.push",
+      "first.warnings.push",
+      "notEditable",
+      "problems.push",
+      "result.problems.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "B-NBDEV-CLI/HTTP 的共同核心出口；实际调用与 message 参数逐个列在 classified-calls.jsonl，不按文字触发控制"
+  },
+  {
+    "id": "R87-frontmatter.ts",
+    "file": "packages/dev-panel/src/core/frontmatter.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "tx.warn",
+      "outcome.warnings.push",
+      "first.warnings.push",
+      "notEditable",
+      "problems.push",
+      "result.problems.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "B-NBDEV-CLI/HTTP 的共同核心出口；实际调用与 message 参数逐个列在 classified-calls.jsonl，不按文字触发控制"
+  },
+  {
+    "id": "R87-ids.ts",
+    "file": "packages/dev-panel/src/core/ids.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "tx.warn",
+      "outcome.warnings.push",
+      "first.warnings.push",
+      "notEditable",
+      "problems.push",
+      "result.problems.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "B-NBDEV-CLI/HTTP 的共同核心出口；实际调用与 message 参数逐个列在 classified-calls.jsonl，不按文字触发控制"
+  },
+  {
+    "id": "R87-registry.ts",
+    "file": "packages/dev-panel/src/core/registry.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "tx.warn",
+      "outcome.warnings.push",
+      "first.warnings.push",
+      "notEditable",
+      "problems.push",
+      "result.problems.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "B-NBDEV-CLI/HTTP 的共同核心出口；实际调用与 message 参数逐个列在 classified-calls.jsonl，不按文字触发控制"
+  },
+  {
+    "id": "R87-repo.ts",
+    "file": "packages/dev-panel/src/core/repo.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "tx.warn",
+      "outcome.warnings.push",
+      "first.warnings.push",
+      "notEditable",
+      "problems.push",
+      "result.problems.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "B-NBDEV-CLI/HTTP 的共同核心出口；实际调用与 message 参数逐个列在 classified-calls.jsonl，不按文字触发控制"
+  },
+  {
+    "id": "R87-status.ts",
+    "file": "packages/dev-panel/src/core/status.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "tx.warn",
+      "outcome.warnings.push",
+      "first.warnings.push",
+      "notEditable",
+      "problems.push",
+      "result.problems.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "B-NBDEV-CLI/HTTP 的共同核心出口；实际调用与 message 参数逐个列在 classified-calls.jsonl，不按文字触发控制"
+  },
+  {
+    "id": "R87-uncommitted.ts",
+    "file": "packages/dev-panel/src/core/uncommitted.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "tx.warn",
+      "outcome.warnings.push",
+      "first.warnings.push",
+      "notEditable",
+      "problems.push",
+      "result.problems.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "B-NBDEV-CLI/HTTP 的共同核心出口；实际调用与 message 参数逐个列在 classified-calls.jsonl，不按文字触发控制"
+  },
+  {
+    "id": "R87-worktree-ops.ts",
+    "file": "packages/dev-panel/src/core/worktree-ops.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "tx.warn",
+      "outcome.warnings.push",
+      "first.warnings.push",
+      "notEditable",
+      "problems.push",
+      "result.problems.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "B-NBDEV-CLI/HTTP 的共同核心出口；实际调用与 message 参数逐个列在 classified-calls.jsonl，不按文字触发控制"
+  },
+  {
+    "id": "R87-transaction.ts",
+    "file": "packages/dev-panel/src/core/transaction.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "tx.warn",
+      "outcome.warnings.push",
+      "first.warnings.push",
+      "notEditable",
+      "problems.push",
+      "result.problems.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "B-NBDEV-CLI/HTTP 的共同核心出口；实际调用与 message 参数逐个列在 classified-calls.jsonl，不按文字触发控制"
+  },
+  {
+    "id": "R88-artifact-commands.ts",
+    "file": "packages/dev-panel/src/cli/artifact-commands.ts",
+    "callees": [
+      "NbdevError",
+      "lines.push",
+      "writeOutcome",
+      "noNewRecord",
+      "human.push",
+      "createdSummary",
+      "warnings.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "cli/main.ts:277-307; output.ts:110-126 的 CommandOutcome.human/warnings/errors 消费"
+  },
+  {
+    "id": "R88-common.ts",
+    "file": "packages/dev-panel/src/cli/common.ts",
+    "callees": [
+      "NbdevError",
+      "lines.push",
+      "writeOutcome",
+      "noNewRecord",
+      "human.push",
+      "createdSummary",
+      "warnings.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "cli/main.ts:277-307; output.ts:110-126 的 CommandOutcome.human/warnings/errors 消费"
+  },
+  {
+    "id": "R88-dev-commands.ts",
+    "file": "packages/dev-panel/src/cli/dev-commands.ts",
+    "callees": [
+      "NbdevError",
+      "lines.push",
+      "writeOutcome",
+      "noNewRecord",
+      "human.push",
+      "createdSummary",
+      "warnings.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "cli/main.ts:277-307; output.ts:110-126 的 CommandOutcome.human/warnings/errors 消费"
+  },
+  {
+    "id": "R88-main.ts",
+    "file": "packages/dev-panel/src/cli/main.ts",
+    "callees": [
+      "NbdevError",
+      "lines.push",
+      "writeOutcome",
+      "noNewRecord",
+      "human.push",
+      "createdSummary",
+      "warnings.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "cli/main.ts:277-307; output.ts:110-126 的 CommandOutcome.human/warnings/errors 消费"
+  },
+  {
+    "id": "R88-panel-commands.ts",
+    "file": "packages/dev-panel/src/cli/panel-commands.ts",
+    "callees": [
+      "NbdevError",
+      "lines.push",
+      "writeOutcome",
+      "noNewRecord",
+      "human.push",
+      "createdSummary",
+      "warnings.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "cli/main.ts:277-307; output.ts:110-126 的 CommandOutcome.human/warnings/errors 消费"
+  },
+  {
+    "id": "R89-git.ts",
+    "file": "packages/dev-panel/src/core/git.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "untrusted",
+      "skip",
+      "guardLeaseIo",
+      "takeovers.push",
+      "finish"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "core 的结构错误与 warning 经 cli/output.ts:99-124 和 server/writes.ts:291-298 原样交给人/面板；按实际投影用途归类，不按异常语法归为诊断"
+  },
+  {
+    "id": "R89-identity.ts",
+    "file": "packages/dev-panel/src/core/identity.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "untrusted",
+      "skip",
+      "guardLeaseIo",
+      "takeovers.push",
+      "finish"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "core 的结构错误与 warning 经 cli/output.ts:99-124 和 server/writes.ts:291-298 原样交给人/面板；按实际投影用途归类，不按异常语法归为诊断"
+  },
+  {
+    "id": "R89-lease-ops.ts",
+    "file": "packages/dev-panel/src/core/lease-ops.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "untrusted",
+      "skip",
+      "guardLeaseIo",
+      "takeovers.push",
+      "finish"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "core 的结构错误与 warning 经 cli/output.ts:99-124 和 server/writes.ts:291-298 原样交给人/面板；按实际投影用途归类，不按异常语法归为诊断"
+  },
+  {
+    "id": "R89-leases.ts",
+    "file": "packages/dev-panel/src/core/leases.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "untrusted",
+      "skip",
+      "guardLeaseIo",
+      "takeovers.push",
+      "finish"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "core 的结构错误与 warning 经 cli/output.ts:99-124 和 server/writes.ts:291-298 原样交给人/面板；按实际投影用途归类，不按异常语法归为诊断"
+  },
+  {
+    "id": "R89-lock.ts",
+    "file": "packages/dev-panel/src/core/lock.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "untrusted",
+      "skip",
+      "guardLeaseIo",
+      "takeovers.push",
+      "finish"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "core 的结构错误与 warning 经 cli/output.ts:99-124 和 server/writes.ts:291-298 原样交给人/面板；按实际投影用途归类，不按异常语法归为诊断"
+  },
+  {
+    "id": "R89-notify.ts",
+    "file": "packages/dev-panel/src/core/notify.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "untrusted",
+      "skip",
+      "guardLeaseIo",
+      "takeovers.push",
+      "finish"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "core 的结构错误与 warning 经 cli/output.ts:99-124 和 server/writes.ts:291-298 原样交给人/面板；按实际投影用途归类，不按异常语法归为诊断"
+  },
+  {
+    "id": "R89-procs.ts",
+    "file": "packages/dev-panel/src/core/procs.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "untrusted",
+      "skip",
+      "guardLeaseIo",
+      "takeovers.push",
+      "finish"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "core 的结构错误与 warning 经 cli/output.ts:99-124 和 server/writes.ts:291-298 原样交给人/面板；按实际投影用途归类，不按异常语法归为诊断"
+  },
+  {
+    "id": "R89-provenance.ts",
+    "file": "packages/dev-panel/src/core/provenance.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "untrusted",
+      "skip",
+      "guardLeaseIo",
+      "takeovers.push",
+      "finish"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "core 的结构错误与 warning 经 cli/output.ts:99-124 和 server/writes.ts:291-298 原样交给人/面板；按实际投影用途归类，不按异常语法归为诊断"
+  },
+  {
+    "id": "R89-sources.ts",
+    "file": "packages/dev-panel/src/core/sources.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "untrusted",
+      "skip",
+      "guardLeaseIo",
+      "takeovers.push",
+      "finish"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "core 的结构错误与 warning 经 cli/output.ts:99-124 和 server/writes.ts:291-298 原样交给人/面板；按实际投影用途归类，不按异常语法归为诊断"
+  },
+  {
+    "id": "R89-task-detail.ts",
+    "file": "packages/dev-panel/src/core/task-detail.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "untrusted",
+      "skip",
+      "guardLeaseIo",
+      "takeovers.push",
+      "finish"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "core 的结构错误与 warning 经 cli/output.ts:99-124 和 server/writes.ts:291-298 原样交给人/面板；按实际投影用途归类，不按异常语法归为诊断"
+  },
+  {
+    "id": "R89-activity.ts",
+    "file": "packages/dev-panel/src/core/activity.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "untrusted",
+      "skip",
+      "guardLeaseIo",
+      "takeovers.push",
+      "finish"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "core 的结构错误与 warning 经 cli/output.ts:99-124 和 server/writes.ts:291-298 原样交给人/面板；按实际投影用途归类，不按异常语法归为诊断"
+  },
+  {
+    "id": "R89-records.ts",
+    "file": "packages/dev-panel/src/core/records.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "untrusted",
+      "skip",
+      "guardLeaseIo",
+      "takeovers.push",
+      "finish"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "core 的结构错误与 warning 经 cli/output.ts:99-124 和 server/writes.ts:291-298 原样交给人/面板；按实际投影用途归类，不按异常语法归为诊断"
+  },
+  {
+    "id": "R89-search.ts",
+    "file": "packages/dev-panel/src/core/search.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push",
+      "untrusted",
+      "skip",
+      "guardLeaseIo",
+      "takeovers.push",
+      "finish"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "core 的结构错误与 warning 经 cli/output.ts:99-124 和 server/writes.ts:291-298 原样交给人/面板；按实际投影用途归类，不按异常语法归为诊断"
+  },
+  {
+    "id": "R90",
+    "file": "packages/dev-panel/src/herdr/client.ts",
+    "callees": [
+      "HerdrError"
+    ],
+    "category": "诊断",
+    "channel": "B-NBDEV-TERMINAL",
+    "evidence": "herdr/client.ts:7-16,48; errors 捕获后包到 nbdev 输出"
+  },
+  {
+    "id": "R91-build.ts",
+    "file": "packages/dev-panel/src/server/build.ts",
+    "callees": [
+      "SyntaxError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "内部解析和断言异常，失败边界可能只输出安全通用说明"
+  },
+  {
+    "id": "R91-user-build.ts",
+    "file": "packages/dev-panel/src/server/build.ts",
+    "callees": [
+      "NbdevError",
+      "NotReady",
+      "usage",
+      "envelope",
+      "viewWarnings.push",
+      "fail",
+      "this.finish"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "server/writes.ts:291-298；server 的带码错误、状态与 warning 经 HTTP/视图交面板，当前没有独立诊断和用户文案"
+  },
+  {
+    "id": "R91-github.ts",
+    "file": "packages/dev-panel/src/server/github.ts",
+    "callees": [
+      "SyntaxError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "内部解析和断言异常，失败边界可能只输出安全通用说明"
+  },
+  {
+    "id": "R91-user-github.ts",
+    "file": "packages/dev-panel/src/server/github.ts",
+    "callees": [
+      "NbdevError",
+      "NotReady",
+      "usage",
+      "envelope",
+      "viewWarnings.push",
+      "fail",
+      "this.finish"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "server/writes.ts:291-298；server 的带码错误、状态与 warning 经 HTTP/视图交面板，当前没有独立诊断和用户文案"
+  },
+  {
+    "id": "R91-session-io.ts",
+    "file": "packages/dev-panel/src/server/session-io.ts",
+    "callees": [
+      "SyntaxError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "内部解析和断言异常，失败边界可能只输出安全通用说明"
+  },
+  {
+    "id": "R91-user-session-io.ts",
+    "file": "packages/dev-panel/src/server/session-io.ts",
+    "callees": [
+      "NbdevError",
+      "NotReady",
+      "usage",
+      "envelope",
+      "viewWarnings.push",
+      "fail",
+      "this.finish"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "server/writes.ts:291-298；server 的带码错误、状态与 warning 经 HTTP/视图交面板，当前没有独立诊断和用户文案"
+  },
+  {
+    "id": "R91-notifier.ts",
+    "file": "packages/dev-panel/src/server/notifier.ts",
+    "callees": [
+      "SyntaxError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "内部解析和断言异常，失败边界可能只输出安全通用说明"
+  },
+  {
+    "id": "R91-user-notifier.ts",
+    "file": "packages/dev-panel/src/server/notifier.ts",
+    "callees": [
+      "NbdevError",
+      "NotReady",
+      "usage",
+      "envelope",
+      "viewWarnings.push",
+      "fail",
+      "this.finish"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "server/writes.ts:291-298；server 的带码错误、状态与 warning 经 HTTP/视图交面板，当前没有独立诊断和用户文案"
+  },
+  {
+    "id": "R91-panel-file.ts",
+    "file": "packages/dev-panel/src/server/panel-file.ts",
+    "callees": [
+      "SyntaxError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "内部解析和断言异常，失败边界可能只输出安全通用说明"
+  },
+  {
+    "id": "R91-user-panel-file.ts",
+    "file": "packages/dev-panel/src/server/panel-file.ts",
+    "callees": [
+      "NbdevError",
+      "NotReady",
+      "usage",
+      "envelope",
+      "viewWarnings.push",
+      "fail",
+      "this.finish"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "server/writes.ts:291-298；server 的带码错误、状态与 warning 经 HTTP/视图交面板，当前没有独立诊断和用户文案"
+  },
+  {
+    "id": "R91-views.ts",
+    "file": "packages/dev-panel/src/server/views.ts",
+    "callees": [
+      "SyntaxError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "内部解析和断言异常，失败边界可能只输出安全通用说明"
+  },
+  {
+    "id": "R91-user-views.ts",
+    "file": "packages/dev-panel/src/server/views.ts",
+    "callees": [
+      "NbdevError",
+      "NotReady",
+      "usage",
+      "envelope",
+      "viewWarnings.push",
+      "fail",
+      "this.finish"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "server/writes.ts:291-298；server 的带码错误、状态与 warning 经 HTTP/视图交面板，当前没有独立诊断和用户文案"
+  },
+  {
+    "id": "R91-terminal-stream.ts",
+    "file": "packages/dev-panel/src/server/terminal-stream.ts",
+    "callees": [
+      "SyntaxError",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "内部解析和断言异常，失败边界可能只输出安全通用说明"
+  },
+  {
+    "id": "R91-user-terminal-stream.ts",
+    "file": "packages/dev-panel/src/server/terminal-stream.ts",
+    "callees": [
+      "NbdevError",
+      "NotReady",
+      "usage",
+      "envelope",
+      "viewWarnings.push",
+      "fail",
+      "this.finish"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "server/writes.ts:291-298；server 的带码错误、状态与 warning 经 HTTP/视图交面板，当前没有独立诊断和用户文案"
+  },
+  {
+    "id": "R92-panel-commands.ts",
+    "file": "packages/dev-panel/src/cli/panel-commands.ts",
+    "callees": [
+      "log"
+    ],
+    "category": "诊断",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "panel-commands.ts:54-65，带时间戳的 stderr 诊断"
+  },
+  {
+    "id": "R93-dev/dev-ops.ts",
+    "file": "packages/dev-panel/src/dev/dev-ops.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-DEV-STREAM",
+    "evidence": "dev/dev-ops.ts:240-263,395-430; dev/shot.ts:35,46,66; cli/output.ts:99-124 直接显示失败和 warning"
+  },
+  {
+    "id": "R93-dev/shot.ts",
+    "file": "packages/dev-panel/src/dev/shot.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-DEV-STREAM",
+    "evidence": "dev/dev-ops.ts:240-263,395-430; dev/shot.ts:35,46,66; cli/output.ts:99-124 直接显示失败和 warning"
+  },
+  {
+    "id": "R93-install-service.ts",
+    "file": "packages/dev-panel/src/install-service.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-DEV-STREAM",
+    "evidence": "dev/dev-ops.ts:240-263,395-430; dev/shot.ts:35,46,66; cli/output.ts:99-124 直接显示失败和 warning"
+  },
+  {
+    "id": "R93-install-shim.ts",
+    "file": "packages/dev-panel/src/install-shim.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-DEV-STREAM",
+    "evidence": "dev/dev-ops.ts:240-263,395-430; dev/shot.ts:35,46,66; cli/output.ts:99-124 直接显示失败和 warning"
+  },
+  {
+    "id": "R93-service.ts",
+    "file": "packages/dev-panel/src/service.ts",
+    "callees": [
+      "NbdevError",
+      "warnings.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-DEV-STREAM",
+    "evidence": "dev/dev-ops.ts:240-263,395-430; dev/shot.ts:35,46,66; cli/output.ts:99-124 直接显示失败和 warning"
+  },
+  {
+    "id": "R94",
+    "file": "packages/nb-harness/src/complete.ts",
+    "callees": [
+      "HarnessError",
+      "fail"
+    ],
+    "category": "诊断",
+    "channel": "B-HARNESS-COMPLETE",
+    "evidence": "complete.ts:27-50"
+  },
+  {
+    "id": "R95",
+    "file": "packages/nb-harness/src/harness.ts",
+    "lines": [
+      183
+    ],
+    "category": "提示词",
+    "channel": "B-TOOLS-THIRDPARTY",
+    "evidence": "harness.ts:239-242 的 beforeToolCall.reason 进入阻止调用的工具结果；外层 new Agent 是最近调用边界"
+  },
+  {
+    "id": "R96",
+    "file": "packages/nb-harness/src/model.ts",
+    "callees": [
+      "super",
+      "list.join"
+    ],
+    "category": "诊断",
+    "channel": "B-HARNESS-RUN",
+    "evidence": "model.ts:18-25 的密钥缺失诊断"
+  },
+  {
+    "id": "R97",
+    "file": "packages/nb-harness/src/tools/edit.ts",
+    "callees": [
+      "super"
+    ],
+    "category": "提示词",
+    "channel": "B-TOOLS-BUILTIN",
+    "evidence": "edit.ts:37-45,133-135 WriteDeniedError 只在本模块转换为工具结果"
+  },
+  {
+    "id": "R98",
+    "file": "packages/nb-memory/src/retrieval/llm-planner.ts",
+    "lines": [
+      106
+    ],
+    "category": "提示词",
+    "channel": "B-MEMORY-FAILURE",
+    "evidence": "llm-planner.ts:100-113 拼接发给 LlmPort.chat 的时间基准"
+  },
+  {
+    "id": "R99",
+    "file": "packages/nb-story/src/ingest/compile.ts",
+    "callees": [
+      "claimId",
+      "spansOf",
+      "pointOf",
+      "spanOf",
+      "has"
+    ],
+    "category": "提示词",
+    "channel": "B-INGEST-CHECKLIST",
+    "evidence": "compile.ts:124-162 的错误构造参数；chapter.ts:112-119,211-230 只选本章 error、secret-missing 或关联本章的全图 error 给模型，非所有 warning"
+  },
+  {
+    "id": "R99-issues",
+    "file": "packages/nb-story/src/ingest/compile.ts",
+    "keys": [
+      "packages/nb-story/src/ingest/compile.ts:89:49",
+      "packages/nb-story/src/ingest/compile.ts:124:13",
+      "packages/nb-story/src/ingest/compile.ts:128:13",
+      "packages/nb-story/src/ingest/compile.ts:132:13",
+      "packages/nb-story/src/ingest/compile.ts:136:13",
+      "packages/nb-story/src/ingest/compile.ts:150:13",
+      "packages/nb-story/src/ingest/compile.ts:154:13",
+      "packages/nb-story/src/ingest/compile.ts:162:9",
+      "packages/nb-story/src/ingest/compile.ts:170:13",
+      "packages/nb-story/src/ingest/compile.ts:182:21",
+      "packages/nb-story/src/ingest/compile.ts:219:17",
+      "packages/nb-story/src/ingest/compile.ts:232:64",
+      "packages/nb-story/src/ingest/compile.ts:242:56",
+      "packages/nb-story/src/ingest/compile.ts:252:55",
+      "packages/nb-story/src/ingest/compile.ts:255:55",
+      "packages/nb-story/src/ingest/compile.ts:259:61",
+      "packages/nb-story/src/ingest/compile.ts:261:55",
+      "packages/nb-story/src/ingest/compile.ts:262:72",
+      "packages/nb-story/src/ingest/compile.ts:287:105",
+      "packages/nb-story/src/ingest/compile.ts:291:116",
+      "packages/nb-story/src/ingest/compile.ts:304:17",
+      "packages/nb-story/src/ingest/compile.ts:337:99",
+      "packages/nb-story/src/ingest/compile.ts:345:17",
+      "packages/nb-story/src/ingest/compile.ts:357:74",
+      "packages/nb-story/src/ingest/compile.ts:372:91",
+      "packages/nb-story/src/ingest/compile.ts:373:64",
+      "packages/nb-story/src/ingest/compile.ts:374:95",
+      "packages/nb-story/src/ingest/compile.ts:398:71",
+      "packages/nb-story/src/ingest/compile.ts:402:55",
+      "packages/nb-story/src/ingest/compile.ts:413:13",
+      "packages/nb-story/src/ingest/compile.ts:442:17",
+      "packages/nb-story/src/ingest/compile.ts:456:17",
+      "packages/nb-story/src/ingest/compile.ts:461:30",
+      "packages/nb-story/src/ingest/compile.ts:462:62",
+      "packages/nb-story/src/ingest/compile.ts:479:13",
+      "packages/nb-story/src/ingest/compile.ts:498:13",
+      "packages/nb-story/src/ingest/compile.ts:507:17",
+      "packages/nb-story/src/ingest/compile.ts:624:9",
+      "packages/nb-story/src/ingest/compile.ts:711:57",
+      "packages/nb-story/src/ingest/compile.ts:740:13",
+      "packages/nb-story/src/ingest/compile.ts:845:48"
+    ],
+    "category": "提示词",
+    "channel": "B-INGEST-CHECKLIST",
+    "evidence": "chapter.ts:112-119,211-230；secret-missing 是唯一进入本章 checklist 的 warning，其余 error 受章/records 过滤"
+  },
+  {
+    "id": "R99-warnings",
+    "file": "packages/nb-story/src/ingest/compile.ts",
+    "keys": [
+      "packages/nb-story/src/ingest/compile.ts:237:17",
+      "packages/nb-story/src/ingest/compile.ts:418:13",
+      "packages/nb-story/src/ingest/compile.ts:561:53",
+      "packages/nb-story/src/ingest/compile.ts:584:66",
+      "packages/nb-story/src/ingest/compile.ts:631:75",
+      "packages/nb-story/src/ingest/compile.ts:634:92",
+      "packages/nb-story/src/ingest/compile.ts:675:17",
+      "packages/nb-story/src/ingest/compile.ts:678:61",
+      "packages/nb-story/src/ingest/compile.ts:839:58",
+      "packages/nb-story/src/ingest/compile.ts:855:35",
+      "packages/nb-story/src/ingest/compile.ts:879:28"
+    ],
+    "category": "领域内容",
+    "channel": "B-INGEST-CHECKLIST",
+    "evidence": "不进 chapterIssues 的编译质量 warning；job.ts:159,178-179 展平后保存到章节 problems，不是模型修复请求或开发异常"
+  },
+  {
+    "id": "R99-leaks",
+    "file": "packages/nb-story/src/ingest/compile.ts",
+    "callees": [
+      "check",
+      "[...new Set(names.filter(item => present.has(item.text) && comparePosition(item.at, at) > 0 && rest.includes(item.text)).map"
+    ],
+    "category": "领域内容",
+    "channel": "B-INGEST-CHECKLIST",
+    "evidence": "compile.ts:871-894 name-leak warning 的标签/参数，只经章节 problems 存量保留"
+  },
+  {
+    "id": "R100",
+    "file": "packages/nb-story/src/ingest/compile.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-INGEST-CHECKLIST",
+    "evidence": "compile.ts:45-47 位置解析断言"
+  },
+  {
+    "id": "R101",
+    "file": "packages/nb-story/src/ingest/chapter.ts",
+    "callees": [
+      "IngestBadReply"
+    ],
+    "category": "诊断",
+    "channel": "B-INGEST-STATE",
+    "evidence": "chapter.ts:143,245,261"
+  },
+  {
+    "id": "R102",
+    "file": "packages/nb-story/src/ingest/chapter.ts",
+    "callees": [
+      "state.problems.map"
+    ],
+    "category": "提示词",
+    "channel": "B-INGEST-CHECKLIST",
+    "evidence": "chapter.ts:250 patchWith 的修复清单"
+  },
+  {
+    "id": "R103",
+    "file": "packages/nb-story/src/qa/answer.ts",
+    "callees": [
+      "problems.push",
+      "[...checkAnswer.Errors(args)].slice(0, 5).map",
+      "(answer.knowledge ?? []).forEach"
+    ],
+    "category": "提示词",
+    "channel": "B-TOOLS-DOMAIN",
+    "evidence": "qa/answer.ts 校验问题在 qa/tools.ts:138-140 交给模型"
+  },
+  {
+    "id": "R104",
+    "file": "packages/nb-story/src/core/qa-records.ts",
+    "callees": [
+      "console.warn"
+    ],
+    "category": "诊断",
+    "channel": "B-QA-RECORD",
+    "evidence": "qa-records.ts:226 清理旧日志失败"
+  },
+  {
+    "id": "R105-src/cli/skill.ts",
+    "file": "packages/nb-story/src/cli/skill.ts",
+    "callees": [
+      "io.stderr",
+      "io.stdout",
+      "fail"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "cli/skill.ts:142-159; server/serve.ts 失败输出"
+  },
+  {
+    "id": "R105-src/server/serve.ts",
+    "file": "packages/nb-story/src/server/serve.ts",
+    "callees": [
+      "io.stderr",
+      "io.stdout",
+      "fail"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "cli/skill.ts:142-159; server/serve.ts 失败输出"
+  },
+  {
+    "id": "R106",
+    "file": "packages/nb-story/src/cli/qa.ts",
+    "callees": [
+      "broken.map"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "qa.ts:40 损坏记录列表"
+  },
+  {
+    "id": "R107-backend/copy.ts",
+    "file": "packages/neuro-book/src/plugin-platform/backend/copy.ts",
+    "callees": [
+      "Rejected",
+      "Error",
+      "PluginCodeError",
+      "super",
+      "fail"
+    ],
+    "category": "诊断",
+    "channel": "B-PLUGIN-CODE-BROWSER",
+    "evidence": "代码装载与平台断言；copy 的 Rejected 另经安装失败包 code/detail"
+  },
+  {
+    "id": "R107-backend/record.ts",
+    "file": "packages/neuro-book/src/plugin-platform/backend/record.ts",
+    "callees": [
+      "Rejected",
+      "Error",
+      "PluginCodeError",
+      "super",
+      "fail"
+    ],
+    "category": "诊断",
+    "channel": "B-PLUGIN-CODE-BROWSER",
+    "evidence": "代码装载与平台断言；copy 的 Rejected 另经安装失败包 code/detail"
+  },
+  {
+    "id": "R107-web/plugin-code.ts",
+    "file": "packages/neuro-book/src/plugin-platform/web/plugin-code.ts",
+    "callees": [
+      "Rejected",
+      "Error",
+      "PluginCodeError",
+      "super",
+      "fail"
+    ],
+    "category": "诊断",
+    "channel": "B-PLUGIN-CODE-BROWSER",
+    "evidence": "代码装载与平台断言；copy 的 Rejected 另经安装失败包 code/detail"
+  },
+  {
+    "id": "R107-shared/plugin-code-error.ts",
+    "file": "packages/neuro-book/src/plugin-platform/shared/plugin-code-error.ts",
+    "callees": [
+      "Rejected",
+      "Error",
+      "PluginCodeError",
+      "super",
+      "fail"
+    ],
+    "category": "诊断",
+    "channel": "B-PLUGIN-CODE-BROWSER",
+    "evidence": "代码装载与平台断言；copy 的 Rejected 另经安装失败包 code/detail"
+  },
+  {
+    "id": "R108",
+    "file": "packages/neuro-book/src/plugin-platform/backend/inventory.ts",
+    "callees": [
+      "failure"
+    ],
+    "category": "用户文案",
+    "channel": "B-PLUGINS-INSTALL",
+    "evidence": "inventory.ts:93-94,155-191,220-282,332-347; PluginsPage 和 CLI 直接显示 detail"
+  },
+  {
+    "id": "R109",
+    "file": "packages/neuro-book/src/plugin-platform/backend/startup.ts",
+    "callees": [
+      "warn",
+      "info"
+    ],
+    "category": "诊断",
+    "channel": "B-PLUGINS-NOTLOADED",
+    "evidence": "startup.ts:116-146,171-243 的诊断端口"
+  },
+  {
+    "id": "R110",
+    "file": "packages/neuro-book/src/plugin-platform/backend/version-dir.ts",
+    "callees": [
+      "read.problems.map"
+    ],
+    "category": "用户文案",
+    "channel": "B-PLUGINS-INSTALL",
+    "evidence": "version-dir.ts:68-73 将 ManifestProblem 展成安装失败说明"
+  },
+  {
+    "id": "R111",
+    "file": "packages/neuro-book/src/plugin-platform/build/build-plugin.ts",
+    "callees": [
+      "PluginBuildError",
+      "readJsonObject",
+      "problems.push",
+      "definitions.flatMap",
+      "errors.map",
+      "[...others].sort().map",
+      "warnings.push",
+      "forbidden.push"
+    ],
+    "category": "诊断",
+    "channel": "B-CLI-SDK",
+    "evidence": "build-plugin.ts:112-124,163-193,417-481,512-565,593-609,660-661；CLI 原样列出构建诊断"
+  },
+  {
+    "id": "R112",
+    "file": "packages/neuro-book/src/backend/locked-replace.ts",
+    "callees": [
+      "failure"
+    ],
+    "category": "诊断",
+    "channel": "B-SETTINGS-WRITE",
+    "evidence": "locked-replace.ts:39-45,64-72 的 reason/detail 结果，由 settings/files/projects 适配各域"
+  },
+  {
+    "id": "R113-rooted.ts",
+    "file": "packages/neuro-book/src/plugins/files/backend/rooted.ts",
+    "callees": [
+      "fail",
+      "failure",
+      "rejected",
+      "failed",
+      "ManifestError"
+    ],
+    "category": "用户文案",
+    "channel": "B-FILES-BUSINESS",
+    "evidence": "FilesResult/RootedFailure 安全 detail 经 files-service.ts:73-94、files/web/client.ts:307-313 原样进界面"
+  },
+  {
+    "id": "R113-entry-ops.ts",
+    "file": "packages/neuro-book/src/plugins/files/backend/entry-ops.ts",
+    "callees": [
+      "fail",
+      "failure",
+      "rejected",
+      "failed",
+      "ManifestError"
+    ],
+    "category": "用户文案",
+    "channel": "B-FILES-BUSINESS",
+    "evidence": "FilesResult/RootedFailure 安全 detail 经 files-service.ts:73-94、files/web/client.ts:307-313 原样进界面"
+  },
+  {
+    "id": "R113-operations.ts",
+    "file": "packages/neuro-book/src/plugins/files/backend/operations.ts",
+    "callees": [
+      "fail",
+      "failure",
+      "rejected",
+      "failed",
+      "ManifestError"
+    ],
+    "category": "用户文案",
+    "channel": "B-FILES-BUSINESS",
+    "evidence": "FilesResult/RootedFailure 安全 detail 经 files-service.ts:73-94、files/web/client.ts:307-313 原样进界面"
+  },
+  {
+    "id": "R113-batch.ts",
+    "file": "packages/neuro-book/src/plugins/files/backend/batch.ts",
+    "callees": [
+      "fail",
+      "failure",
+      "rejected",
+      "failed",
+      "ManifestError"
+    ],
+    "category": "用户文案",
+    "channel": "B-FILES-BUSINESS",
+    "evidence": "FilesResult/RootedFailure 安全 detail 经 files-service.ts:73-94、files/web/client.ts:307-313 原样进界面"
+  },
+  {
+    "id": "R113-folder-kinds.ts",
+    "file": "packages/neuro-book/src/plugins/files/backend/folder-kinds.ts",
+    "callees": [
+      "fail",
+      "failure",
+      "rejected",
+      "failed",
+      "ManifestError"
+    ],
+    "category": "用户文案",
+    "channel": "B-FILES-BUSINESS",
+    "evidence": "FilesResult/RootedFailure 安全 detail 经 files-service.ts:73-94、files/web/client.ts:307-313 原样进界面"
+  },
+  {
+    "id": "R114",
+    "file": "packages/neuro-book/src/plugins/files/backend/changes.ts",
+    "callees": [
+      "options.record"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-JSONL",
+    "evidence": "changes.ts:113,152,168 监视诊断"
+  },
+  {
+    "id": "R115",
+    "file": "packages/neuro-book/src/plugins/files/backend/operations.ts",
+    "callees": [
+      "context.diagnose"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-JSONL",
+    "evidence": "operations.ts:241"
+  },
+  {
+    "id": "R116",
+    "file": "packages/neuro-book/src/plugins/files/backend/plugin.ts",
+    "callees": [
+      "record",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-JSONL",
+    "evidence": "plugin.ts:124-125 根目录失败与清理诊断"
+  },
+  {
+    "id": "R117",
+    "file": "packages/neuro-book/src/plugins/files/backend/raw-route.ts",
+    "callees": [
+      "sources.record"
+    ],
+    "category": "诊断",
+    "channel": "B-FILES-RAW-HTTP",
+    "evidence": "raw-route.ts:145 文件收尾"
+  },
+  {
+    "id": "R118",
+    "file": "packages/neuro-book/src/plugins/files/backend/raw-route.ts",
+    "callees": [
+      "failureResponse",
+      "Response.json"
+    ],
+    "category": "用户文案",
+    "channel": "B-FILES-RAW-HTTP",
+    "evidence": "raw-route.ts:66-68,170-190,211-248，当前 HTTP 正文"
+  },
+  {
+    "id": "R119-jsonl-exporter.ts",
+    "file": "packages/neuro-book/src/plugins/diagnostics/backend/jsonl-exporter.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-JSONL",
+    "evidence": "diagnostics 出口的生命周期与锁失败；不进用户消息目录"
+  },
+  {
+    "id": "R119-log-writer.ts",
+    "file": "packages/neuro-book/src/plugins/diagnostics/backend/log-writer.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-JSONL",
+    "evidence": "diagnostics 出口的生命周期与锁失败；不进用户消息目录"
+  },
+  {
+    "id": "R119-plugin.ts",
+    "file": "packages/neuro-book/src/plugins/diagnostics/backend/plugin.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-JSONL",
+    "evidence": "diagnostics 出口的生命周期与锁失败；不进用户消息目录"
+  },
+  {
+    "id": "R120-admission.ts",
+    "file": "packages/neuro-book/src/plugins/http/backend/admission.ts",
+    "callees": [
+      "Error",
+      "AggregateError",
+      "diagnostics.record"
+    ],
+    "category": "诊断",
+    "channel": "B-HTTP-HOST",
+    "evidence": "admission.ts:97,132,141；plugin.ts:47,61,87；static.ts:30-34"
+  },
+  {
+    "id": "R120-plugin.ts",
+    "file": "packages/neuro-book/src/plugins/http/backend/plugin.ts",
+    "callees": [
+      "Error",
+      "AggregateError",
+      "diagnostics.record"
+    ],
+    "category": "诊断",
+    "channel": "B-HTTP-HOST",
+    "evidence": "admission.ts:97,132,141；plugin.ts:47,61,87；static.ts:30-34"
+  },
+  {
+    "id": "R120-static.ts",
+    "file": "packages/neuro-book/src/plugins/http/backend/static.ts",
+    "callees": [
+      "Error",
+      "AggregateError",
+      "diagnostics.record"
+    ],
+    "category": "诊断",
+    "channel": "B-HTTP-HOST",
+    "evidence": "admission.ts:97,132,141；plugin.ts:47,61,87；static.ts:30-34"
+  },
+  {
+    "id": "R121-plugin.ts",
+    "file": "packages/neuro-book/src/plugins/http/backend/plugin.ts",
+    "callees": [
+      "errorResponse"
+    ],
+    "category": "用户文案",
+    "channel": "B-HTTP-HOST",
+    "evidence": "plugin.ts:82；static.ts:39,103 HTTP 正文"
+  },
+  {
+    "id": "R121-static.ts",
+    "file": "packages/neuro-book/src/plugins/http/backend/static.ts",
+    "callees": [
+      "errorResponse"
+    ],
+    "category": "用户文案",
+    "channel": "B-HTTP-HOST",
+    "evidence": "plugin.ts:82；static.ts:39,103 HTTP 正文"
+  },
+  {
+    "id": "R122",
+    "file": "packages/neuro-book/src/plugins/http/backend/admission.ts",
+    "callees": [
+      "super"
+    ],
+    "category": "用户文案",
+    "channel": "B-HTTP-HOST",
+    "evidence": "admission.ts:29；dispatch.ts:95 直接回 Error.message"
+  },
+  {
+    "id": "R123",
+    "file": "packages/neuro-book/src/plugins/projects/backend/shelf.ts",
+    "callees": [
+      "failed",
+      "sources.record"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-JSONL",
+    "evidence": "shelf.ts:70-74,82-118 降级与诊断"
+  },
+  {
+    "id": "R124",
+    "file": "packages/neuro-book/src/plugins/settings/backend/layer-file.ts",
+    "callees": [
+      "failed"
+    ],
+    "category": "用户文案",
+    "channel": "B-SETTINGS-WRITE",
+    "evidence": "layer-file.ts:76-90 写失败 detail"
+  },
+  {
+    "id": "R125",
+    "file": "packages/neuro-book/src/plugins/settings/shared/layer-text.ts",
+    "callees": [
+      "invalid"
+    ],
+    "category": "用户文案",
+    "channel": "B-SETTINGS-INVALID",
+    "evidence": "layer-text.ts:121-135 根/重复键失败；PARSE_ERRORS 静态表是候选扫描漏掉的非调用文字"
+  },
+  {
+    "id": "R126",
+    "file": "packages/neuro-book/src/plugins/settings/shared/instance.ts",
+    "callees": [
+      "options.record"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-QUERY",
+    "evidence": "instance.ts:123,157 诊断端口"
+  },
+  {
+    "id": "R127",
+    "file": "packages/neuro-book/src/plugins/settings/shared/instance.ts",
+    "callees": [
+      "unavailable"
+    ],
+    "category": "诊断",
+    "channel": "B-SETTINGS-INVALID",
+    "evidence": "instance.ts:200 首份快照超时状态"
+  },
+  {
+    "id": "R128",
+    "file": "packages/neuro-book/src/plugins/state/shared/plugin.ts",
+    "callees": [
+      "report"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-QUERY",
+    "evidence": "state/shared/plugin.ts:105,109"
+  },
+  {
+    "id": "R129",
+    "file": "packages/neuro-book/src/plugins/storage/backend/partition.ts",
+    "callees": [
+      "failed"
+    ],
+    "category": "用户文案",
+    "channel": "B-STORAGE-STATE",
+    "evidence": "partition.ts:118,365 返回 StorageFailed.detail"
+  },
+  {
+    "id": "R130",
+    "file": "packages/neuro-book/src/plugins/storage/shared/facade.ts",
+    "callees": [
+      "failed"
+    ],
+    "category": "用户文案",
+    "channel": "B-STORAGE-STATE",
+    "evidence": "facade.ts:57-64 返回 StorageFailed.detail"
+  },
+  {
+    "id": "R131",
+    "file": "packages/neuro-book/src/server/projects/manager.ts",
+    "callees": [
+      "Error",
+      "this.#shutdownProblems.push"
+    ],
+    "category": "诊断",
+    "channel": "B-PROJECT-IPC",
+    "evidence": "manager.ts:434-463,527,569；children.ts:244-255 摘 message"
+  },
+  {
+    "id": "R132",
+    "file": "packages/neuro-book/src/project/config.ts",
+    "callees": [
+      "ProjectConfigError"
+    ],
+    "category": "诊断",
+    "channel": "B-HOST-EMERGENCY",
+    "evidence": "project/config.ts:41,49"
+  },
+  {
+    "id": "R133-run.ts",
+    "file": "packages/neuro-book/src/server/dev/run.ts",
+    "callees": [
+      "output",
+      "report",
+      "process.stderr.write",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-DEV-HOST",
+    "evidence": "开发服务输出与样例失败；sample.ts:223,242；backend-process.ts:84"
+  },
+  {
+    "id": "R133-sample.ts",
+    "file": "packages/neuro-book/src/server/dev/sample.ts",
+    "callees": [
+      "output",
+      "report",
+      "process.stderr.write",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-DEV-HOST",
+    "evidence": "开发服务输出与样例失败；sample.ts:223,242；backend-process.ts:84"
+  },
+  {
+    "id": "R133-backend-process.ts",
+    "file": "packages/neuro-book/src/server/dev/backend-process.ts",
+    "callees": [
+      "output",
+      "report",
+      "process.stderr.write",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-DEV-HOST",
+    "evidence": "开发服务输出与样例失败；sample.ts:223,242；backend-process.ts:84"
+  },
+  {
+    "id": "R133-watch.ts",
+    "file": "packages/neuro-book/src/server/dev/watch.ts",
+    "callees": [
+      "output",
+      "report",
+      "process.stderr.write",
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-DEV-HOST",
+    "evidence": "开发服务输出与样例失败；sample.ts:223,242；backend-process.ts:84"
+  },
+  {
+    "id": "R134-storage.ts",
+    "file": "packages/neuro-book/src/shared/storage.ts",
+    "callees": [
+      "TypeError",
+      "StoreClosedError",
+      "StoreStoppedError",
+      "record"
+    ],
+    "category": "诊断",
+    "channel": "B-STORE-FAILURE",
+    "evidence": "shared/storage.ts:68,203；store.ts 定义与操作守卫；persisted.ts:230"
+  },
+  {
+    "id": "R134-store/store.ts",
+    "file": "packages/neuro-book/src/shared/store/store.ts",
+    "callees": [
+      "TypeError",
+      "StoreClosedError",
+      "StoreStoppedError",
+      "record"
+    ],
+    "category": "诊断",
+    "channel": "B-STORE-FAILURE",
+    "evidence": "shared/storage.ts:68,203；store.ts 定义与操作守卫；persisted.ts:230"
+  },
+  {
+    "id": "R134-store/persisted.ts",
+    "file": "packages/neuro-book/src/shared/store/persisted.ts",
+    "callees": [
+      "TypeError",
+      "StoreClosedError",
+      "StoreStoppedError",
+      "record"
+    ],
+    "category": "诊断",
+    "channel": "B-STORE-FAILURE",
+    "evidence": "shared/storage.ts:68,203；store.ts 定义与操作守卫；persisted.ts:230"
+  },
+  {
+    "id": "R135",
+    "file": "packages/neuro-book/src/server/rpc/listener.ts",
+    "callees": [
+      "rejection"
+    ],
+    "category": "用户文案",
+    "channel": "B-HTTP-HOST",
+    "evidence": "listener.ts:45-46,56-90 HTTP 升级拒绝"
+  },
+  {
+    "id": "R136-serve.ts",
+    "file": "packages/dev-panel/src/server/serve.ts",
+    "callees": [
+      "log",
+      "this.options.log"
+    ],
+    "category": "诊断",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "serve.ts:134,260,306；build.ts:112-127；github.ts:231-248；session-io.ts:117,200"
+  },
+  {
+    "id": "R136-build.ts",
+    "file": "packages/dev-panel/src/server/build.ts",
+    "callees": [
+      "log",
+      "this.options.log"
+    ],
+    "category": "诊断",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "serve.ts:134,260,306；build.ts:112-127；github.ts:231-248；session-io.ts:117,200"
+  },
+  {
+    "id": "R136-github.ts",
+    "file": "packages/dev-panel/src/server/github.ts",
+    "callees": [
+      "log",
+      "this.options.log"
+    ],
+    "category": "诊断",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "serve.ts:134,260,306；build.ts:112-127；github.ts:231-248；session-io.ts:117,200"
+  },
+  {
+    "id": "R136-session-io.ts",
+    "file": "packages/dev-panel/src/server/session-io.ts",
+    "callees": [
+      "log",
+      "this.options.log"
+    ],
+    "category": "诊断",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "serve.ts:134,260,306；build.ts:112-127；github.ts:231-248；session-io.ts:117,200"
+  },
+  {
+    "id": "R137",
+    "file": "packages/dev-panel/src/server/serve.ts",
+    "callees": [
+      "NbdevError",
+      "envelope",
+      "plain",
+      "send",
+      "ws.close"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "serve.ts:109-125,187,261,307,322-410,500 当前面板/HTTP/WS 说明"
+  },
+  {
+    "id": "R138",
+    "file": "packages/dev-panel/src/server/delivery.ts",
+    "callees": [
+      "fail"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-NOTIFY",
+    "evidence": "delivery.ts:59-82,104-121,194-261，CheckFailure.detail 最终面板反馈"
+  },
+  {
+    "id": "R139",
+    "file": "packages/dev-panel/src/server/terminal-size.ts",
+    "callees": [
+      "unknown"
+    ],
+    "category": "诊断",
+    "channel": "B-NBDEV-TERMINAL",
+    "evidence": "terminal-size.ts:27-47 的尺寸探测不确定原因"
+  },
+  {
+    "id": "R140",
+    "file": "packages/dev-panel/src/server/terminal-hub.ts",
+    "callees": [
+      "Error",
+      "SyntaxError"
+    ],
+    "category": "诊断",
+    "channel": "B-NBDEV-TERMINAL",
+    "evidence": "terminal-hub.ts:210,267 内部守卫"
+  },
+  {
+    "id": "R141",
+    "file": "packages/dev-panel/src/core/procfs.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "procfs.ts:134 的 /proc 解析错误"
+  },
+  {
+    "id": "R142",
+    "file": "packages/nb-story/src/cli/config.ts",
+    "callees": [
+      "usageError",
+      "[...THREE_PART_FIELDS].join",
+      "missingKey.keyEnvs.join",
+      "providersOf(config, tools, env).map",
+      "results.map"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "config.ts:76-124,132-156,240-287,304-356 给人看的配置、失败与下一步；只有 callModel 的系统/用户消息另列提示词"
+  },
+  {
+    "id": "R142-format",
+    "file": "packages/nb-story/src/cli/config.ts",
+    "lines": [
+      76,
+      99,
+      112,
+      304,
+      352
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "config.ts 的 show/test 输出拼装，io.stdout/fail 仍是同一 CLI 消费者"
+  },
+  {
+    "id": "R143",
+    "file": "packages/nb-story/src/cli/config.ts",
+    "callees": [
+      "callModel"
+    ],
+    "category": "提示词",
+    "channel": "B-CLI-STORY",
+    "evidence": "config.ts:336-341 抽取配置探针的 system/user；不是 complete() 或产品失败诊断"
+  },
+  {
+    "id": "R144",
+    "file": "packages/nb-story/src/cli/format.ts",
+    "lines": [
+      16,
+      34,
+      42,
+      48,
+      49,
+      59,
+      62,
+      69,
+      74,
+      76,
+      80,
+      78,
+      86,
+      87,
+      104,
+      113,
+      116,
+      124,
+      126,
+      131,
+      133,
+      136,
+      137,
+      138,
+      144,
+      145,
+      149
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "format.ts:1-3,154-157 排版成功结果；main.ts:156-159 人读与 qa/tools.ts:120 模型共用，主要归界面/CLI 格式文字，不是错误条目"
+  },
+  {
+    "id": "R145",
+    "file": "packages/nb-story/src/contract/config-schema.ts",
+    "lines": [
+      21,
+      22,
+      23,
+      27,
+      28,
+      29,
+      30,
+      25,
+      42,
+      43,
+      53,
+      68,
+      69,
+      70,
+      71,
+      72,
+      80,
+      81,
+      111,
+      116,
+      117,
+      114,
+      109,
+      129,
+      130,
+      131,
+      127
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "config-schema.ts:1-4,21-32,68-81,109-133 的 x-form 元数据；网页 SchemaForm 按它画表单，不属于失败正文"
+  },
+  {
+    "id": "R146-schema",
+    "file": "packages/nb-story/src/contract/qa-record.ts",
+    "callees": [
+      "Type.String",
+      "Type.Array"
+    ],
+    "category": "提示词",
+    "channel": "B-TOOLS-DOMAIN",
+    "evidence": "qa-record.ts:9-33 的 AnswerSchema.description；qa/tools.ts:133 直接作为工具参数交模型，记录 reader 另用同 schema 校验"
+  },
+  {
+    "id": "R146-values",
+    "file": "packages/nb-story/src/contract/qa-record.ts",
+    "callees": [
+      "Type.Literal"
+    ],
+    "category": "领域内容",
+    "channel": "B-QA-RECORD",
+    "evidence": "qa-record.ts:15,21 中文枚举是结构化答案的域值；会落盘，不是诊断 message"
+  },
+  {
+    "id": "R147",
+    "file": "packages/nb-story/src/ingest/context.ts",
+    "lines": [
+      54,
+      55,
+      56,
+      65,
+      69,
+      75,
+      76,
+      78,
+      83,
+      90,
+      91,
+      92,
+      97,
+      98,
+      102,
+      105,
+      106,
+      112,
+      113,
+      116,
+      122,
+      130,
+      131,
+      298
+    ],
+    "category": "提示词",
+    "channel": "B-INGEST-CHECKLIST",
+    "evidence": "context.ts:40 的 renderContext；chapter.ts:196,287 作为模型请求上下文；文字含领域记录，不是异常"
+  },
+  {
+    "id": "R148",
+    "file": "packages/nb-story/src/ingest/consolidation-context.ts",
+    "lines": [
+      91,
+      92,
+      94,
+      95,
+      106,
+      103,
+      112,
+      113,
+      114,
+      153,
+      154,
+      156,
+      158,
+      159,
+      169,
+      181,
+      182,
+      183,
+      203
+    ],
+    "category": "提示词",
+    "channel": "B-INGEST-CHECKLIST",
+    "evidence": "consolidation-context.ts:65,91-114,153-207；chapter.ts:291-297 增量整理请求"
+  },
+  {
+    "id": "R149-error",
+    "file": "packages/nb-story/src/ingest/prompts.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-INGEST-CHECKLIST",
+    "evidence": "prompts.ts:92-95 规则源切片失败，是宿主实现诊断"
+  },
+  {
+    "id": "R149-example",
+    "file": "packages/nb-story/src/ingest/prompts.ts",
+    "lines": [
+      17
+    ],
+    "category": "领域内容",
+    "channel": "B-INGEST-CHECKLIST",
+    "evidence": "prompts.ts:16-22 的虚构小说样例，随 prompt 发模型，但主要文字是作品样本"
+  },
+  {
+    "id": "R149-instructions",
+    "file": "packages/nb-story/src/ingest/prompts.ts",
+    "lines": [
+      156,
+      168,
+      181,
+      195,
+      204,
+      231
+    ],
+    "category": "提示词",
+    "channel": "B-INGEST-CHECKLIST",
+    "evidence": "prompts.ts:154-168,181-184,195-239 的抽取/修复指令，chapter.ts:199-218 实际请求"
+  },
+  {
+    "id": "R150",
+    "file": "packages/nb-story/src/ingest/reconcile.ts",
+    "lines": [
+      52,
+      54,
+      73,
+      77,
+      84,
+      88,
+      89,
+      89,
+      109,
+      111,
+      116,
+      126,
+      133
+    ],
+    "category": "提示词",
+    "channel": "B-INGEST-CHECKLIST",
+    "evidence": "reconcile.ts buildChecklist；chapter.ts:228-230 进入模型。includes/Set 的词只是匹配任务与资源的领域词表，不表示诊断语言"
+  },
+  {
+    "id": "R151-errors",
+    "file": "packages/nb-story/src/ingest/draft-tools.ts",
+    "lines": [
+      164,
+      165
+    ],
+    "category": "提示词",
+    "channel": "B-INGEST-CHECKLIST",
+    "evidence": "checkDraft 的 SchemaProblem→Problem.message，chapter.ts:212-230 交模型改结构"
+  },
+  {
+    "id": "R151-records",
+    "file": "packages/nb-story/src/ingest/draft-tools.ts",
+    "lines": [
+      413,
+      415,
+      419,
+      423,
+      441,
+      446,
+      453,
+      470,
+      472,
+      478,
+      486
+    ],
+    "category": "领域内容",
+    "channel": "B-INGEST-CHECKLIST",
+    "evidence": "sanitizeConsolidation 的 dropped 字符串；chapter.ts:303-309 返回给 job.ts:164,178-179 存问题，不会再次送修复模型"
+  },
+  {
+    "id": "R152-human",
+    "file": "packages/nb-history/scripts/demo.ts",
+    "callees": [
+      "say",
+      "console.log",
+      "list.map"
+    ],
+    "category": "用户文案",
+    "channel": "B-HISTORY-ERROR",
+    "evidence": "scripts/demo.ts:13-14,48-97 终端教学走查的标签/状态，不是产品错误或写入小说"
+  },
+  {
+    "id": "R152-missing",
+    "file": "packages/nb-history/scripts/demo.ts",
+    "lines": [
+      46
+    ],
+    "category": "用户文案",
+    "channel": "B-HISTORY-ERROR",
+    "evidence": "readDisk 的人读占位“(不存在)”，经 demo console.log 输出"
+  },
+  {
+    "id": "R152-samples",
+    "file": "packages/nb-history/scripts/demo.ts",
+    "callees": [
+      "history.initCursor",
+      "history.inbox",
+      "history.accept",
+      "history.revert",
+      "history.unseenChanges",
+      "history.advanceCursor"
+    ],
+    "category": "领域内容",
+    "channel": "B-HISTORY-ERROR",
+    "evidence": "demo.ts:50,65-86 的虚构 actor/session 数据；不是需要本地化的失败文字"
+  },
+  {
+    "id": "R153-human",
+    "file": "packages/nb-workflow/demo/guide.mjs",
+    "callees": [
+      "section",
+      "ok",
+      "console.log",
+      "workflow.ask",
+      "workflow.chart.node",
+      "workflow.log"
+    ],
+    "category": "用户文案",
+    "channel": "B-WORKFLOW-CONTROL",
+    "evidence": "guide.mjs:32-38 的教学终端与 ask/图标签，属于示例说明，不是库抛出的错误"
+  },
+  {
+    "id": "R153-error",
+    "file": "packages/nb-workflow/demo/guide.mjs",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-WORKFLOW-CONTROL",
+    "evidence": "guide.mjs:424-443 人为 BrokenBackend 异常样例；非生产错误，不计作迁移需求"
+  },
+  {
+    "id": "R153-sample",
+    "file": "packages/nb-workflow/demo/guide.mjs",
+    "callees": [
+      "agents.register",
+      "analyst.invoke",
+      "runner.resume"
+    ],
+    "category": "领域内容",
+    "channel": "B-WORKFLOW-CONTROL",
+    "evidence": "guide.mjs:303,387-407 的模拟 Agent 主题、回复或预期哨兵，不是错误正文"
+  },
+  {
+    "id": "R154",
+    "file": "packages/neuro-book/scripts/perf/browser-runner.ts",
+    "callees": [
+      "Error",
+      "problems.push",
+      "event.callFrames.slice(0, 15).map",
+      "results.push",
+      "process.stdout.write",
+      "child.on",
+      "child.stdin.on"
+    ],
+    "category": "诊断",
+    "channel": "B-SCRIPT-EVIDENCE",
+    "evidence": "测量脚本开发诊断与性能结果问题，browser-runner.ts:99-128,190-284,444-470,904-906；不声称是产品用户文案"
+  },
+  {
+    "id": "R155",
+    "file": "packages/neuro-book/scripts/page-shot.ts",
+    "callees": [
+      "PageShotUsageError",
+      "HostPageError",
+      "Error",
+      "super",
+      "busy.push",
+      "(animation.effect?.getComputedTiming().endTime === Infinity ? persistent : busy).push",
+      "Promise",
+      "problems.push",
+      "console.log",
+      "console.error"
+    ],
+    "category": "诊断",
+    "channel": "B-SCRIPT-EVIDENCE",
+    "evidence": "page-shot.ts:349-384,402-409 开发截图工具的失败与报告信息；只读实现，本次未运行截图"
+  },
+  {
+    "id": "R156-create",
+    "file": "packages/neuro-book/plugin-sdk/create-plugin.ts",
+    "callees": [
+      "PluginCreateError"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-SDK",
+    "evidence": "create-plugin.ts:73-75,132-165；cli.ts:81-83 直接 stderr；内部 Error 另归诊断"
+  },
+  {
+    "id": "R156-internal",
+    "file": "packages/neuro-book/plugin-sdk/create-plugin.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-CLI-SDK",
+    "evidence": "create-plugin.ts:162 非对象断言会被包成 PluginCreateError"
+  },
+  {
+    "id": "R157",
+    "file": "packages/neuro-book/plugin-sdk/pack.ts",
+    "callees": [
+      "Error",
+      "console.log"
+    ],
+    "category": "诊断",
+    "channel": "B-CLI-SDK",
+    "evidence": "pack.ts:72-99,135,168,295,411-417 构建发布工具诊断/状态，不是产品错误投影"
+  },
+  {
+    "id": "R158",
+    "file": "packages/neuro-book/src/cli/main.ts",
+    "lines": [
+      39,
+      50,
+      68,
+      73,
+      74,
+      80,
+      81,
+      82,
+      93,
+      97
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-NBOOK",
+    "evidence": "main.ts:39-98 Commander 命令、选项、usage 的人读帮助；不是错误数量"
+  },
+  {
+    "id": "R159-config-edit",
+    "file": "packages/nb-story/src/qa/config-edit.ts",
+    "callees": [
+      "ConfigEditError"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "config-edit.ts:115-194；config.ts:198-202 把该 message 交用法失败输出"
+  },
+  {
+    "id": "R159-config",
+    "file": "packages/nb-story/src/qa/config.ts",
+    "callees": [
+      "problems.push",
+      "failed"
+    ],
+    "category": "诊断",
+    "channel": "B-STORY-HTTP",
+    "evidence": "config.ts:102-118 配置问题进入 QaError；:268 临时文件清理失败摘要；CLI 与 HTTP 会继续投影，不能由此数值断言不对人可见"
+  },
+  {
+    "id": "R160",
+    "file": "packages/nb-story/src/cli/config-init.ts",
+    "lines": [
+      36,
+      43,
+      48,
+      57,
+      73,
+      94,
+      99,
+      99,
+      101,
+      101,
+      103,
+      110,
+      121,
+      126
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "config-init.ts:36-126 Clack 的 confirm/intro/select/ask/cancel 人类交互文本，不是模型提示词"
+  },
+  {
+    "id": "R161",
+    "file": "packages/nb-story/src/cli/program.ts",
+    "lines": [
+      39,
+      40,
+      53,
+      72,
+      74,
+      79,
+      115,
+      188,
+      199
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "program.ts:39-79 帮助；:185-199 Commander 用法错误即使 --json 仍 stderr，不套领域 JSON"
+  },
+  {
+    "id": "R162-domain",
+    "file": "packages/nb-story/src/qa/format.ts",
+    "lines": [
+      20,
+      27
+    ],
+    "category": "领域内容",
+    "channel": "B-QA-RECORD",
+    "evidence": "format.ts:17-28 的 answerText，格式化答案与评测正文，非错误提示"
+  },
+  {
+    "id": "R162-user",
+    "file": "packages/nb-story/src/qa/format.ts",
+    "lines": [
+      44,
+      45,
+      46,
+      70,
+      83
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "format.ts:41-85 的输出截断、出处核对与对话说明；CLI ask/qa 共用"
+  },
+  {
+    "id": "R163-check-dist.ts",
+    "file": "packages/neuro-book/scripts/check-dist.ts",
+    "callees": [
+      "Error",
+      "RangeError",
+      "AggregateError",
+      "console.error",
+      "console.log",
+      "forbidden.push",
+      "problems.push",
+      "lines.push",
+      "complete",
+      "summary.results.map",
+      "summary.results.flatMap"
+    ],
+    "category": "诊断",
+    "channel": "B-SCRIPT-EVIDENCE",
+    "evidence": "候选 expression 保留整次开发脚本异常/报告输出；page-shot/check-dist/pack-app 的出口见 B-SCRIPT-EVIDENCE；非测试代码包含这些脚本不代表产品运行时"
+  },
+  {
+    "id": "R163-files-list-trace.ts",
+    "file": "packages/neuro-book/scripts/files-list-trace.ts",
+    "callees": [
+      "Error",
+      "RangeError",
+      "AggregateError",
+      "console.error",
+      "console.log",
+      "forbidden.push",
+      "problems.push",
+      "lines.push",
+      "complete",
+      "summary.results.map",
+      "summary.results.flatMap"
+    ],
+    "category": "诊断",
+    "channel": "B-SCRIPT-EVIDENCE",
+    "evidence": "候选 expression 保留整次开发脚本异常/报告输出；page-shot/check-dist/pack-app 的出口见 B-SCRIPT-EVIDENCE；非测试代码包含这些脚本不代表产品运行时"
+  },
+  {
+    "id": "R163-files-sample.ts",
+    "file": "packages/neuro-book/scripts/files-sample.ts",
+    "callees": [
+      "Error",
+      "RangeError",
+      "AggregateError",
+      "console.error",
+      "console.log",
+      "forbidden.push",
+      "problems.push",
+      "lines.push",
+      "complete",
+      "summary.results.map",
+      "summary.results.flatMap"
+    ],
+    "category": "诊断",
+    "channel": "B-SCRIPT-EVIDENCE",
+    "evidence": "候选 expression 保留整次开发脚本异常/报告输出；page-shot/check-dist/pack-app 的出口见 B-SCRIPT-EVIDENCE；非测试代码包含这些脚本不代表产品运行时"
+  },
+  {
+    "id": "R163-gen-file-icons.ts",
+    "file": "packages/neuro-book/scripts/gen-file-icons.ts",
+    "callees": [
+      "Error",
+      "RangeError",
+      "AggregateError",
+      "console.error",
+      "console.log",
+      "forbidden.push",
+      "problems.push",
+      "lines.push",
+      "complete",
+      "summary.results.map",
+      "summary.results.flatMap"
+    ],
+    "category": "诊断",
+    "channel": "B-SCRIPT-EVIDENCE",
+    "evidence": "候选 expression 保留整次开发脚本异常/报告输出；page-shot/check-dist/pack-app 的出口见 B-SCRIPT-EVIDENCE；非测试代码包含这些脚本不代表产品运行时"
+  },
+  {
+    "id": "R163-gen-monaco-languages.ts",
+    "file": "packages/neuro-book/scripts/gen-monaco-languages.ts",
+    "callees": [
+      "Error",
+      "RangeError",
+      "AggregateError",
+      "console.error",
+      "console.log",
+      "forbidden.push",
+      "problems.push",
+      "lines.push",
+      "complete",
+      "summary.results.map",
+      "summary.results.flatMap"
+    ],
+    "category": "诊断",
+    "channel": "B-SCRIPT-EVIDENCE",
+    "evidence": "候选 expression 保留整次开发脚本异常/报告输出；page-shot/check-dist/pack-app 的出口见 B-SCRIPT-EVIDENCE；非测试代码包含这些脚本不代表产品运行时"
+  },
+  {
+    "id": "R163-lab-shot.ts",
+    "file": "packages/neuro-book/scripts/lab-shot.ts",
+    "callees": [
+      "Error",
+      "RangeError",
+      "AggregateError",
+      "console.error",
+      "console.log",
+      "forbidden.push",
+      "problems.push",
+      "lines.push",
+      "complete",
+      "summary.results.map",
+      "summary.results.flatMap"
+    ],
+    "category": "诊断",
+    "channel": "B-SCRIPT-EVIDENCE",
+    "evidence": "候选 expression 保留整次开发脚本异常/报告输出；page-shot/check-dist/pack-app 的出口见 B-SCRIPT-EVIDENCE；非测试代码包含这些脚本不代表产品运行时"
+  },
+  {
+    "id": "R163-measure-project.ts",
+    "file": "packages/neuro-book/scripts/measure-project.ts",
+    "callees": [
+      "Error",
+      "RangeError",
+      "AggregateError",
+      "console.error",
+      "console.log",
+      "forbidden.push",
+      "problems.push",
+      "lines.push",
+      "complete",
+      "summary.results.map",
+      "summary.results.flatMap"
+    ],
+    "category": "诊断",
+    "channel": "B-SCRIPT-EVIDENCE",
+    "evidence": "候选 expression 保留整次开发脚本异常/报告输出；page-shot/check-dist/pack-app 的出口见 B-SCRIPT-EVIDENCE；非测试代码包含这些脚本不代表产品运行时"
+  },
+  {
+    "id": "R163-pack-app.ts",
+    "file": "packages/neuro-book/scripts/pack-app.ts",
+    "callees": [
+      "Error",
+      "RangeError",
+      "AggregateError",
+      "console.error",
+      "console.log",
+      "forbidden.push",
+      "problems.push",
+      "lines.push",
+      "complete",
+      "summary.results.map",
+      "summary.results.flatMap"
+    ],
+    "category": "诊断",
+    "channel": "B-SCRIPT-EVIDENCE",
+    "evidence": "候选 expression 保留整次开发脚本异常/报告输出；page-shot/check-dist/pack-app 的出口见 B-SCRIPT-EVIDENCE；非测试代码包含这些脚本不代表产品运行时"
+  },
+  {
+    "id": "R163-perf/files-perf.ts",
+    "file": "packages/neuro-book/scripts/perf/files-perf.ts",
+    "callees": [
+      "Error",
+      "RangeError",
+      "AggregateError",
+      "console.error",
+      "console.log",
+      "forbidden.push",
+      "problems.push",
+      "lines.push",
+      "complete",
+      "summary.results.map",
+      "summary.results.flatMap"
+    ],
+    "category": "诊断",
+    "channel": "B-SCRIPT-EVIDENCE",
+    "evidence": "候选 expression 保留整次开发脚本异常/报告输出；page-shot/check-dist/pack-app 的出口见 B-SCRIPT-EVIDENCE；非测试代码包含这些脚本不代表产品运行时"
+  },
+  {
+    "id": "R163-perf/stats.ts",
+    "file": "packages/neuro-book/scripts/perf/stats.ts",
+    "callees": [
+      "Error",
+      "RangeError",
+      "AggregateError",
+      "console.error",
+      "console.log",
+      "forbidden.push",
+      "problems.push",
+      "lines.push",
+      "complete",
+      "summary.results.map",
+      "summary.results.flatMap"
+    ],
+    "category": "诊断",
+    "channel": "B-SCRIPT-EVIDENCE",
+    "evidence": "候选 expression 保留整次开发脚本异常/报告输出；page-shot/check-dist/pack-app 的出口见 B-SCRIPT-EVIDENCE；非测试代码包含这些脚本不代表产品运行时"
+  },
+  {
+    "id": "R163-smoke-server.ts",
+    "file": "packages/neuro-book/scripts/smoke-server.ts",
+    "callees": [
+      "Error",
+      "RangeError",
+      "AggregateError",
+      "console.error",
+      "console.log",
+      "forbidden.push",
+      "problems.push",
+      "lines.push",
+      "complete",
+      "summary.results.map",
+      "summary.results.flatMap"
+    ],
+    "category": "诊断",
+    "channel": "B-SCRIPT-EVIDENCE",
+    "evidence": "候选 expression 保留整次开发脚本异常/报告输出；page-shot/check-dist/pack-app 的出口见 B-SCRIPT-EVIDENCE；非测试代码包含这些脚本不代表产品运行时"
+  },
+  {
+    "id": "R163-page-agent",
+    "file": "packages/neuro-book/scripts/perf/page-agent.ts",
+    "callees": [
+      "finish"
+    ],
+    "category": "诊断",
+    "channel": "B-SCRIPT-EVIDENCE",
+    "evidence": "page-agent.ts:230,254 超时结果进入测量报告，非用户失败投影"
+  },
+  {
+    "id": "R163-bundle",
+    "file": "packages/neuro-book/scripts/pack-app.ts",
+    "callees": [
+      "[...new Set(external)].map",
+      "FORBIDDEN_TEXT.filter((text) => source.includes(text)).map"
+    ],
+    "category": "诊断",
+    "channel": "B-SCRIPT-EVIDENCE",
+    "evidence": "pack-app.ts:71-81 bundleProblems→:178 throw Error，构建检查问题"
+  },
+  {
+    "id": "R163-sample",
+    "file": "packages/neuro-book/scripts/files-sample.ts",
+    "lines": [
+      108
+    ],
+    "category": "领域内容",
+    "channel": "B-SCRIPT-EVIDENCE",
+    "evidence": "files-sample.ts:108 生成用于文件树的已删除 item 标题，不是失败文字"
+  },
+  {
+    "id": "R164",
+    "file": "packages/nb-history/scripts/handle-probe.ts",
+    "callees": [
+      "console.error"
+    ],
+    "category": "诊断",
+    "channel": "B-HISTORY-ERROR",
+    "evidence": "handle-probe.ts:13 的开发句柄探针用法输出，非产品异常"
+  },
+  {
+    "id": "R165",
+    "file": "packages/nb-workflow/demo/generate.ts",
+    "callees": [
+      "wf.log",
+      "wf.ask",
+      "console.log"
+    ],
+    "category": "用户文案",
+    "channel": "B-WORKFLOW-STATE",
+    "evidence": "generate.ts:74-100,409-412 的教学播放器/终端日志与提问，不是内核生产的诊断"
+  },
+  {
+    "id": "R166",
+    "file": "packages/nb-workflow/demo/generate.ts",
+    "lines": [
+      91
+    ],
+    "category": "提示词",
+    "channel": "B-WORKFLOW-STATE",
+    "evidence": "generate.ts:91 向示例 analyst.invoke 传领域主题；同文件 MockAgentPort，不是本次真实模型调用"
+  },
+  {
+    "id": "R167",
+    "file": "packages/nb-workflow/docs/.vitepress/config.mjs",
+    "callees": [
+      "defineConfig"
+    ],
+    "category": "用户文案",
+    "channel": "B-WORKFLOW-CONTROL",
+    "evidence": "docs/.vitepress/config.mjs:3 的文档站导航和标题，不是错误条目"
+  },
+  {
+    "id": "R168",
+    "file": "packages/nb-workflow/src/projection/trace.ts",
+    "callees": [
+      "lines.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-WORKFLOW-STATE",
+    "evidence": "trace.ts:88 的 Mermaid 并行分组标签，属于可视化，不是错误"
+  },
+  {
+    "id": "R169",
+    "file": "packages/nb-story/src/cli/commands.ts",
+    "callees": [
+      "integer"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "commands.ts:122 参数名章进用法错误；不是模型说明或异常诊断"
+  },
+  {
+    "id": "R169-usage",
+    "file": "packages/nb-story/src/cli/commands.ts",
+    "lines": [
+      331
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "commands.ts:331 的整体 CLI usage 文本，模型 Skill 使用同 CLI；不要当失败条数"
+  },
+  {
+    "id": "R170",
+    "file": "packages/nb-story/src/cli/ingest.ts",
+    "callees": [
+      "StoryError",
+      "plan.chapters.map",
+      "lines.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "cli/ingest.ts:116-124 直接交 CLI 的原文输入拒绝；:147,187 预览/状态输出"
+  },
+  {
+    "id": "R171",
+    "file": "packages/nb-story/src/cli/main.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-CLI-STORY",
+    "evidence": "main.ts:140 未分派命令的实现不变量"
+  },
+  {
+    "id": "R172",
+    "file": "packages/nb-story/src/cli/main.ts",
+    "callees": [
+      "lines.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "main.ts:156-159 给人看的查看器链接"
+  },
+  {
+    "id": "R173",
+    "file": "packages/nb-story/src/cli/config.ts",
+    "callees": [
+      "item.keyEnvs.join"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-STORY",
+    "evidence": "config.ts:83-85 配置 show 的密钥变量选项连接词"
+  },
+  {
+    "id": "R174",
+    "file": "packages/nb-story/src/ingest/chapter.ts",
+    "lines": [
+      191,
+      252,
+      258
+    ],
+    "category": "领域内容",
+    "channel": "B-INGEST-CHECKLIST",
+    "evidence": "chapter.ts:191,252-258 归纳降级与按书设置移除记录的 notes；job.ts:159,178-179 保存章节问题，不送修复模型"
+  },
+  {
+    "id": "R175",
+    "file": "packages/nb-story/src/ingest/chapter.ts",
+    "lines": [
+      197
+    ],
+    "category": "提示词",
+    "channel": "B-INGEST-CHECKLIST",
+    "evidence": "chapter.ts:197-199 上章段落块摘要进入 beatsTask"
+  },
+  {
+    "id": "R176",
+    "file": "packages/nb-story/src/ingest/compile.ts",
+    "callees": [
+      "derive",
+      "knowledge.push",
+      "item.label?.includes",
+      "names.filter(item => present.has(item.text) && comparePosition(item.at, at) > 0 && rest.includes(item.text)).map"
+    ],
+    "category": "领域内容",
+    "channel": "B-INGEST-CHECKLIST",
+    "evidence": "compile.ts:597-620 自动推导知情的领域说明/公开身份识别；:878 的 name-leak warning 参数，不是开发诊断"
+  },
+  {
+    "id": "R177",
+    "file": "packages/nb-story/src/ingest/model.ts",
+    "callees": [
+      "super"
+    ],
+    "category": "诊断",
+    "channel": "B-INGEST-STATE",
+    "evidence": "model.ts:69 ModelAborted.message；按类判停止，不按中文分支"
+  },
+  {
+    "id": "R178",
+    "file": "packages/nb-story/src/ingest/store.ts",
+    "callees": [
+      "console.error"
+    ],
+    "category": "诊断",
+    "channel": "B-INGEST-STATE",
+    "evidence": "store.ts:199 清理坏回复文件失败 stderr，保留外错"
+  },
+  {
+    "id": "R179",
+    "file": "packages/nb-story/src/ingest/text.ts",
+    "callees": [
+      "RegExp"
+    ],
+    "category": "领域内容",
+    "channel": "B-INGEST-CHECKLIST",
+    "evidence": "text.ts:20-22 章节标题的中文语法词，不是任何读者要翻译的提示"
+  },
+  {
+    "id": "R180",
+    "file": "packages/nb-story/src/qa/probe.ts",
+    "callees": [
+      "harness.turn"
+    ],
+    "category": "提示词",
+    "channel": "B-HARNESS-RUN",
+    "evidence": "probe.ts:27-37 内存会话的连通性请求，明确不是 complete()"
+  },
+  {
+    "id": "R181",
+    "file": "packages/nb-story/src/qa/read-ledger.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-TOOLS-DOMAIN",
+    "evidence": "read-ledger.ts:56 已读区间登记不变量，不等同 chapter_limit 的正常拒绝"
+  },
+  {
+    "id": "R182",
+    "file": "packages/nb-story/src/qa/tools.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-TOOLS-DOMAIN",
+    "evidence": "tools.ts:78 查询命令注册实现不变量"
+  },
+  {
+    "id": "R183",
+    "file": "packages/nb-story/src/server/qa-service.ts",
+    "callees": [
+      "end"
+    ],
+    "category": "用户文案",
+    "channel": "B-STORY-HTTP",
+    "evidence": "qa-service.ts:298 SSE 终止的固定安全说明，原异常另记 stderr"
+  },
+  {
+    "id": "R184",
+    "file": "packages/nb-story/src/server/serve.ts",
+    "callees": [
+      "console.error"
+    ],
+    "category": "诊断",
+    "channel": "B-CLI-STORY",
+    "evidence": "serve.ts:44 打开浏览器失败的开发终端提示"
+  },
+  {
+    "id": "R185-files-http",
+    "file": "packages/neuro-book/src/plugin-platform/backend/plugin-files.ts",
+    "callees": [
+      "failure"
+    ],
+    "category": "用户文案",
+    "channel": "B-HTTP-HOST",
+    "evidence": "plugin-files.ts:59-67 HTTP 拒绝正文，浏览器脚本 onerror 不解析体；不能推断是同一外壳"
+  },
+  {
+    "id": "R185-files-log",
+    "file": "packages/neuro-book/src/plugin-platform/backend/plugin-files.ts",
+    "callees": [
+      "record"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-JSONL",
+    "evidence": "plugin-files.ts:66 DiagnosticInput，保留原 error"
+  },
+  {
+    "id": "R186",
+    "file": "packages/neuro-book/src/plugins/commands/shared/keybinding.ts",
+    "callees": [
+      "invalid"
+    ],
+    "category": "用户文案",
+    "channel": "B-COMMAND-RESULT",
+    "evidence": "keybinding.ts:20-44 CommandResult.invalid-args 的 reason；贡献验证/调用方后续保留当前文字"
+  },
+  {
+    "id": "R187",
+    "file": "packages/neuro-book/src/plugins/files/shared/resource.ts",
+    "callees": [
+      "invalid"
+    ],
+    "category": "用户文案",
+    "channel": "B-FILES-BUSINESS",
+    "evidence": "resource.ts:18,27-33 ParsedResource.detail 输入拒绝"
+  },
+  {
+    "id": "R188",
+    "file": "packages/neuro-book/src/plugins/files/shared/resource.ts",
+    "callees": [
+      "RangeError"
+    ],
+    "category": "诊断",
+    "channel": "B-FILES-BUSINESS",
+    "evidence": "resource.ts:73-75 joinResource 调用约束断言"
+  },
+  {
+    "id": "R189",
+    "file": "packages/neuro-book/src/plugins/settings/shared/sections.ts",
+    "callees": [
+      "idProblem",
+      "shapeProblem"
+    ],
+    "category": "用户文案",
+    "channel": "B-PLUGIN-VALIDATION",
+    "evidence": "sections.ts:117-119 选项提供者的中文名称用作贡献拒绝 detail"
+  },
+  {
+    "id": "R190",
+    "file": "packages/neuro-book/src/plugins/storage/backend/owner.ts",
+    "callees": [
+      "Promise.resolve"
+    ],
+    "category": "用户文案",
+    "channel": "B-STORAGE-END",
+    "evidence": "owner.ts:60 closed 后订阅返回 unavailable/detail，不代表 corrupt"
+  },
+  {
+    "id": "R191",
+    "file": "packages/neuro-book/src/project/process.ts",
+    "callees": [
+      "writeSync",
+      "JSON.stringify"
+    ],
+    "category": "诊断",
+    "channel": "B-PROJECT-IPC",
+    "evidence": "process.ts:32 紧急 fatal JSON；同一行有嵌套调用，按调用键分两候选，不作去重合并"
+  },
+  {
+    "id": "R192",
+    "file": "packages/neuro-book/src/server/browser-bootstrap.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-PLUGIN-CODE-BROWSER",
+    "evidence": "browser-bootstrap.ts:39 安装信息实现不变量"
+  },
+  {
+    "id": "R193",
+    "file": "packages/neuro-book/src/server/instance.ts",
+    "callees": [
+      "settle"
+    ],
+    "category": "诊断",
+    "channel": "B-HOST-EMERGENCY",
+    "evidence": "instance.ts:262-281 请求探针超时/非法答复/断线原因，端口/启动调用方再做用户投影"
+  },
+  {
+    "id": "R194",
+    "file": "packages/neuro-book/src/server/projects/identity.ts",
+    "callees": [
+      "Error"
+    ],
+    "category": "诊断",
+    "channel": "B-PROJECTS-BUSINESS",
+    "evidence": "identity.ts:310 写后读回的不变量，非用户非法输入"
+  },
+  {
+    "id": "R195",
+    "file": "packages/dev-panel/src/core/audit.ts",
+    "callees": [
+      "SyntaxError"
+    ],
+    "category": "诊断",
+    "channel": "B-NBDEV-AUDIT",
+    "evidence": "audit.ts:47 审计初始化文件格式断言"
+  },
+  {
+    "id": "R196",
+    "file": "packages/dev-panel/src/server/panel-file.ts",
+    "callees": [
+      "process.emitWarning"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-FALLBACK",
+    "evidence": "panel-file.ts:51 非法运行时 JSON 文件降级警告，不是面板 HTTP 体"
+  },
+  {
+    "id": "R197",
+    "file": "packages/dev-panel/src/service.ts",
+    "callees": [
+      "io.stderr.write"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "service.ts:103 systemctl 失败与可执行的下一步，给人和 Agent 的 CLI 输出"
+  },
+  {
+    "id": "R198",
+    "file": "packages/dev-panel/src/server/herdr-monitor.ts",
+    "callees": [
+      "this.scheduleRetry"
+    ],
+    "category": "诊断",
+    "channel": "B-DIAG-FALLBACK",
+    "evidence": "herdr-monitor.ts:181,223 重连/对账原因，经重连日志记录"
+  },
+  {
+    "id": "R199",
+    "file": "packages/dev-panel/src/cli/dev-commands.ts",
+    "lines": [
+      86,
+      88,
+      188,
+      210
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "dev-commands.ts 的 find/status/stop 人类输出格式；完整调用保留与 JSON 另路"
+  },
+  {
+    "id": "R200",
+    "file": "packages/dev-panel/src/cli/main.ts",
+    "lines": [
+      47,
+      56,
+      92,
+      188,
+      219,
+      258
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "cli/main.ts 的列表、租约时间、撞号输出；ago().replace 只是人读时间删后缀，不是错误文案分支"
+  },
+  {
+    "id": "R201",
+    "file": "packages/dev-panel/src/cli/artifact-commands.ts",
+    "callees": [
+      "io.stderr.write"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "artifact-commands.ts:283 等待答复状态，不代表失败"
+  },
+  {
+    "id": "R202",
+    "file": "packages/dev-panel/src/audit-init.ts",
+    "callees": [
+      "emit"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-AUDIT",
+    "evidence": "audit-init.ts:23 初始化人类摘要/JSON；本次未初始化"
+  },
+  {
+    "id": "R203",
+    "file": "packages/dev-panel/src/install-shim.ts",
+    "callees": [
+      "emit"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "install-shim.ts:73 安装成功的人读输出；本次未安装"
+  },
+  {
+    "id": "R204",
+    "file": "packages/dev-panel/src/install-service.ts",
+    "callees": [
+      "commands.map"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "install-service.ts:165 systemctl 动作确认输出；本次未安装服务"
+  },
+  {
+    "id": "R205",
+    "file": "packages/dev-panel/src/server/build.ts",
+    "callees": [
+      "Promise.resolve",
+      "resolvePromise"
+    ],
+    "category": "诊断",
+    "channel": "B-NBDEV-HTTP",
+    "evidence": "build.ts:80,93,96 前端构建错误摘要，build.ts:112-127 进入降级日志或 NbdevError"
+  },
+  {
+    "id": "R206",
+    "file": "packages/nb-memory/src/retrieval/heuristic-planner.ts",
+    "callees": [
+      "unresolved.push",
+      "plan.steps.map"
+    ],
+    "category": "诊断",
+    "channel": "B-MEMORY-FAILURE",
+    "evidence": "heuristic-planner.ts:96-106 的 unresolved 原因与 :131-145 明确调试/评测摘要；不宣称已有 UI"
+  },
+  {
+    "id": "R207",
+    "file": "packages/dev-panel/src/core/operations.ts",
+    "callees": [
+      "outcome.warnings.push"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "operations.ts:269 open_questions warning；output.ts:123 原样输出"
+  },
+  {
+    "id": "R208",
+    "file": "packages/dev-panel/src/dev/dev-ops.ts",
+    "callees": [
+      "emitEvent"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-DEV-STREAM",
+    "evidence": "dev-ops.ts:310 sample_failed.reason→cli/dev-commands.ts:40,161 终端或 NDJSON"
+  },
+  {
+    "id": "R209",
+    "file": "packages/dev-panel/src/core/git.ts",
+    "callees": [
+      "child.stdin!.on"
+    ],
+    "category": "诊断",
+    "channel": "B-NBDEV-CLI",
+    "evidence": "git.ts:82-89 EPIPE 诊断追加到 Git stderr；同一候选回调含中文副产物，不等同新增失败码"
+  },
+  {
+    "id": "R210",
+    "file": "packages/dev-panel/src/server/notifier.ts",
+    "callees": [
+      "assertPlainText"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-VALIDATION",
+    "evidence": "notifier.ts:424 消息是 text-rules 校验错误的字段标签"
+  },
+  {
+    "id": "R211",
+    "file": "packages/dev-panel/src/server/session-io.ts",
+    "callees": [
+      "assertPlainText"
+    ],
+    "category": "用户文案",
+    "channel": "B-NBDEV-VALIDATION",
+    "evidence": "session-io.ts:104 文字是 text-rules 校验错误的字段标签"
+  },
+  {
+    "id": "R212",
+    "file": "packages/nb-memory/src/index.ts",
+    "lines": [
+      469,
+      483
+    ],
+    "category": "领域内容",
+    "channel": "B-MEMORY-FAILURE",
+    "evidence": "index.ts:467-490 dump 的记忆主体/状态/事实导出标题与领域记录，非错误说明"
+  },
+  {
+    "id": "R213",
+    "file": "packages/nb-memory/src/core/subject-registry.ts",
+    "lines": [
+      280
+    ],
+    "category": "领域内容",
+    "channel": "B-MEMORY-FAILURE",
+    "evidence": "subject-registry.ts:271-286 主体档案的时点与别名说明；非错误"
+  },
+  {
+    "id": "R214",
+    "file": "packages/nb-story/src/core/qa-records.ts",
+    "lines": [
+      387,
+      397
+    ],
+    "category": "用户文案",
+    "channel": "B-QA-RECORD",
+    "evidence": "qa-records.ts:361-397 坏旧记录的 problem；网页 QaPage.vue:157 直接显示"
+  },
+  {
+    "id": "R215",
+    "file": "packages/nb-story/src/core/queries/ledger.ts",
+    "callees": [
+      "matching.map"
+    ],
+    "category": "领域内容",
+    "channel": "B-CLI-STORY",
+    "evidence": "queries/ledger.ts:116 多个候选的主体和账本名称；code 另在 StoryError，并非程序诊断模板"
+  },
+  {
+    "id": "R216",
+    "file": "packages/nb-story/src/core/queries/source.ts",
+    "callees": [
+      "visibleCitations(ctx, params.chapter, params.paragraph).map"
+    ],
+    "category": "领域内容",
+    "channel": "B-CLI-STORY",
+    "evidence": "queries/source.ts:98 的读者是小说认知记录里的主体显示名，不是错误"
+  },
+  {
+    "id": "R217",
+    "file": "packages/nb-story/src/qa/story-qa.profile.tsx",
+    "callees": [
+      "initial.at.replace"
+    ],
+    "category": "提示词",
+    "channel": "B-HARNESS-RUN",
+    "evidence": "story-qa.profile.tsx:35 阅读位置格式嵌在 System 领域提示词中"
+  },
+  {
+    "id": "R218",
+    "file": "packages/neuro-book/plugin-sdk/build-examples.ts",
+    "callees": [
+      "PluginBuildError"
+    ],
+    "category": "诊断",
+    "channel": "B-CLI-SDK",
+    "evidence": "build-examples.ts:40 构建目录越界保护的作者诊断，未运行"
+  },
+  {
+    "id": "R219-editor/shared/settings.ts",
+    "file": "packages/neuro-book/src/plugins/editor/shared/settings.ts",
+    "callees": [
+      "defineSetting",
+      "defineSettings"
+    ],
+    "category": "用户文案",
+    "channel": "B-SETTINGS-WRITE",
+    "evidence": "明确的 title/description/options/unit 声明文字；不是失败结果，但在后端目录中被 Han 调用扫描命中"
+  },
+  {
+    "id": "R219-explorer/shared/settings.ts",
+    "file": "packages/neuro-book/src/plugins/explorer/shared/settings.ts",
+    "callees": [
+      "defineSetting",
+      "defineSettings"
+    ],
+    "category": "用户文案",
+    "channel": "B-SETTINGS-WRITE",
+    "evidence": "明确的 title/description/options/unit 声明文字；不是失败结果，但在后端目录中被 Han 调用扫描命中"
+  },
+  {
+    "id": "R219-projects/shared/contracts.ts",
+    "file": "packages/neuro-book/src/plugins/projects/shared/contracts.ts",
+    "callees": [
+      "defineSetting",
+      "defineSettings"
+    ],
+    "category": "用户文案",
+    "channel": "B-SETTINGS-WRITE",
+    "evidence": "明确的 title/description/options/unit 声明文字；不是失败结果，但在后端目录中被 Han 调用扫描命中"
+  },
+  {
+    "id": "R219-settings/shared/contracts.ts",
+    "file": "packages/neuro-book/src/plugins/settings/shared/contracts.ts",
+    "callees": [
+      "defineSetting",
+      "defineSettings"
+    ],
+    "category": "用户文案",
+    "channel": "B-SETTINGS-WRITE",
+    "evidence": "明确的 title/description/options/unit 声明文字；不是失败结果，但在后端目录中被 Han 调用扫描命中"
+  },
+  {
+    "id": "R219-workbench/shared/contracts.ts",
+    "file": "packages/neuro-book/src/plugins/workbench/shared/contracts.ts",
+    "callees": [
+      "defineSetting",
+      "defineSettings"
+    ],
+    "category": "用户文案",
+    "channel": "B-SETTINGS-WRITE",
+    "evidence": "明确的 title/description/options/unit 声明文字；不是失败结果，但在后端目录中被 Han 调用扫描命中"
+  },
+  {
+    "id": "R220",
+    "file": "packages/neuro-book/plugin-sdk/template/web/plugin.ts",
+    "callees": [
+      "command"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-SDK",
+    "evidence": "template/web/plugin.ts:16 生成插件命令标题，不是 sdk 错误"
+  },
+  {
+    "id": "R221",
+    "file": "packages/neuro-book/plugin-sdk/template/shared/contracts.ts",
+    "callees": [
+      "section"
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-SDK",
+    "evidence": "template/shared/contracts.ts:15 basic 分组标题，非错误"
+  },
+  {
+    "id": "R222",
+    "file": "packages/neuro-book/src/plugins/files/backend/batch.ts",
+    "callees": [
+      "options.stopped"
+    ],
+    "category": "诊断",
+    "channel": "B-FILES-BUSINESS",
+    "evidence": "batch.ts:92-95 系统停止前记录诊断，cancelled/not-run 的结构状态没有翻译为失败"
+  },
+  {
+    "id": "R223",
+    "file": "packages/neuro-book/src/plugins/files/backend/files-service.ts",
+    "callees": [
+      "root.replace"
+    ],
+    "category": "用户文案",
+    "channel": "B-FILES-BUSINESS",
+    "evidence": "files-service.ts:166 的不存在/读取后改变安全 detail"
+  },
+  {
+    "id": "R224",
+    "file": "packages/neuro-book/src/plugins/files/backend/manifests.ts",
+    "callees": [
+      "root.replace"
+    ],
+    "category": "用户文案",
+    "channel": "B-FILES-BUSINESS",
+    "evidence": "manifests.ts:73 的不存在/非 UTF-8/本来如此分别经写入结果返回"
+  },
+  {
+    "id": "R225",
+    "file": "packages/neuro-book/src/plugins/settings/backend/layer-owner.ts",
+    "callees": [
+      "writeLayerFile"
+    ],
+    "category": "用户文案",
+    "channel": "B-SETTINGS-WRITE",
+    "evidence": "layer-owner.ts:204,240 的当前无效与并发变更 detail，经设置写结果显示"
+  },
+  {
+    "id": "R226",
+    "file": "packages/neuro-book/src/plugins/storage/backend/plugin.ts",
+    "callees": [
+      "createStorageFacade"
+    ],
+    "category": "用户文案",
+    "channel": "B-STORAGE-STATE",
+    "evidence": "storage/backend/plugin.ts:55 服务端不能直接开 project 记录的 StorageFailed.detail"
+  },
+  {
+    "id": "R227",
+    "file": "packages/neuro-book/src/server/projects/identity.ts",
+    "callees": [
+      "replaceLocked"
+    ],
+    "category": "用户文案",
+    "channel": "B-PROJECTS-BUSINESS",
+    "evidence": "identity.ts:276 missing/identity mismatch 的安全 detail 返回所属业务"
+  },
+  {
+    "id": "R228",
+    "file": "packages/neuro-book/src/server/projects/manager.ts",
+    "callees": [
+      "this.#serialized"
+    ],
+    "category": "用户文案",
+    "channel": "B-PROJECTS-BUSINESS",
+    "evidence": "manager.ts:227,328 的 unknown-project 与运行中禁止移除安全 detail"
+  },
+  {
+    "id": "R229",
+    "file": "packages/neuro-book/src/server/start.ts",
+    "callees": [
+      "Promise.resolve"
+    ],
+    "category": "诊断",
+    "channel": "B-HOST-EMERGENCY",
+    "evidence": "start.ts:191 启动阶段实例探针的未就绪原因，不是日志 Error 实例"
+  },
+  {
+    "id": "R230",
+    "file": "packages/neuro-book/src/cli/plugin.ts",
+    "lines": [
+      100,
+      122,
+      129,
+      137
+    ],
+    "category": "用户文案",
+    "channel": "B-CLI-NBOOK",
+    "evidence": "plugin.ts:100,122,129-137 安全模式、升级/降级确认、受阻清单，均给操作者；非全是失败"
+  },
+  {
+    "id": "U01-core/artifact-ops.ts",
+    "file": "packages/dev-panel/src/core/artifact-ops.ts",
+    "callees": [
+      "commitMessage",
+      "commitMessage",
+      "deriveVersion",
+      "versionRecord",
+      "commitMessage",
+      "deriveVersion",
+      "deriveVersion",
+      "runWriteTransaction",
+      "commitMessage",
+      "runWriteTransaction",
+      "commitMessage"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "已核对候选：Git 提交正文、Task 模板/标题、Markdown 章节定位或 unit 文件说明，不是失败说明；有的外层回调还覆盖已单列异常。不硬归为产品用户错误或开发诊断。"
+  },
+  {
+    "id": "U01-core/operations.ts",
+    "file": "packages/dev-panel/src/core/operations.ts",
+    "callees": [
+      "runWriteTransaction",
+      "runWriteTransaction",
+      "runWriteTransaction"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "已核对候选：Git 提交正文、Task 模板/标题、Markdown 章节定位或 unit 文件说明，不是失败说明；有的外层回调还覆盖已单列异常。不硬归为产品用户错误或开发诊断。"
+  },
+  {
+    "id": "U01-core/templates.ts",
+    "file": "packages/dev-panel/src/core/templates.ts",
+    "callees": [
+      "[\n        \"---\",\n        \"schema: nbook.work/v1\",\n        `workId: ${input.workId}`,\n        `issueId: ${input.issueId ?? \"null\"}`,\n        \"status: active\",\n        `updated: ${input.date}`,\n        \"---\",\n        \"\",\n        `# ${input.title}`,\n        \"\",\n        \"## 目标\",\n        \"\",\n        input.goal.trim(),\n        \"\",\n    ].join",
+      "[\n        \"---\",\n        \"schema: nbook.task/v2\",\n        `taskId: ${input.taskId}`,\n        `status: ${input.status}`,\n        `updated: ${input.date}`,\n        \"---\",\n        \"\",\n        `# ${input.title}`,\n        \"\",\n        \"## 目标与范围\",\n        \"\",\n        input.goal?.trim() || \"待补充。\",\n        \"\",\n        \"合同：待补充（链接具体 Spec，或说明行为合同是否改变）。\",\n        \"\",\n        \"## 当前状态\",\n        \"\",\n        `${input.date} 经 nbdev 新建，尚未开工。`,\n        \"\",\n        \"## 下一步\",\n        \"\",\n        \"待补充。\",\n        \"\",\n    ].join"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "已核对候选：Git 提交正文、Task 模板/标题、Markdown 章节定位或 unit 文件说明，不是失败说明；有的外层回调还覆盖已单列异常。不硬归为产品用户错误或开发诊断。"
+  },
+  {
+    "id": "U01-core/checkouts.ts",
+    "file": "packages/dev-panel/src/core/checkouts.ts",
+    "callees": [
+      "readSection"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "已核对候选：Git 提交正文、Task 模板/标题、Markdown 章节定位或 unit 文件说明，不是失败说明；有的外层回调还覆盖已单列异常。不硬归为产品用户错误或开发诊断。"
+  },
+  {
+    "id": "U01-core/records.ts",
+    "file": "packages/dev-panel/src/core/records.ts",
+    "callees": [
+      "readSection",
+      "readSection"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "已核对候选：Git 提交正文、Task 模板/标题、Markdown 章节定位或 unit 文件说明，不是失败说明；有的外层回调还覆盖已单列异常。不硬归为产品用户错误或开发诊断。"
+  },
+  {
+    "id": "U01-install-service.ts",
+    "file": "packages/dev-panel/src/install-service.ts",
+    "callees": [
+      "[\n        \"[Unit]\",\n        SERVICE_MARKER,\n        `Description=nbdev 开发者项目面板（${unitValue(input.mainRoot)}）`,\n        \"StartLimitIntervalSec=300\",\n        \"StartLimitBurst=5\",\n        \"\",\n        \"[Service]\",\n        \"Type=simple\",\n        `WorkingDirectory=${unitValue(input.mainRoot)}`,\n        `Environment=NBDEV_PANEL_UNIT=${unit}`,\n        input.herdrBin === null ? \"# 安装时找不到 herdr：要网页终端就加一行 Environment=NBDEV_HERDR_BIN=<herdr 的绝对路径>\" : `Environment=${execArg(`NBDEV_HERDR_BIN=${input.herdrBin}`)}`,\n        input.ghBin === null ? \"# 安装时找不到 gh：要 GitHub 页就加一行 Environment=NBDEV_GH_BIN=<gh 的绝对路径>\" : `Environment=${execArg(`NBDEV_GH_BIN=${input.ghBin}`)}`,\n        `ExecStart=${[input.bun, cli, \"panel\", \"serve\", \"--port\", String(input.port), \"--artifact-port\", String(input.artifactPort)].map(execArg).join(\" \")}`,\n        \"Restart=on-failure\",\n        \"RestartSec=5\",\n        \"# 用法错误与冲突（unsafe_host、port_in_use、panel_running）重启也不会好，不要重启风暴。\",\n        \"RestartPreventExitStatus=2 3\",\n        \"KillSignal=SIGTERM\",\n        \"# 只给面板 SIGTERM，等它先释放网页终端的接管、改回终端尺寸、收掉子进程，再 SIGKILL 剩下的；缺省的 control-group 会同时给子进程 SIGTERM。\",\n        \"KillMode=mixed\",\n        \"# 收到 SIGTERM 先等进行中的投递结束（上限 12 秒），再收口。\",\n        \"TimeoutStopSec=30\",\n        `# stdout、stderr 进 journal：journalctl --user -u ${unit}`,\n        \"\",\n        \"[Install]\",\n        \"WantedBy=default.target\",\n        \"\",\n    ].join"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "已核对候选：Git 提交正文、Task 模板/标题、Markdown 章节定位或 unit 文件说明，不是失败说明；有的外层回调还覆盖已单列异常。不硬归为产品用户错误或开发诊断。"
+  },
+  {
+    "id": "U02-core/lock.ts",
+    "file": "packages/dev-panel/src/core/lock.ts",
+    "callees": [
+      "acquireDirectoryLock"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "已核对调用参数：锁/动作/操作者标签；可能参与更深层诊断拼接，但本调用不是文案生产边界，无法从这一个调用量化错误条目。"
+  },
+  {
+    "id": "U02-core/procs.ts",
+    "file": "packages/dev-panel/src/core/procs.ts",
+    "callees": [
+      "acquireDirectoryLock"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "已核对调用参数：锁/动作/操作者标签；可能参与更深层诊断拼接，但本调用不是文案生产边界，无法从这一个调用量化错误条目。"
+  },
+  {
+    "id": "U02-core/transaction.ts",
+    "file": "packages/dev-panel/src/core/transaction.ts",
+    "callees": [
+      "recordsLock.assertHealthy"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "已核对调用参数：锁/动作/操作者标签；可能参与更深层诊断拼接，但本调用不是文案生产边界，无法从这一个调用量化错误条目。"
+  },
+  {
+    "id": "U02-dev/dev-ops.ts",
+    "file": "packages/dev-panel/src/dev/dev-ops.ts",
+    "callees": [
+      "stopRun"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "已核对调用参数：锁/动作/操作者标签；可能参与更深层诊断拼接，但本调用不是文案生产边界，无法从这一个调用量化错误条目。"
+  },
+  {
+    "id": "U03",
+    "file": "packages/dev-panel/src/server/panel-file.ts",
+    "callees": [
+      "writeFile"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "生成打开面板的 HTML 标题，不是错误；不是产品失败迁移量。"
+  },
+  {
+    "id": "U04-probe.profile.tsx",
+    "file": "packages/nb-story/src/qa/probe.profile.tsx",
+    "callees": [
+      "defineProfile"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "defineProfile 同一次外层调用包含人读 manifest.name/description 与 System 领域提示词；不把整次混合构造硬归一个读者。细分 literal 与通道证据均保留。"
+  },
+  {
+    "id": "U04-story-qa.profile.tsx",
+    "file": "packages/nb-story/src/qa/story-qa.profile.tsx",
+    "callees": [
+      "defineProfile"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "defineProfile 同一次外层调用包含人读 manifest.name/description 与 System 领域提示词；不把整次混合构造硬归一个读者。细分 literal 与通道证据均保留。"
+  },
+  {
+    "id": "U05",
+    "file": "packages/nb-workflow/demo/guide.mjs",
+    "callees": [
+      "runner.resume(cancelled.runId, {\n        [cancelled.pendingAsks[0]?.key ?? \"root#0\"]: true,\n    }).then",
+      "runner.start",
+      "(() => {\n        try {\n            strictRunner.begin({\n                key: \"guide-requires\",\n                manifestHash: \"sha256:guide-requires-v1\",\n                requires: { durableSignals: true },\n                run: async () => null,\n            }, null);\n            return \"不应成功\";\n        } catch (error) {\n            return error instanceof WorkflowBackendCapabilityError\n                ? `WorkflowBackendCapabilityError: ${error.message}`\n                : String(error);\n        }\n    })"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "演示中验证基础设施拒绝/取消的异步外层与不应成功哨兵；非库实际错误文案，一个调用横跨示例数据与诊断。"
+  },
+  {
+    "id": "U06-pack.ts",
+    "file": "packages/neuro-book/plugin-sdk/pack.ts",
+    "callees": [
+      "text.replace",
+      "sections.push",
+      "[...groups, {title: \"其它\", pattern: /(?:)/u}].map",
+      "grouped([...design.keys()], DESIGN_GROUPS).map",
+      "writeFile",
+      "JSON.stringify"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "生成 SDK 文档/包 description，或同一 setting 调用混含问候语领域默认值与人读标题；不是错误迁移量，不能按调用边界拆成一个错误条目。"
+  },
+  {
+    "id": "U06-template/shared/contracts.ts",
+    "file": "packages/neuro-book/plugin-sdk/template/shared/contracts.ts",
+    "callees": [
+      "setting"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "生成 SDK 文档/包 description，或同一 setting 调用混含问候语领域默认值与人读标题；不是错误迁移量，不能按调用边界拆成一个错误条目。"
+  },
+  {
+    "id": "U07",
+    "file": "packages/neuro-book/scripts/pack-app.ts",
+    "callees": [
+      "(JSON.parse(await readFile(licenseFile, \"utf8\")) as WebLicense[]).map",
+      "[\n        \"# 第三方许可\",\n        \"这个包里的 `server/` 与 `web/` 是打包产物，打包时去掉了各依赖文件头的版权声明。下面是打进去的每个第三方包的许可与声明。\",\n        section(\"服务端（server/nbook.js、server/project.js）\", server),\n        section(\"前端（web/）\", withNotices),\n        [\"## 字体\", ...fonts.map(({file, text}) => `### web/assets/${file}\\n\\n\\`\\`\\`\\n${text}\\n\\`\\`\\``)].join(\"\\n\\n\"),\n    ].join",
+      "section",
+      "section",
+      "[\"## 字体\", ...fonts.map(({file, text}) => `### web/assets/${file}\\n\\n\\`\\`\\`\\n${text}\\n\\`\\`\\``)].join"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "第三方许可文档标题/说明与 notice 排版，非错误。"
+  },
+  {
+    "id": "U08-perf/browser-runner.ts",
+    "file": "packages/neuro-book/scripts/perf/browser-runner.ts",
+    "callees": [
+      "run",
+      "run",
+      "run",
+      "openResult",
+      "run",
+      "run",
+      "writeFile",
+      "run"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "性能场景的外层 run 回调/结果标题包含运行过程及描述，或写入测试样本；不是一个可独立量化的失败文字，内部 Error 已另归诊断。"
+  },
+  {
+    "id": "U08-perf/files-perf.ts",
+    "file": "packages/neuro-book/scripts/perf/files-perf.ts",
+    "callees": [
+      "[\n            result.id,\n            result.name,\n            result.status === \"ok\" ? \"ok\" : `**${result.status}**`,\n            String(result.samples ?? \"—\"),\n            cell(result.feedback?.committed),\n            cell(result.feedback?.presented),\n            timing(result),\n            cell(result.done?.committed),\n            cell(result.done?.presented),\n            result.longFrames === undefined ? \"—\" : result.longFrames === \"unavailable\" ? \"不可用\" : `${String(result.longFrames.count)}，${String(result.longFrames.longest)}`,\n            Object.entries(result.requests ?? {}).map(([kind, count]) => `${kind} ×${String(count)}`).join(\"；\") || \"—\",\n        ].join"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "性能场景的外层 run 回调/结果标题包含运行过程及描述，或写入测试样本；不是一个可独立量化的失败文字，内部 Error 已另归诊断。"
+  },
+  {
+    "id": "U09-plugins/files/shared/names.ts",
+    "file": "packages/neuro-book/src/plugins/files/shared/names.ts",
+    "callees": [
+      "name.replace"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "已核对：标题排序词、store 字段上下文，或外层配置/异步回调里混含中文状态 detail 与诊断；内部失败路径已由通道矩阵追踪，不能把外层调用再当单独错误量。"
+  },
+  {
+    "id": "U09-shared/store/store.ts",
+    "file": "packages/neuro-book/src/shared/store/store.ts",
+    "callees": [
+      "PersistedFieldState"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "已核对：标题排序词、store 字段上下文，或外层配置/异步回调里混含中文状态 detail 与诊断；内部失败路径已由通道矩阵追踪，不能把外层调用再当单独错误量。"
+  },
+  {
+    "id": "U09-plugins/files/backend/plugin.ts",
+    "file": "packages/neuro-book/src/plugins/files/backend/plugin.ts",
+    "callees": [
+      "provideRemote"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "已核对：标题排序词、store 字段上下文，或外层配置/异步回调里混含中文状态 detail 与诊断；内部失败路径已由通道矩阵追踪，不能把外层调用再当单独错误量。"
+  },
+  {
+    "id": "U09-plugins/files/backend/raw-route.ts",
+    "file": "packages/neuro-book/src/plugins/files/backend/raw-route.ts",
+    "callees": [
+      "(async (): Promise<Opened> => {\n                    // 登记路径上换成了另一部作品时，不能把它的文件当成这个 id 交出去（同封面路由）。\n                    const metadata = await sources.projects.readMetadata(id);\n                    if (!metadata.ok) return {ok: false, status: 409, code: metadata.reason, detail: `作品 ${id} 的身份核对失败：${metadata.detail}`};\n                    // 只读：锁目录不会被用到，写成项目实例里文件服务的同一个位置。\n                    const rooted: RootedRoot | RootedFailure = await openRoot(project.path, {controlDirectory: true, lockDirectory: join(project.path, \".nbook\", \"locks\", \"files\"), report: (event, error) => sources.record(`files.raw.${event}`, \"读取字节的收尾出错\", error)});\n                    return \"ok\" in rooted ? {ok: false, status: 410, code: rooted.code, detail: rooted.detail} : {ok: true, root: rooted};\n                })"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "已核对：标题排序词、store 字段上下文，或外层配置/异步回调里混含中文状态 detail 与诊断；内部失败路径已由通道矩阵追踪，不能把外层调用再当单独错误量。"
+  },
+  {
+    "id": "U09-plugins/settings/backend/layer-owner.ts",
+    "file": "packages/neuro-book/src/plugins/settings/backend/layer-owner.ts",
+    "callees": [
+      "enqueue",
+      "enqueue",
+      "enqueue"
+    ],
+    "category": "无法分类",
+    "channel": null,
+    "evidence": "已核对：标题排序词、store 字段上下文，或外层配置/异步回调里混含中文状态 detail 与诊断；内部失败路径已由通道矩阵追踪，不能把外层调用再当单独错误量。"
+  }
+]
