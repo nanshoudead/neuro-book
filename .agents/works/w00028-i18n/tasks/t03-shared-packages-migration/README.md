@@ -32,7 +32,8 @@ updated: 2026-10-27
 | 1 纯数据层与端口 | `d8a2234af` | `packages/nb-ui`：`bunx vitest run src/text src/text-port` 15 过；`bun run typecheck` 退出 0。`packages/neuro-book`：`bun test src/shared/text.test.ts` 11 过；`bun run typecheck` 退出 0。`docs:check`、`governance:check` 无失败 |
 | 2 语言类型改字符串 | `967053a30` | `nb-agent-ui`：`bun test` 184 过、vitest 51 过、typecheck 退出 0；`nb-markdown`：`bun test` 261 过、vitest 112 过、typecheck 退出 0；`nb-form`：bun 99 过、vitest 88 过；`dev-panel` typecheck 退出 0；`neuro-book`：`test:bun` 1538 过、`test:vitest` 373 过、typecheck 退出 0。另：nb-agent-ui、nb-markdown 的核心边界与应用 SDK 的服务端子路径放宽到可导入 `@notnotype/nb-ui/text`（纯数据层，没有外部依赖），两包 AGENTS.md 同步改。`nb-story` typecheck 报 `relations-view.ts` 找不到 `StoryNetwork.vue`，master 上同样报，与本片无关 |
 | 3a 宿主引擎、窗口能力、注入与本地记录 | `e9cbe52e9` | `neuro-book`：`bun test src/web/host/text-engine.test.ts` 17 过（含与最小实现一致的 8 例）、`locale-hint.test.ts` 2 过；`test:bun` 1555 过、`test:vitest` 373 过、typecheck 退出 0；`docs:check`、`governance:check` 无失败。设计：引擎是窗口能力 `windowTextKey`（`src/shared/window-text.ts`），设置插件新增 `locale` 入口（启动即激活，引擎是可选依赖）把设置值推给引擎，值来自用户层时宿主写本地记录 `nbook.host-locale`；切换语言命令的选项改由 `HOST_LOCALES` 生成。还没有端到端测试覆盖“改设置后界面换语言”，留到 3c 替换各插件的 `displayLocale` 时一起补 |
+| 3b 宿主静态文字、`html lang` | `c8330e1c8` | 宿主目录 `nbook.host`（`src/web/locales/{zh-CN,en-US}.json`，`resolveJsonModule` 打开）；失败页、找不到页面、离线横幅、路由标题、加载页提示走目录；两份 `index.html` 内联脚本按本地记录设 `lang` 与读屏名，与目录一致由 `locale-hint.dom.test.ts` 核对；`<html lang>` 跟随端口。`typecheck` 退出 0、`test:bun` 1557 过、`docs:check`/`governance:check` 无失败；`test:vitest` 在机器负载 15 到 20 时有 2 到 3 个 markdown/mount 用例等待超时，在 3a 提交上同样失败（负载所致，与本片无关），其余全过。已知缺口：找不到页面的 `document.title` 切换语言不刷新；英文用语待开发者过目；没跑 e2e，首帧 `aria-label` 未在浏览器验证 |
 
 ## 下一步
 
-第 3b 片：静态文字进宿主目录（失败页、`NotFoundPage`、离线横幅、`boot.ts`、两份 `index.html`）、`<html lang>`；再 3c：各插件改从端口取语言、共享包目录登记表、端到端测试。
+第 3c 片：各插件改从端口取语言、共享包目录登记表、端到端测试。
