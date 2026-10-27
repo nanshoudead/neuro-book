@@ -3,6 +3,7 @@
  * `entities` 就是它由哪些对象合成。
  */
 
+import {isGenericName} from "./generic-names";
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
 
 import {openTestBook, type TestBook} from "../../testing/api";
@@ -55,19 +56,13 @@ describe("读者视角的合并（输出 3、验收 2）", () => {
 
     test("点的代表是出场最多的人物，不是编号靠前的：排在前面、出场少的人物被连上以后，点 id 与显示名是出场多的那个", async () => {
         const dataset = await smallDataset(20, "rep");
-        const mentionsOf = (id: string) => dataset.mentions.filter(item => item.entity === id).length;
-        const before = await openTestBook("identity-rep-before", dataset);
-        let pair: readonly [string, string] | undefined;
-        try {
-            // 先看没连之前各个点：找两个不同的人物点，排在前面的出场反而少。
-            const rows = (await before.ok("entities.list", {at: {chapter: 20}, limit: 500})).items.filter(item => item.kind === "person");
-            const order = (id: string) => dataset.entities.findIndex(entity => entity.id === id);
-            for (const first of rows) for (const second of rows) if (!pair && first.id !== second.id && order(first.id) < order(second.id) && mentionsOf(first.id) > 0 && mentionsOf(first.id) < mentionsOf(second.id)) pair = [first.id, second.id];
-        } finally {
-            await before.close();
-        }
-        expect(pair).toBeDefined();
-        const [few, many] = pair!;
+        // 造一个“编号靠前、出场反而少”的人物：把 e4-1 的出场削到一处，e4-2 保留（泛称的出现不计出场，输出 22，所以不靠样例里
+        // 碰巧的出场数来找这一对）。
+        const few = "e4-1";
+        const many = "e4-2";
+        const keep = dataset.mentions.find(item => item.entity === few && !isGenericName(item.text))!;
+        dataset.mentions = dataset.mentions.filter(item => item.entity !== few || item === keep);
+        expect(dataset.mentions.filter(item => item.entity === many && !isGenericName(item.text)).length).toBeGreaterThan(1);
         const template = dataset.statements.find(item => item.id === "s6-25")!;
         dataset.statements.push({...template, id: "s7-900", about: [few, many], secret: undefined, premises: [], at: {chapter: 7, paragraph: 1}});
         const linked = await openTestBook("identity-rep", dataset);

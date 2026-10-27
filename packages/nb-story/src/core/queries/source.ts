@@ -5,6 +5,7 @@
  * `source.records` 为空），称呼只标 P 时已可见的写法。P 所在章之后的章报 `beyond_position`。
  */
 
+import {isGenericName} from "../generic-names";
 import type {PositionInput, StoryParams, StoryResult, Tags} from "../../contract/contract";
 import type {Citation} from "../book-index";
 import {StoryError} from "../errors";
@@ -72,7 +73,8 @@ export function sourceRead(ctx: QueryContext, params: StoryParams<"source.read">
             const names = (index.mentionsByParagraph.get(key) ?? [])
                 .filter(mention => {
                     const entity = view.entity(mention.entity);
-                    if (!entity) return false;
+                    // 泛称不链到对象：每一处“学姐”都链到同一个人是错的。
+                    if (!entity || isGenericName(mention.text)) return false;
                     // 本章 P 之后的段落：只标 P 时已经可见的写法。
                     return visible || entity.names.some(name => name.text === mention.text);
                 })

@@ -5,6 +5,8 @@
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
 
 import {openTestBook, type TestBook} from "../../../testing/api";
+import {smallDataset} from "../../../testing/sample";
+import {relationWord} from "./graph";
 
 let book: TestBook;
 
@@ -64,6 +66,47 @@ describe("关系图（输出 16、验收 3）", () => {
     test("同场门槛以下的同场数为 0", async () => {
         const graph = await book.ok("graph.relations", {at: {chapter: 38}, minTogether: 5});
         expect(graph.edges.every(edge => edge.together === 0 || edge.together >= 5)).toBe(true);
+    });
+});
+
+describe("泛称与无名对象（输出 22）", () => {
+    /** 样例里加一个只有泛称“学姐”的人物，并给它五处“学姐”的出场。 */
+    async function withAnonymous(): Promise<TestBook> {
+        const dataset = await smallDataset(20, "anon");
+        const template = dataset.entities.find(entity => entity.id === "e4-2")!;
+        const at = {chapter: 5, paragraph: 1};
+        dataset.entities.push({...template, id: "e5-900", label: "负责登记的学姐", names: [{text: "学姐", at, primary: true}], mergedFrom: []} as never);
+        for (let paragraph = 1; paragraph <= 5; paragraph += 1) dataset.mentions.push({entity: "e5-900", text: "学姐", at: {chapter: 5, paragraph}, start: 0, end: 2, via: "match"} as never);
+        return openTestBook("anon", dataset);
+    }
+
+    test("只有泛称的人物是无名：关系图默认不画，includeAnonymous 时画出并带标记；对象列表照列、带标记；泛称的出现不计出场", async () => {
+        const anon = await withAnonymous();
+        try {
+            const plain = await anon.ok("graph.relations", {at: {chapter: 20}});
+            expect(plain.nodes.some(node => node.id === "e5-900")).toBe(false);
+            const shown = await anon.ok("graph.relations", {at: {chapter: 20}, includeAnonymous: true});
+            expect(shown.nodes.find(node => node.id === "e5-900")).toMatchObject({anonymous: true, mentions: 0});
+            expect(shown.nodes.filter(node => node.anonymous === true).map(node => node.id)).toContain("e5-900");
+            const roster = await anon.ok("entities.list", {at: {chapter: 20}, limit: 500});
+            expect(roster.items.find(item => item.id === "e5-900")).toMatchObject({anonymous: true, mentions: 0});
+            // 有专名的人物不受影响。
+            expect(roster.items.find(item => item.id === "e1-1")?.anonymous).toBeUndefined();
+        } finally {
+            await anon.close();
+        }
+    });
+});
+
+describe("关系词（输出 16）", () => {
+    const statement = (family: string, label: string) => ({family, label, text: label}) as never;
+    test("亲属说法里有亲属词才写亲属；找不到亲属词时往下看社交称谓与所属，都没有为 null", () => {
+        expect(relationWord([statement("kinship", "姐妹")])).toBe("姐妹");
+        expect(relationWord([statement("kinship", "是自己的亲人")])).toBe("亲属");
+        // 师承辈分不是血亲：不写亲属，落到社交称谓。
+        expect(relationWord([statement("kinship", "直系后辈"), statement("social", "师徒")])).toBe("师徒");
+        expect(relationWord([statement("kinship", "直系后辈")])).toBeNull();
+        expect(relationWord([statement("kinship", "直系后辈"), statement("membership", "所属")])).toBe("所属");
     });
 });
 

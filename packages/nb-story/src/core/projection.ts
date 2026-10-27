@@ -8,6 +8,7 @@
  * 唯一的例外（P 所在章里 P 之后段落的原文）在 queries/source.ts 里单独处理，这里不给那些段落的任何记录。
  */
 
+import {allGeneric, isGenericName} from "./generic-names";
 import type {BookIndex} from "./book-index";
 import type {Arc, Beat, Entity, EntityName, Episode, Knowledge, LedgerEntry, Mention, Position, Question, Secret, SourceChapter, Statement, Summary, TimeAnchor} from "./dataset";
 import {comparePosition, visibleAt} from "./position";
@@ -27,7 +28,11 @@ function visibleCount(records: readonly {at: Position}[], at: Position): number 
 export interface VisibleEntity extends Omit<Entity, "names"> {
     /** P 时可见的称呼，按出现先后。 */
     names: EntityName[];
+    /** 无名：人物、马甲、组织里，可见称呼全是泛称（或没有称呼）的对象（见 `generic-names.ts`）。 */
+    anonymous: boolean;
 }
+
+const PERSON_KINDS: ReadonlySet<string> = new Set(["person", "persona", "group"]);
 
 export class BookView {
     readonly index: BookIndex;
@@ -66,7 +71,10 @@ export class BookView {
 
     get entities(): VisibleEntity[] {
         return this.cached("entities", () =>
-            this.#prefix(this.index.entities).map(entity => ({...entity, names: entity.names.filter(name => this.visible(name.at)).sort((a, b) => comparePosition(a.at, b.at))})),
+            this.#prefix(this.index.entities).map(entity => {
+                const names = entity.names.filter(name => this.visible(name.at)).sort((a, b) => comparePosition(a.at, b.at));
+                return {...entity, names, anonymous: PERSON_KINDS.has(entity.kind) && allGeneric(names)};
+            }),
         );
     }
 
@@ -216,6 +224,7 @@ export class BookView {
     }
 
     get mentions(): Mention[] {
-        return this.cached("mentions", () => this.#prefix(this.index.mentions).filter(mention => this.entity(mention.entity) !== undefined));
+        // 泛称的出现不计出场（见 generic-names.ts）。
+        return this.cached("mentions", () => this.#prefix(this.index.mentions).filter(mention => this.entity(mention.entity) !== undefined && !isGenericName(mention.text)));
     }
 }

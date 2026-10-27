@@ -52,6 +52,22 @@ export function writeModeNoticeSeen(): void {
     write("qa-mode-notice-seen", "true");
 }
 
+/** 一份 JSON 偏好：读不出、形状不对时给缺省（调用方自己校验字段）。 */
+export function readJsonPref(key: string): unknown {
+    const text = read(key);
+    if (text === null) return null;
+    try {
+        return JSON.parse(text) as unknown;
+    } catch (error) {
+        console.warn(`偏好 ${key} 不是合法的 JSON，按缺省处理`, error);
+        return null;
+    }
+}
+
+export function writeJsonPref(key: string, value: unknown): void {
+    write(key, JSON.stringify(value));
+}
+
 export type ThemeChoice = "system" | "light" | "dark";
 
 export function readTheme(): ThemeChoice {
