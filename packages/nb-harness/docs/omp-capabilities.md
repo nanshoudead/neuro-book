@@ -138,7 +138,7 @@ read omp://sdk.md               # 读某一篇
 4. **不要 import `@oh-my-pi/pi-coding-agent`**：47.3 MB 闭包，含 puppeteer-core 与 12 个 OTel 包；其工具层需要约 110 个成员的 `ToolSession` 宿主上下文。需要工具就自己写（本仓库的 `read`/`edit` 就是范例）。
 5. **版本错位**：`hashline@18.1.5` 与其余包 `18.2.5`，且它把 `pi-utils`/`pi-natives` 钉在 18.1.5；混装会出现两份原生包。
 6. **`pi-utils.format` 只有** `formatBytes`/`truncate`/`countNewlines` 等小工具，**没有**行/字节预算截断——需要 `read` 输出预算时得自己写（本仓库 `src/text-budget.ts`）。
-7. **错误文本即产品行为**：`crates/pi-edit` 的注释明确「error strings are byte-identical to the TypeScript implementation they replace; models are trained on them」，不要翻译或改写。
+7. **错误文本即产品行为**：`crates/pi-edit` 的注释明确「error strings are byte-identical to the TypeScript implementation they replace; models are trained on them」，不要翻译或改写。语言政策里的这条例外见 [ADR 0034](../../../docs/adr/0034-language-policy.md) 决策 4。
 8. `pi-ai` 的类型入口会把 `AssistantMessageEventStream` 作为**类型**再导出（`export type`），需要**值**（如测试替身）时从子路径取：`@oh-my-pi/pi-ai/utils/event-stream` 的 `createAssistantMessageEventStream()`。
 9. **钩子要按实际公开入口验证**（2026-10-15 w00002 t21 计划审查实测）：`syncContextBeforeModelCall` 只在底层 `AgentLoopConfig` 上，`Agent` 不转发同名选项；要在每次模型请求前改上下文，用 `agent.addBeforeModelCallHook`（OMP 随后把 `state.systemPrompt` 同步进请求）加 `transformContext`（替换送模型的消息，不改 Agent 内部历史）。
 10. **工具执行完成、结果事件、日志提交是三个边界**：顺序是 `execute` → `afterToolCall` → `tool_execution_end` → 工具结果的 `message_end`。在前面的钩子里等后面事件驱动的写入会环等。要在工具结果后结束循环且不再请求模型，用公开的 `TERMINAL_TOOL_RESULT_ABORT_REASON` 中止（普通 `abort()` 会多一次请求并留下一条 aborted 消息）；`beforeToolCall` 返回 `{block: true}` 的调用不执行，但照样有成对的错误结果。

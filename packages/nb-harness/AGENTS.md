@@ -15,6 +15,7 @@
 - 只通过 OMP 的公开子路径取能力；不要 import `@oh-my-pi/pi-coding-agent`（47 MB 级闭包，含 puppeteer 与 12 个 OTel 包）。
 - 工具分声明（`ToolDeclaration`，冻结进会话快照，含 OMP 在执行前就要读的 `concurrency`、`strict`、`customFormat`）与实现（`ToolImpl`，经可撤回的句柄每次调用时取得）；交给 OMP 时由 `tools/bridge.ts` 包成 `AgentTool`。
 - 预期失败不抛裸异常：工具失败用 `AgentToolResult.isError`，内核启动期契约错误才抛错（并带可读 message）。
+- 文字的语言按 [ADR 0034](../../docs/adr/0034-language-policy.md) 决策 4：新写的工具说明与提醒用中文；现有英文说明先不动；OMP 原生 `read`、`edit` 的错误文本原样保留；领域工具的失败在 `details` 给结构化 `code`。
 - 测试用 `bun test`；临时目录用 `createTestTmpRoot`；需要 LLM 的用例真实调用 DeepSeek，缺凭据时 `skip` 并在记录里写「未验证」，禁止 mock 充当通过。
 - Windows 上删除/移动包目录前，确认没有遗留 `bun test`/vitest 进程持有句柄。
 
