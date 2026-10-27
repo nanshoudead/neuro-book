@@ -46,6 +46,8 @@ describe("应用包", () => {
 
         const manifest = JSON.parse(await readFile(join(out, "package.json"), "utf8")) as Record<string, unknown>;
         expect(manifest).toMatchObject({name: APP_NAME, version: PRODUCT_VERSION, bin: {nbook: "./server/nbook.js"}, engines: {bun: BUN_ENGINE}, license: "AGPL-3.0-only", publishConfig: {access: "public"}});
+        // npm 上搜得到、页面上有主页与问题入口。
+        expect(manifest).toMatchObject({keywords: expect.arrayContaining(["neurobook", "writing"]), homepage: expect.stringContaining("github.com/notnotype/neuro-book"), bugs: {url: expect.stringContaining("/issues")}});
         expect(manifest).not.toHaveProperty("dependencies");
         expect(manifest).not.toHaveProperty("private");
         expect((await stat(join(out, "server", "nbook.js"))).mode & 0o111).not.toBe(0);

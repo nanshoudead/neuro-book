@@ -420,6 +420,9 @@ export async function buildSdk(outDir: string): Promise<BuiltSdk> {
         files: ["**/*.js", "**/*.d.ts", "template/", "examples/", "docs/", "specs/", "README.md", "LICENSE", "THIRD-PARTY-NOTICES.md"],
         license: "AGPL-3.0-only",
         repository: {type: "git", url: "git+https://github.com/notnotype/neuro-book.git", directory: "packages/neuro-book/plugin-sdk"},
+        keywords: ["neurobook", "plugin", "sdk", "vue", "bun"],
+        homepage: "https://github.com/notnotype/neuro-book/tree/master/packages/neuro-book/plugin-sdk#readme",
+        bugs: {url: "https://github.com/notnotype/neuro-book/issues"},
         publishConfig: {access: "public"},
     }, null, 4)}\n`);
     await writeAuthorDocs(outDir);
