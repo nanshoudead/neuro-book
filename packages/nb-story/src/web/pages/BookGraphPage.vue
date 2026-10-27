@@ -12,6 +12,7 @@ import {useStoryQuery} from "../host/query";
 import PageState from "../parts/PageState.vue";
 import type {ChapterWindow} from "../graph/ChapterRange.vue";
 import StoryLine from "../graph/StoryLine.vue";
+import SelectionBar from "../graph/SelectionBar.vue";
 import StoryNetwork from "../graph/StoryNetwork.vue";
 
 const book = useBook();
@@ -45,13 +46,14 @@ function onSelect(id: string): void {
     selected.value = id;
     if (book.drawer.value !== null && data.data.value?.nodes.find(node => node.id === id)?.type === "entity") book.openCard(id);
 }
+const selectedNode = computed(() => (selected.value === null ? undefined : data.data.value?.nodes.find(node => node.id === selected.value)));
 const menu = ref<{id: string; x: number; y: number} | null>(null);
 const menuItems = computed<ContextMenuItem[]>(() => {
     const target = menu.value;
     const node = target === null ? undefined : data.data.value?.nodes.find(item => item.id === target.id);
     if (target === null || node === undefined) return [];
     return [
-        {label: ACTION[node.type], shortcut: "Enter", action: () => openNode(node.id)},
+        {label: ACTION[node.type], shortcut: "双击 / Enter", action: () => openNode(node.id)},
         {label: neighborhood.value ? "看全图" : "只看它的周边", shortcut: "F", action: () => (neighborhood.value = !neighborhood.value)},
         {separator: true},
         {label: "取消选中", shortcut: "Esc", action: () => (selected.value = null)},
@@ -89,6 +91,7 @@ function openNode(id: string): void {
                 :neighborhood="neighborhood" @select="onSelect" @open="openNode" @menu="(payload: {id: string; x: number; y: number}) => (menu = payload)"
                 @neighborhood="(value: boolean) => (neighborhood = value)" @clear="selected = null"
             />
+            <SelectionBar v-if="arrange === 'force' && selectedNode" :label="selectedNode.label" :open-label="ACTION[selectedNode.type]" @open="openNode(selectedNode.id)" @clear="selected = null" />
             <ContextMenu :visible="menu !== null" :x="menu?.x ?? 0" :y="menu?.y ?? 0" :items="menuItems" @close="menu = null" />
         </div>
         <p class="px-3 pb-2 text-[length:var(--text-2xs)] text-[var(--text-muted)]">

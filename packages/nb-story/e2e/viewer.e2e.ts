@@ -189,6 +189,28 @@ test("关系图（输出 27，反馈 3）：在图里找可以按别名；右键
     await expect(page.getByTestId("entity-card")).toBeVisible();
 });
 
+test("关系图（输出 27，反馈 3）：选中一个点后底部出浮条，写着怎么打开；点按钮打开人物卡，取消选中后浮条消失；右键菜单写“双击 / Enter”", async ({page}) => {
+    await open(page, "/book/fox/relations?at=38&perspective=reader");
+    await expect(page.getByTestId("relation-graph").locator("canvas").first()).toBeVisible();
+    // 页面打开时沿用抽屉里正开着的对象（上一个用例可能留着）：不假设一开始没有浮条，只看选了白灵之后。
+    const center = await centerOn(page, "白灵");
+    await page.mouse.click(center.x, center.y);
+    const bar = page.getByTestId("graph-selection-bar");
+    await expect(bar).toContainText("已选中 白灵");
+    await expect(bar).toContainText("双击或按 Enter 也能打开");
+    await bar.getByRole("button", {name: "打开人物卡"}).click();
+    await expect(page.getByTestId("card-name")).toHaveText("白灵");
+    await bar.getByRole("button", {name: "取消选中"}).click();
+    await expect(bar).toHaveCount(0);
+    await page.getByTestId("entity-card").getByRole("button", {name: "关闭"}).click();
+    await settle(page);
+    // 右键菜单第一项写明双击也能打开。
+    await page.getByPlaceholder("在图里找").fill("");
+    const again = await centerOn(page, "南嘉鱼");
+    await page.mouse.click(again.x, again.y, {button: "right"});
+    await expect(page.getByRole("menuitem", {name: /南嘉鱼的人物卡/u})).toContainText("双击 / Enter");
+});
+
 test("收起抽屉后重画（验收 4）：画布铺满主区", async ({page}) => {
     await open(page, "/book/fox/relations?at=38&entity=e1-1&tab=relations");
     await expect(page.getByTestId("entity-card")).toBeVisible();
