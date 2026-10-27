@@ -170,3 +170,31 @@ omp 审查（`evidences/p3-plan-review.txt`）写到 F11 时额度用完退出�
 | F17 | 建议 | 成立，要改：时限按实测定；负载下超时的用例记后续（3.4、第 8 节） |
 
 补审对第 9 节原两项的判断：看板娘同意，另提出许可问题（现第 1 项）；llmlint 网页构建同意删，但前置不能一起删（现第 2 项）。
+
+## 11. 实施中的偏离与实现审查的处理
+
+实施中偏离计划的几处（都已在代码与文档里写明）：
+
+- 社区文件检查只留“Issue 表单的 YAML 能解析、引用的标签都已登记”（`scripts/ci/community-files.ts`），逐字核对表单字段、贡献指南与模板措辞的删掉：开发者说原 CI 过度防御。
+- 依赖图放进新文件 `scripts/ci/workspace-graph.ts`，不并进 `change-scope.ts`（两者职责不同）。
+- `release:check` 只查源码包；生成包的发布清单检查放在 `release:smoke` 里，生成之后才查得了。
+- 旧应用包只读，不加 README，根 README 链到它的 `AGENTS.md`。
+- test-support 的路径长度用例在 master 上一直失败（长度上限只在 Windows 生效，用例却在所有平台上期待报错），改成只在 Windows 上跑：新 CI 跑全量会撞上它。
+
+实现审查（Claude Opus，`evidences/p3-impl-review.txt`；omp 上一轮额度用完，按规则改派）：阻断 1、重要 4、建议 7，修正 `a3b314ac2`，Spec `docs/specs/runtime/plugin-api.md` 与 `cli.md` 在 master 上。
+
+| 编号 | 级别 | 处理 |
+|---|---|---|
+| R01 | 阻断 | 成立，要改：冒烟开头删旧清单，全部通过后最后才写 |
+| R02 | 重要 | 成立，要改：打包前要求会发布的目录干净并记下提交，结束时再核对 HEAD；目录清单与 publish 共用 `releaseDirectories` |
+| R05 | 重要 | 成立，要改：推送按 `github.sha` 分组，排队中的也不取消 |
+| R06 | 重要 | 成立，要改：首屏的四项标语都是路线图里的功能，去掉 |
+| R11 | 重要 | 成立，要改：冒烟子进程的 `TMPDIR` 也换成临时目录（`bunx -p` 的缓存在那里） |
+| R03 | 建议 | 成立，要改：断言 `running.pid` |
+| R04 | 建议 | 成立，要改：`BUILT_PACKAGES` 里 SDK 在前；`release:check` 不查生成包写进上面的偏离 |
+| R07 | 建议 | 成立，要改：plugin-api 的句子结构；cli 的 Smoke 加 `release:smoke` |
+| R08、R10 | 建议 | 成立，要改：`docs/testing/README.md` 的 CI、e2e、`.github/` 与 llmlint 的说法 |
+| R09 | 建议 | 成立，要改：`template.test.ts`、`pack.ts` 的注释 |
+| R12 | 建议 | 成立，要改：续发时已发的版本比对 `dist.integrity`，不同就停 |
+
+审查另列的 base 上就有的两条：CI 不钉 Bun 版本（不改：与本地开发者用的最新 Bun 一致更有用，`engines.bun` 管下限）；冒烟读子进程第一行没有超时（`withNbook` 加了 60 秒上限，`smokeServe` 是 nb-story 的，不在本期改）。
