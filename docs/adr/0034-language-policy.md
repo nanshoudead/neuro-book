@@ -33,7 +33,7 @@ superseded-by: null
 
 程序需要区分的失败，用所属错误域的稳定码分支，不按诊断文案分支。
 
-理由：日志会落盘，用户的 bug 报告也会带上它。如果按当时的界面语言翻译，同一份日志里会混着两种语言，同一个错误在不同语言下也搜不到同一串文字。诊断数量大、常拼着内部状态，翻译的维护成本高、收益小。vim、git 这类工具也只翻译给用户看的文字，诊断和调试输出都不翻；检索靠的是错误码。
+理由：日志会落盘，用户的 bug 报告也会带上它。如果按当时的界面语言翻译，同一份日志里会混着两种语言，同一个错误在不同语言下也搜不到同一串文字。诊断数量大、常拼着内部状态，翻译的维护成本高、收益小。检索靠错误码与诊断的 `event`，不靠消息文字。这是本项目自己的取舍：Git 也区分给脚本用的 plumbing 输出（不翻译）与给人看的 porcelain 输出（翻译），本项目把开发诊断一律固定为英文，给人看的失败说明另经界面本地化。
 
 代价：现有的中文诊断要迁移（w00031 t04）。迁移之前它们保持原样，新写的诊断用英文。
 
@@ -101,6 +101,7 @@ superseded-by: null
   | 真相源 | 要改什么 | 负责 |
   |---|---|---|
   | [`workbench/commands.md`](../specs/workbench/commands.md) 的失败结果与通知 | `reason` 不当主文案，按码投影 | w00031 t03 |
+  | [`runtime/plugin-channel.md`](../specs/runtime/plugin-channel.md)、[`runtime/server-host.md`](../specs/runtime/server-host.md) 与远程路由的实现 | 握手 `reject`、连接结果、远程路由失败与业务 detail 里的中文句子：分别定保留的阶段 `reason`、稳定码、结构化 detail 与线协议版本 | w00031 t03 |
   | [`agent/harness.md`](../specs/agent/harness.md)、nb-session 的会话条目 | 工具结果的结构化 `code`、错误文字的语言 | w00031 t03 |
   | [`runtime/diagnostics.md`](../specs/runtime/diagnostics.md) | 诊断消息用英文 | w00031 t03、t04 |
   | [`story/cli-skill.md`](../specs/story/cli-skill.md)、[`story/qa.md`](../specs/story/qa.md)、[`story/ingest.md`](../specs/story/ingest.md)，nb-story 的包级规则与 Skill | CLI 分成提示词、给人看的输出、JSON 三层；提示词资产不变的边界 | w00031 t03 |
