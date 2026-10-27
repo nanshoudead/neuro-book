@@ -160,6 +160,7 @@ complete({profile, initial, input, model, signal?}): Promise<CompleteResult>
 
 19. **（planned）中断时的收尾。** 导入 nb-harness 的进程收到 SIGINT 时，经 `onProcessInterrupt(callback)` 登记的回调都会被调用，进程等它们返回的 Promise 完成（最多约 10 秒）后以 130 退出；宿主自己注册的 SIGINT 处理拦不住这次退出。正常退出时不调用回调；返回的函数解除登记。
 20. **终止时由宿主收尾。** 长驻的宿主经 `onProcessTermination(callback)` 登记：进程收到 SIGINT、SIGTERM 或 SIGHUP 时调用 `callback(信号)`，它返回的 Promise 完成后进程以它给的退出码退出（不再以 128 加信号号退出）。同一次清理里别的登记与它同时开始，它完成时还没完成的会被截断，所以只在进程里只有这一处要慢慢收尾时用（`nbstory serve`）。正常退出时不调用；返回的函数解除登记。
+21. **相邻用户消息合并。** 会话历史里相邻的几条用户消息（例如 nb-story 问答里改阅读位置时写的提醒与随后的问题，是两条独立持久的消息），发给模型的上下文里合并成一条：文字块之间空一行，非文字块按原顺序保留。只改这一次请求的上下文，不改会话里的消息、日志与订阅者看到的事件；有的端点（例如 DeepSeek 的 reasoner、个别网关）拒绝连续的 user 消息，OMP 的各传输层都原样转发。助手消息、工具结果隔开的用户消息不合并。
 
 ## 状态与转换
 
