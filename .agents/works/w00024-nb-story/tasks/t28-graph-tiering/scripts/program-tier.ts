@@ -18,7 +18,7 @@ type Rec = {id: string; kind: "说法" | "对象" | "情节"; sub: string; chapt
 const FAM: Record<string, number> = {identity: 3, rule: 2, goal: 2, event: 1.5, social: 1.5, possession: 1, kinship: 1, membership: 1, trait: 1, other: 0.5, attitude: 0, location: 0};
 const log1 = (x: number) => Math.log(1 + x);
 
-function compute(d: any): Rec[] {
+export function compute(d: any): Rec[] {
     const total = new Map<string, number>();
     const byCh = new Map<string, Map<number, number>>();
     for (const m of d.mentions) {
@@ -69,9 +69,9 @@ function compute(d: any): Rec[] {
     }
     const arcSize = new Map<string, number>(); for (const a of d.arcs) for (const ep of a.episodes) arcSize.set(ep, Math.max(arcSize.get(ep) ?? 0, a.episodes.length));
     for (const x of d.episodes) {
-        const heat = Math.max(0, ...(x.who ?? []).map((e: any) => total.get(typeof e === "string" ? e : e.entity ?? e.id) ?? 0));
+        const heat = Math.max(0, ...(x.who ?? []).map((e: any) => (typeof e === "string" ? e : e.e)).filter((id: string) => !hubs.has(id)).map((id: string) => total.get(id) ?? 0));
         const score = log1(heat) + log1(arcSize.get(x.id) ?? 0) * 1.5;
-        out.push({id: x.id, kind: "情节", sub: "情节", chapter: x.at.chapter, text: `${x.title}：${x.summary ?? ""}`, score, tier: 0, why: `参与者最高出场${heat}次、所属主线${arcSize.get(x.id) ?? 0}个情节`});
+        out.push({id: x.id, kind: "情节", sub: "情节", chapter: x.at.chapter, text: `${x.title}：${x.summary ?? ""}`, score, tier: 0, why: `除主角外参与者最高出场${heat}次、所属主线${arcSize.get(x.id) ?? 0}个情节`});
     }
     // 每种记录内部按分位数定级：前 25% 为 1，接着 40% 为 2，其余 35% 为 3。
     for (const kind of ["说法", "对象", "情节"] as const) {
@@ -93,7 +93,7 @@ function spearman(x: number[], y: number[]): number {
  *   有一点证据（回响 1 到 2 个）：先验 1 → 1，先验 2 → 2，先验 3 → 3；
  *   没有后验证据：先验 1 → 2（待证实：模型当时认为重要，后文没有再提），先验 2 → 2，先验 3 → 3。
  */
-function combine(prior: number, ev: number): number {
+export function combine(prior: number, ev: number): number {
     if (ev === 2) return prior === 3 ? 2 : 1;
     if (ev === 1) return prior;
     return prior === 1 ? 2 : prior;
@@ -170,4 +170,4 @@ ${chapters}
     console.log(stats.map(s => s.replace(/<\/t[dh]><t[dh]>/g, " | ").replace(/<[^>]*>/g, "")).join("\n"));
     console.log("西游记分布 说法", dist(xyjRecs.filter(r => r.kind === "说法")));
 }
-await main();
+if (import.meta.main) await main();
