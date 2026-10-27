@@ -15,6 +15,7 @@ import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform, menuImplementatio
 import {filesKey} from "nbook/plugins/files/shared/contracts";
 import {dialectTable, MARKDOWN_DIALECTS_POINT, markdownKey} from "nbook/plugins/markdown/shared/contracts";
 import type {DialectDeclaration, MarkdownService} from "nbook/plugins/markdown/shared/contracts";
+import {windowLocale, windowTextKey} from "nbook/shared/window-text";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {breadcrumbsSetting, codeSettings, enablePreviewSetting, wrapTabsSetting} from "../shared/settings";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
@@ -83,7 +84,7 @@ export const editorBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: markdownKey}, {key: windowRescueKey, required: false}, {key: quickPickKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: markdownKey}, {key: windowRescueKey, required: false}, {key: quickPickKey, required: false}, {key: windowTextKey, required: false}],
         provides: [documentCoordinatorKey],
         receives: [EDITOR_PAGES_POINT, EDITOR_TITLE_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT],
         contributions: [
@@ -101,7 +102,7 @@ export const editorBrowserPlugin: PluginDefinition = {
             const storage = context.services.require(storageKey);
             const settings = context.services.require(settingsKey);
             const project = context.services.require(windowProjectKey).project;
-            const locale = computed(() => displayLocale(settings));
+            const locale = await windowLocale(context.services, () => displayLocale(settings));
             const codeOptions = computed((): CodeEditorOptions => ({
                 fontFamily: settings.get(codeSettings["code.fontFamily"]),
                 fontSize: settings.get(codeSettings["code.fontSize"]),

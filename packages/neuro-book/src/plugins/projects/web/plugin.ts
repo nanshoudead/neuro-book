@@ -17,6 +17,7 @@ import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts"
 import type {EditorPageImplementation} from "nbook/plugins/editor/web/pages";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
 import type {CommandDeclaration} from "nbook/plugins/commands/shared/contracts";
+import {windowLocale, windowTextKey} from "nbook/shared/window-text";
 import {displayLocale, SETTINGS_PAGES_POINT, SETTINGS_WINDOW_OPEN_KEY, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import type {SettingsPageImplementation} from "nbook/plugins/settings/web/contracts";
 import {publicStateKey} from "nbook/plugins/state/shared/contracts";
@@ -76,7 +77,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
         location: "browser",
         // 命令随贡献方入口激活才进命令表（还没有按命令触发的激活事件）：启动即激活，面板里才列得出“打开项目”。
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: quickPickKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: notificationsKey}, {key: commandServiceKey}, {key: publicStateKey}, {key: windowProjectKey}, {key: filesKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: quickPickKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: notificationsKey}, {key: commandServiceKey}, {key: publicStateKey}, {key: windowProjectKey}, {key: filesKey, required: false}, {key: windowTextKey, required: false}],
         contributions: [
             {capability: COMMANDS_POINT, id: OPEN_PROJECT_COMMAND, declaration: DECLARATION},
             {capability: COMMANDS_POINT, id: WELCOME_COMMAND, declaration: WELCOME_DECLARATION},
@@ -95,7 +96,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
             const clock = context.services.require(clockKey);
             const notifications = context.services.require(notificationsKey);
             const commands = context.services.require(commandServiceKey);
-            const locale = computed(() => displayLocale(settings));
+            const locale = await windowLocale(context.services, () => displayLocale(settings));
             const state = context.services.require(publicStateKey);
             // 书架右上角的齿轮按下与否：读设置插件的公开键，与工作台活动栏的齿轮同一个来源。
             const settingsOpen = computed(() => {

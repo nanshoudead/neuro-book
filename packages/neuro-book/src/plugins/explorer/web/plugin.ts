@@ -13,6 +13,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {COMMANDS_POINT, commandServiceKey, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import {documentCoordinatorKey} from "nbook/plugins/editor/shared/contracts";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
+import {windowLocale, windowTextKey} from "nbook/shared/window-text";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import type {PublicStateRead} from "nbook/plugins/state/shared/contracts";
@@ -93,7 +94,7 @@ export const explorerBrowserPlugin: PluginDefinition = {
         location: "browser",
         activationEvents: ["onStartup"],
         // 编辑器的文档协调是可选的：编辑器没有加载时复制、移动、删除直接放行。
-        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: publicStateKey}, {key: documentCoordinatorKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: publicStateKey}, {key: documentCoordinatorKey, required: false}, {key: windowTextKey, required: false}],
         receives: [EXPLORER_CONTEXT_POINT],
         contributions: [
             {capability: WORKBENCH_VIEWS_POINT, id: EXPLORER_VIEW_ID, declaration: VIEW},
@@ -106,7 +107,7 @@ export const explorerBrowserPlugin: PluginDefinition = {
             const storage = context.services.require(storageKey);
             const settings = context.services.require(settingsKey);
             const bound = context.services.require(windowProjectKey).project !== null;
-            const locale = computed(() => displayLocale(settings));
+            const locale = await windowLocale(context.services, () => displayLocale(settings));
             const report = (error: unknown): void => {
                 diagnostics.record({level: "error", event: "explorer.error", message: error instanceof Error ? error.message : String(error), error, source: {plugin: descriptor.id}});
             };

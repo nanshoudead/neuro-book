@@ -6,7 +6,10 @@
  */
 
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
-import type {ServiceKey} from "@notnotype/nb-runtime/services";
+import type {ServiceAccess, ServiceKey} from "@notnotype/nb-runtime/services";
+import {computed} from "vue";
+import type {ComputedRef} from "vue";
+
 import type {Catalog} from "@notnotype/nb-ui/text";
 import type {TextPort} from "@notnotype/nb-ui/text-port";
 
@@ -23,3 +26,12 @@ export interface WindowText {
 }
 
 export const windowTextKey: ServiceKey<WindowText> = defineServiceKey<WindowText>("nbook/window-text");
+
+/**
+ * 插件取界面语言的唯一写法：窗口有翻译引擎时读它的端口（设置插件把 `locale` 设置推给它，加载设置快照之前也有本地记录的
+ * 上次语言）；没有引擎的测试场地退回设置本身。依赖要声明成 `{key: windowTextKey, required: false}`。
+ */
+export async function windowLocale(services: Pick<ServiceAccess, "resolve">, fallback: () => string): Promise<ComputedRef<string>> {
+    const text = await services.resolve(windowTextKey);
+    return text.status === "resolved" ? computed(() => text.instance.port.locale.value) : computed(fallback);
+}

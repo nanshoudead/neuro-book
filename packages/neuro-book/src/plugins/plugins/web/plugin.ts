@@ -11,6 +11,7 @@ import type {Component, PropType} from "vue";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
+import {windowLocale, windowTextKey} from "nbook/shared/window-text";
 import {displayLocale, SETTINGS_PAGES_POINT, settingsKey, settingsPageEvent} from "nbook/plugins/settings/shared/contracts";
 import type {SettingsPageDeclaration} from "nbook/plugins/settings/shared/contracts";
 import type {SettingsPageContext, SettingsPageImplementation} from "nbook/plugins/settings/web/contracts";
@@ -42,13 +43,13 @@ export const pluginsBrowserPlugin: PluginDefinition = {
         // 打开设置窗口的“插件”分区时才激活（settings-window.md 输出 4）。
         activationEvents: [settingsPageEvent(PLUGINS_SECTION)],
         // 本窗口的插件问题（入口失败、受阻、被拒的贡献）经宿主能力 `window.plugins` 查；拿不到时插件页只显示服务端的。
-        dependencies: [{key: settingsKey}, {key: windowPluginsKey, required: false}],
+        dependencies: [{key: settingsKey}, {key: windowPluginsKey, required: false}, {key: windowTextKey, required: false}],
         contributions: [{capability: SETTINGS_PAGES_POINT, id: PLUGINS_SECTION, declaration: SECTION}],
         activate: async (context) => {
             const settings = context.services.require(settingsKey);
             const windowPlugins = await context.services.resolve(windowPluginsKey);
             const registry = context.remote.use(pluginsRegistryContract);
-            const locale = computed(() => displayLocale(settings));
+            const locale = await windowLocale(context.services, () => displayLocale(settings));
             const page: SettingsPageImplementation = {
                 load: async () => withRegistry((await import("./components/PluginsPage.vue")).default, registry, locale, windowPlugins.status === "resolved" ? windowPlugins.instance : null),
             };

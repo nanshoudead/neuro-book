@@ -39,6 +39,10 @@ import {BROWSER_BOOTSTRAP_PATH, BROWSER_PROTOCOL_VERSION} from "nbook/shared/bro
 import {clockKey, windowConnectionKey} from "nbook/shared/host";
 import type {WindowConnectionState} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
+import {windowLocale, windowTextKey} from "nbook/shared/window-text";
+import {commandServiceKey} from "nbook/plugins/commands/shared/contracts";
+import type {CommandService} from "nbook/plugins/commands/shared/contracts";
+import {localeSetting, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {PRODUCT_VERSION} from "nbook/shared/product";
 import type {WindowProject} from "nbook/shared/projects";
 import {projectProbeContract, remoteProbeContract, remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
@@ -150,6 +154,41 @@ describe("窗口运行实例", () => {
         expect(await pages[1]?.load()).toBeDefined();
         await browserWindow.stop();
         expect(browserWindow.state.status).toBe("closed");
+    });
+
+    it("改界面语言设置：窗口的翻译端口与插件经 windowLocale 取到的语言一起切换（i18n 输出 8）", async () => {
+        const seen: {locale: {readonly value: string} | null; commands: CommandService | null} = {locale: null, commands: null};
+        const probeId = "test.locale-reader";
+        const reader = {
+            descriptor: {id: probeId, version: "0.1.0", locations: ["browser"] as const},
+            definition: {
+                id: probeId,
+                entries: [{
+                    id: "browser",
+                    location: "browser" as const,
+                    activationEvents: ["onStartup"],
+                    dependencies: [{key: settingsKey}, {key: commandServiceKey}, {key: windowTextKey, required: false}],
+                    activate: async (context: ActivationContext) => {
+                        const settings = context.services.require(settingsKey);
+                        seen.commands = context.services.require(commandServiceKey);
+                        seen.locale = await windowLocale(context.services, () => settings.get(localeSetting));
+                        return {};
+                    },
+                }],
+            } satisfies PluginDefinition,
+        };
+        const builtin = [...builtinBrowserPlugins, reader.descriptor];
+        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins: builtin.map(({id, version}) => ({id, version}))}));
+        const {browserWindow} = openWindow({url: stub.url, builtin, definitions: {...browserPluginDefinitions, [probeId]: reader.definition}});
+        await browserWindow.start();
+        expect(browserWindow.text.port.locale.value).toBe("zh-CN");
+        expect(seen.locale?.value).toBe("zh-CN");
+        const result = await seen.commands?.execute("nbook.settings.switch-locale", {locale: "en-US"});
+        expect(result?.ok).toBe(true);
+        await waitUntil("界面语言切到 en-US", () => browserWindow.text.port.locale.value === "en-US");
+        expect(seen.locale?.value).toBe("en-US");
+        await browserWindow.stop();
+        stub.stop();
     });
 
     it("服务端连不上：可重试的连接失败，没有运行实例；服务端起来后重试成功（场景 2）", async () => {
