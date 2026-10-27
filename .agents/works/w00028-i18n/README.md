@@ -37,6 +37,7 @@ updated: 2026-10-27
 | [t01](tasks/t01-requirements/README.md) | 目录机制设计：目录位置与清单字段、键与声明、跨运行实例与语言切换、共享包端口、nb-ui 文案、检查（未开工） |
 | [t02](tasks/t02-library-prototype/README.md) | 选库原型：在插件热装卸、共享 Vue、语言切换下验证 i18next，并定格式细节（未开工） |
 | [t03](tasks/t03-shared-packages-migration/README.md) | 共享包与迁移：端口落地、已发布包的版本与发布窗口、内联文字抽进目录（暂不开工） |
+| [t04](tasks/t04-failure-details/README.md) | 失败详情组件与常驻通知（2026-10-27 从 t01 拆出，未开工） |
 
 ## 授权与限制
 

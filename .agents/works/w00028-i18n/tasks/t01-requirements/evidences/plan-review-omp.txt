@@ -1,0 +1,130 @@
+### 1. “目录坏了不阻止插件登记”没有落到现有清单失败合同
+严重程度：阻断；类别：正确性 / 接口与合同；位置：`.agents/works/w00028-i18n/tasks/t01-requirements/plan.md:25-31`。
+
+现象：计划同时要求“登记时校验文件存在、能解析成对象、源语言目录在”，又要求目录坏了仍登记；但现有 `runtime.plugin-manifest` 把清单无效定义为“整个插件不登记”，`readManifest` 对整份清单一次性返回 invalid，安装与启动分别把它映射为 `manifest-invalid`，入口文件缺失则映射为 `entry-missing`。`l10n` 一旦进入清单 schema，字段类型、语言列表、源语言缺失等问题会自动落入整份清单的拒绝路径；若目录文件另行检查，又没有现成的“登记成功但目录问题可查询”的状态或诊断载体。
+
+为什么是问题：按字面实现只能二选一：把目录错误当 `manifest-invalid`，违反“文字不是功能”；或绕过清单失败语义，造成插件管理列表、启动 `notLoaded`、安装失败码和内置插件对齐测试出现第二套规则。服务端、项目实例和浏览器还不是同一读者：`plugin-manifest` 要求顶层声明在每个运行实例登记，只有浏览器真正需要目录；计划没有规定哪一位置做文件核对、坏目录如何跨位置报告、插件页显示哪种状态。
+
+如何核实：读取 `docs/specs/runtime/plugin-manifest.md:73-77,97-104,129-145`、`packages/nb-runtime/src/plugin-manifest/read.ts:41-52`、`packages/neuro-book/src/plugin-platform/backend/inventory.ts:181-191,230-235`、`packages/neuro-book/src/plugin-platform/backend/startup.ts:278-302`；运行 `bun test packages/nb-runtime/src/plugin-manifest/plugin-manifest.test.ts packages/neuro-book/src/plugin-platform/backend/plugins.test.ts` 可看到现有清单无效与入口缺失分别按整插件/安装失败处理。
+
+建议改法：先明确 `l10n` 是清单结构合同还是可选资源声明。若它是结构合同，目录缺失/坏掉只能作为单条资源问题，不能复用整份清单 invalid；新增独立的可查询诊断与 `catalog-unavailable` 状态，并规定 server/project 不读目录。若目录问题必须完全不影响登记，则登记校验只核对字段形状，文件存在、JSON 对象、源语言完整性放构建/安装检查与浏览器取用时，且写清失败时的诊断、键回退和插件页行为。
+### 2. SDK 构建不会把 `locales/` 带进可安装产物
+严重程度：阻断；类别：正确性 / 依赖的机制不存在；位置：`.agents/works/w00028-i18n/tasks/t01-requirements/plan.md:27,31,79-83`。
+
+现象：计划把目录位置定为 `locales/<语言>.json`，并断言“ADR 0033 的构建产物：插件目录整体复制，`locales/` 随之进包”。现有 `buildPlugin` 的产物实现不是整体复制：`src/plugin-platform/build/build-plugin.ts` 只把每个入口的 `.js`/`.map`、合并后的 `style.css` 和生成的 `package.json` 写进输出目录；作者的任意 `locales/*.json` 不会被复制，也不会进入返回的 `files`。安装器又严格按输出目录的 `files` 范围复制，并在复制后只强制检查 `entries.*.main`。
+
+为什么是问题：按计划构建出的插件清单可以声明 `l10n`，但安装后的版本目录没有目录文件；浏览器取目录必然 404，或者作者要手工把文件塞进输出目录，产物就不再是 SDK 生成的可复现结果。更隐蔽的是 `directoryDigest` 会把后来手工加入的文件纳入摘要，代码 URL、目录 URL 与构建结果的关系变成未记录的旁路。这个缺口直接使“目录机制”在 ADR 0033 的交付链上不可用。
+
+如何核实：读取 `packages/neuro-book/src/plugin-platform/build/build-plugin.ts:16-23,500-626`、`packages/neuro-book/src/plugin-platform/backend/inventory.ts:224-232`、`packages/neuro-book/src/plugin-platform/backend/copy.ts:65-70`；在不安装依赖的前提下，对现有构建测试的输出规则做静态核对即可确认写出文件集合没有 `locales/`。
+
+建议改法：在提案的影响、切片和验收中明确由 SDK 构建预设读取、校验并复制 `locales/`，同时把作者源目录、输出 `files`、安装复制范围和 `l10n` 清单的相互约束写成一条合同；对 `files` 显式排除目录、目录缺源语言、非法语言文件分别给出构建失败码。不要把“目录整体复制”当作现有机制。
+### 3. 目录 HTTP 路由是服务端宿主快照，不支持计划所写的热卸载与升级生命周期
+严重程度：阻断；类别：不变量 / 接口与合同；位置：`.agents/works/w00028-i18n/tasks/t01-requirements/plan.md:40-45`。
+
+现象：现有插件文件路由归 `nbook.http` 宿主，而不是第三方插件路由：`server/plugins.ts` 在服务端装配时一次创建 `createPluginFilesRoute(context.installed, ...)`；`pluginFileHandler` 随后把 `installed` 固定成 `Map`，按启动时的 `id -> root,digest` 快照服务文件。浏览器引导同样在创建路由时缓存完整响应体。计划只说“服务端经 HTTP 发目录文件”“热卸载时注销命名空间”，没有说明目录路由和缓存如何随集合事件、旧版本停止、新版本登记一起切换。
+
+为什么是问题：一旦按 `runtime.plugin-hot-plug` 的合同启用/禁用/热升级，浏览器必须同时撤回目录资源和代码资源。现有文件端点对旧 digest 返回 404、对当前 digest 返回 200，但当前处理器不会更新 `byId`；新版本会从浏览器引导拿到新 digest，却在旧处理器上 404，旧 URL 的 `immutable` 缓存也不能替代新版本取回。若只注销 i18next namespace，页面可能还保留旧声明或在升级窗口中出现“代码已是新版本、目录仍是旧版本/404”。反过来，若把目录端点改成插件贡献路由，又无法在插件浏览器入口激活前加载声明文字，违反 `plugin-code-loading` 对声明层的时序。
+
+如何核实：读取 `packages/neuro-book/src/server/plugins.ts:68-82`、`packages/neuro-book/src/plugin-platform/backend/plugin-files.ts:54-70`、`packages/neuro-book/src/server/browser-bootstrap.ts:35-60`，对照 `docs/specs/runtime/plugin-code-loading.md:41-52,64-70` 与 `docs/specs/runtime/plugin-hot-plug.md:54-79`；现有 `plugin-files.test.ts` 也只验证启动快照中旧摘要 404、新摘要在重新创建 route 后 200，没有热切换中的 route 更新。
+
+建议改法：把目录传输纳入同一条宿主资源合同：定义谁持有当前插件版本快照、集合变化时何时替换 handler、旧请求如何排空、旧摘要何时 404、浏览器引导何时发布新 URL，以及内置插件如何走不同的静态资源路径。目录与入口代码必须共用版本/摘要快照；不要只写“注销命名空间”，而不写 HTTP 路由的更新和请求排空。
+### 4. “每个插件目录经 HTTP 发送”没有覆盖内置插件的实际交付路径
+严重程度：重要；类别：遗漏 / 上游选择；位置：`.agents/works/w00028-i18n/tasks/t01-requirements/plan.md:25-31,40-43`。
+
+现象：现有浏览器引导对内置插件只发送 `id` 与 `version`，因为内置定义和入口随前端构建；只有第三方插件才发送清单和 `files` 前缀。内置插件没有安装版本目录、`InstalledPlugin.root` 或插件文件端点可读的 `package.json`。计划却把“每个插件自带 `locales/`”和“服务端按清单经 HTTP 发各插件目录”写成一条统一机制，没有规定内置目录是进入 Web bundle、由宿主静态导入，还是新增另一种 HTTP 资源；也没有说明内置清单如何给 `l10n` 字段、如何参与目录摘要和浏览器 bootstrap 修订号。
+
+为什么是问题：若把内置目录也塞进现有插件文件端点，必须先改变 `BrowserBootstrap` 的内置条目形状、服务端安装信息和 `pluginFileHandler` 的来源；若按构建产物静态导入，则“服务端只按清单发目录”不成立，且内置插件热升级/窗口集合变化与第三方不是同一条缓存合同。内置插件占绝大多数声明文字，漏掉它会使设置搜索、失败页和回退链只在第三方路径工作。
+
+如何核实：读取 `packages/neuro-book/src/server/browser-bootstrap.ts:6-10,35-48`、`packages/neuro-book/src/shared/browser-bootstrap.ts:17-31`、`packages/neuro-book/src/server/plugins.ts:32-40,98-100`、`docs/specs/runtime/plugin-manifest.md:39-42,75-77,125-127`；内置插件不进入安装登记表，代码定义也不生成插件目录文件。
+
+建议改法：在提案里分开写两条交付路径并定义同一抽象：内置插件由应用构建产物提供目录，第三方插件由带摘要的宿主文件端点提供；两者都要在浏览器登记前得到可验证的 namespace、支持语言集合和注销句柄。若坚持统一 HTTP，先提出并修改浏览器引导、内置资源索引和静态产物合同，而不是把现有第三方端点当作统一来源。
+### 5. 共用失败值没有定义如何嵌入现有闭合的远程结果合同
+严重程度：阻断；类别：接口与合同 / 跨进程；位置：`.agents/works/w00028-i18n/tasks/t01-requirements/plan.md:61-67`。
+
+现象：计划在 `nb-runtime` 定义顶层 `{code, params}`，再要求各错误域“在自己合同里嵌入它”，但现有远程合同并不是一个可任意加字段的全局错误对象：业务失败由每个方法 `errors[code]` 的 `detail` schema 定型；线协议的 `OutcomeSchema` 是 `{ok:true,value}` 或闭合的 `{ok:false,code,cause?,detail?}`，外层 `additionalProperties:false`。当前 `RemoteMethodContext.fail(code, detail)`、`RemoteResultFor` 和远程 JSON 编码都没有 `params` 这一层。
+
+为什么是问题：按字面把 `params` 加在结果顶层会被 `OutcomeSchema` 拒绝；把它塞进 `detail` 则要为每个业务码把现有 `detail` schema 改成 `{params: ...}`，而路由层失败仍只有 `detail`，不能靠一个 `nb-runtime` 类型统一。更不能只放宽 `Type.Unknown()`：跨进程另一侧仍按旧合同解析，且远程合同版本、线协议版本和 `additionalProperties:false` 的校验边界没有变化记录。写请求的 `unknown-outcome` 还只有 `cause`，不能被错误地投影成某个用户失败码。
+
+如何核实：读取 `packages/nb-runtime/src/remote/contract.ts:44-51,157-183,302-329`、`packages/nb-runtime/src/remote/protocol.ts:226-234,238-279`、`packages/nb-runtime/src/remote/peer.ts:275-289`；可用现有远程合同测试复现非法结果被转成 `provider-error`，而不是保留未声明的字段。
+
+建议改法：先按错误域画嵌入矩阵：哪些域的 `{code, params}` 只是进程内投影值，哪些是远程公开结果；远程公开时在各方法的 `errors` schema 中显式定义参数形状，并规定合同版本、wire 版本、旧消费者行为和 `unknown-outcome` 的保留方式。共用件可以提供参数校验/投影辅助函数，但不能以一个新的全局对象替代各域合同。
+### 6. 参数整理的上限会丢失现有后端错误所需的信息
+严重程度：重要；类别：正确性 / 异常输入下的失败；位置：`.agents/works/w00028-i18n/tasks/t01-requirements/plan.md:61-67`。
+
+现象：计划规定参数只允许 `string | number`，最多 8 个键，字符串截断到 200 字，其他类型直接丢弃；没有规定键名长度、数字是否必须有限/整数、截断后如何标记、超限是拒绝还是降级，也没有按错误域声明哪些字段是用户可行动的主文案。现有后端合同已经使用数组、对象和可变长度结构表达失败上下文：远程业务失败的 `detail` 按码 schema 定型，插件问题带 `capability/id/reason/detail`，设置解析失败至少需要位置与原因，项目/文件/Story 类结果还存在候选、路径和多项问题集合。
+
+为什么是问题：把不支持的值静默丢掉会让 `{{path}}`、`{{line}}` 或候选列表变成不完整的句子，用户无法按错误说明修复；8 个键的硬上限也不能覆盖“路径 + 行列 + 设置键 + 期望值 + 当前值”这类单条校验。`number` 还可能是 `NaN`、无穷或字符串化数量：TypeBox 的宽泛 `Type.Number`、i18next 复数选择与跨进程严格 JSON 编码对它们的接受范围不同。这样“过滤”不是安全合同，而是把生产者错误变成静默信息损失。
+
+如何核实：读取 `packages/nb-runtime/src/remote/contract.ts:160-166`、`packages/nb-runtime/src/remote/protocol.ts:45-50,226-233`、`packages/neuro-book/src/plugin-platform/shared/problems.ts:14-42`、`packages/neuro-book/src/plugins/settings/shared/layer-text.ts:23-35,101-123`；读取同 Task README 的已知坑第 9 条，那里已经要求数量参数在运行时校验，而计划没有对应规则。
+
+建议改法：把“可跨边界的安全参数”与“翻译函数接受的参数”分开建模：跨进程 schema 只允许有限 JSON 标量并明确 finite/整数规则，数组、路径集合等由各错误域用闭合 schema 定义；整理函数遇到超限、非法数字或不支持类型应返回可诊断的降级结果，而不是静默删除。每个参数上限给出依据和用户可见的 fallback，未能表达的业务数据留在不翻译的结构化 detail 中。
+### 7. “常量数组 + 检查脚本”不能证明错误码真的穷举
+严重程度：重要；类别：正确性 / 检查；位置：`.agents/works/w00028-i18n/tasks/t01-requirements/plan.md:63-65,70-75`。
+
+现象：计划让每个错误域导出一份码常量数组，再让脚本检查源语言目录覆盖数组，并用 `satisfies Record<Code, string>` 辅助。这里没有规定数组如何与真实生产者、TypeBox 合同或远程码表建立单一来源关系。开发者新增一个字面量码但忘了数组时，数组与目录仍然可以完美通过；数组多写一个死码时，检查也会通过。更根本的是现有远程业务码来自 `errors` 的字符串键，远程路由码是固定数组，但 `RemoteFailure.code` 和插件清单合同的业务错误码仍是开放字符串，第三方插件的码不可能由宿主源码数组穷举。
+
+为什么是问题：这个机制只能验证“作者声明的集合”和“目录”的一致，不能验证“所有可产生的码”都被声明。把 `satisfies Record<Code,string>` 放在 JSON 导入值上也不能替代脚本的额外键检查；它只对已有的 `Code` 约束，无法从 JSON 反向发现数组漏码，更不能覆盖运行期第三方码。计划因此把一个看似阻断漏码的保证写成了没有生产者闭环的假设。
+
+如何核实：读取 `packages/nb-runtime/src/remote/contract.ts:157-166`、`packages/nb-runtime/src/remote/protocol.ts:27-53`、`packages/nb-runtime/src/plugin-manifest/schema.ts:53-65`；在 TypeScript 中把 `const codes = ["a"] as const` 与导入 JSON 赋给 `Record<(typeof codes)[number], string>`，再新增生产者字面量 `"b"` 而不改数组，类型与目录检查均不会知道 `"b"` 的存在。
+
+建议改法：选择真实单一来源：闭合错误域让合同 schema/`as const` 码表同时驱动生产者类型、目录检查与运行期校验；开放错误域明确只能做未知码回退，不能承诺穷举。检查脚本还要独立检查目录多余键、码格式、每个生产者注册表与拥有者一致，并为第三方插件提供构建时自检，而不是把常量数组本身当作穷举证据。
+### 8. 错误码的 kebab-case 规则没有进入现有输入合同，拼键会被开放码破坏
+严重程度：重要；类别：异常输入下的失败 / 安全与接口；位置：`.agents/works/w00028-i18n/tasks/t01-requirements/plan.md:35-37,61-66`。
+
+现象：计划规定码用 kebab-case 且不含 `:`，消息键拼成 `<拥有者>:errors.<code>`，但没有给出任何改动位置来把这条规则加进所有生产边界。现有远程失败 schema 的 `code` 是任意非空字符串；远程业务 `errors` 也是字符串键；清单中合同方法的业务失败码由 `Type.Record(Type.String(), ...)` 接收。第三方插件可合法声明现有规则未拒绝的 `foo:bar`、带点或极长码。
+
+为什么是问题：i18next 的 `:` 是命名空间分隔符，`.` 又是默认层级分隔符。未经校验的码直接拼键会被拆成不同 namespace/path，命中错误目录或退回键名；未知码文案虽然“附码”，却没有长度与字符边界，外部插件可把任意字符串带入界面。若在显示层只按返回值是否等于键名判断未知码，还会把真实目录中恰好等于键名的文案误判。这个边界正是计划要求的中性兜底要处理的异常输入。
+
+如何核实：读取 `packages/nb-runtime/src/remote/protocol.ts:226-233`、`packages/nb-runtime/src/remote/contract.ts:135-138`、`packages/nb-runtime/src/plugin-manifest/schema.ts:58-64`；对照计划的消息键规则，现有 schema 没有 kebab-case、冒号、长度或 Unicode 规范化检查。
+
+建议改法：在拥有者错误合同的入口统一校验码格式，明确开放码不能进入 i18next 键或采用不会与引擎分隔符冲突的编码/查表 API；未知码显示使用独立的受限字段，不把原始码无限拼进模板。对远程和第三方开放码保留“未知码”分支，不能把计划中的 kebab-case 只写成目录检查规则。
+### 9. `nb-runtime` 及五个已发布包的公开接口、版本窗口没有进入计划
+严重程度：重要；类别：兼容 / 文档；位置：`.agents/works/w00028-i18n/tasks/t01-requirements/plan.md:53-60,77-83`。
+
+现象：计划把新的 TypeBox schema、参数整理函数和可能的 `useText`/注入键写进共享包，却只在技术选型和影响结构中笼统写“公开接口”，没有列出新增导出、删除/保留的 `locale` props、宿主注入的安装位置、独立宿主的默认行为、版本号和发布顺序。尤其失败值放在 `nb-runtime`，但 `nb-runtime` 本身也是公开 npm 包；其 `package.json` 的 `exports` 当前没有失败共用件的子路径，ADR 0029 明确它与其他工作区包按源码发布。计划的已发布包范围与 ADR 0034 点名的 nb-form、nb-agent-ui、nb-markdown、nb-story 不包含 `nb-runtime`，也没有说明 `nb-ui` 自身作为被使用的公开包如何获得新入口。
+
+为什么是问题：源码工作区里一起改不等于外部宿主一起升级。删除 `locale` 或把它从必填改成注入会影响已发布 0.x 包的类型与运行行为；新增注入键若只在宿主应用存在，nb-story、第三方 Vite 宿主和不提供 i18n 的调用方会得到不同结果。若 `nb-runtime` 先发布共用失败类型而五个包后发布，跨包的 `workspace:^` 解析和源码包安装会暴露半套接口；若只升上层包，外部宿主无法得到新的 runtime 导出。计划没有可执行的兼容窗口、迁移顺序、旧 `locale` 行为或发布冒烟。
+
+如何核实：读取 `docs/adr/0029-workspace-packages-publish-source-to-npm.md:21-28,36-41`、`docs/adr/0034-language-policy.md:109-114`、`packages/nb-runtime/package.json:18-48` 以及 `packages/nb-form/package.json:15-52`、`packages/nb-agent-ui/package.json:15-58`、`packages/nb-markdown/package.json:15-78`、`packages/nb-ui/package.json:15-88`、`packages/nb-story/package.json:20-79`；读取 `packages/nb-agent-ui/src/vue/AgentSessionList.md:53-69` 可见 `locale` 是现有公开合同。
+
+建议改法：在提案影响与 t03 任务表中逐包列出导出路径、类型与运行时变更，明确 `locale` 保留/弃用/删除、prop 与 inject 的优先级、无宿主时的默认目录、`nb-runtime` 的新子路径，以及每个包的版本和发布顺序。删除公开 prop 或改变错误结果形状要单独标出破坏性窗口；没有必要的兼容层不要隐式保留，但必须在计划中承认迁移边界。
+### 10. `l10n.source` 与 `l10n.locales` 的语言标签合同不完整
+严重程度：重要；类别：接口与合同 / 异常输入下的失败；位置：`.agents/works/w00028-i18n/tasks/t01-requirements/plan.md:25-29,47-51`。
+
+现象：计划只写 `l10n: {source, locales}` 和“源语言目录在”，没有规定 `source` 是否必须出现在 `locales`、列表是否去重、标签是否按 BCP 47 解析/规范化、`zh-CN` 与 `zh-cn` 是否同一语言、区域回退如何从 `zh-Hant-TW` 找到 `zh-Hant`/`zh`，也没有规定清单列出的语言与实际文件集合不一致时是构建失败、安装失败还是运行期诊断。现有清单 schema 只有通用 `NonEmptyString`、字符串数组和路径检查，没有语言标签验证或规范化工具。
+
+为什么是问题：同一个插件可以声明 `source: "zh-CN", locales: ["zh-cn"]`、重复语言、声明不存在的 `fr-FR`，或者漏列实际随包发布的目录；不同运行实例会因此得到不同的回退链和可选语言集合。计划又要求设置选项从目录语言集合生成、回退到源语言和 `en-US`，如果集合只信清单会出现选项可选但请求 404；如果只信文件系统又违背“按清单登记”的可观察合同。未定义 canonicalization 还会让 i18next 的语言解析、目录文件名和浏览器本地语言三套字符串无法稳定对齐。
+
+如何核实：读取 `packages/nb-runtime/src/plugin-manifest/schema.ts:34-50,80-99`、`packages/nb-runtime/src/plugin-manifest/read.ts:54-73,168-195`；这些代码没有任何 BCP 47/重复项/数组关系校验。按计划构造 `source` 不在 `locales`、大小写不同或列出不存在文件的清单，现有清单读取路径不会发现这些语义问题。
+
+建议改法：在提案中写成可执行合同：语言标签用哪一个解析器和 canonical form，`source ∈ locales`、列表唯一、每个列出的文件必须是普通文件、是否允许目录有未列语言；明确 locale 设置与浏览器标签的匹配/区域回退顺序。再把这些规则分层到 SDK 构建、安装/启动资源检查和浏览器运行期，各层的失败码与恢复行为分别列出。
+### 11. 计划把跨模块合同变化误标为“行为合同未变”，验收映射因此失真
+严重程度：重要；类别：文档 / 验收映射；位置：`.agents/works/w00028-i18n/tasks/t01-requirements/plan.md:81-96`。
+
+现象：计划产出提案而不立即改 Spec 这一停点本身可以成立，但它随后写“无 Spec 条目，行为合同未变”。本计划实际提议改变至少这些公开行为：`runtime/plugin-manifest` 的清单字段和登记失败/恢复；`plugin-install` 的复制范围与坏目录处理；`plugin-code-loading` 的插件文件资源种类和浏览器加载时序；`plugin-hot-plug` 的 namespace/目录撤回；浏览器引导或宿主 HTTP 文件路由；远程失败值与跨进程结果；五个已发布包的公开类型。
+
+为什么是问题：`docs/proposals/README.md` 把跨模块、进程边界、公开接口、安装、发布和兼容变化列为必须提案的事项，并要求提案的“对 Spec 的预期改动”写出输入、输出、状态、副作用、失败和验收。把这些变化写成“行为合同未变”会让完成判据只检查十个问题“有答案”，却不检查每个真相源和跨进程版本边界，后续 t02/t03 很容易按提案草稿直接实现而漏改 Spec 或错误地认为无需版本迁移。
+
+如何核实：读取 `docs/proposals/README.md:44-53,74-85,95-100`，对照计划第 1、3、6 节和 `docs/specs/runtime/plugin-manifest.md:44-69,129-145`、`docs/specs/runtime/plugin-code-loading.md:31-52`、`packages/nb-runtime/src/remote/protocol.ts:226-279`；这些真相源都已有明确输出、失败或兼容条款。
+
+建议改法：保留“本 Task 不改已生效 Spec”的停点，但把验收改为“列出每个受影响 Spec/公开包/协议及预期变化、旧行为、迁移和回滚；提案接受前不得实施”。提案正文必须按最小结构写影响和对 Spec 的预期改动，不得用“行为合同未变”覆盖实际合同变化。
+
+## 未发现问题的方面
+
+- 选择 i18next 原生格式、宿主实例而非全局单例、共享包不直接依赖 i18n 引擎，与已确认的 ADR 0034 决策 3 一致；前提是共享包的最小实现不把 i18next/Vue 依赖带进 `nb-runtime` 或纯 TS 核心。
+- 现有插件文件 URL 带版本目录的内容摘要，并使用长期 immutable 缓存；在“一个启动集合不变、没有热升级”的现有实现内，代码文件与同一目录中的目录文件可以保持同代次，基本缓存方向没有问题。缺口是计划没有补热切换时的更新合同，见第 3 条。
+- 目录归声明层、在浏览器入口激活前加载，而不是让第三方插件激活后贡献一个目录路由，这个资源归属方向与 `plugin-code-loading` 的声明层/实现层分离一致；问题是两种交付路径和生命周期没有写完，见第 3、4 条。
+- 提案先保持 `reviewing`、接受后才作为实施依据的停点符合 `docs/proposals/README.md`；问题在于计划把会改变的合同误标成未改变，见第 11 条。
+
+## 各级数量
+
+- 阻断：4（第 1、2、3、5 条）
+- 重要：7（第 4、6、7、8、9、10、11 条）
+- 建议：0
+
+## 对计划末尾“待定项”的判断
+
+1. 接受提案：不同意现在接受。第 1、2、3、5 条涉及登记失败语义、产物交付、热切换路由和跨进程失败合同，必须先补成可执行合同，再交开发者接受。
+2. 第三方插件不能新增界面语言、等语言包：作为当前范围的暂时边界可以同意，但提案必须保留可扩展的贡献点/覆盖关系，不得把“目录由拥有者自带”写成以后无法接入语言包的持久格式；还要明确第三方插件只提供源语言时，宿主设置语言集合和回退链如何计算。
+
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11

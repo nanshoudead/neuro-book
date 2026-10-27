@@ -9,14 +9,22 @@ updated: 2026-10-27
 
 ## 目标与范围
 
-待补充。
+给界面一个统一放开发诊断原文的“详情”载体，ADR 0034 要求诊断原文只进详情、不当主文案，而现在只有两三处界面放得下（w00031 t03 前端计划审查第 1 条）。2026-10-27 从 t01 拆出：它是 UI 组件决策，与目录机制无关（t01 拉远看审查第 5 条）。
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+要定的：
+
+- nb-ui 的详情组件：可展开、可复制；先比较已有的 `Collapsible`、`CollapsibleRow`、`CodeBlock`；`navigator.clipboard` 在非安全上下文不可用时的退路；单行位置（状态栏、编辑器横幅、资源管理器结果区）放不下展开态时怎么办。
+- 通知：自动消失由 `useNotification` 的队列负责，`Notification` 组件不管；带详情的通知是否常驻、常驻的数量上限；`NotificationInput` 的标题与正文改成到渲染时才翻译的文字值（否则切换语言不更新），它同时是跨插件服务与 SDK 的类型。
+- `Notification` 根节点的 `select-none` 与“可复制详情”的冲突。
+
+依据：[t01 前端计划审查](../t01-requirements/evidences/plan-review-sonnet-frontend.txt) 第 2、11 条；[w00031 t03 前端计划审查](../../../w00031-language-policy/tasks/t03-failure-projection/evidences/plan-review-sonnet-frontend.txt) 第 1 条。界面设计按 `design-review` Skill 给开发者看稿。
+
+合同：会改 `packages/nb-ui` 的 `Notification` 合同与 [`workbench/notifications.md`](../../../../../docs/specs/workbench/notifications.md)，开工时列出具体文件。
 
 ## 当前状态
 
-2026-10-27 经 nbdev 新建，尚未开工。
+2026-10-27 建，未开工；等 t01 的提案接受后与 w00031 t03 一起排。
 
 ## 下一步
 
-待补充。
+开工时先写设计稿给开发者看。

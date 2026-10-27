@@ -1,0 +1,185 @@
+# w00028 t01 计划前端部分审查报告
+
+审查对象：`.agents/works/w00028-i18n/tasks/t01-requirements/plan.md`（107 行）。源码读 `.worktree/review-w00028-t01`。实验在 `/tmp/w00028-review/t01-plan/lab/fe/`（用 bun 缓存里的 i18next 26.5.11，未安装任何依赖）。
+
+### 1. 声明部分偏离了开发者已确认的方向，计划没有承认这是偏离
+
+- **严重程度**：重要；**类别**：与已定设计不一致
+- **位置**：计划“关键设计”第 1 节第三条、第 2 节、“不做与风险”末条；`.agents/works/w00028-i18n/README.md` “方向”第四条。
+- **现象**：Work README（开发者 2026-10-27 确认）写的是“声明按约定取键，偏离约定时才写键……清单的名称与说明在构建时从目录摘出”。计划写的是相反的两件事：声明里一律写显式 `{key, params}`，并明说“不做自动推导，避免隐式规则”；清单的 `displayName`、`description` 照旧写源语言字符串，其它语言另在目录里写 `manifest.displayName`（即同一段文字在清单与目录里各存一份，没有“摘出”）。
+- **为什么是问题**：这两条属于“只有这些不必再议”的范围，计划却当成自己的设计取舍，还在“不做与风险”里把“声明里多一层对象”当作可接受的代价。后果是：约 1100 条迁移后，每个命令、菜单、设置项都要手写一个键；清单名称有两处来源，改名要改两处，目录里漏写 `manifest.displayName` 时插件页退回什么，计划没说。
+- **如何核实**：对照 Work README“方向”第四条与计划第 1 节第三条、第 2 节第一条、“不做与风险”第二条。
+- **建议改法**：二选一并写进提案：(a) 照已确认的方向做约定键（例如 `<类别>.<贡献 id>.title`，由宿主按贡献点类别与 id 推出），提案里写清约定表与偏离写法；(b) 认为约定不可行，就把“取消约定键、清单名称双存”列为待定项交开发者，写出理由和代价，不当作已定设计。
+
+### 2. “常驻通知”责任归属写错了：自动消失在队列里，不在 `Notification`；而且队列里存的是发出时已翻译的字符串，常驻之后语言切换不再更新
+
+- **严重程度**：重要；**类别**：接口 / 与现有约定冲突
+- **位置**：计划第 6 节末条；`packages/nb-ui/src/components/feedback/Notification.md`（第 6 行“不负责入队、自动消失或自身关闭”）；`packages/nb-ui/src/composables/useNotification.ts:9-18,59-62,87-95`（`NotificationInput.message: string`、`duration` 缺省按色调取、`notify` 里 `normalized.duration ?? DEFAULT_NOTIFICATION_DURATION[tone]`）；`NotificationStack.vue:59`（强制 `:dismissible="true"`）；`packages/neuro-book/src/plugins/workbench/shared/contracts.ts:112-121`（`Notifications.notify(input: NotificationInput)` 是跨插件服务 `nbook.workbench/notifications`，`NotificationHandle.update(patch: Partial<NotificationInput>)`）。
+- **现象**：
+  - 计划说“`Notification` 加可选 `detail`，带详情的通知不自动消失”。`Notification.vue` 没有任何计时职责，“带详情就常驻”要改的是队列的 `notify` 缺省时长规则（`duration` 缺省取 0），再让 `NotificationStack` 把 `detail` 传给 `Notification`。计划把三处（组件、队列、视口）并成一句，改哪一层、谁负责写在了错误的地方。
+  - `NotificationInput` 同时是 nb-ui 已发布的类型、跨插件服务的入参和 SDK 面（`Notification`、`NotificationStack` 在 SDK `components.ts` 名单里），加字段要同步 SDK 声明。
+  - `title`、`message` 都是 `string`，调用方在发出时就翻译好了（`shelf-page.ts:297`、`settings-window.ts:463` 都是 `text(...)` 后再 `notify`）。今天通知至多留 5.2 秒，烘进译文无所谓；带详情的通知常驻后，用户切换界面语言，它还停在旧语言，直到手动关闭。这正是 Task README 第 9 条里“`harness.ts` 把译文烘进 `MessageView`”同类的坑，计划没提。
+  - 常驻通知没有数量上限、不去重：同一类失败（例如批量操作每项一条）会在固定宽度 448px、`pointer-events-none` 的堆叠视口里一直叠到屏幕外。
+- **为什么是问题**：把“常驻”交给调用方显式写 `duration: 0` 是今天已有的做法；计划新增一条隐式规则（有 `detail` 就常驻）又不动 `message` 的类型，会得到“常驻但语言过期”的通知；`NotificationHandle.update` 能把 `duration` 改回限时，规则与它的交互也要写。
+- **如何核实**：`grep -n "duration" packages/nb-ui/src/composables/useNotification.ts`；读 `Notification.md` 第 6 行；`sed -n 112,121p packages/neuro-book/src/plugins/workbench/shared/contracts.ts`。
+- **建议改法**：提案里分开写三层：`NotificationInput` 的 `title`、`message`、`detail` 改成 `string | TextRef`（显示时才翻译），或明说失败类通知允许烘进语言并给出限制；“有详情默认 `duration: 0`”写在队列并规定 `update` 的行为；常驻通知的上限与合并策略（或明确失败类改用 `Banner`，它本来就是“不进队列、不自动消失”的常驻形态，见 `Banner.vue` 首行注释）。
+
+### 3. `render()` 单独挂载的 Vue 树拿不到注入；计划只说了“纯 TS 模块传入 `t`”
+
+- **严重程度**：重要；**类别**：依赖的机制不成立
+- **位置**：计划第 4 节第一条；`packages/nb-markdown/src/editor/image-views.ts:13,44,61`；`packages/nb-markdown/src/display/MarkdownImage.vue:3`（注释“不 inject 宿主：……用 `render()` 把它挂到普通 DOM 上”）；Task README 第 2 条要回答的“Vue 组件与纯 TS 模块各从哪里取”。
+- **现象**：nb-markdown 的编辑器图片节点视图用 `render(h(MarkdownImage, {…locale: host.locale()…}), dom)` 挂载。`render()` 不带应用上下文，`provide/inject` 到不了它；组件自己的注释就是因此规定“语言经 prop 给”。这类树的类别有两种：节点视图和展示器的静态视图（`render()`），以及 ProseMirror 装饰/回调里的纯 DOM 函数（`callout/index.ts:140-204` 的 `element.render(...)`，只有 `locale` 之类的参数）。计划的 `useText()` 对第一类无效，对第二类要靠调用方传 `t`，但计划把“逐层传 `locale` 逐步退役”写成结论。
+- **为什么是问题**：Vue 的 Teleport 保留祖先上下文，所以浮层内的组件没问题（见“未发现问题”）；`render()` 挂载点不会。这些组件今天正确，是因为 `locale` 是显式参数；退役 `locale` 后它们会静默退回默认目录（宿主不注入时的行为），在英文界面里出现中文，而且没有任何报错。
+- **如何核实**：读 `image-views.ts:40-62`；`grep -rn "render(h(" packages/*/src`。
+- **建议改法**：提案里加一条规则：`render()` 挂载处必须传 `vnode.appContext`（在创建编辑器的组件 setup 里取 `getCurrentInstance()!.appContext`）或显式传 `t`；`locale` 属性不要“逐步退役”，保留为可选覆盖，优先级写死为“prop、注入、包内默认”。
+
+### 4. 计划里的核心接口 `useText()` 没有定形：命名空间怎么绑、插件怎么拿到自己的 `t`、类型键怎么对上
+
+- **严重程度**：重要；**类别**：接口与合同
+- **位置**：计划第 4 节“交出 `useText()`（含当前语言的 `shallowRef` 与 `t`）”、第 5 节；`packages/neuro-book/src/web/host/plugin-modules.ts:25-37`（宿主模块表）；`packages/neuro-book/src/sdk/components.ts`（逐项登记的兼容承诺）；`docs/specs/runtime/plugin-code-loading.md` 术语“宿主模块表”。
+- **现象**：同一棵树里，nb-ui 的组件、nb-form 的组件、宿主的页面、第三方插件的组件共用一个注入出来的 `t`。要取到各自命名空间，必须二选一：`useText(namespace)` 返回绑定了命名空间的 `t`，或键里每次写 `ns:key`。计划没选。进一步没说清：
+  - 第三方插件的运行期文字（不是声明）怎么取：SDK 的哪个子路径导出 `useText`（宿主模块表与 `BROWSER_SHARED_MODULES` 是一张登记表，新增导出要改 SDK 名单、`sdk.test.ts`、`pack.test.ts`）；服务端入口没有 Vue，是否也要一个 `t`。
+  - “插件不能引用别的命名空间的键”只对声明成立（宿主按贡献者补前缀）。运行期 `t("nbook.editor:x")` 谁都能写，计划也没有说要禁；该规则的范围应写成“声明与跨插件传递的 `{key}`”。
+  - `t` 的返回值、缺键行为、参数类型（数字的 `count` 要不要校验，Task README 第 9 条）、是否有 `exists`。
+- **为什么是问题**：计划全文唯一的接口只有“含 `shallowRef` 与 `t`”；t02 是“选库原型”，不会替它定形。接口不定，提案的第 5 节“共享包的最小实现”就无从验收。
+- **如何核实**：通读计划第 4、5 节；对照 `plugin-modules.ts` 的表和 SDK 名单。
+- **建议改法**：提案里给出 TypeScript 签名：`createTextPort`/`TextPort`（`language`、`t(key, params)`、`exists(key)`、`scoped(namespace)`）、nb-ui 注入键的名字与所在子路径、SDK 里的导出位置，以及缺键时返回什么。
+
+### 5. i18next 的三个默认行为与计划的前提不符：参数被 HTML 转义、缺键返回不带命名空间的键、值里的 `$t()` 可以跨命名空间
+
+- **严重程度**：重要；**类别**：依赖的机制与计划不一致
+- **位置**：计划“技术选型”、第 2 节（“插件不能引用别的命名空间的键”）、第 4 节（回退链）、第 6 节（未知码兜底）；实验 `/tmp/w00028-review/t01-plan/lab/fe/t.mjs`、`t2.mjs`（i18next 26.5.11，`createInstance`）。
+- **现象（实测）**：
+  1. 默认 `interpolation.escapeValue: true`：`t("x", {path: "a/b<c>&d"})` 得到 `路径 a&#x2F;b&lt;c&gt;&amp;d`。计划第 2 节自己的例子就是“路径、项目名”作参数；Vue 文本插值本来就会转义，不关掉的话路径里的 `/` 在界面上显示成 `&#x2F;`。必须 `escapeValue: false`，计划没提。
+  2. 缺键时返回的是去掉命名空间的键：`t("p.a:errors.nope")` 返回 `errors.nope`，`t("p.b:foo")` 返回 `foo`。计划第 6 节的“未知码兜底”和第 4 节的“回退链末尾是键名”要靠它判断，但返回值与真实键不等，识别缺键必须用 `exists()`；界面上显示的“键名”也缺了命名空间，作者看不出是哪个插件的键。
+  3. 值里的 `$t(b:secret)` 默认会解析并取别的命名空间的文字（实测输出 `嵌套: 别的命名空间的文字`）。计划“插件不能引用别的命名空间的键”只在声明层成立；第三方目录文件的值里写嵌套就绕过了，而计划第 1 节登记时只校验“文件存在、能解析成对象”，不看值。
+  4. 回退语言按语言码算，不按命名空间：`fallbackLng` 的函数形式只收到语言码（`i18next.js` 的 `getFallbackCodes(fallbacks, code)`）。计划的“当前语言、插件的源语言、en-US、键名”里的“插件的源语言”各插件不同，原生配置表达不了；只能在每次调用里传 `fallbackLng`（所以 `t` 必须是命名空间绑定的包装，见第 4 条），或登记时把源语言目录补进缺的键。
+- **为什么是问题**：1 会造成用户可见的错字；2、4 让第 6 节的兜底和第 4 节的回退链没有可实现的写法；3 让一条“强制”规则只是约定。
+- **如何核实**：`cd /tmp/w00028-review/t01-plan/lab/fe && bun t.mjs && bun t2.mjs`。
+- **建议改法**：提案列出实例的固定配置（`escapeValue: false`、关闭 nesting 或登记时拒绝含 `$t(` 的值、`returnNull`/缺键处理改走 `exists()`、回退由包装的 `t` 传入）；目录登记校验加“值为字符串（或复数对象）、不含 `$t(`、键不含 `:`”。
+
+### 6. 语言从哪来、谁来记“上次界面语言”、静态页面怎么办：计划只谈了目录，没谈语言本身与首屏
+
+- **严重程度**：重要；**类别**：遗漏
+- **位置**：计划第 3 节最后一条与第 4 节；`packages/neuro-book/src/web/host/appearance-hint.ts`（以及两份 `index.html`：`src/web/index.html`、`src/web/testing/index.html` 的内联脚本）；`packages/neuro-book/src/web/boot.ts:68`（`hint.textContent = "正在打开"`）、`src/web/index.html` 的 `<html lang="zh-CN">`、`aria-label="正在启动 NeuroBook"`；`src/web/mount.ts:31,44,51`（三个独立的 `createApp`：`HostPage`、`PageOutlet`、`FailurePage`）；`docs/specs/settings/configuration.md` 输出 16（每层首份快照至多等 3 秒，超时按默认值继续，晚到再通知变化）；`plugins/settings/shared/contracts.ts:54-73`（`locale` 是用户层设置，经设置服务读，设置服务在插件里）。
+- **现象**：
+  1. “在显示任何文字之前完成”只能保证目录先到，保证不了语言先到。语言来自 `nbook.settings`，它等本层第一份快照最多 3 秒，超时按默认 `zh-CN` 继续。英文用户在慢链路上会先看到一次中文工作台，再整页翻成英文。“同步切换”成立（本地目录齐全时 `changeLanguage` 立刻生效，实测 `i.language` 当场变），但这是第二次切换，用户看见的是第一次先错。
+  2. 计划让失败页读“浏览器本地记下的上次界面语言”，但没说谁写、何时写：写者必须在工作台里订阅设置服务的 `locale` 变化再写 `localStorage`（今天的明暗提示是宿主直接观察文档根，没有这个依赖）；也没说读的一方是 Vue 页面还是 `index.html` 里的内联脚本。后者要重复一份读逻辑，且 `appearance-hint.dom.test.ts` 的“两边一致”测试要照做。
+  3. 失败前就存在的静态文字没有被列出：两份 `index.html` 的 `aria-label`、`<html lang>`、`<title>`；`boot.ts` 里直接写的“正在打开”；`HostPage.vue`/`FailurePage.vue` 里“正在连接服务端…”“刷新页面”等一整页中文；三个 `createApp` 都要各自 `provide` 一份宿主自带目录的 `t`（`FailurePage` 是 `mountPages` 的 catch 分支里另建的第三个应用）。
+  4. 切到别的语言后 `<html lang>` 要同步，否则读屏用错发音；计划没提。
+- **为什么是问题**：首屏和失败页恰恰是 w00031 第 8 条要解决的场景；写者不明确，“读不到用中文”就会变成常态。
+- **如何核实**：读 `mount.ts` 全文；`sed -n 138,146p docs/specs/settings/configuration.md`；`grep -n "lang=\|aria-label" packages/neuro-book/src/web/index.html`。
+- **建议改法**：提案里写出“语言解析顺序”：设置快照到达前用 `localStorage` 记录，到达后以设置为准并回写记录；写者是窗口宿主，不是设置插件；列出静态文字清单并说明各归哪份目录；`<html lang>` 随语言更新。
+
+### 7. 声明文字的类型并存没有设计：`FormText` 与 `{key, params}` 有歧义，`ViewText.key` 的命名空间含义不同，登记校验写死 `LocalizedTextSchema`，运行期值没有补命名空间的拦截点
+
+- **严重程度**：重要；**类别**：接口与合同 / 迁移
+- **位置**：计划第 2 节、第 5 节末条；`packages/nb-form/src/text.ts`（`FormTextSchema = Union([String, Record(String, String, {minProperties: 1})])`）；`packages/nb-agent-ui/src/types.ts:23`（`ViewText = string | LocalizedText | {key: AgentTextKey; params?}`）；`packages/neuro-book/src/shared/settings.ts:237,238,295,296`（`Value.Check(LocalizedTextSchema, …)` 登记时拒绝坏声明）；`packages/neuro-book/src/plugins/editor/shared/contracts.ts:305`（`status: Readonly<Ref<LocalizedText | string | null>>`）；计划里“公开状态的原因”。
+- **现象**：
+  1. `{key: "x"}`（不带 `params`）同时满足 `FormTextSchema` 的 `Record<string, string>` 分支（把 `key` 当成一种语言），“新增 `{key, params}` 形式”无法与“按语言给出的文字”区分；`isFormText` 还用于检查模型生成的 `x-form` 提示（`check.ts:122`）。
+  2. `nb-agent-ui` 的 `ViewText` 已经有 `{key, params}`，但它的 `key` 是包自己表里的无命名空间键；宿主补过命名空间的 `{key}` 传给同一个槽（“宿主与插件给的中英两份”现在就是从这个槽进来的）时，含义变了，同一个形状有两种语义。计划说“保留 `FormText` 作字面文字”，对 `ViewText`、`DisplayText` 一字未提。
+  3. 登记时的声明校验写死 `LocalizedTextSchema`（`settings.ts` 四处，菜单、视图等同理）。改成 `string | TextRef` 后，这些校验、`defineSetting` 的类型、冻结的 JSON 声明都要改；迁移期两种形式是否并存、并存多久、谁先废弃，计划没有。
+  4. “宿主按贡献者补命名空间”对贡献点成立（贡献带 `plugin`），对运行期值不成立：`editor` 的 `status` 是 `Ref`，公开状态和 `quickPick` 的条目是服务调用的入参，没有一个宿主拦截点能给它们补前缀；它们在跨进程或跨插件传递时也不能带“尚未补前缀”的键。
+- **为什么是问题**：并存规则决定迁移能否分批（t03 是 1100 条内联文字，不可能一次切完）；歧义的类型会在运行期把键当语言代码解析，且不报错。
+- **如何核实**：`sed -n 1,25p packages/nb-form/src/text.ts`；`grep -n "Value.Check(LocalizedTextSchema" packages/neuro-book/src/shared/settings.ts`；`sed -n 20,24p packages/nb-agent-ui/src/types.ts`。
+- **建议改法**：提案里写一张“文字类型对照与迁移表”：每个现有类型（`DisplayText`、`LocalizedText`、`ViewText`、`FormText`、`MarkdownText`、`Ref<LocalizedText|string|null>`）改成什么、并存期的判别写法（建议 `TextRef` 带一个判别字段，例如 `{$msg: key, params}`，避免和语言映射撞形状）、谁在哪一步补命名空间（贡献点在登记时，运行期值在服务调用的按调用方门面里；做不到的写明由调用方传带前缀的键）。
+
+### 8. 编译期检查的承诺比选型能做到的多：参数名推不出来，声明里的 `{key: string}` 也没有键检查
+
+- **严重程度**：重要；**类别**：自相矛盾
+- **位置**：计划“技术选型”第三行（用 `keyof typeof`、否决生成类型脚本）、第 7 节“编译期：键与参数名（`keyof typeof`）”、第 2 节声明类型 `{key: string; params?: Params}`；`evidences/design-review-sonnet-r3.txt` 第 9 条（实测：JSON 导入后值被放宽成 `string`，“参数名与参数类型要生成，键不用”）。
+- **现象**：`keyof typeof catalog` 只给键，不给占位符名，因为 JSON 的值类型是 `string`。第 7 节写的“键与参数名”在选型约束下做不到；同时选型否决了生成类型的脚本。此外声明里的 `key` 在计划第 2 节的类型里是 `string`，`keyof` 检查只对 `t("…")` 调用生效，对 `{key: "…"}` 字面量不生效，除非每个插件包一层 `ref("…")` 的帮助函数，计划没提。
+- **为什么是问题**：编译期检查是计划拒绝运行期自动推导的主要理由之一（“不做自动推导，避免隐式规则”），它只覆盖一半，另一半要靠第 7 节的目录检查脚本补，而该脚本只核对两种语言之间占位符集合一致，不核对调用点传的参数名。
+- **如何核实**：r3 第 9 条的实验目录已不在；自行用 `resolveJsonModule` 导入 `{"a":"Hi {{name}}"}`，`typeof` 值是 `string`。
+- **建议改法**：提案里把检查写成两层：键（零生成，`keyof`，配合带类型的 `ref()` 帮助函数）；参数名与类型（要么生成 `.d.ts` 并提交，要么降为目录检查脚本比对源码里的调用，二选一，写明代价）。t02 原型的结论回来后核对这一条。
+
+### 9. 内置插件与第三方插件的目录走两条交付路径，计划只写了一条；热装、热升级、离线与目录体量的边界也没写
+
+- **严重程度**：重要；**类别**：遗漏
+- **位置**：计划第 1 节末条（ADR 0033）、第 3 节；`packages/neuro-book/src/web/host/window.ts:341-369`（`selectPlugins`：内置插件按构建内的描述登记，只有第三方才带 `files` 前缀）、`src/shared/browser-bootstrap.ts:30`（`files` 只给第三方）；`docs/specs/runtime/plugin-hot-plug.md` 输出 6、10（窗口按插件集合变化停止旧入口、加载新版本，离线窗口重连后对齐）。
+- **现象**：计划说“服务端只按清单把各插件的目录文件经 HTTP 发给浏览器”“浏览器在插件登记时一次取齐该插件所有语言的目录”。内置插件的浏览器端代码已经在 Vite 构建里，它们没有 `files` 前缀；让内置目录也走 HTTP，会在首屏多出一次按插件数量展开的请求（13 个内置浏览器插件加共享包），而这些请求本来能是构建内的静态导入。反过来，若内置走静态导入，就是两条路径，登记、注销、校验各写两遍。计划没比较，也没写“内置目录怎样进浏览器”。
+  - 热装与热升级：新目录必须在新声明出现之前就位，旧命名空间要在新版本登记后才注销，否则两者之间别的插件缓存着的 `{key}`（状态栏条目、公开状态原因）会显示成键名；计划只写了“热卸载时注销”。
+  - 离线：取目录依赖插件文件端点，窗口离线或端点失败时，“目录坏了不阻止登记”这一句只覆盖“文件坏了”，没有覆盖“取不到”；取不到时是重试、退回键名还是阻塞登记，没说。
+  - 体量：“约 34 KB 以内”来自 r3 里把全部现有双语字面量与 `nb-agent-ui/messages.ts` 连代码噪声拼起来的上界（130 KB、gzip 34 KB），只含内置；第三方目录没有大小上限、没有“值必须是字符串”的校验，而计划要求每个窗口一次取齐其所有语言。
+- **为什么是问题**：首屏时延、热升级的闪键、离线窗口的文字三处都落在用户可见的地方，且与 plugin-hot-plug 的“窗口按集合变化对齐”有时序耦合。
+- **如何核实**：读 `selectPlugins`；`grep -n "files" packages/neuro-book/src/shared/browser-bootstrap.ts`。
+- **建议改法**：提案里写：内置目录的交付方式（建议随构建分语言静态导入，第三方走插件文件端点）；热升级的次序（先登记新命名空间、再切声明、再注销旧的）；取不到目录时的明确行为（建议：该插件的文字退回键名并记诊断，同时重试，不阻塞登记）；第三方目录的大小上限和值类型校验。
+
+### 10. nb-ui 组件读注入，与 `docs/standards/code/components.md` 的“隐藏通道”规则冲突；写死的中文是 `withDefaults` 的缺省值，改动面和文档面比计划写的大
+
+- **严重程度**：重要；**类别**：与现有约定冲突
+- **位置**：计划第 5 节第一、四条；`docs/standards/code/components.md:5-11,27,74-85,118,129`；`packages/nb-ui/src/components/*/*.vue` 里的中文缺省（`grep` 命中至少 16 行：`Dialog.vue:114-116`、`Table.vue:28`、`Toolbar.vue:12`、`Tabs.vue:47`、`NumberInput.vue:35-36`、`Input.vue:42`、`SearchSelect.vue:50`、`CodeBlock.vue:17`、`EmptyState.vue:9`、`Banner.vue:20`、`AlertDialog.vue:32`、`Notification.vue:22`、`NotificationStack.vue:17`）。
+- **现象**：规范的核心判断是“组件的真实依赖必须出现在调用签名里”，`state:inject` 是计入耦合度的隐藏通道，要在同名 `.md` 的 frontmatter 声明并写理由；“公共零件目录下耦合度大于 0”是档位 A 的禁止规则。计划让 nb-ui 的叶子组件（`Dialog`、`Table`、`Toolbar`、`NumberInput` 等）直接读注入来取默认文字，等于给十几个组件加 `state:inject`，并让它们脱离宿主时靠“包自带目录”兜底。这些默认值现在是 props 的缺省，写在各自 `.md` 的“数据”一节（例如 `Notification.md` 的 `closeLabel` “默认 "关闭通知"”），改成“缺省来自注入”就是改了文档里的合同。
+  - 同时，nb-ui 里已有的 `state:inject`（`Dialog`、`Checkbox`）是库内部协调（嵌套深度、字段上下文），不是向宿主取数据，不能当作先例。
+  - 另一种做法（r3 第 11 条）：缺省保持，宿主的封装或 SDK 在使用处传翻译后的值，nb-ui 不引入目录。计划没有比较两种做法，也没有说明为何放弃。
+- **为什么是问题**：影响面是 nb-ui 已发布的公开合同（0.2.0）与其全部组件文档；而且 nb-ui 的使用者不止 NeuroBook（nb-story 网页、dev-panel），它们不注入时靠包内默认，等于每个组件多带一份最小实现。
+- **如何核实**：`sed -n 5,12p docs/standards/code/components.md`、`sed -n 118p`、`sed -n 129p`；`grep -rnE '(Label|placeholder|emptyText|title)\??:? *"[一-龥]' packages/nb-ui/src --include='*.vue'`。
+- **建议改法**：提案的备选方案里加“组件保持 props，宿主与包装层传文字”，写取舍；若坚持注入，则列出受影响组件清单、`.md` 标签变更与 `state:inject` 理由模板，并明确 props 优先于注入。
+
+### 11. “详情”组件：没有和 nb-ui 已有的折叠零件比较，Notification 里不能选中文字，复制在非安全上下文失效，单行位置放不下展开态
+
+- **严重程度**：建议；**类别**：别扭 / 遗漏
+- **位置**：计划第 6 节末条；`packages/nb-ui/src/components/layout/Collapsible.vue`、`CollapsibleRow.vue`（“默认只占一行，可展开时内容缩进显示在下方”）、`display/CodeBlock.vue`、`feedback/Banner.vue`、`feedback/InfoTip.vue`；`Notification.vue:53`（根节点 `select-none`）；`packages/neuro-book/src/web/FailurePage.vue:51`（`navigator.clipboard.writeText` 的 try/catch 加文本框降级）；`sdk/components.ts`（逐项登记）。
+- **现象**：
+  1. nb-ui 已有 `Collapsible`、`CollapsibleRow`、`CodeBlock`，计划直接写“新增一个可展开、可复制的详情组件”，没有说为什么现有零件拼不出来。
+  2. `Notification` 根节点是 `select-none`，详情放进去后用户选不中文字，“可复制”只能靠按钮；复制依赖 `navigator.clipboard`，在非安全上下文（用 `http://局域网地址` 访问开发服务或面板，`dev-panel` 的跨设备访问就是这个场景）里不存在，`FailurePage.vue` 已有降级到可选中文本框的做法，计划没有沿用。
+  3. “单行位置（状态栏、编辑器横幅、资源管理器结果区）用同一个组件的折叠形态”：折叠态是什么、展开后内容放在哪里没写。状态栏条目只有一行高，展开只能是弹层，这要求组件带 popover 与焦点管理；资源管理器结果区是列表行，展开会改变行高。“同一个组件”很可能是三种不同的实现。
+  4. 新组件要进 SDK `components.ts` 名单（`sdk.test.ts`、`pack.test.ts` 对照），计划没列；详情文本的长度上限、是否可能带路径或敏感内容（ADR 0034 决策 2 写的是“安全的 detail”）也没写。
+- **如何核实**：读上述文件；`grep -n "select-none" packages/nb-ui/src/components/feedback/Notification.vue`。
+- **建议改法**：提案里先写“现有零件为什么不够”，再定组件；单行位置明确为“弹层（点击展开）”，通知与横幅为“行内展开”，两者用同一数据形状、两个出口；复制沿用降级写法。
+
+### 12. 共享包的目录文件放哪里、怎么发布没有写：`files` 白名单只放 `src`，JSON 导入需要消费者的 tsconfig 配合
+
+- **严重程度**：建议；**类别**：遗漏
+- **位置**：计划第 5 节“每个共享包自带 `locales/`”；`docs/adr/0029-workspace-packages-publish-source-to-npm.md` 决策 2、3 与“代价”最后一条；`packages/nb-form/package.json`、`nb-agent-ui/package.json`、`nb-markdown/package.json`、`nb-ui/package.json` 的 `files`（都只有 `src`、`README.md`、`LICENSE` 等，nb-ui 另有 `themes`）。
+- **现象**：计划写的是包根的 `locales/`；`files` 白名单不放行它，发布后消费者拿到的包没有目录，运行时静默退回键名。若放进 `src/locales/`，则还要消费者的 tsconfig 开 `resolveJsonModule`（ADR 0029 已提示“严格度不同时可能报错”），或把目录写成 `.ts`。nb-ui 的公开子路径表（`.`、`./components`、`./composables` 等）里也没有放 `useText` 与最小实现的位置。`nb-story` 与 `dev-panel` 在发布前由 Vite 构建，不受影响，但被它们依赖的四个包受影响。
+- **为什么是问题**：已发布的 nb-form、nb-agent-ui、nb-markdown 是 0.1.0，nb-ui 是 0.2.0（`package.json`），目录一旦放错位置，发布出去才发现。
+- **如何核实**：`bun -e` 读各包 `package.json` 的 `files`；读 ADR 0029 决策 2、3。
+- **建议改法**：提案里定：目录位置（建议 `src/locales/<语言>.json` 或 `.ts`）、`files` 是否要改、`resolveJsonModule` 的要求写进各包 README；`useText` 放在 nb-ui 的哪个子路径；并把 t03 里的“已发布包的版本与发布窗口”前置列出本条会触发的版本升级。
+
+### 13. 失败值的类型放在 nb-runtime，但需要它的共享包都不依赖 nb-runtime
+
+- **严重程度**：建议；**类别**：依赖方向
+- **位置**：计划第 6 节“在 nb-runtime 给出 TypeBox schema 与参数整理函数”、第 5 节“核心层只产出 `{key, params}` 或 `{code, params}`”；`packages/nb-form/package.json`（依赖只有 nb-ui 与 typebox）、`nb-agent-ui/package.json`（只有 nb-ui）、`nb-markdown/package.json`（nb-ui 与 tiptap 等）。
+- **现象**：nb-form、nb-agent-ui、nb-markdown 的核心要“只产出 `{code, params}`”，但整理函数（键只许字母数字、至多 8 个、字符串截 200 字）在 nb-runtime。三个包不能引它（依赖方向与 ADR 0029 的 `dependencies` 规则），只能各抄一份类型和一份整理函数，参数上限就会分叉。
+- **为什么是问题**：参数整理规则是安全相关的上限（防止把大对象塞进界面），多份实现就会有一份漏掉。
+- **如何核实**：看上述三个 `package.json` 的依赖；`grep -rn nb-runtime packages/nb-form/src packages/nb-agent-ui/src packages/nb-markdown/src`（应无结果）。
+- **建议改法**：提案里写清失败值谁拥有：要么放在三方都依赖的包里（只放类型与整理函数，不依赖 TypeBox 以外的东西，nb-form 核心已依赖 TypeBox），要么说明共享包的核心只产出自己的 `code` 常量，整理发生在跨进程边界上的拥有者，共享包内部不整理。
+
+### 14. 验收映射声称十个问题都有答案，实际有几处没有去处；“测试环境缺键直接抛错”缺少测试支撑
+
+- **严重程度**：建议；**类别**：遗漏
+- **位置**：计划“验收映射”；`Task README` 第 5、6、8、9 条；计划第 7 节末条。
+- **现象**：对照 Task README 十条，计划没有覆盖的子项：
+  - 第 5 条的“同语种”回退（`zh-TW` 到 `zh-CN`）在回退链里没有；计划同时把语言集合收成内置目录有的两种，可以接受，但要写“明确不做”。
+  - 第 6 条“Spec 里写的‘宿主提供的 i18n（inject）’现在没有实现”（`plugin-code-loading.md` 输出 3 与验收 1）：计划没有说这条 Spec 句子怎么处理；本次提案落地后它才第一次成立，需列入 Spec 预期改动。
+  - 第 8 条“开发期缺键抛错”：计划只写“测试环境缺键直接抛错”，开发服务里怎么处理没写；如果也抛，Lab、第三方开发中的插件会白屏。
+  - 第 9 条四个“已知的坑”（数量参数传数字并校验；错误上报不能是模块级全局状态；`harness.ts` 烘译文；Vue 深层响应式代理改变对象身份）在计划里一个也没出现。其中第二、三条直接影响第 3、4 节的设计（`nb-agent-ui/src/harness.ts` 的 `createHarnessTranscript({locale})` 创建时固定语言；r3 第 6 条已核实）。
+  - “测试环境缺键抛错”要求每个挂载组件的测试都带提供方：`neuro-book`、`nb-ui`、`nb-form`、`nb-agent-ui`、`nb-markdown` 的 `*.dom.test.ts` 共 84 个，目前它们不提供任何文字上下文。计划没提供测试用的提供方帮助函数（或“默认目录即提供方”）。
+- **为什么是问题**：计划自己把“十个问题在提案里都有答案或明确推迟”当完成判据，现在这几项会在提案评审时被指为遗漏。
+- **如何核实**：逐条对读 Task README 与计划；`find packages/{neuro-book,nb-ui,nb-form,nb-agent-ui,nb-markdown}/src -name '*.dom.test.ts' | wc -l` 得 84。
+- **建议改法**：提案“目标与非目标”里逐项写“做、不做、推迟到哪个 Task”；加一个测试支撑的小节（提供方帮助函数、缺键抛错的开关范围）。
+
+## 未发现问题的方面
+
+- **浮层里的注入**：nb-ui 的浮层（`Dialog`、`Popover`、`Drawer`、`useTeleportTarget`）用 Vue 的 Teleport，Teleport 保留祖先上下文，`inject` 能到达；`Dialog.vue:137-141` 本身就靠 provide/inject 在 Teleport 内传深度。问题只在 `render()` 单独挂载的树（第 3 条）。
+- **插件组件与共享 Vue**：第三方插件组件与宿主共享同一份 Vue 与 nb-ui（`plugin-code-loading.md` 术语“宿主模块表”），注入键是 Symbol，来自同一份 nb-ui 模块，到得了。缺的是导出位置（第 4 条）。
+- **“同步切换”本身**：目录都在内存时，i18next `changeLanguage` 当场生效（实测 `i.language` 调用后立即变为新值），没有乱序响应；成立。第 6 条说的是首次语言的来源，不是切换。
+- **一次取齐所有语言的方向**：对设置搜索（`settings-window.ts:388` 比对多语言）是对的，r3 第 1 条的结论仍然有效；问题只在交付路径与边界（第 9 条）。
+- **ICU 推迟、复数用原生格式**：与已定决定一致，本次没有发现冲突。
+- **`governance:check` 里的目录检查脚本**：思路可行，具体项目（缺键、多余键、占位符、`:`）合理；缺“值不含 `$t(`”和“值为字符串”两项（第 5 条）。
+
+## 各级数量
+
+- 阻断：0
+- 重要：9（第 1、2、3、4、5、6、7、8、9、10 条中的 10 条里，第 1 到 10 均为重要，见下一行更正）
+- 更正上一行的写法（只追加，不改原文）：重要 10 条（第 1 到 10 条），建议 4 条（第 11 到 14 条），阻断 0 条；共 14 条有效，无撤回。
+
+## 对计划末尾“待定项”的判断
+
+1. **接受提案**：现在不宜按原稿交开发者接受：第 1 条（偏离已确认的方向）要先摆给开发者或改回，第 4、7、9、10 条（接口、类型并存、交付路径、nb-ui 注入）是提案评审必问的内容，应补进提案再请接受。
+2. **第三方插件不能新增界面语言，等语言包再说**：同意推荐；理由成立（语言集合收成宿主内置目录有的语言，`locale` 设置选项由此生成，避免开放 BCP 47 的 schema 问题）。补一句：提案要写明“同语种回退不做”（第 14 条），以及设置值里出现未知语言时退回源语言。
+
+## 有效发现编号
+
+1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
