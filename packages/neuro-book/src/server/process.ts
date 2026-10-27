@@ -69,11 +69,10 @@ function startOrExit(config: ServerConfig, claim: StateRootClaim, manifest: Read
             devTask: options.devTask,
             stopInput: config.stopStdin ? process.stdin : null,
             onListening: (url) => {
-                console.log(`Listening on ${url}`);
-                options.onListening?.(url);
+                if (options.quiet !== true) console.log(`Listening on ${url}`);
             },
             onRpcListening: (url) => {
-                console.log(`RPC listening on ${url}`);
+                if (options.quiet !== true) console.log(`RPC listening on ${url}`);
             },
         });
     } catch (error) {
@@ -94,8 +93,10 @@ export interface ServerProcessOptions {
     readonly projectEntry?: string;
     /** 只有开发入口给出（样例作品）。 */
     readonly devTask?: StartServerOptions["devTask"];
-    /** HTTP 监听成功后（`Listening on` 那一行之后）。 */
-    readonly onListening?: (url: string) => void;
+    /** 不打印 `Listening on` 与 `RPC listening on` 两行：`nbook start` 自己报告地址，`--json` 时标准输出只留一个对象。 */
+    readonly quiet?: boolean;
+    /** 运行实例可用之后（health 返回 200 起）；启动失败时不调用。 */
+    readonly onReady?: (server: {readonly url: string | null; readonly rpcUrl: string}) => void;
 }
 
 export async function runServerProcess(manifest: ReadonlyArray<PluginDescriptor>, options: ServerProcessOptions = {}): Promise<never> {
@@ -116,6 +117,8 @@ export async function runServerProcess(manifest: ReadonlyArray<PluginDescriptor>
         await claim.release();
         process.exit(1);
     }
+    // 启动失败已由 startServer 写出致命诊断，随后经 stopped 以 1 退出；这里只在可用时通知。
+    server.ready.then(() => options.onReady?.({url: server.url, rpcUrl: server.rpcUrl}), () => undefined);
     const {exitCode} = await server.stopped;
     process.exit(exitCode);
 }

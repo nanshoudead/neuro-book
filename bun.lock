@@ -358,7 +358,7 @@
     },
     "packages/nb-story": {
       "name": "@notnotype/nb-story",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "bin": {
         "nbstory": "./src/cli.ts",
       },
@@ -464,10 +464,12 @@
         "@notnotype/nb-markdown": "workspace:*",
         "@notnotype/nb-runtime": "workspace:*",
         "@vue/reactivity": "^3.5.39",
+        "commander": "^14.0.2",
         "entities": "8.0.0",
         "fast-xml-parser": "^5.11.2",
         "hono": "^4.12.30",
         "jsonc-parser": "^3.3.1",
+        "open": "^11.0.0",
         "proper-lockfile": "4.1.2",
         "semver": "^7.8.5",
         "typebox": "^1.3.6",
