@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import {computed} from "vue";
+
+import {useUiText} from "../../text-port";
+
 export type CodeBlockLine = {text: string; tone?: "added" | "removed" | "muted"};
 
 const props = withDefaults(defineProps<{
@@ -14,9 +18,11 @@ const props = withDefaults(defineProps<{
     label: "",
     startLine: null,
     truncated: false,
-    emptyText: "无内容",
-    truncatedText: "只公开了部分内容",
 });
+
+const text = useUiText();
+const emptyLabel = computed(() => props.emptyText ?? text("codeBlock.empty"));
+const truncatedLabel = computed(() => props.truncatedText ?? text("codeBlock.truncated"));
 
 const MARKS = {added: "+", removed: "-", muted: " "} as const;
 </script>
@@ -25,7 +31,7 @@ const MARKS = {added: "+", removed: "-", muted: " "} as const;
     <div class="nb-code-block">
         <p v-if="props.label" class="nb-code-block__label" :title="props.label">{{ props.label }}</p>
         <div class="nb-code-block__scroll">
-            <p v-if="props.lines.length === 0" class="nb-code-block__empty">{{ props.emptyText }}</p>
+            <p v-if="props.lines.length === 0" class="nb-code-block__empty">{{ emptyLabel }}</p>
             <div
                 v-for="(line, index) in props.lines"
                 v-else
@@ -38,7 +44,7 @@ const MARKS = {added: "+", removed: "-", muted: " "} as const;
                 <span class="nb-code-block__text">{{ line.text || " " }}</span>
             </div>
         </div>
-        <p v-if="props.truncated" class="nb-code-block__note">{{ props.truncatedText }}</p>
+        <p v-if="props.truncated" class="nb-code-block__note">{{ truncatedLabel }}</p>
     </div>
 </template>
 

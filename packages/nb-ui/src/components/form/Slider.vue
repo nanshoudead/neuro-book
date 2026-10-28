@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import {computed} from "vue";
+
+import {useUiText} from "../../text-port";
 import {
     SliderRange,
     SliderRoot,
@@ -32,6 +34,8 @@ const props = withDefaults(defineProps<{
     name: undefined,
     ariaLabel: undefined,
 });
+
+const text = useUiText();
 
 const emit = defineEmits<{
     (e: "update:modelValue", value: number | number[]): void;
@@ -122,7 +126,7 @@ const thumbCount = computed(() => {
         <SliderThumb
             v-for="index in thumbCount"
             :key="index"
-            :aria-label="props.ariaLabel || `滑块 ${index}`"
+            :aria-label="props.ariaLabel || text('slider.thumb', {index})"
             class="nb-ui-focus-ring block rounded-[var(--radius-pill)] bg-[var(--bg-panel)] shadow-[0_1px_3px_color-mix(in_srgb,var(--shadow-color)_20%,transparent),0_0_0_1px_color-mix(in_srgb,var(--text-main)_14%,transparent)] transition-[transform,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:scale-110 not-disabled:active:scale-95 disabled:hover:scale-100 disabled:cursor-not-allowed"
             :class="thumbSizeClass"
         />

@@ -98,3 +98,5 @@ type NumberInputSlots = {
 ## 隐藏通道理由
 
 `state:inject`：组件可选读取 `Field` 的字段语义上下文，避免每个数字输入重复接收生成 id、required、错误关联和 invalid 状态。上下文缺失时回退到显式 props，组件不读取共享 store。
+
+`state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取两个步进按钮的缺省可访问名称，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `incrementLabel`、`decrementLabel` 时以属性为准，不读端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。

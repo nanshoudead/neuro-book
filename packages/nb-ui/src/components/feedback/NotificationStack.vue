@@ -14,7 +14,6 @@ const props = withDefaults(defineProps<{
     queue?: NotificationQueue;
 }>(), {
     position: "bottom-center",
-    closeLabel: "关闭通知",
     queue: undefined,
 });
 

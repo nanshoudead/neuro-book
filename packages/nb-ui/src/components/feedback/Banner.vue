@@ -2,6 +2,8 @@
 // 常驻横幅：区域或页面顶部一条满宽的状态带，平铺无投影；与 Notification 的区别是它不进队列、不自动消失，由宿主决定何时出现与收起。
 import {computed} from "vue";
 
+import {useUiText} from "../../text-port";
+
 export type BannerTone = "info" | "success" | "warning" | "error";
 
 const props = withDefaults(defineProps<{
@@ -17,13 +19,14 @@ const props = withDefaults(defineProps<{
     message: "",
     iconClass: "",
     dismissible: false,
-    closeLabel: "关闭",
 });
 
 const emit = defineEmits<{
     (e: "dismiss"): void;
 }>();
 
+const text = useUiText();
+const closeText = computed(() => props.closeLabel ?? text("banner.close"));
 const toneClass = computed(() => `nb-banner--${props.tone}`);
 // 错误用 alert：出现时读屏立刻播报；其余是 status，等当前朗读完再播。
 const role = computed(() => (props.tone === "error" ? "alert" : "status"));
@@ -54,7 +57,7 @@ const toneIcon = computed(() => {
         <span v-if="$slots.actions" class="flex min-w-0 max-w-full flex-wrap items-center gap-2">
             <slot name="actions" />
         </span>
-        <button v-if="props.dismissible" type="button" class="nb-ui-focus-ring -mr-1 shrink-0 rounded-[calc(var(--radius-control)*0.75)] p-0.5 text-[var(--text-muted)] hover:bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] hover:text-[var(--text-main)] cursor-pointer" :aria-label="props.closeLabel" :title="props.closeLabel" @click="emit('dismiss')">
+        <button v-if="props.dismissible" type="button" class="nb-ui-focus-ring -mr-1 shrink-0 rounded-[calc(var(--radius-control)*0.75)] p-0.5 text-[var(--text-muted)] hover:bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] hover:text-[var(--text-main)] cursor-pointer" :aria-label="closeText" :title="closeText" @click="emit('dismiss')">
             <span class="i-lucide-x h-3.5 w-3.5" aria-hidden="true"></span>
         </button>
     </div>

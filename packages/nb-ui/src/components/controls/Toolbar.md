@@ -1,5 +1,5 @@
 ---
-标签: []
+标签: [state:inject]
 ---
 
 # Toolbar
@@ -24,7 +24,7 @@
 type ToolbarProps = {
     /** 工具栏方向；默认 "horizontal" */
     orientation?: "horizontal" | "vertical";
-    /** 工具栏可访问名称；默认 "工具栏" */
+    /** 工具栏可访问名称；缺省按界面语言取（中文 "工具栏"） */
     ariaLabel?: string;
 };
 
@@ -52,3 +52,7 @@ type ToolbarSlots = {
 ## 上游边界
 
 Reka UI 的 Toolbar 原语负责工具栏语义、方向与焦点/键盘行为。本组件负责布局方向、可访问名称透传和默认插槽容器样式；未由本组件显式约束的上游焦点规则与 DOM 细节不属于稳定合同。
+
+## 隐藏通道理由
+
+`state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取缺省可访问名称，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `ariaLabel` 时以属性为准，不读端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。

@@ -1,5 +1,5 @@
 ---
-标签: []
+标签: [state:inject]
 ---
 
 # EmptyState
@@ -16,7 +16,7 @@
 type EmptyStateProps = {
     /** 图标 CSS class；默认 "i-lucide-inbox"。 */
     iconClass?: string;
-    /** 空态标题；默认 "暂无数据"。 */
+    /** 空态标题；缺省按界面语言取（中文 "暂无数据"）。 */
     title?: string;
     /** 补充说明；默认空字符串。 */
     description?: string;
@@ -44,3 +44,7 @@ type EmptyStateSlots = {
 
 - 不提供自动查询、数据判断、重试或导航行为。
 - 标题以普通段落呈现，不建立 heading 或 live region 语义；是否需要这些语义由调用方结合页面上下文处理。
+
+## 隐藏通道理由
+
+`state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取缺省标题，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `title` 时以属性为准，不读端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。

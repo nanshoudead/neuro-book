@@ -1,5 +1,5 @@
 ---
-标签: [env:timer]
+标签: [state:inject, env:timer]
 ---
 
 # NotificationStack
@@ -28,7 +28,7 @@ type NotificationPosition = "bottom-center" | "bottom-right" | "top-right";
 interface NotificationStackProps {
     /** 通知堆叠位置；默认 "bottom-center"。 */
     position?: NotificationPosition;
-    /** 每条通知关闭按钮的可访问名称与 title；默认 "关闭通知"。 */
+    /** 每条通知关闭按钮的可访问名称与 title；不给则每条通知按界面语言取缺省（中文 "关闭通知"）。 */
     closeLabel?: string;
     /** 显示哪份队列；默认 `useNotification()` 的缺省队列。挂载时取定，之后换 prop 不生效，换队列应换一个视口实例。 */
     queue?: NotificationQueue;
@@ -55,3 +55,5 @@ interface NotificationStackSlots {}
 ## 隐藏通道理由
 
 `env:timer`：自动关闭计时器由队列管理，视口在悬停时暂停、离开时恢复该计时器。计时与通知队列生命周期相同，集中在队列里处理。
+
+`state:inject`（翻译端口）：本组件自己不读端口；每条通知由 `Notification` 渲染，关闭按钮的缺省名称由它经翻译端口取（见 [`Notification.md`](Notification.md) 的隐藏通道理由）。`closeLabel` 给了就原样传给每条通知，不给则不传。

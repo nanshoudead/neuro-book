@@ -47,7 +47,7 @@ interface ColorSwatchesProps {
     size?: ColorSwatchesSize;
     /** 禁用；默认 false */
     disabled?: boolean;
-    /** 整组的可访问名称；默认 "颜色" */
+    /** 整组的可访问名称；缺省按界面语言取（中文 "颜色"） */
     label?: string;
 }
 
@@ -62,3 +62,7 @@ interface ColorSwatchesEmits {
 ## 不支持
 
 不支持多选、不支持透明度、不提供“清除”（要清除就提供“自动”）。色板的颜色和顺序由使用方给，组件不排序、不去重。
+
+## 隐藏通道理由
+
+`state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取整组的缺省可访问名称，以及取色面板（内部部件 `ColorPickerPanel`）里颜色值输入与预设色板的可访问名称，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `label` 时以属性为准，不读端口。取色面板里的两个名称没有对应的属性，固定走端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。

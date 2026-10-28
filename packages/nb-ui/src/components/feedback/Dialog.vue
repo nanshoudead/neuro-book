@@ -15,6 +15,7 @@ import {DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle} fro
 import {FLOATING_WINDOW_RESIZE_HANDLES, useFloatingWindow} from "../../composables/useFloatingWindow";
 import {useModalLayer} from "../../composables/useModalLayer";
 import {useTeleportContained, useTeleportTarget} from "../../composables/useTeleportTarget";
+import {useUiText} from "../../text-port";
 import {NB_DIALOG_WINDOW_DEPTH, NB_DIALOG_WINDOW_Z_STEP, NB_MODAL_POPOVER_Z_INDEX, NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
 import Button from "../controls/Button.vue";
 import IconButton from "../controls/IconButton.vue";
@@ -111,9 +112,6 @@ const props = withDefaults(defineProps<{
     status: "",
     bodyClass: "",
     headerClass: "",
-    cancelLabel: "取消",
-    confirmLabel: "确认",
-    closeLabel: "关闭",
 });
 
 const emit = defineEmits<{
@@ -124,6 +122,13 @@ const emit = defineEmits<{
     (e: "update:width", value: number): void;
     (e: "update:height", value: number): void;
 }>();
+
+const text = useUiText();
+const cancelText = computed(() => props.cancelLabel ?? text("dialog.cancel"));
+const confirmText = computed(() => props.confirmLabel ?? text("dialog.confirm"));
+const closeText = computed(() => props.closeLabel ?? text("dialog.close"));
+// 标题为空时屏幕阅读器仍要有对话框的名字。
+const titleText = computed(() => props.title || text("dialog.untitled"));
 
 const instance = getCurrentInstance();
 const panelRef = ref<HTMLElement | null>(null);
@@ -381,22 +386,22 @@ function onOverlayPointerUp(event: PointerEvent): void {
                             <DialogTitle v-if="$slots.header" as="div" class="nb-ui-dialog-title truncate">
                                 <slot name="header" />
                             </DialogTitle>
-                            <DialogTitle v-else class="nb-ui-dialog-title truncate" :class="props.title === '' ? 'sr-only' : ''">{{ props.title || "对话框" }}</DialogTitle>
+                            <DialogTitle v-else class="nb-ui-dialog-title truncate" :class="props.title === '' ? 'sr-only' : ''">{{ titleText }}</DialogTitle>
                         </div>
                         <slot name="header-extra"></slot>
-                        <IconButton v-if="props.closable" size="sm" :title="props.closeLabel" :aria-label="props.closeLabel" :disabled="props.busy" @click="requestClose('close-button')">
+                        <IconButton v-if="props.closable" size="sm" :title="closeText" :aria-label="closeText" :disabled="props.busy" @click="requestClose('close-button')">
                             <span class="i-lucide-x h-4 w-4"></span>
                         </IconButton>
                     </header>
                     <template v-else>
-                        <DialogTitle class="sr-only">{{ props.title || "对话框" }}</DialogTitle>
+                        <DialogTitle class="sr-only">{{ titleText }}</DialogTitle>
                         <!-- 没有标题栏时关闭按钮贴在面板右上角，浮在正文之上；正文要给它让出位置（见同名 .md）。 -->
                         <IconButton
                             v-if="props.closable"
                             class="nb-dialog__corner-close"
                             size="sm"
-                            :title="props.closeLabel"
-                            :aria-label="props.closeLabel"
+                            :title="closeText"
+                            :aria-label="closeText"
                             :disabled="props.busy"
                             @click="requestClose('close-button')"
                         >
@@ -437,8 +442,8 @@ function onOverlayPointerUp(event: PointerEvent): void {
                             <span v-else class="truncate"><slot name="status" /></span>
                         </p>
                         <slot name="footer" :confirm="handleConfirm" :cancel="() => requestClose('cancel')">
-                            <Button v-if="props.showCancel" variant="secondary" :class="footerFillsRow ? 'flex-1' : ''" :disabled="props.busy" @click="requestClose('cancel')">{{ props.cancelLabel }}</Button>
-                            <Button variant="primary" :class="footerFillsRow ? 'flex-1' : ''" :disabled="props.busy" @click="handleConfirm">{{ props.confirmLabel }}</Button>
+                            <Button v-if="props.showCancel" variant="secondary" :class="footerFillsRow ? 'flex-1' : ''" :disabled="props.busy" @click="requestClose('cancel')">{{ cancelText }}</Button>
+                            <Button variant="primary" :class="footerFillsRow ? 'flex-1' : ''" :disabled="props.busy" @click="handleConfirm">{{ confirmText }}</Button>
                         </slot>
                     </footer>
                     <template v-if="!props.modal && props.resizable">
@@ -448,7 +453,7 @@ function onOverlayPointerUp(event: PointerEvent): void {
                             :data-dialog-resize="handle.id"
                             role="separator"
                             :aria-orientation="handle.orientation"
-                            :aria-label="handle.label"
+                            :aria-label="text(handle.labelKey)"
                             :aria-valuemin="handle.direction.width === 0 ? props.minHeight : props.minWidth"
                             :tabindex="props.busy ? -1 : 0"
                             class="absolute z-10 outline-none"

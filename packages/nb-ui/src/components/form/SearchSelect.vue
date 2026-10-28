@@ -11,6 +11,7 @@ import {computed, ref, useAttrs, useId, watch} from "vue";
 import SuggestionMenu from "../popup/SuggestionMenu.vue";
 import {suggestionMenuOptions, suggestionOptionId} from "../popup/suggestion-menu";
 import type {SuggestionMenuGroup} from "../popup/suggestion-menu";
+import {useUiText} from "../../text-port";
 import {useFieldContext} from "./field-context";
 import {moveRoving, type RovingMove} from "../../utils/roving";
 
@@ -47,7 +48,6 @@ const props = withDefaults(defineProps<{
     id: "",
     name: "",
     placeholder: "",
-    emptyText: "没有匹配的选项",
     listLabel: undefined,
     size: "default",
     disabled: false,
@@ -74,6 +74,8 @@ const inputAttrs = computed(() => {
 
 const field = useFieldContext();
 const generatedId = useId();
+const text = useUiText();
+const emptyLabel = computed(() => props.emptyText ?? text("searchSelect.empty"));
 const controlId = computed(() => props.id || field?.inputId.value || `nb-search-select-${generatedId}`);
 const menuId = computed(() => `${controlId.value}-listbox`);
 const isInvalid = computed(() => props.invalid || field?.invalid.value === true);
@@ -240,7 +242,7 @@ const controlSizeClass = computed(() => isSmall.value
             :anchor="open ? anchor : null"
             :label="props.listLabel"
             :labelledby="listLabelledby"
-            :empty-text="props.emptyText"
+            :empty-text="emptyLabel"
             match-anchor-width
             @highlight="(id: string) => (activeId = id)"
             @select="choose"

@@ -1,5 +1,8 @@
 <script setup lang="ts">
 /** 字段旁的说明图标（同名 .md）：问号圆圈加 Tooltip。 */
+import {computed} from "vue";
+
+import {useUiText} from "../../text-port";
 import Tooltip from "./Tooltip.vue";
 import type {TooltipPlacement} from "./Tooltip.vue";
 
@@ -13,9 +16,11 @@ const props = withDefaults(defineProps<{
     label?: string;
     placement?: InfoTipPlacement;
 }>(), {
-    label: "说明",
     placement: "top",
 });
+
+const text = useUiText();
+const labelText = computed(() => props.label ?? text("infoTip.label"));
 </script>
 
 <template>
@@ -24,7 +29,7 @@ const props = withDefaults(defineProps<{
             v-bind="$attrs"
             type="button"
             class="nb-info-tip nb-ui-focus-ring inline-flex h-[18px] w-[18px] shrink-0 cursor-default items-center justify-center rounded-full p-0 align-middle text-[var(--text-muted)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:text-[var(--text-main)]"
-            :aria-label="props.label"
+            :aria-label="labelText"
         >
             <span class="i-lucide-circle-help h-3.5 w-3.5" aria-hidden="true" />
         </button>

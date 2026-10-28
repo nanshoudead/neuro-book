@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {computed} from "vue";
+import {useUiText} from "../../text-port";
 import Progress from "../display/Progress.vue";
 
 export type NotificationTone = "info" | "success" | "warning" | "error";
@@ -19,7 +20,6 @@ const props = withDefaults(defineProps<{
     message: "",
     dismissible: false,
     actionLabel: "",
-    closeLabel: "关闭通知",
     progress: undefined,
 });
 
@@ -27,6 +27,9 @@ const emit = defineEmits<{
     (e: "dismiss"): void;
     (e: "action"): void;
 }>();
+
+const text = useUiText();
+const closeText = computed(() => props.closeLabel ?? text("notification.close"));
 
 const toneClass = computed(() => `nb-notification--${props.tone}`);
 const iconClass = computed(() => {
@@ -62,7 +65,7 @@ const progressTone = computed(() => {
             <!-- 进度在正文下：确定进度用 Progress；不确定进度是一条自己滑动的短条，减少动画时停在左边。 -->
             <span v-if="props.progress !== undefined" class="mt-2 block" data-notification-progress>
                 <Progress v-if="props.progress !== null" :model-value="props.progress" size="sm" :tone="progressTone" />
-                <span v-else class="nb-notification__indeterminate block h-1.5 w-full overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)]" role="progressbar" aria-valuetext="进行中">
+                <span v-else class="nb-notification__indeterminate block h-1.5 w-full overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)]" role="progressbar" :aria-valuetext="text('notification.inProgress')">
                     <span class="nb-ui-indeterminate-runner block h-full rounded-full bg-[var(--nb-notification-tone)]"></span>
                 </span>
             </span>
@@ -70,7 +73,7 @@ const progressTone = computed(() => {
         <button v-if="$slots.action || props.actionLabel" type="button" class="shrink-0 text-sm font-medium text-[var(--nb-notification-tone)] hover:underline cursor-pointer" @click="emit('action')">
             <slot name="action">{{ props.actionLabel }}</slot>
         </button>
-        <button v-if="props.dismissible" type="button" class="nb-ui-focus-ring -mr-1 shrink-0 rounded-[calc(var(--radius-control)*0.75)] p-0.5 text-[var(--text-muted)] transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] hover:text-[var(--text-main)] not-disabled:active:scale-[0.92] cursor-pointer" :aria-label="props.closeLabel" :title="props.closeLabel" @click="emit('dismiss')">
+        <button v-if="props.dismissible" type="button" class="nb-ui-focus-ring -mr-1 shrink-0 rounded-[calc(var(--radius-control)*0.75)] p-0.5 text-[var(--text-muted)] transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] hover:text-[var(--text-main)] not-disabled:active:scale-[0.92] cursor-pointer" :aria-label="closeText" :title="closeText" @click="emit('dismiss')">
             <span class="i-lucide-x h-4 w-4"></span>
         </button>
     </div>

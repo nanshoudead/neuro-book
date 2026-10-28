@@ -2,8 +2,10 @@
 
 import {describe, expect, it} from "bun:test";
 
+import {NB_AGENT_UI_CATALOGS, NB_AGENT_UI_NAMESPACE} from "@notnotype/nb-agent-ui/locales";
 import {NB_FORM_CATALOGS, NB_FORM_NAMESPACE} from "@notnotype/nb-form/locales";
 import {NB_MARKDOWN_CATALOGS, NB_MARKDOWN_NAMESPACE} from "@notnotype/nb-markdown/locales";
+import {NB_UI_CATALOGS, NB_UI_NAMESPACE} from "@notnotype/nb-ui/locales";
 import {flattenCatalog, textRef} from "@notnotype/nb-ui/text";
 import type {Catalog, Text, TextProblem} from "@notnotype/nb-ui/text";
 import {createMinimalTranslator} from "@notnotype/nb-ui/text/minimal";
@@ -114,37 +116,31 @@ describe("输出 9：最小实现与宿主引擎对同一组目录输出一致",
     }
 });
 
-describe("输出 9：共享包 nb-form 自带的目录在宿主引擎与它的缺省（最小实现）下一致", () => {
-    const minimal = createMinimalTranslator({catalogs: {[NB_FORM_NAMESPACE]: NB_FORM_CATALOGS}, strict: true});
-    const flat = flattenCatalog(NB_FORM_CATALOGS["zh-CN"] ?? {});
-    // 每个键（复数形归到不带后缀的键）带上它的全部占位参数；带数量的取 1 与 2。
-    const refs = [...new Set(Object.keys(flat).map((key) => key.replace(/_(?:one|other)$/u, "")))].flatMap((key) => {
-        const template = flat[key] ?? flat[`${key}_other`] ?? "";
-        const names = [...template.matchAll(/\{\{(\w+)\}\}/gu)].map((match) => match[1] ?? "");
-        const params = Object.fromEntries(names.filter((name) => name !== "count").map((name) => [name, `<${name}>`]));
-        return names.includes("count") ? [1, 2].map((count) => textRef(key, {...params, count}, NB_FORM_NAMESPACE)) : [textRef(key, params, NB_FORM_NAMESPACE)];
-    });
-    for (const locale of ["zh-CN", "en-US"]) {
-        it(locale, () => {
-            const host = createHostTextEngine({locale, strict: true});
-            expect(refs.map((ref) => host.port.t(ref))).toEqual(refs.map((ref) => minimal.translate(ref, locale)));
-        });
-    }
-});
+/** 共享包自带的目录：宿主引擎与最小实现（共享包没有宿主时的缺省）对每个键给出相同的文字（输出 9）。 */
+const SHARED_CATALOGS: ReadonlyArray<readonly [string, string, Readonly<Record<string, Catalog>>]> = [
+    ["nb-ui", NB_UI_NAMESPACE, NB_UI_CATALOGS],
+    ["nb-form", NB_FORM_NAMESPACE, NB_FORM_CATALOGS],
+    ["nb-markdown", NB_MARKDOWN_NAMESPACE, NB_MARKDOWN_CATALOGS],
+    ["nb-agent-ui", NB_AGENT_UI_NAMESPACE, NB_AGENT_UI_CATALOGS],
+];
 
-describe("输出 9：共享包 nb-markdown 自带的目录在宿主引擎与它的缺省（最小实现）下一致", () => {
-    const minimal = createMinimalTranslator({catalogs: {[NB_MARKDOWN_NAMESPACE]: NB_MARKDOWN_CATALOGS}, strict: true});
-    const flat = flattenCatalog(NB_MARKDOWN_CATALOGS["zh-CN"] ?? {});
-    // 每个键带上它的全部占位参数；带数量的取 1 与 2（`prompt.lines` 两种语言都是不带复数后缀的键）。
-    const refs = Object.keys(flat).flatMap((key) => {
-        const names = [...(flat[key] ?? "").matchAll(/\{\{(\w+)\}\}/gu)].map((match) => match[1] ?? "");
-        const params = Object.fromEntries(names.filter((name) => name !== "count").map((name) => [name, `<${name}>`]));
-        return names.includes("count") ? [1, 2].map((count) => textRef(key, {...params, count}, NB_MARKDOWN_NAMESPACE)) : [textRef(key, params, NB_MARKDOWN_NAMESPACE)];
-    });
-    for (const locale of ["zh-CN", "en-US"]) {
-        it(locale, () => {
-            const host = createHostTextEngine({locale, strict: true});
-            expect(refs.map((ref) => host.port.t(ref))).toEqual(refs.map((ref) => minimal.translate(ref, locale)));
+for (const [name, namespace, catalogs] of SHARED_CATALOGS) {
+    describe(`输出 9：共享包 ${name} 自带的目录在宿主引擎与它的缺省（最小实现）下一致`, () => {
+        const minimal = createMinimalTranslator({catalogs: {[namespace]: catalogs}, strict: true});
+        const flat = flattenCatalog(catalogs["zh-CN"] ?? {});
+        // 每个键（复数形归到不带后缀的键）带上它的全部占位参数；带数量的取 1 与 2。
+        const refs = [...new Set(Object.keys(flat).map((key) => key.replace(/_(?:one|other)$/u, "")))].flatMap((key) => {
+            const template = flat[key] ?? flat[`${key}_other`] ?? "";
+            const names = [...template.matchAll(/\{\{\s*(\w+)/gu)].map((match) => match[1] ?? "");
+            const params = Object.fromEntries(names.filter((param) => param !== "count").map((param) => [param, `<${param}>`]));
+            const plural = `${key}_other` in flat || `${key}_one` in flat || names.includes("count");
+            return plural ? [1, 2].map((count) => textRef(key, {...params, count}, namespace)) : [textRef(key, params, namespace)];
         });
-    }
-});
+        for (const locale of ["zh-CN", "en-US"]) {
+            it(locale, () => {
+                const host = createHostTextEngine({locale, strict: true});
+                expect(refs.map((ref) => host.port.t(ref))).toEqual(refs.map((ref) => minimal.translate(ref, locale)));
+            });
+        }
+    });
+}

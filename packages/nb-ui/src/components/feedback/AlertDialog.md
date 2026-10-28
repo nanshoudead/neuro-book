@@ -1,5 +1,5 @@
 ---
-标签: [state:local, env:portal, env:global, env:timer]
+标签: [state:local, state:inject, env:portal, env:global, env:timer]
 ---
 
 # AlertDialog
@@ -22,13 +22,13 @@ interface AlertDialogProps {
     open?: boolean;
     /** 非受控模式的初始打开值；可选，默认 false */
     defaultOpen?: boolean;
-    /** 标题；可选，默认 "确认操作" */
+    /** 标题；可选，缺省按界面语言取（中文 "确认操作"） */
     title?: string;
     /** 描述；可选，默认空字符串 */
     description?: string;
-    /** 确认按钮文字；可选，默认 "确定" */
+    /** 确认按钮文字；可选，缺省按界面语言取（中文 "确定"） */
     confirmText?: string;
-    /** 取消按钮文字；可选，默认 "取消" */
+    /** 取消按钮文字；可选，缺省按界面语言取（中文 "取消"） */
     cancelText?: string;
     /** 确认按钮色调；可选，默认 "danger" */
     tone?: AlertDialogTone;
@@ -70,3 +70,4 @@ Reka UI 负责 Alert Dialog 的模态语义、焦点管理、Portal、受控/非
 - `env:portal`：确认框必须脱离宿主的局部层叠上下文显示在页面上方；组件使用 Reka Portal，不提供目标选择 prop；默认在 `body`，宿主可用 `provideTeleportTarget(选择器)` 在组件树上给一个更近的目标（例如组件 Lab 的画布）；组件自己写明的 `teleportTarget` 优先，目标查不到时回退 `body`（`useTeleportTarget`）。
 - `env:global`：与 `Dialog` 共用全应用一份的已打开模态列表，按打开顺序叠放（后打开的在上面）；它只做叠放协调、不承载数据，理由见 [`Dialog.md`](Dialog.md) 的隐藏通道理由。
 - `env:timer`：`closed` 需等 Reka 的卸载清理结束后才上报；关闭交接使用一次零延迟定时器，并在重开或卸载时作废，避免宿主过早激活下一交互层。
+- `state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取标题与两个按钮的缺省文案，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `title`、`confirmText`、`cancelText` 时以属性为准，不读端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。

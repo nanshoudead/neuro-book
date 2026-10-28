@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import {computed} from "vue";
+
+import {useUiText} from "../../text-port";
+
 // 空状态占位：列表/查询无数据时的居中提示，action 插槽放主操作按钮；icon 插槽换掉圆底里的图标（例如加载中放 Spinner）。
 const props = withDefaults(defineProps<{
     iconClass?: string;
@@ -6,9 +10,12 @@ const props = withDefaults(defineProps<{
     description?: string;
 }>(), {
     iconClass: "i-lucide-inbox",
-    title: "暂无数据",
     description: "",
 });
+
+const text = useUiText();
+// 未传 title 时用目录里的缺省文案；显式传（含空串）以属性为准。
+const titleText = computed(() => props.title ?? text("emptyState.title"));
 </script>
 
 <template>
@@ -17,7 +24,7 @@ const props = withDefaults(defineProps<{
             <slot name="icon"><span :class="props.iconClass" class="h-5 w-5"></span></slot>
         </span>
         <div class="max-w-sm">
-            <p class="text-sm font-medium text-[var(--text-main)]">{{ props.title }}</p>
+            <p class="text-sm font-medium text-[var(--text-main)]">{{ titleText }}</p>
             <p v-if="props.description || $slots.default" class="mt-1 text-xs leading-relaxed text-[var(--text-muted)]">
                 <slot>{{ props.description }}</slot>
             </p>

@@ -8,8 +8,9 @@
 import {inject, readonly, ref} from "vue";
 import type {InjectionKey, Ref} from "vue";
 
-import {NB_UI_CATALOGS} from "../locales";
-import type {Text} from "../text";
+import {NB_UI_CATALOGS, uiRef} from "../locales";
+import type {NbUiTextKey} from "../locales";
+import type {Text, TextParams} from "../text";
 import {createMinimalTranslator} from "../text/minimal";
 
 export interface TextPort {
@@ -40,4 +41,13 @@ export function defaultTextPort(): TextPort {
 /** 组件取翻译端口；在 `setup` 里调用。读注入的组件要在同名 `.md` 里声明 `state:inject`。 */
 export function useText(): TextPort {
     return inject(TEXT_PORT_KEY, defaultTextPort, true);
+}
+
+/**
+ * 组件取自己目录（命名空间 `nb-ui`）里的文字；在 `setup` 里调用，同样要在同名 `.md` 里声明 `state:inject`。
+ * 返回的函数每次调用都读端口的当前语言，所以放进 `computed` 或模板里，换语言后会更新。
+ */
+export function useUiText(): (key: NbUiTextKey, params?: TextParams) => string {
+    const port = useText();
+    return (key, params) => port.t(uiRef(key, params));
 }
