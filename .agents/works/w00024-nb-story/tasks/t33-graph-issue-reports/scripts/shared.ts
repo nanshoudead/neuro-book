@@ -91,7 +91,10 @@ export async function logicalCall(input: {path: string; group: string; run: numb
     const requestHash = createHash("sha256").update(input.system).update("\n\u0000\n").update(input.user).digest("hex").slice(0, 16);
     const record: CallRecord = {group: input.group, run: input.run, chapter: input.chapter, requestHash, attempts: [], replies: [], outcome: null};
     await mkdir(dirname(input.path), {recursive: true});
-    const save = () => writeFile(input.path, JSON.stringify(record, null, 2));
+    // 写入排队：尝试结束时的保存不等待，若与后面的保存并发写同一个文件，内容会交错或被旧状态盖掉（2026-10-28 第一次正式跑
+    // 坏了 11 个文件）。每次保存都接在上一次之后，并在写的那一刻取记录的快照。
+    let queue: Promise<void> = Promise.resolve();
+    const save = () => (queue = queue.then(() => writeFile(input.path, JSON.stringify(record, null, 2))));
     let startedAt = "";
     try {
         for (let round = 1; round <= 2; round++) {
