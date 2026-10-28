@@ -36,7 +36,7 @@ interface MenuItemDeclaration {
     readonly command: string;                       // 要执行的命令 id
     readonly section: string;                       // 分节名：同节连在一起，节之间画分隔线
     readonly order?: number;                        // 节内顺序，缺省 0
-    readonly label?: LocalizedText;                 // 缺省用命令的标题
+    readonly label?: Text;                          // 缺省用命令的标题；文字值见 ui/i18n
     readonly toggled?: string;                      // 布尔公开键：画成勾选项
     readonly when?: {readonly requires: ReadonlyArray<string>}; // 布尔公开键，全部为真才显示
     readonly args?: Readonly<Record<string, unknown>>; // 固定参数，例如 {part: "sidebar"}
@@ -78,6 +78,7 @@ interface MenuItemDeclaration {
 6. **执行**：点了经命令服务执行 `command`，来源是 `user`。参数是 `args`（没有时为 `{}`）；声明了 `context` 时参数是位置此刻给出的对象（位置表）。命令不接受这个参数时与从命令面板执行失败一样处理，界面不另提示。
 7. **按钮形态**（视图标题、编辑区标题）：`placement` 为 `inline` 的画成图标按钮（位置规定按钮个数的上限；放不下的按钮回到它所在的节、收进“⋯”：拥有者自己的动作一节在前，贡献的各节在后，节内顺序不变），可访问名称与悬停提示是标题，禁用时悬停提示是原因；`menu` 的收进这个位置末尾的“⋯”下拉，“⋯”的可访问名称是“更多操作”，没有显示的 `menu` 项时不画“⋯”。按钮与“⋯”里的项都按第 4 条排序（按钮之间不画分隔）。
 8. **随状态更新**：命令登记与撤回、命令可用性、公开状态变化时，显示中的按钮与再次打开的菜单按新的状态重新求值；打开着的下拉里命令被撤回的项不再执行。
+9. **文字引用的命名空间**：菜单项没有约定键（`label` 不写时取命令的标题，见第 2 条），登记时只把声明里没写 `ns` 的文字引用补成贡献方插件 id（[`ui.i18n`](../ui/i18n.md) 的“约定键”）。
 
 ## 状态与转换
 

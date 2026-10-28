@@ -3,7 +3,7 @@
  * `SettingsRow` 据此画控件、沿用说明、已修改圆点、覆盖提示与停用。纯函数，不读配置服务。
  */
 
-import type {LayerInspection, SettingDeclaration, SettingInspection, SettingLayer} from "nbook/shared/settings";
+import type {LayerInspection, SettingInspection, SettingLayer, WrittenSettingDeclaration} from "nbook/shared/settings";
 
 /**
  * 一行标题后面的状态原因（输出 9）：色调按严重程度分，行只画一个图标，取最重的，提示逐条列出。
@@ -50,6 +50,6 @@ export function projectOverride(inspection: SettingInspection<unknown>, layers: 
 }
 
 /** schema 写了 `readOnly`（输出 9）：界面不画控件，只写当前值。 */
-export function isReadOnlySetting(declaration: SettingDeclaration): boolean {
+export function isReadOnlySetting(declaration: WrittenSettingDeclaration): boolean {
     return "readOnly" in declaration.schema && declaration.schema.readOnly === true;
 }

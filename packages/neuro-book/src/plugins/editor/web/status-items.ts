@@ -108,8 +108,11 @@ function activeWordCount(area: Readonly<ShallowRef<EditorArea | null>>, clock: R
     };
 }
 
+/** 编辑器的条目自己按语言取好文字，给的都是字符串（条目的合同允许任何文字值）。 */
+type ResolvedItem = Omit<ItemImplementation, "text" | "tooltip"> & {text(): string; tooltip?(): string};
+
 /** `dialects`：方言声明表（docs/specs/workspace/markdown-syntaxes.md 输出 9、10），在一个窗口的寿命内不变。 */
-export function editorStatusItems(area: Readonly<ShallowRef<EditorArea | null>>, locale: Readonly<ComputedRef<DisplayLocale>>, clock: RuntimeClock, languages: Pick<LanguageRegistry, "name">, dialects: DialectTable, resolver: TextResolver): Readonly<Record<string, ItemImplementation>> {
+export function editorStatusItems(area: Readonly<ShallowRef<EditorArea | null>>, locale: Readonly<ComputedRef<DisplayLocale>>, clock: RuntimeClock, languages: Pick<LanguageRegistry, "name">, dialects: DialectTable, resolver: TextResolver): Readonly<Record<string, ResolvedItem>> {
     const text = (value: LocalizedText): string => localize(value, locale.value);
     const display = (value: DisplayText): string => resolver.t(value);
     const wordCount = activeWordCount(area, clock, dialects);

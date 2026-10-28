@@ -14,6 +14,8 @@ import {Value} from "typebox/value";
 
 import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";
 
+import {conventionCompleter} from "nbook/shared/convention-keys";
+import type {Written} from "nbook/shared/convention-keys";
 import {TextSchema} from "nbook/shared/text";
 import {isSettingsGroupId, isSettingsSectionId, SETTINGS_ORDER_LIMIT, SETTINGS_SECTION_ID_MAX_LENGTH} from "nbook/shared/settings";
 
@@ -76,8 +78,27 @@ export const SettingsChoicesDeclarationSchema = Type.Object({}, {additionalPrope
 export type SettingsSectionDeclaration = Static<typeof SettingsSectionDeclarationSchema>;
 /** page 分区的声明（`settings.pages`）。 */
 export type SettingsPageDeclaration = Static<typeof SettingsPageDeclarationSchema>;
+/** 作者写下的 list 分区声明：`title` 与小组的 `title` 可以省略，登记时补成约定键。 */
+export type WrittenSettingsSectionDeclaration = Written<Omit<SettingsSectionDeclaration, "groups">, "title"> & {
+    readonly groups?: ReadonlyArray<Written<NonNullable<SettingsSectionDeclaration["groups"]>[number], "title">>;
+};
+/** 作者写下的 page 分区声明：`title` 可以省略，登记时补成约定键。 */
+export type WrittenSettingsPageDeclaration = Written<SettingsPageDeclaration, "title">;
 /** 选项提供者的声明（`settings.choices`）。 */
 export type SettingsChoicesDeclaration = Static<typeof SettingsChoicesDeclarationSchema>;
+
+/**
+ * list 分区的补全：没写 `title` 时补约定键 `settingsSections.<本地 id>.title`，小组没写 `title` 时补
+ * `settingsSections.<本地 id>.groups.<小组 id>.title`（settings-window.md 的“约定键”）。
+ */
+export const completeSectionDeclaration = conventionCompleter({
+    name: "settingsSections",
+    fields: ["title"],
+    lists: {groups: {segment: (group) => (typeof group.id === "string" ? group.id : null), fields: ["title"]}},
+});
+
+/** page 分区的补全：没写 `title` 时补约定键 `settingsPages.<本地 id>.title`。 */
+export const completePageDeclaration = conventionCompleter({name: "settingsPages", fields: ["title"]});
 
 /** id 的形状；前缀由内核按贡献点的 `idPrefix` 核对（同视图）。 */
 function idProblem(descriptor: ContributionDescriptor, noun = "分区"): string | null {

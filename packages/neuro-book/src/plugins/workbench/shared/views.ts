@@ -10,6 +10,8 @@ import {Value} from "typebox/value";
 
 import type {ContributionDescriptor, ContributionPointDefinition} from "@notnotype/nb-runtime/plugins";
 
+import {conventionCompleter} from "nbook/shared/convention-keys";
+import type {Written} from "nbook/shared/convention-keys";
 import {TextSchema} from "nbook/shared/text";
 
 export const WORKBENCH_VIEWS_POINT = "workbench.views";
@@ -67,6 +69,11 @@ export const ViewDeclarationSchema = Type.Object({
 /** 声明是登记后不再改的数据；布局 store 的状态把目录变成深只读，类型就按深只读写，两边一致。 */
 export type ViewDeclaration = DeepReadonly<Static<typeof ViewDeclarationSchema>>;
 
+/** 作者写下的视图声明：`title` 与标题动作的 `title` 可以省略，登记时补成约定键。 */
+export type WrittenViewDeclaration = Written<Omit<ViewDeclaration, "actions">, "title"> & {
+    readonly actions?: ReadonlyArray<Written<ViewAction, "title">>;
+};
+
 const VIEW_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u;
 
 /** 一个轴上的有效最小与最大尺寸；最大值低于有效最小值的声明在登记时就被拒绝。 */
@@ -95,5 +102,15 @@ export function validateViewContribution(descriptor: ContributionDescriptor): st
     return null;
 }
 
+/**
+ * `workbench.views` 的补全：没写 `title` 时补约定键 `views.<本地 id>.title`，标题动作没写 `title` 时补
+ * `views.<本地 id>.actions.<命令 id>.title`（docs/specs/workbench/views.md 的“约定键”）。
+ */
+const completeViewDeclaration = conventionCompleter({
+    name: "views",
+    fields: ["title"],
+    lists: {actions: {segment: (action) => (typeof action.command === "string" ? action.command : null), fields: ["title"]}},
+});
+
 /** `workbench.views` 贡献点：插件与测试都用这一份定义。 */
-export const viewsPoint: ContributionPointDefinition = {id: WORKBENCH_VIEWS_POINT, implementation: "required", idPrefix: "plugin", validate: validateViewContribution};
+export const viewsPoint: ContributionPointDefinition = {id: WORKBENCH_VIEWS_POINT, implementation: "required", idPrefix: "plugin", complete: completeViewDeclaration, validate: validateViewContribution};

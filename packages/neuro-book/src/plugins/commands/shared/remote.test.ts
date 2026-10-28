@@ -12,6 +12,7 @@ import type {Ref} from "@vue/reactivity";
 import {Type} from "typebox";
 
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
@@ -171,5 +172,21 @@ describe("Spec workbench.commands“跨实例调用失败”", () => {
         expect(await agent.remote().use(commandsRemoteContract).at({client: "nobody"}).list({})).toMatchObject({ok: false, code: "target-gone"});
         expect(await agent.remote().use(commandsRemoteContract).at({client: "browser-b"}).execute({id: "example.tools.leave"})).toMatchObject({ok: false, code: "unknown-outcome"});
         expect(await peer.remote().use(commandsRemoteContract).at({client: "browser-a"}).list({})).toMatchObject({ok: false, code: "denied"});
+    });
+    it("合同版本 2：仍按版本 1 调用的一方得到 version-changed 与提供方的版本；版本 2 的列表带着声明原样的标题与分类", async () => {
+        const {agent} = await setup();
+        // 版本 1 的调用方：同一 id，`list` 的输出还是中英两份的标题、没有分类。
+        const v1 = defineRemoteService({
+            id: commandsRemoteContract.id,
+            version: 1,
+            provider: "client",
+            callers: ["server"],
+            methods: {list: {input: Type.Object({}, {additionalProperties: false}), output: Type.Array(Type.Unknown()), effect: "read"}},
+        });
+        expect(await agent.remote().use(v1).at({client: "browser-a"}).list({})).toMatchObject({ok: false, code: "version-changed"});
+
+        const listed = await agent.remote().use(commandsRemoteContract).at({client: "browser-a"}).list({});
+        if (!listed.ok) throw new Error(`列出失败：${listed.code}`);
+        expect(listed.value.find((command) => command.id === "example.tools.go")).toMatchObject({title: {"zh-CN": "动手", "en-US": "Go"}, category: null});
     });
 });

@@ -11,7 +11,7 @@ owners:
 
 ## 目标与非目标
 
-**目标**：NeuroBook 的**具名可发现动作**——命令面板、快捷键、按钮、未来的菜单与外部调用——拥有单一身份与单一执行入口。每条命令携带：全局唯一 id、人类标题（中英文本）与语义描述、参数形状（`args`）、可用性条件（`when`）、默认快捷键、作用类型（`effect`）与对外暴露策略。执行产生结构化结果与审计事件；触发面只引用命令身份。
+**目标**：NeuroBook 的**具名可发现动作**——命令面板、快捷键、按钮、未来的菜单与外部调用——拥有单一身份与单一执行入口。每条命令携带：全局唯一 id、人类标题（界面文字值）与语义描述、参数形状（`args`）、可用性条件（`when`）、默认快捷键、作用类型（`effect`）与对外暴露策略。执行产生结构化结果与审计事件；触发面只引用命令身份。
 
 命令系统是内置插件 `nbook.commands` 提供的能力，与运行位置无关（2026-10-06 开发者确认，见 [ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 决策 2）：服务端、每个浏览器窗口（以后的终端界面）各有一份命令表，登记本位置入口贡献的命令；用户与 Agent 可以不经界面执行命令。界面只是命令的触发面：浏览器里的命令面板与键位分发归 `nbook.workbench`，界面没有加载时（例如终端界面打开、或页面不挂命令宿主）命令照样能执行。
 
@@ -57,7 +57,7 @@ owners:
 ## 输出与可观察行为
 
 - **命令身份**：内置插件（`nbook.*`）的命令 id 使用三段式命名空间 `nbook.<domain>.<action>`，全小写 kebab-case 分段（与 View descriptor 的 id 规则一致），域词表见「边界与兼容」；其它插件的命令 id 以自己的插件 id 开头、再接一段动作（`<插件 id>.<action>`），不能占用 `nbook` 命名空间。
-- **标题**：`title` 与可选的 `category` 是中英两份文本 `{zh-CN, en-US}`，界面按当前显示语言（配置项 `nbook.settings/locale`，[`settings.configuration`](../settings/configuration.md)）取其中一份，语言切换后已打开的面板即时换文字；`description` 是稳定的英文语义说明，不随界面语言变化。
+- **标题**：`title` 与可选的 `category` 是界面文字值（字符串、语言映射或文字引用，[`ui.i18n`](../ui/i18n.md)），界面按当前显示语言（配置项 `nbook.settings/locale`，[`settings.configuration`](../settings/configuration.md)）翻译，语言切换后已打开的面板即时换文字；`title` 不写时按下面的“约定键”取插件目录里的键。`description` 是稳定的英文语义说明，不随界面语言变化。
 - **登记与冲突**：
   - 经贡献点：内核要求贡献 id 在贡献点内唯一，两个插件贡献同一命令 id 时两条一起被拒绝，原因可查，与加载顺序无关；不合格的声明（id 不合规则、标注与 `effect` 冲突、结构不符）只拒绝这一条，插件的其它贡献照常。
   - 直接向本地命令表登记（Lab 场景）：同一定义对象重复登记幂等，返回同一个释放函数；不同对象登记同一 id 时拒绝后来者、保留首个，同一原因只报告一次。
@@ -68,13 +68,17 @@ owners:
 - **可用性求值**：`when` 是上下文键的 all-of 正条件；登记的键缺失按 false 求值。`when` 引用的键是否存在在求值时判断，不在登记时判断：未登记（或不是布尔）的键使命令不可用，原因写明是哪个键，命令表对同一命令的同一个键只记一次诊断；之后这个键被登记，命令按它的值求值。求值失败/不满足返回 `unavailable` 与缺失原因；原因按求值时的显示语言给出，已记下的诊断保留当时的文字。
 - **`when` 读公开状态**：产品命令表里，`when` 引用的键是本运行位置入口声明的、已被接受的布尔公开键；求值时键未就绪按 false，原因取声明的 `reason`；键未声明、只在别的运行位置声明或不是布尔，按上一条为不可用。`when` 只在命令所在的实例求值，不跨实例读状态；拥有键的入口激活、停止与值的变化即时反映在可用性上，命令面板开着时候选随之变化。
 - **跨实例列出与执行**：浏览器的 `nbook.commands` 入口提供远程服务 `nbook.commands/remote`，第一版只允许服务端调用，服务端插件以 `.at({client: 窗口实例 id})` 选定窗口：
-  - `list({})`（读）：该窗口命令表里 `expose.agent` 不为 `never` 的命令元数据，每条带此刻按该窗口公开状态求出的可用性与不满足的原因；
+  - `list({})`（读）：该窗口命令表里 `expose.agent` 不为 `never` 的命令元数据，每条带此刻按该窗口公开状态求出的可用性与不满足的原因；`title` 与 `category`（没有为 `null`）是声明里的文字值原样，文字引用不在窗口里翻译，调用方按自己的界面语言翻译或交给模型；
   - `execute({id, args})`（写）：以 `{source: "agent", callerId: 调用方插件}` 走该窗口命令表的执行管线，执行前按该窗口此刻的状态复查 `when`，返回结果合同里的结果；`expose.agent` 为 `never` 的命令为 `not-exposed`。
 - **参数校验**：严格（JSON Schema 语义），不转换、不填充默认值、拒绝额外字段与显式 `null`；校验失败返回 `invalid-args` 并指出失败位置。
 - **暴露**：外部 agent 面只可见暴露级别高于 `never` 的命令；`confirm` 命令被 agent 调用时，界面呈现确认（含命令标题、参数、发起者），用户批准后执行、拒绝则返回 `denied`。没有确认通道的命令表返回 `confirmation-required`（产品命令表在 Agent 接入前没有确认通道）。确认使用参数的独立快照，等待期间调用方修改原参数不影响获批内容；等待期间命令被替换返回 `stale-target`。
 - **只读联动**：处于 discuss / plan 时，`effect: "write"` 或带 `destructive` 标注的命令对外部调用直接拒绝（`read-only`），确认等待期间切到这两种模式的，批准后同样拒绝；界面触发不受该模式影响。
 - **审计**：每次执行产生恰好一条审计事件，来源字段区分 `user` 与 `agent:callerId`；监听器抛出的异常被隔离上报，不改变执行结果、不影响其它监听器。命令系统不弹通知、不维护可见日志队列——可见错误由触发宿主呈现一次。
 - **键位分发**：默认键位写在命令声明里，由各运行位置的界面宿主解析与分发：命中且命令当前可用时 `preventDefault` 并阻断同次事件继续传播，然后执行；不满足 `when` 时不拦截。键位监听随界面宿主挂载与释放：没有挂宿主的页面（例如 Lab 的非命令场景）按同一组合键不打开任何面板。同规范化键位冲突的裁决见「失败与恢复」。
+
+### 约定键
+
+命令声明的 `title` 不写时，登记时补成文字引用 `{kind: "text", ns: <贡献方插件 id>, key: "commands.<本地 id>.title"}`（规则见 [`ui.i18n`](../ui/i18n.md) 的“约定键”）。本地 id 是命令 id 去掉开头的 `<插件 id>.`：插件 `acme.hello` 的命令 `acme.hello.say` 取 `commands.say.title`。`category` 是可选字段，不补。声明里写了、但没写 `ns` 的文字引用补成贡献方插件 id。命令表、枚举、远程 `list` 与命令面板拿到的都是补好的声明；键在目录里缺时窗口显示键名并上报，不拒绝这条命令。
 
 ## 状态与转换
 
@@ -268,6 +272,7 @@ owners:
 - 白名单：只有已登记的命令（含别名目标）可执行。
 - 参数校验：外部与键位来源的参数在进入执行前校验，不轻信输入。
 - 暴露默认关闭：新命令默认不对 agent 开放，逐条显式开放。
+- 远程服务 `nbook.commands/remote` 现为版本 2：`list` 的 `title` 从中英两份放宽为文字值，并加上 `category`。版本 1 的调用方调用时得到 `version-changed`（[远程服务与 RPC 协议](../runtime/plugin-channel.md)），不做降级转换。
 
 ## 验收与 Smoke
 
@@ -289,6 +294,8 @@ owners:
 16. **未声明的键**：Given 命令的 `when` 引用一个没有任何插件声明的键（或非布尔键）；Then 命令登记成功、出现在枚举里，但不可用，面板不列出、执行为 `unavailable`，原因写明那个键；同一命令同一个键只记一次诊断；Lab 的本地命令表同样如此。
 17. **快捷键的显示**：Given 声明 `Mod+Shift+P` 的命令；When 在 Windows 或 Linux 与 macOS 上看命令面板候选、应用菜单与命令搜索按钮；Then 三处都写 `Ctrl+Shift+P` 或 `⇧⌘P`，与实际按下能触发的组合一致。
 18. **省参的区域显隐**：Given 产品页；When 从命令面板执行“切换区域显隐”；Then 先列出侧栏、右栏、活动栏并标出可见与否，选中后切换，取消不写入；带 `{part}` 时直接切换。
+19. **省略的标题取约定键**：Given 内置代码、SDK 的 `command` 助手与手写清单各登记一条不写 `title` 的命令；When 实例启动；Then 命令服务给出的标题都是所属插件的 `commands.<本地 id>.title` 引用；命令在目录里缺这个键时由声明测试报告。
+20. **远程列表的版本**：Given 窗口提供版本 2 的 `nbook.commands/remote`；When 服务端以版本 1 调用 `list`；Then 得到 `version-changed`；以版本 2 调用时每条带 `category`。
 
 ## 实现合同
 
@@ -301,7 +308,7 @@ owners:
   - `shared/context-keys.ts` 负责上下文键的登记表与 `when` 求值；键是否存在只在求值时判断。
   - `shared/plugin.ts` 的 `commandsPlugin` 是插件定义，含服务端与浏览器两个入口，每个实例的入口各自一份命令表：接收者在贡献发布后（`published`）登记、撤回时释放，每次执行经 `implementation()` 取实现，执行异常记入诊断。
   - 装配在 `src/server/plugins.ts` 与 `src/web/plugins.ts` 的定义表。
-- 中英文本：`packages/neuro-book/src/shared/localized-text.ts`。
+- 文字值：`packages/neuro-book/src/shared/text.ts`（`TextSchema`）与 `localized-text.ts`（翻译端口与语言映射）；约定键的补全是贡献点的 `complete`（`completeCommandDeclaration`，`shared/contracts.ts`），规则在 `packages/neuro-book/src/shared/convention-keys.ts`。
 - 浏览器界面 `packages/neuro-book/src/plugins/workbench/web/`：
   - `commands/keymap.ts` 负责按键事件的分发；键位的解析与按平台的写法在命令插件的 `shared/keybinding.ts`（经 `nbook/plugins/commands/shared/contracts` 导出），工作台之外显示快捷键的插件也经它，不引用工作台的代码。
   - `commands/WorkbenchCommandHost.vue` 是 `/` 页上的界面宿主。
@@ -315,6 +322,6 @@ owners:
 ## 证据
 
 - 实现入口：[`registry.ts`](../../../packages/neuro-book/src/plugins/commands/shared/registry.ts)、[`plugin.ts`](../../../packages/neuro-book/src/plugins/commands/shared/plugin.ts)
-- 合同测试：[`part-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/part-commands.test.ts)（区域显隐与应用命令，场景 18）、[`keymap.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/keymap.test.ts)（含快捷键的显示，场景 17）、[`registry.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/registry.test.ts)（场景 1–8、16）、[`context-keys.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/context-keys.test.ts)、[`plugin.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/plugin.test.ts)（经真实内核：场景 1、8、11、12、15、16 与 `when` 读公开状态）、[`remote.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/remote.test.ts)（跨实例列出与执行、跨实例调用失败、场景 14）、[`keymap.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/keymap.test.ts)（场景 3、9）、[`editor-commands.test.ts`](../../../packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/editor-commands.test.ts)；组件测试 [`lab-command-scene.dom.test.ts`](../../../packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/lab-command-scene.dom.test.ts)（场景 5 的确认界面）、[`WorkbenchCommandHost.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/WorkbenchCommandHost.dom.test.ts)
+- 合同测试：[`part-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/part-commands.test.ts)（区域显隐与应用命令，场景 18）、[`keymap.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/keymap.test.ts)（含快捷键的显示，场景 17）、[`registry.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/registry.test.ts)（场景 1–8、16）、[`context-keys.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/context-keys.test.ts)、[`plugin.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/plugin.test.ts)（经真实内核：场景 1、8、11、12、15、16 与 `when` 读公开状态）、[`remote.test.ts`](../../../packages/neuro-book/src/plugins/commands/shared/remote.test.ts)（跨实例列出与执行、跨实例调用失败、场景 14、20）、[`convention-keys.test.ts`](../../../packages/neuro-book/src/convention-keys.test.ts)（场景 19）、[`keymap.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/keymap.test.ts)（场景 3、9）、[`editor-commands.test.ts`](../../../packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/editor-commands.test.ts)；组件测试 [`lab-command-scene.dom.test.ts`](../../../packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/lab-command-scene.dom.test.ts)（场景 5 的确认界面）、[`WorkbenchCommandHost.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/WorkbenchCommandHost.dom.test.ts)
 - Smoke：[`e2e/lab-commands.e2e.ts`](../../../packages/neuro-book/e2e/lab-commands.e2e.ts)（场景 10，开发会话，真实 Chrome）、[`e2e/commands.e2e.ts`](../../../packages/neuro-book/e2e/commands.e2e.ts)（场景 13，生产构建）、[`e2e/state.e2e.ts`](../../../packages/neuro-book/e2e/state.e2e.ts)（场景 14，测试外壳）
-- 批准依据：[命令系统提案](../../proposals/workbench-commands.md)（2026-09-14 起草，2026-09-18 需求讨论修订）；命令改由内置插件提供，见[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P3（2026-10-06）；一份定义含服务端与浏览器两个入口依据 [ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)（2026-10-08）；`when` 读公开状态、跨实例命令直接问目标窗口由开发者 2026-10-08 在 [t56 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md) 中确认；`when` 的键改在求值时判断由开发者 2026-10-08 在 [t60 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md) 中确认。
+- 批准依据：[命令系统提案](../../proposals/workbench-commands.md)（2026-09-14 起草，2026-09-18 需求讨论修订）；命令改由内置插件提供，见[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P3（2026-10-06）；一份定义含服务端与浏览器两个入口依据 [ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)（2026-10-08）；`when` 读公开状态、跨实例命令直接问目标窗口由开发者 2026-10-08 在 [t56 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md) 中确认；`when` 的键改在求值时判断由开发者 2026-10-08 在 [t60 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md) 中确认；标题改为文字值、按约定取键依据[《界面文字的消息目录》](../../proposals/i18n-message-catalogs.md)（2026-10-27 接受）。

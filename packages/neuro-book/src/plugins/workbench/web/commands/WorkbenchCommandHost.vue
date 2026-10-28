@@ -8,8 +8,11 @@
 import {onBeforeUnmount, onMounted} from "vue";
 import type {Ref} from "vue";
 
+import {useText} from "@notnotype/nb-ui/text-port";
+
 import {currentKeyPlatform} from "nbook/plugins/commands/shared/contracts";
 import type {CommandFailure, CommandService, Release} from "nbook/plugins/commands/shared/contracts";
+import {resolverFor} from "nbook/shared/localized-text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {NotificationInput} from "../../shared/contracts";
@@ -31,10 +34,12 @@ const props = defineProps<{
     notify?: (input: NotificationInput) => void;
 }>();
 
+const resolver = resolverFor(() => props.locale.value, useText());
+
 /** 面板与快捷键两个入口用同一种方式告诉用户失败。 */
 function notifyFailure(id: string, failure: CommandFailure): void {
     const found = props.commands.get(id);
-    const notice = failureNotice(id, found.ok ? found.value : null, failure, props.locale.value);
+    const notice = failureNotice(id, found.ok ? found.value : null, failure, props.locale.value, resolver);
     if (notice !== null) props.notify?.(notice);
 }
 

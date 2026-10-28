@@ -316,7 +316,7 @@ describe("生成清单：代码定义写成清单", () => {
         expect(definitionOf(manifest, "server").contributionPoints?.[0]?.idPrefix).toBe("plugin");
     });
 
-    it("清单表达不了的代码定义报出问题：入口 id 重复、schema 进不了 JSON、同 id 两份不同的合同、贡献点写了 validate、几份定义的贡献点不一致", () => {
+    it("清单表达不了的代码定义报出问题：入口 id 重复、schema 进不了 JSON、同 id 两份不同的合同、贡献点写了 validate 或 complete、几份定义的贡献点不一致", () => {
         const refined = defineRemoteService({...index, methods: {list: {...index.methods.list, output: Type.Refine(Type.String(), (value) => value.length > 0)}}});
         const changed = defineRemoteService({...index, callers: ["server"]});
         const cases: ReadonlyArray<readonly [string, ReadonlyArray<PluginDefinition>, string]> = [
@@ -326,6 +326,7 @@ describe("生成清单：代码定义写成清单", () => {
             ["入口 id 含路径分隔符", [{...server, entries: [{...server.entries[0]!, id: "a/b"}]}], "entries.a/b"],
             ["贡献点只写了 validate", [{...server, contributionPoints: [{id: "example.notes.kinds", implementation: "none", validate: () => null}]}], "contributionPoints.0"],
             ["贡献点同时写了 schema 与 validate", [{...server, contributionPoints: [{...kinds, validate: () => null}]}], "contributionPoints.0"],
+            ["贡献点写了 complete", [{...server, contributionPoints: [{...kinds, complete: ({declaration}) => declaration}]}], "contributionPoints.0"],
             // 同一个贡献点在两个运行位置的定义里各写一份：后一份的问题同样报出，不随定义的先后漏掉。
             ["后一份定义的贡献点写了 validate", [server, {...browser, contributionPoints: [{...kinds, validate: () => null}]}], "contributionPoints.0"],
             ["前一份定义的贡献点写了 validate", [{...browser, contributionPoints: [{...kinds, validate: () => null}]}, server], "contributionPoints.0"],

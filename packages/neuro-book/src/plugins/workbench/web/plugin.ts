@@ -33,7 +33,7 @@ import {PART_COMMAND_DECLARATIONS, partCommands} from "./commands/part-commands"
 import {VIEW_COMMAND_DECLARATIONS, viewCommands} from "./commands/view-commands";
 import {appearanceSetting, notificationsKey, quickPickKey, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
 import type {NotificationInput} from "../shared/contracts";
-import {validateHomeContribution, WORKBENCH_HOME_POINT, WORKBENCH_PATH} from "../shared/home";
+import {completeHomeDeclaration, validateHomeContribution, WORKBENCH_HOME_POINT, WORKBENCH_PATH} from "../shared/home";
 import {activityBarItemsPoint, statusbarItemsPoint, titlebarItemsPoint, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "../shared/items";
 import type {ActivityBarItemDeclaration, ItemDeclaration} from "../shared/items";
 import {titlebarMenuPoint, viewTitlePoint, WORKBENCH_TITLEBAR_MENU_POINT, WORKBENCH_VIEW_TITLE_POINT} from "../shared/menus";
@@ -83,7 +83,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
         titlebarItemsPoint,
         activityBarItemsPoint,
         overlaysPoint,
-        {id: WORKBENCH_HOME_POINT, implementation: "required", validate: validateHomeContribution},
+        {id: WORKBENCH_HOME_POINT, implementation: "required", complete: completeHomeDeclaration, validate: validateHomeContribution},
         titlebarMenuPoint,
         viewTitlePoint,
     ],

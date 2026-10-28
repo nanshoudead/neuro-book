@@ -4,9 +4,9 @@
  */
 
 import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import type {DisplayLocale, LocalizedText, TextResolver} from "nbook/shared/localized-text";
 import {literalUnionValues} from "nbook/shared/settings";
-import type {SettingApplies, SettingDeclaration, SettingLiteral, SettingsFailure} from "nbook/shared/settings";
+import type {SettingApplies, SettingLiteral, SettingsFailure, WrittenSettingDeclaration} from "nbook/shared/settings";
 
 const TEXT = {
     on: {"zh-CN": "开", "en-US": "On"},
@@ -48,21 +48,24 @@ export function settingsFailureText(code: SettingsFailure, detail: string, local
 /** 摘要的长度上限：一行放得下，超出的部分以省略号结尾。 */
 const SUMMARY_LIMIT = 80;
 
-/** 字面量联合的选项：值与名字。名字取 `choices` 的 `title`，没写 `choices` 时是字面量本身；不是字面量联合为 null。 */
-export function settingChoices(declaration: SettingDeclaration, locale: DisplayLocale): ReadonlyArray<{readonly value: SettingLiteral; readonly label: string}> | null {
+/**
+ * 字面量联合的选项：值与名字。名字取 `choices` 的 `title`（经 `text` 翻成当前语言），没写 `choices` 时是字面量本身；不是
+ * 字面量联合为 null。
+ */
+export function settingChoices(declaration: WrittenSettingDeclaration, text: TextResolver): ReadonlyArray<{readonly value: SettingLiteral; readonly label: string}> | null {
     const literals = literalUnionValues(declaration.schema);
     if (literals === null) return null;
     // 动态选项（`{from}`）不在这里：它的 schema 是字符串，上面已经返回 null。
     const named = Array.isArray(declaration.choices) ? declaration.choices : [];
     return literals.map((value) => {
         const choice = named.find((candidate) => candidate.value === value);
-        return {value, label: choice === undefined ? String(value) : localize(choice.title, locale)};
+        return {value, label: choice?.title === undefined ? String(value) : text.t(choice.title)};
     });
 }
 
 /** 值的一行摘要：沿用提示、覆盖提示与只读显示用。 */
-export function settingValueText(declaration: SettingDeclaration, value: unknown, locale: DisplayLocale): string {
-    const choice = settingChoices(declaration, locale)?.find((candidate) => candidate.value === value);
+export function settingValueText(declaration: WrittenSettingDeclaration, value: unknown, locale: DisplayLocale, text: TextResolver): string {
+    const choice = settingChoices(declaration, text)?.find((candidate) => candidate.value === value);
     if (choice !== undefined) return choice.label;
     if (typeof value === "boolean") return localize(value ? TEXT.on : TEXT.off, locale);
     if (typeof value === "number") return String(value);

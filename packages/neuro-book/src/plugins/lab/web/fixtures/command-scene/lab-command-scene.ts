@@ -13,6 +13,8 @@ import {Type} from "typebox";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type {ComputedRef, Ref, ShallowRef} from "vue";
 
+import {defaultTextPort} from "@notnotype/nb-ui/text-port";
+
 import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import type {ContextValues} from "nbook/plugins/commands/shared/context-keys";
 import type {AgentMode, Release} from "nbook/plugins/commands/shared/contracts";
@@ -23,7 +25,7 @@ import {createKeymapDispatcher} from "nbook/plugins/workbench/web/commands/keyma
 import type {KeymapDispatcher} from "nbook/plugins/workbench/web/commands/keymap";
 import {createPaletteHost} from "nbook/plugins/workbench/web/commands/palette-host";
 import type {PaletteHost} from "nbook/plugins/workbench/web/commands/palette-host";
-import {localize} from "nbook/shared/localized-text";
+import {resolverFor} from "nbook/shared/localized-text";
 
 import {LAB_LOCALE} from "../../lab-locale";
 import {useLabEventSink} from "../../lab-event-sink";
@@ -187,7 +189,7 @@ export function useLabCommandScene(): LabCommandScene {
         entry?.resolve(false);
     });
 
-    const title = computed(() => (pending.value === null ? "" : localize(pending.value.request.command.title, LAB_LOCALE)));
+    const title = computed(() => (pending.value === null ? "" : resolverFor(() => LAB_LOCALE, defaultTextPort()).t(pending.value.request.command.title)));
     const args = computed(() => (pending.value === null ? "" : JSON.stringify(pending.value.request.args)));
     const destructive = computed(() => pending.value?.request.command.expose?.hints?.destructive === true);
 

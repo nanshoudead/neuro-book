@@ -11,7 +11,7 @@ import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform, menuImplementations, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
+import {COMMANDS_POINT, commandServiceKey, completeMenuItemDeclaration, currentKeyPlatform, menuImplementations, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
 import {dialectTable, MARKDOWN_DIALECTS_POINT, markdownKey} from "nbook/plugins/markdown/shared/contracts";
 import type {DialectDeclaration, MarkdownService} from "nbook/plugins/markdown/shared/contracts";
@@ -28,7 +28,7 @@ import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
-import {CODE_EDITOR, documentCoordinatorKey, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT, EDITOR_PAGES_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT, MARKDOWN_EDITOR, validateEditorContribution, validateEditorPageContribution, validateEditorTabContextItem, validateEditorTitleItem, validateLanguageContribution} from "../shared/contracts";
+import {CODE_EDITOR, completeEditorDeclaration, completeEditorPageDeclaration, documentCoordinatorKey, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT, EDITOR_PAGES_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT, MARKDOWN_EDITOR, validateEditorContribution, validateEditorPageContribution, validateEditorTabContextItem, validateEditorTitleItem, validateLanguageContribution} from "../shared/contracts";
 import type {EditorImplementation, EditorTabContextItemDeclaration, EditorTitleItemDeclaration} from "../shared/contracts";
 import {editorLanguagesKey, LanguageRegistry, monacoLanguageImplementation} from "./code/languages";
 import {codeEditorOptionsKey} from "./code/options";
@@ -71,13 +71,13 @@ const INTENTS = {"save": SAVE_COMMAND, "close": CLOSE_COMMAND, "split-right": SP
 export const editorBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
     contributionPoints: [
-        {id: EDITOR_PAGES_POINT, implementation: "required", validate: validateEditorPageContribution, idPrefix: "plugin"},
+        {id: EDITOR_PAGES_POINT, implementation: "required", complete: completeEditorPageDeclaration, validate: validateEditorPageContribution, idPrefix: "plugin"},
         // 编辑区标题的菜单项只有声明，同工作台的菜单位置交空实现（docs/specs/workbench/menus.md）。
-        {id: EDITOR_TITLE_POINT, implementation: "required", validate: validateEditorTitleItem, idPrefix: "plugin"},
+        {id: EDITOR_TITLE_POINT, implementation: "required", complete: completeMenuItemDeclaration, validate: validateEditorTitleItem, idPrefix: "plugin"},
         // 标签右键的菜单项（输出 57）：同上，只有声明。
-        {id: EDITOR_TAB_CONTEXT_POINT, implementation: "required", validate: validateEditorTabContextItem, idPrefix: "plugin"},
+        {id: EDITOR_TAB_CONTEXT_POINT, implementation: "required", complete: completeMenuItemDeclaration, validate: validateEditorTabContextItem, idPrefix: "plugin"},
         // 编辑器（docs/specs/workbench/editor.md 输出 36）：内置的两个也声明在这里。
-        {id: EDITOR_EDITORS_POINT, implementation: "required", validate: validateEditorContribution, idPrefix: "plugin"},
+        {id: EDITOR_EDITORS_POINT, implementation: "required", complete: completeEditorDeclaration, validate: validateEditorContribution, idPrefix: "plugin"},
         // 语言（输出 43）：源码编辑器（Monaco）自带的也声明在这里。
         {id: EDITOR_LANGUAGES_POINT, implementation: "required", validate: validateLanguageContribution},
     ],

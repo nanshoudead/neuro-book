@@ -44,25 +44,27 @@ owners:
 - `settings.pages`：page 分区，只接受浏览器入口的贡献，实现是 `{load()}`。
 
 ```ts
+// 登记后的声明：title 总有值。作者写下的形状是 WrittenSettingsSectionDeclaration、WrittenSettingsPageDeclaration
+// （同一模块），其中分区、小组与 page 分区的 title 可以省略，登记时补约定键（见下文“约定键”）
 // settings.sections
 interface SettingsSectionDeclaration {
-    readonly title: LocalizedText;
-    readonly description?: LocalizedText;          // 分区标题下的一行说明
+    readonly title: Text;
+    readonly description?: Text;                   // 分区标题下的一行说明
     readonly icon: string;                         // 图标类名，例如 i-lucide-palette
     readonly category: "app" | "ai" | "plugins";   // 左栏分组：应用、AI、插件
     readonly order?: number;                       // 组内顺序，缺省 0，同值按 id
-    readonly groups?: ReadonlyArray<{readonly id: string; readonly title: LocalizedText}>;
+    readonly groups?: ReadonlyArray<{readonly id: string; readonly title: Text}>;
 }
 // settings.pages
 interface SettingsPageDeclaration {
-    readonly title: LocalizedText;
-    readonly description?: LocalizedText;
+    readonly title: Text;
+    readonly description?: Text;
     readonly icon: string;
     readonly category: "app" | "ai" | "plugins";
     readonly order?: number;
     readonly layout?: "column" | "fill";           // 缺省 column
     readonly layers?: ReadonlyArray<"user" | "project">;   // 在哪些标签下可用，缺省两者
-    readonly keywords?: ReadonlyArray<LocalizedText>;      // 设置内搜索时另外比对的词（输出 21），至多 20 个
+    readonly keywords?: ReadonlyArray<Text>;               // 设置内搜索时另外比对的词（输出 21），至多 20 个
 }
 interface SettingsPageImplementation {
     load(): Promise<Component>;                    // 只取得组件定义；实例由窗口创建；props：{context: SettingsPageContext}
@@ -85,13 +87,31 @@ interface SettingsPageContext {
 |---|---|
 | `settings.sections` 写在插件描述的顶层；`settings.pages` 写在浏览器入口下 | 前者写在入口下为 `implementation-not-accepted`；后者写在顶层为 `implementation-required`，不是浏览器入口的贡献为 `invalid-declaration` |
 | 分区 id 是点分的小写段（`a-z`、`0-9`、`-`，每段以字母开头，至少两段）、至多 128 个字符；`nbook.*` 插件写 `nbook.<名>`，其它插件以自己的插件 id 加 `.` 开头 | `invalid-declaration` |
-| `title`、`description` 是文字（字符串、语言映射或文字引用，见 [`ui/i18n`](../ui/i18n.md)）；`icon` 非空；`category`、`layout`、`layers` 取上面的值；`order` 在 -1000000 到 1000000 之间；`keywords` 至多 20 个、每个都是文字 | 同上 |
+| `title`（登记时补全后）、`description` 是文字（字符串、语言映射或文字引用，见 [`ui/i18n`](../ui/i18n.md)）；`icon` 非空；`category`、`layout`、`layers` 取上面的值；`order` 在 -1000000 到 1000000 之间；`keywords` 至多 20 个、每个都是文字 | 同上 |
 | 小组 id 是一个小写段、至多 64 个字符，同一分区里不重复 | 同上 |
 | `layers` 非空、不重复 | 同上 |
 | 声明不认识的字段（包括已删除的 `kind`，以及 list 写 `layout`、`layers`，page 写 `groups`） | 同上 |
 | 同一分区 id 出现在两个贡献点上（内核按贡献点分别去重，不跨点查重） | 这个 id 的分区都不显示，记一条诊断，与登记顺序无关；指向它的配置项按“分区不存在”归入“其它” |
 
 配置项一侧的 `section`、`group`、`order`、`choices`、`applies` 见 [`settings.configuration`](configuration.md)“声明”。
+
+### 约定键
+
+宿主登记 `settings.properties`、`settings.sections`、`settings.pages` 的声明时，给省略的标题补上贡献方插件目录里的约定键，给没写命名空间的文字引用补上贡献方插件 id；通用规则见 [`ui/i18n`](../ui/i18n.md)“约定键”。写了的标题原样保留，不论是字符串、语言映射还是文字引用。
+
+| 贡献点 | 省略的字段 | 约定键 |
+|---|---|---|
+| `settings.properties`（键 `<插件 id>/<名>`） | `title` | `settings.<名>.title` |
+| 同上 | 字面量选项 `choices[].title` | `settings.<名>.choices.<String(值)>.title` |
+| `settings.sections` | `title` | `settingsSections.<本地 id>.title` |
+| 同上 | `groups[].title` | `settingsSections.<本地 id>.groups.<小组 id>.title` |
+| `settings.pages` | `title` | `settingsPages.<本地 id>.title` |
+
+- 本地 id 是分区 id 去掉 `<插件 id>.` 前缀后的部分，不以插件 id 开头时是完整 id（内置插件的分区写 `nbook.<名>`，本地 id 就是 `nbook.<名>`）；配置项的本地 id 是名，名里的点照写成键路径（`code.fontSize` 的标题键是 `settings.code.fontSize.title`）。
+- 选项值经 `String` 转成键里的段：`true` 写作 `true`，`1.5` 写作 `1.5`。值里的点同样拆成键路径，所以带点的选项值要在目录里按嵌套写；需要平铺的键时显式写 `title`。
+- `description`、`keywords` 这类可选字段省略就是没有，不补键。
+- 键在目录里缺不缺不在登记时核对（三个运行位置都登记同一份声明，内置插件的目录只在浏览器构建里）；内置插件的声明测试核对键都在源语言目录里，窗口里缺的键按 [`ui/i18n`](../ui/i18n.md) 的缺键规则显示并诊断。
+- 设置行的标题与选项名从配置服务的 `declaration(定义)` 取补全后的声明（[`settings.configuration`](configuration.md)“接口”）；插件自己拿着的定义是写下的样子，省略的标题不在里面。
 
 ### 选项提供者
 
@@ -248,12 +268,13 @@ page 分区的交付状态：
 5. Given 只读的设置文件，When 改一项，Then 发通知、控件回到实际值。
 6. When 拖动调整窗口大小后关掉再开、刷新页面，Then 仍是这个尺寸；切换分区时窗口尺寸不变。
 7. Given 一个 page 分区，When 切换标签，Then 页面拿到新的层并按层读写；When 页面加载失败，Then 原位显示错误、别的分区照常；When 所属入口停止，Then 原位显示停止原因。
+8. Given 不写标题的配置项（内置代码、SDK 辅助函数与手写清单各一条），When 服务端实例登记它们，Then 配置服务的 `declaration` 给出的标题是声明者插件命名空间下的约定键 `settings.<名>.title`；Given 不写标题的字面量选项、分区、小组与 page 分区，When 补全，Then 补出上表的键，写了的标题只补命名空间。
 
 Smoke 入口：`e2e/settings.e2e.ts`（扩展到设置窗口）。
 
 ## 实现合同
 
-- **公开入口**：`nbook/plugins/settings/shared/contracts`（贡献点 `SETTINGS_SECTIONS_POINT`、`SETTINGS_SECTION_CATEGORIES` 与 `SettingsSectionDeclaration`，命令 id `OPEN_SETTINGS_COMMAND`，公开键 `SETTINGS_WINDOW_OPEN_KEY`）；`nbook/plugins/settings/web/contracts`（`SettingsPageImplementation`、`SettingsPageContext`）；`nbook/ui/settings/SettingsRow.vue`、`nbook/ui/settings/SettingsPageList.vue`、`nbook/ui/settings/SettingsPageActions.vue`、`nbook/ui/settings/SettingsSaveBar.vue`。窗口模型 `createSettingsWindow`、分区注册表与窗口数据来源是 `nbook.settings` 的内部实现，数据来源经服务只发给 `nbook.settings` 自己的入口。
+- **公开入口**：`nbook/plugins/settings/shared/contracts`（贡献点 `SETTINGS_SECTIONS_POINT`、`SETTINGS_SECTION_CATEGORIES` 与 `SettingsSectionDeclaration`；作者写下的形状 `WrittenSettingsSectionDeclaration`、`WrittenSettingsPageDeclaration` 与补全函数 `completeSectionDeclaration`、`completePageDeclaration` 在 `nbook/plugins/settings/shared/sections`，命令 id `OPEN_SETTINGS_COMMAND`，公开键 `SETTINGS_WINDOW_OPEN_KEY`）；`nbook/plugins/settings/web/contracts`（`SettingsPageImplementation`、`SettingsPageContext`）；`nbook/ui/settings/SettingsRow.vue`、`nbook/ui/settings/SettingsPageList.vue`、`nbook/ui/settings/SettingsPageActions.vue`、`nbook/ui/settings/SettingsSaveBar.vue`。窗口模型 `createSettingsWindow`、分区注册表与窗口数据来源是 `nbook.settings` 的内部实现，数据来源经服务只发给 `nbook.settings` 自己的入口。
 - **owner 与依赖方向**：`nbook.settings` 的浏览器侧有两个相关入口。配置核心入口持有配置实例、`settings.pages` 的接收者（分区注册表，经宿主能力 `window.plugins` 查入口状态与重试）、`settings.choices` 的接收者（选项提供者注册表，同样查入口状态）与窗口数据来源；窗口入口持有窗口模型，贡献打开命令、公开键、活动栏底部条目（`workbench.activitybar-items`）与页面浮层（`workbench.overlays`），依赖工作台的通知与 Storage（窗口尺寸记录）。工作台依赖配置核心，窗口因此不在核心入口里，免得服务装配的静态环。通用列表经层拥有者的用户编辑写入（[`settings.configuration`](configuration.md) 输出 19）；page 分区的贡献方只引用上面的公开入口，写入走自己插件的配置服务。书架右上角的齿轮由 `nbook.projects` 画，只读公开键、执行命令（[`workbench.bookshelf`](../workbench/bookshelf.md) 输出 1）。
 - **关键不变量**：
   - 窗口数据来源（含用户编辑的写入路径）只发给 `nbook.settings` 自己、没有经过代理的入口；层的拥有者对用户编辑再按内核填写的调用方核对一次（`web/sections.test.ts`“设置窗口的数据来源只给 nbook.settings 自己”，`settings.test.ts`“用户编辑”）。
@@ -269,5 +290,5 @@ Smoke 入口：`e2e/settings.e2e.ts`（扩展到设置窗口）。
 
 - 批准依据：外观与文案的改动是开发者在 w00027 t06 评审中定的（2026-10-22，t06 README“设计决定”第 5–13 条）；外框、标题字号与本作品标签的沿用行是 w00027 t10 评审定的（2026-10-23，t10 README“设计决定”第 1–6 条）；开发者批准的 t80 实施计划（记录在主工作区 master 的 `.agents/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/plan.md`）“关键设计”第 2、4 节；窗口尺寸由开发者改为缺省 960×640（2026-10-12）；每项的混合排法（输出 9）由开发者确认（2026-10-12，t80 README 待定第 11 条）；开发者 2026-10-13 批准晋升为 `implemented`。
 - 实现入口：[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/settings/web/plugin.ts)（配置核心入口与窗口入口：分区贡献点、打开命令、公开键、活动栏齿轮与窗口浮层）、[`web/settings-window.ts`](../../../packages/neuro-book/src/plugins/settings/web/settings-window.ts)（窗口模型）、[`web/sections.ts`](../../../packages/neuro-book/src/plugins/settings/web/sections.ts)（分区注册表与交付状态）、[`web/choices.ts`](../../../packages/neuro-book/src/plugins/settings/web/choices.ts)（选项提供者注册表）、[`web/components/SettingsFileView.vue`](../../../packages/neuro-book/src/plugins/settings/web/components/SettingsFileView.vue)（设置文件视图）、[`web/components/SettingsWindow.vue`](../../../packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.vue)、[`src/ui/settings/`](../../../packages/neuro-book/src/ui/settings/)（`SettingsRow`、`SettingsPageList`、`SettingsPageActions`、`SettingsSaveBar`、`settingsPage`，标题区的登记 `page-chrome.ts`，搜索命中的标记 `highlight.ts` 与 `HighlightedText`）
-- 合同测试：[`window.test.ts`](../../../packages/neuro-book/src/plugins/settings/window.test.ts)（落位、打开命令、尺寸、按需激活、搜索、未保存保护、page 加载、写入与层的说明、设置文件视图，真实内核与真实设置文件）、[`web/sections.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/sections.test.ts)（分区的登记校验与交付状态）、[`web/choices.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/choices.test.ts)（选项提供者的登记校验、状态、出错边界与按需激活）、[`commands.test.ts`](../../../packages/neuro-book/src/plugins/settings/commands.test.ts)（打开命令的登记、参数与公开键）、组件测试 [`SettingsWindow.dom.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.dom.test.ts)、[`SettingsRow.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsRow.dom.test.ts)、[`SettingsPageList.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsPageList.dom.test.ts)、[`SettingsPageActions.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsPageActions.dom.test.ts)、[`SettingsSaveBar.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsSaveBar.dom.test.ts)、[`highlight.test.ts`](../../../packages/neuro-book/src/ui/settings/highlight.test.ts)、[`settings-page.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/settings-page.dom.test.ts)；[`06-settings-page.test.ts`](../../../packages/neuro-book/plugin-sdk/examples/scenarios/06-settings-page.test.ts)（示例插件 [snippets](../../../packages/neuro-book/plugin-sdk/examples/plugins/snippets/) 的 page 分区：声明、交付与撤回、按层写入、越权写入）
+- 合同测试：[`window.test.ts`](../../../packages/neuro-book/src/plugins/settings/window.test.ts)（落位、打开命令、尺寸、按需激活、搜索、未保存保护、page 加载、写入与层的说明、设置文件视图，真实内核与真实设置文件）、[`web/sections.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/sections.test.ts)（分区的登记校验与交付状态）、[`web/choices.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/choices.test.ts)（选项提供者的登记校验、状态、出错边界与按需激活）、[`commands.test.ts`](../../../packages/neuro-book/src/plugins/settings/commands.test.ts)（打开命令的登记、参数与公开键）、组件测试 [`SettingsWindow.dom.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.dom.test.ts)、[`SettingsRow.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsRow.dom.test.ts)、[`SettingsPageList.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsPageList.dom.test.ts)、[`SettingsPageActions.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsPageActions.dom.test.ts)、[`SettingsSaveBar.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsSaveBar.dom.test.ts)、[`highlight.test.ts`](../../../packages/neuro-book/src/ui/settings/highlight.test.ts)、[`settings-page.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/settings-page.dom.test.ts)；[`06-settings-page.test.ts`](../../../packages/neuro-book/plugin-sdk/examples/scenarios/06-settings-page.test.ts)（示例插件 [snippets](../../../packages/neuro-book/plugin-sdk/examples/plugins/snippets/) 的 page 分区：声明、交付与撤回、按层写入、越权写入）；约定键（验收 8）：[`convention-keys.test.ts`](../../../packages/neuro-book/src/convention-keys.test.ts)（真实服务端实例与配置服务；各贡献点补出的键与上表逐条对照）
 - Smoke：[`settings.e2e.ts`](../../../packages/neuro-book/e2e/settings.e2e.ts)（验收 1–4、6：工作台与书架的齿轮、`Ctrl+,`、`Esc` 后焦点回到打开前的位置，两个页面即时变化，本作品覆盖与移除，恢复默认后的文件，文件改坏与修好，尺寸跨关闭与刷新、每次打开居中；输出 21、23：`Ctrl+F` 搜索并改掉一项、`Esc` 先清空，设置文件视图 `Ctrl+S` 保存后原样落盘、经它修好改坏的文件；输出 20、22：Lab“模型服务”的草稿、保存被拒与确认离开；输出 12、16：沿用的行直接改写进本作品层，窗口顶上、左栏顶上与标题区的空白能拖、输入框上不拖，关闭按钮在几种宽度与 fill 视图里不压内容）；[`bookshelf.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf.e2e.ts)（“作品”分区的目录选择器叠在窗口上）；Lab 场景 `SettingsWindow`、`SettingsRow`、`SettingsPageList`、`SettingsPageActions`（`lab-scenes.e2e.ts` 逐个检查溢出与焦点环）；通用控件的选择、约束与提交时机由 `ui.forms` 的测试覆盖

@@ -20,15 +20,17 @@
  * - 默认模型的选项来自同一插件的选项提供者（已保存的服务商的模型），经 `context.options` 交给字段。
  */
 import {resolveForm, validateForm} from "@notnotype/nb-form";
-import type {FormText} from "@notnotype/nb-form";
+import type {FormHints, FormText} from "@notnotype/nb-form";
 import {describeIssues, SchemaField, widgetLayout} from "@notnotype/nb-form/vue";
 import type {DraftState} from "@notnotype/nb-form/vue";
 import {Button, IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, reactive, ref, shallowRef, useId, watch} from "vue";
 
 import {canonical} from "nbook/plugins/settings/shared/layers";
 import {settingHints} from "nbook/plugins/settings/web/setting-form";
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
+import {resolverFor} from "nbook/shared/localized-text";
 import type {SettingDefinition, SettingsService} from "nbook/shared/settings";
 import {settingsFailureText} from "nbook/ui/settings/setting-text";
 import SettingsPageActions from "nbook/ui/settings/SettingsPageActions.vue";
@@ -43,6 +45,13 @@ const props = defineProps<{
     context: SettingsPageContext;
     settings: SettingsService;
 }>();
+
+/** 页面拿着的是自己写下的定义；选项名取配置服务里接受的声明（登记时补全过），与设置窗口一致。 */
+const declaredText = resolverFor(() => "zh-CN", useText());
+const hintsOf = (setting: SettingDefinition<unknown>): FormHints => {
+    const accepted = props.settings.declaration(setting);
+    return accepted === null ? {} : settingHints(accepted, declaredText);
+};
 
 type Providers = typeof modelsSettings.providers extends SettingDefinition<infer T> ? T : never;
 type Provider = Providers[number];
@@ -211,7 +220,7 @@ async function save(anyway = false): Promise<void> {
     if (changedElsewhere.value && !anyway) return;
     // 先把输入框里还没提交的草稿交出来（点按钮时它们已经失焦提交，键盘触发时不一定）。
     for (const field of fields.value) field.commit();
-    const [first] = describeIssues(providers.declaration.schema, draft.value, issues.value, "zh-CN", settingHints(providers.declaration));
+    const [first] = describeIssues(providers.declaration.schema, draft.value, issues.value, "zh-CN", hintsOf(providers));
     if (first !== undefined || unparseable.size > 0) {
         failure.value = TEXT.notSaved.replace("{reason}", first ?? "有解析不了的输入");
         return;
@@ -265,7 +274,7 @@ async function writeNow(setting: SettingDefinition<unknown>, value: unknown): Pr
                         <SchemaField
                             :id="row.id"
                             :schema="setting.declaration.schema"
-                            :hints="settingHints(setting.declaration)"
+                            :hints="hintsOf(setting)"
                             :options="context.options"
                             :model-value="row.value"
                             locale="zh-CN"

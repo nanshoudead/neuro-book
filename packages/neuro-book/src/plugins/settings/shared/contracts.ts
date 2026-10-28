@@ -159,7 +159,8 @@ export async function switchSetting<T extends string>(options: {
     readonly setting: SettingDefinition<T>;
     readonly value: T | undefined;
     readonly choices: ReadonlyArray<SettingChoice<T>>;
-    readonly title: LocalizedText;
+    /** 选择的标题，通常就是命令的标题。 */
+    readonly title: DisplayText;
 }): Promise<CommandResult<null>> {
     const {settings, setting} = options;
     let value = options.value;

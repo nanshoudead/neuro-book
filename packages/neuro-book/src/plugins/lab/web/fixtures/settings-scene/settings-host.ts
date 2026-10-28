@@ -17,8 +17,9 @@ import type {ContributionDescriptor, ContributionHandle, EntryState, RevokeReaso
 import {SETTINGS_CHOICES_POINT, SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT} from "nbook/plugins/settings/shared/contracts";
 import type {SettingsChoicesDeclaration, SettingsPageDeclaration, SettingsSectionDeclaration} from "nbook/plugins/settings/shared/contracts";
 import {createSettingsInstance} from "nbook/plugins/settings/shared/instance";
+import {acceptedSettingOf} from "nbook/plugins/settings/shared/point";
 import type {SettingsInstance} from "nbook/plugins/settings/shared/instance";
-import type {DeclaredSetting} from "nbook/plugins/settings/shared/layers";
+import type {AcceptedSetting} from "nbook/plugins/settings/shared/layers";
 import {ChoiceSourceRegistry} from "nbook/plugins/settings/web/choices";
 import type {SettingsChoicesImplementation, SettingsPageImplementation} from "nbook/plugins/settings/web/contracts";
 import {SettingsSectionRegistry} from "nbook/plugins/settings/web/sections";
@@ -97,7 +98,8 @@ export interface SettingsHost {
 const consumer = (plugin: string): ConsumerIdentity => ({instanceId: "lab", location: "browser", client: "lab", plugin, entry: "browser", generation: 1, via: null});
 
 export function createSettingsHost(options: SettingsHostOptions): SettingsHost {
-    const declarations = new Map<string, DeclaredSetting>(options.settings.map((setting) => [setting.definition.key, {plugin: setting.plugin, declaration: setting.definition.declaration}]));
+    // Lab 不经插件宿主登记：照登记时那样补全并校验（`acceptedSettingOf`），与产品里经登记得到的声明相同。
+    const declarations = new Map<string, AcceptedSetting>(options.settings.map((setting) => [setting.definition.key, acceptedSettingOf(setting.plugin, setting.definition)]));
     const connection = memoryConnection();
     const user = memoryLayer({layer: "user", declarations, connection, ...options.user});
     const project = options.project === undefined ? null : memoryLayer({layer: "project", declarations, connection, ...options.project});

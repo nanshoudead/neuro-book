@@ -11,6 +11,7 @@ import {Value} from "typebox/value";
 
 import type {ContributionDescriptor, ContributionHandle, ContributionReceiver} from "@notnotype/nb-runtime/plugins";
 
+import {conventionCompleter} from "nbook/shared/convention-keys";
 import {TextSchema} from "nbook/shared/text";
 import type {LocalizedText, TextResolver} from "nbook/shared/localized-text";
 
@@ -73,6 +74,9 @@ export function menuLocation(point: string, extra: TProperties, options: {readon
 }
 
 const ITEM_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u;
+
+/** 菜单位置的补全：菜单项的 `label` 没有约定键（没写时显示命令的标题），只给文字引用补命名空间。 */
+export const completeMenuItemDeclaration = conventionCompleter(null);
 
 /**
  * 这个位置的登记校验（menus.md 的规则表）：只看这一条声明本身。id 规则与工作台的条目贡献点相同；同 id 的两条由内核一起

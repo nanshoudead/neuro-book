@@ -22,7 +22,7 @@ import type {ItemImplementation} from "../contracts";
 
 export type ItemState = "normal" | "warning" | "error";
 
-/** 外壳此刻要画的一个条目：文字都已按语言取好。 */
+/** 外壳此刻要画的一个条目：文字（声明的标题与实现给的文字、提示）都已按当前语言翻好。 */
 export interface ShownItem {
     readonly id: string;
     readonly title: string;
@@ -109,7 +109,8 @@ export class ItemRegistry {
         };
         try {
             const implementation = handle.implementation();
-            return {...base, text: implementation.text(), tooltip: implementation.tooltip?.() ?? null, state: implementation.state?.() ?? "normal"};
+            const tooltip = implementation.tooltip?.();
+            return {...base, text: text.t(implementation.text()), tooltip: tooltip === undefined ? null : text.t(tooltip), state: implementation.state?.() ?? "normal"};
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             if (!this.#reported.has(handle)) {

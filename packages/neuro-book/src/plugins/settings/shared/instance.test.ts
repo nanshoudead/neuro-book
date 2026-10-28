@@ -15,12 +15,13 @@ import {defineSetting} from "nbook/shared/settings";
 
 import {createSettingsInstance, FIRST_SNAPSHOT_MS} from "./instance";
 import type {LayerLink, LinkSubscribe} from "./instance";
-import type {DeclaredSetting, LayerSnapshot, LayerWriteResult} from "./layers";
+import type {AcceptedSetting, LayerSnapshot, LayerWriteResult} from "./layers";
+import {acceptedSettingOf} from "./point";
 
 const title = {"zh-CN": "项", "en-US": "Item"};
 const theme = defineSetting({plugin: "x.ui", name: "theme", schema: Type.String(), default: "nbook", title});
 const size = defineSetting({plugin: "x.ui", name: "size", schema: Type.Number(), default: 12, title});
-const declarations = new Map<string, DeclaredSetting>([theme, size].map((setting) => [setting.key, {plugin: "x.ui", declaration: setting.declaration}]));
+const declarations = new Map<string, AcceptedSetting>([theme, size].map((setting) => [setting.key, acceptedSettingOf("x.ui", setting)]));
 const consumer: ConsumerIdentity = {instanceId: "w", location: "browser", client: "c", plugin: "x.ui", entry: "browser", generation: 1, via: null};
 
 function snapshot(seq: number, values: Record<string, unknown>, status: "ok" | "invalid" = "ok"): LayerSnapshot {

@@ -4,9 +4,10 @@
  * 本作品的设置经传入的配置服务写这一层。规则见 docs/specs/settings/settings-window.md 输出 9–13、18。
  */
 import {IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, ref, useId} from "vue";
 
-import {formatText, localize} from "nbook/shared/localized-text";
+import {formatText, localize, resolverFor} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 import type {SettingDefinition, SettingLayer, SettingsFailure, SettingsService} from "nbook/shared/settings";
 
@@ -67,6 +68,8 @@ const REASON_ICON = {error: "i-lucide-circle-alert", warning: "i-lucide-triangle
 const SEVERITY = {error: 2, warning: 1, muted: 0} as const;
 
 const text = (template: LocalizedText, params: Readonly<Record<string, string>> = {}): string => localize(formatText(template, params), props.locale);
+/** 声明里的文字（标题、说明、选项名）：文字引用查宿主注入的目录。 */
+const declared = resolverFor(() => props.locale, useText());
 
 const controlId = useId();
 const labelId = `${controlId}-label`;
@@ -74,12 +77,16 @@ const descriptionId = `${controlId}-description`;
 const inheritedId = `${controlId}-inherited`;
 const appliesId = `${controlId}-applies`;
 const reasonsId = `${controlId}-reasons`;
-const declaration = computed(() => props.setting.declaration);
+/**
+ * 本实例接受的声明（登记时补全过，标题总有值）；没被接受时退回写下的样子，标题显示键。插件页面传进来的是自己的定义，
+ * 省略的标题只在接受的声明里有。
+ */
+const declaration = computed(() => props.settings.declaration(props.setting) ?? props.setting.declaration);
 const inspection = computed(() => props.settings.inspect(props.setting));
 const state = computed(() => settingsRowState(inspection.value, declaration.value.layers, props.layer));
 const override = computed(() => projectOverride(inspection.value, declaration.value.layers, props.layer));
-const title = computed(() => localize(declaration.value.title, props.locale));
-const description = computed(() => (declaration.value.description === undefined ? null : localize(declaration.value.description, props.locale)));
+const title = computed(() => (declaration.value.title === undefined ? props.setting.key : declared.t(declaration.value.title)));
+const description = computed(() => (declaration.value.description === undefined ? null : declared.t(declaration.value.description)));
 const applies = computed(() => settingAppliesText(declaration.value.applies, props.locale));
 /** schema 写了 `readOnly`：不画控件，只写当前值（输出 9）。 */
 const readOnly = computed(() => isReadOnlySetting(declaration.value));
@@ -98,7 +105,7 @@ const marked = computed(() => modified.value && !readOnly.value);
 const blocked = computed(() => state.value.kind !== "not-allowed" && state.value.blocked);
 /** 此刻这一层显示的值：写了取这一层，没写取下一层；控件与只读行都用它。 */
 const shown = computed(() => (state.value.kind === "edit" ? state.value.value : state.value.kind === "inherit" ? state.value.inherited : undefined));
-const valueText = (value: unknown): string => settingValueText(declaration.value, value, props.locale);
+const valueText = (value: unknown): string => settingValueText(declaration.value, value, props.locale, declared);
 /** 最右一格的动作：用户标签是“恢复默认”，本作品标签是“移除本作品的设置”，同一个图标按钮。 */
 const resetText = computed(() => text(props.layer === "user" ? TEXT.reset : TEXT.remove));
 

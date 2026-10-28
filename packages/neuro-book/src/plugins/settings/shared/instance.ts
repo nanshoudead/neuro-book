@@ -23,7 +23,7 @@ import type {DeepReadonly, LayerInspection, SettingDefinition, SettingInspection
 
 import {settingsKey} from "./contracts";
 import {canonical, effectiveOf, supersedes, writeProblem} from "./layers";
-import type {DeclaredSetting, LayerEdit, LayerSnapshot, LayerTextPosition, LayerWriteResult} from "./layers";
+import type {AcceptedSetting, DeclaredSetting, LayerEdit, LayerSnapshot, LayerTextPosition, LayerWriteResult} from "./layers";
 
 export type LinkSubscribe =
     | {readonly ok: true; release(): void}
@@ -41,7 +41,7 @@ export interface LayerLink {
 export interface SettingsInstanceOptions {
     readonly layers: Readonly<Partial<Record<SettingLayer, LayerLink>>>;
     /** 已接受的声明；插件集合在实例的一生里不变（热插拔实现后改为随登记失效）。 */
-    readonly declarations: ReadonlyMap<string, DeclaredSetting>;
+    readonly declarations: ReadonlyMap<string, AcceptedSetting>;
     readonly clock: RuntimeClock;
     readonly firstSnapshotMs: number;
     /** 浏览器窗口的连接状态；没有时（服务端、项目实例）失败的层不重新订阅。 */
@@ -237,6 +237,7 @@ export function createSettingsInstance(options: SettingsInstanceOptions): Settin
                     project: inspectLayer<T>("project", setting.key),
                 };
             },
+            declaration: (setting) => options.declarations.get(setting.key)?.declaration ?? null,
             onDidChange: (listener) => {
                 const registration: Registration = {listener};
                 listeners.add(registration);

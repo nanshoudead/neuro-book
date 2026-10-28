@@ -18,6 +18,7 @@ import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import {MENU_BUTTON, MENU_EXTENSIONS, menuItemValidator, menuLocation} from "nbook/plugins/commands/shared/contracts";
 import type {MenuItemDeclaration} from "nbook/plugins/commands/shared/contracts";
+import {conventionCompleter} from "nbook/shared/convention-keys";
 import {TextSchema} from "nbook/shared/text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
@@ -98,6 +99,9 @@ export const EditorPageDeclarationSchema = Type.Object({
 
 export type EditorPageDeclaration = Static<typeof EditorPageDeclarationSchema>;
 
+/** `editor.pages` 的补全：没写 `title` 时补约定键 `editorPages.<本地 id>.title`（docs/specs/workbench/editor.md 的“约定键”）。 */
+export const completeEditorPageDeclaration = conventionCompleter({name: "editorPages", fields: ["title"]});
+
 const PAGE_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u;
 
 /** 页面 id 的前缀由内核按贡献点的 `idPrefix` 核对（同视图），这里只看形状与声明。 */
@@ -141,6 +145,9 @@ export const EditorDeclarationSchema = Type.Object({
 }, {additionalProperties: false});
 
 export type EditorDeclaration = Static<typeof EditorDeclarationSchema>;
+
+/** `editor.editors` 的补全：没写 `title` 时补约定键 `editors.<本地 id>.title`。 */
+export const completeEditorDeclaration = conventionCompleter({name: "editors", fields: ["title"]});
 
 export function validateEditorContribution(descriptor: ContributionDescriptor): string | null {
     if (descriptor.location !== "browser") return `${EDITOR_EDITORS_POINT} 只接受浏览器入口的贡献`;

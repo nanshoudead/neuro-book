@@ -9,16 +9,19 @@
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
-import type {LocalizedText} from "nbook/shared/localized-text";
+import type {Text} from "@notnotype/nb-ui/text";
 
 /** 贡献点 id：贡献 id 写限定名 `<插件 id>/<名>`。 */
 export const PUBLIC_STATE_POINT = "state.public";
 
 export type PublicStateValue = boolean | string | number;
 
-/** 公开键的声明。`unready` 是没有可用绑定时读到的值；`reason` 只给布尔键，是值不为 true 时给用户看的原因。 */
+/**
+ * 公开键的声明。`unready` 是没有可用绑定时读到的值；`reason` 只给布尔键，是值不为 true 时给用户看的原因。原因里不带命名空间的
+ * 文字引用由登记处补上声明者的插件 id；只有窗口翻得了文字引用（docs/specs/state/public-state.md 的“声明”）。
+ */
 export type PublicStateDeclaration =
-    | {readonly type: "boolean"; readonly unready: boolean; readonly reason?: LocalizedText}
+    | {readonly type: "boolean"; readonly unready: boolean; readonly reason?: Text}
     | {readonly type: "string"; readonly unready: string}
     | {readonly type: "number"; readonly unready: number};
 

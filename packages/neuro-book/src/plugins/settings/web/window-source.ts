@@ -16,19 +16,19 @@ import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import type {WindowPluginRetry} from "nbook/shared/host";
 import {SETTINGS_POINT} from "nbook/shared/settings";
-import type {SettingDefinition, SettingLayer, SettingWriteResult} from "nbook/shared/settings";
+import type {SettingDeclaration, SettingDefinition, SettingLayer, SettingWriteResult} from "nbook/shared/settings";
 
 import type {InstanceLayerState, SettingsInstance} from "../shared/instance";
 import {userEditProblem} from "../shared/layers";
-import type {DeclaredSetting, LayerEdit} from "../shared/layers";
+import type {AcceptedSetting, LayerEdit} from "../shared/layers";
 import type {LayerEditor, LayerFile} from "../shared/remote-link";
 import type {ChoiceSourceRegistry} from "./choices";
 import type {SettingsPageDelivery, SettingsPageLoad, SettingsSectionEntry, SettingsSectionRegistry} from "./sections";
 
-/** 一条已接受的配置项声明：声明者与可交给配置服务读写的定义。 */
+/** 一条已接受的配置项声明：声明者与可交给配置服务读写的定义；声明是登记时补全过的，标题总有值。 */
 export interface WindowSetting {
     readonly plugin: string;
-    readonly definition: SettingDefinition<unknown>;
+    readonly definition: SettingDefinition<unknown> & {readonly declaration: SettingDeclaration};
 }
 
 export interface SettingsWindowSource {
@@ -62,7 +62,7 @@ export const settingsWindowSourceKey: ServiceKey<SettingsWindowSource> = defineS
 export interface SettingsWindowSourceOptions {
     readonly sections: SettingsSectionRegistry;
     readonly choices: ChoiceSourceRegistry;
-    readonly declarations: ReadonlyMap<string, DeclaredSetting>;
+    readonly declarations: ReadonlyMap<string, AcceptedSetting>;
     /** 窗口没有绑定作品时没有项目层。 */
     readonly editors: {readonly user: LayerEditor; readonly project?: LayerEditor};
     readonly files: {readonly user: LayerFile; readonly project?: LayerFile};
@@ -117,7 +117,7 @@ export function createSettingsWindowSource(options: SettingsWindowSourceOptions)
 }
 
 /** 配置项声明里 `choices: {from}` 引用的提供者 id：没有人提供的也要在选项源里，显示为不可用。 */
-export function choiceReferences(declarations: ReadonlyMap<string, DeclaredSetting>): ReadonlyArray<string> {
+export function choiceReferences(declarations: ReadonlyMap<string, AcceptedSetting>): ReadonlyArray<string> {
     return [...declarations.values()].flatMap(({declaration}) => {
         const choices = declaration.choices;
         return choices !== undefined && "from" in choices ? [choices.from] : [];

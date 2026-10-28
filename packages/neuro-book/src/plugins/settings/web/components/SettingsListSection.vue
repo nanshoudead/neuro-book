@@ -41,7 +41,7 @@ const TEXT = {
 
 const locale = props.window.locale;
 
-const formOf = (setting: WindowSetting) => settingForm(setting.definition.declaration);
+const formOf = (setting: WindowSetting) => settingForm(setting.definition.declaration, locale.value, props.window.text);
 
 /**
  * 结构字段还不合格的值：留在行里、不写。`base` 是留下时层里的值（JSON 文本）：层里的值变了（恢复默认、别处改了）就

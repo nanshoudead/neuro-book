@@ -12,8 +12,13 @@ import type {Application} from "@notnotype/nb-runtime/application";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
+import type {Text} from "@notnotype/nb-ui/text";
+
 import {createApplication} from "nbook/application";
 import type {PublicStateRead} from "nbook/plugins/state/shared/contracts";
+import {resolverFor} from "nbook/shared/localized-text";
+import {pluginText} from "nbook/shared/plugin-text";
+import {createTextEngine} from "nbook/web/host/text-engine";
 
 import {statusbarItemsPoint, titlebarItemsPoint, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "../../shared/items";
 import type {ItemDeclaration} from "../../shared/items";
@@ -64,10 +69,10 @@ function ownerPlugin(owner: Owner): PluginDefinition {
 
 interface Control {
     context: ActivationContext | null;
-    text: () => string;
+    text: () => Text;
 }
 
-function contributor(id: string, items: Readonly<Record<string, ItemDeclaration>>, control: Control, point: string = WORKBENCH_STATUSBAR_ITEMS_POINT): PluginDefinition {
+function contributor(id: string, items: Readonly<Record<string, Partial<ItemDeclaration>>>, control: Control, point: string = WORKBENCH_STATUSBAR_ITEMS_POINT): PluginDefinition {
     return {
         id,
         entries: [{
@@ -95,7 +100,7 @@ async function start(plugins: ReadonlyArray<PluginDefinition>): Promise<{applica
     return {application, owner};
 }
 
-const control = (text: () => string = () => "文字"): Control => ({context: null, text});
+const control = (text: () => Text = () => "文字"): Control => ({context: null, text});
 
 describe("条目注册表", () => {
     it("交付后出现：左侧在前，同侧按 order 再按 id；文字、提示与状态取实现；标题按语言", async () => {
@@ -108,6 +113,19 @@ describe("条目注册表", () => {
         expect(shown.map((item) => item.id)).toEqual(["test.items.left", "test.items.a", "test.items.b"]);
         expect(shown[0]).toMatchObject({title: "标题L", text: "文字", tooltip: "提示", state: "warning", command: {id: "nbook.editor.save-all", args: {}}});
         expect(owner.status!.shown(textIn("en-US"))[1]!.title).toBe("Title A");
+    });
+
+    it("实现返回固定的文字引用、声明省略标题：都按窗口当前语言翻译，切换语言后在 computed 里重算", async () => {
+        const engine = createTextEngine({locale: "zh-CN", strict: true, report: () => undefined});
+        engine.register("test.items", {"zh-CN": {count: "次数", statusItems: {count: {title: "计数"}}}, "en-US": {count: "Count", statusItems: {count: {title: "Counter"}}}}, "zh-CN");
+        // 同一个引用对象每次渲染都交回去：文字变化只能来自语言切换。
+        const fixed = pluginText("test.items")("count");
+        const {owner} = await start([contributor("test.items", {"test.items.count": {alignment: "right", order: 0, priority: 0}}, control(() => fixed))]);
+        const text = resolverFor(() => engine.port.locale.value, engine.port);
+        const shown = computed(() => owner.status!.shown(text).map((item) => `${item.title}/${item.text}`));
+        expect(shown.value).toEqual(["计数/次数"]);
+        engine.setLocale("en-US");
+        expect(shown.value).toEqual(["Counter/Count"]);
     });
 
     it("when 的键都已就绪且为真才显示；值变化后在 computed 里重算", async () => {

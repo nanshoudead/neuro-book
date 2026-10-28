@@ -473,6 +473,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     const editing: SettingsService = {
         get: (setting) => options.settings.get(setting),
         inspect: (setting) => options.settings.inspect(setting),
+        declaration: (setting) => options.settings.declaration(setting),
         onDidChange: (listener) => options.settings.onDidChange(listener),
         // `SettingsRow` 总给出层；没给时写当前标签那一层，与通用控件一致。
         update: <T>(setting: SettingDefinition<T>, value: T | undefined, update: SettingUpdateOptions = {}): Promise<SettingWriteResult> => {

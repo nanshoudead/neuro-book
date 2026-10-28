@@ -9,18 +9,20 @@ import type {FieldKind, FormHints, FormIssue, FormModel} from "@notnotype/nb-for
 import {widgetLayout} from "@notnotype/nb-form/vue";
 import type {WidgetLayout} from "@notnotype/nb-form/vue";
 
+import type {DisplayLocale, TextResolver} from "nbook/shared/localized-text";
 import type {SettingDeclaration} from "nbook/shared/settings";
 
 /**
  * `choices` → `x-form.choices`（`title` 改名 `label`），动态选项 `{from}` → `x-form.options`；设置窗口还没有把选项来源
  * 交给表单，这样的项按来源不可用显示（docs/specs/ui/forms.md 输出 11）。
- * `ui` 的各项与 `x-form` 同名，照抄。标题与说明由 `SettingsRow` 画，不进提示。
+ * `ui` 的各项与 `x-form` 同名，照抄。标题与说明由 `SettingsRow` 画，不进提示。选项的文字经 `text` 翻成当前语言再交给表单：
+ * 表单的文字只认字符串与语言映射，选项标题可能是文字引用（登记时补的约定键）。
  */
-export function settingHints(declaration: SettingDeclaration): FormHints {
+export function settingHints(declaration: SettingDeclaration, text: TextResolver): FormHints {
     const {choices, ui} = declaration;
     if (choices === undefined) return {...ui};
     if ("from" in choices) return {...ui, options: choices.from};
-    return {...ui, choices: choices.map((choice) => ({value: choice.value, label: choice.title, ...(choice.description === undefined ? {} : {description: choice.description})}))};
+    return {...ui, choices: choices.map((choice) => ({value: choice.value, label: text.t(choice.title), ...(choice.description === undefined ? {} : {description: text.t(choice.description)})}))};
 }
 
 /**
@@ -40,17 +42,25 @@ export interface SettingForm {
     readonly width: WidgetLayout["width"];
 }
 
-/** 声明是冻结的、登记后不变：按声明记住结果，提示每次渲染是同一个对象，表单不必重算描述。 */
-const forms = new WeakMap<SettingDeclaration, SettingForm>();
+/**
+ * 声明是冻结的、登记后不变：按声明与语言记住结果，提示每次渲染是同一个对象，表单不必重算描述。提示里的选项文字随语言
+ * 变，所以按语言各记一份；同一语言下翻译结果不变，因为窗口的目录在挂载前登记、之后不换（在线替换随热插拔）。
+ */
+const forms = new WeakMap<SettingDeclaration, Map<DisplayLocale, SettingForm>>();
 
-export function settingForm(declaration: SettingDeclaration): SettingForm {
-    let form = forms.get(declaration);
+export function settingForm(declaration: SettingDeclaration, locale: DisplayLocale, text: TextResolver): SettingForm {
+    let byLocale = forms.get(declaration);
+    if (byLocale === undefined) {
+        byLocale = new Map();
+        forms.set(declaration, byLocale);
+    }
+    let form = byLocale.get(locale);
     if (form === undefined) {
-        const hints = settingHints(declaration);
+        const hints = settingHints(declaration, text);
         const layout = widgetLayout(declaration.schema, hints);
         const model = resolveForm(declaration.schema);
         form = {hints, model, staged: STAGED_KINDS.has(model.root.kind), wide: layout.block, width: layout.width};
-        forms.set(declaration, form);
+        byLocale.set(locale, form);
     }
     return form;
 }

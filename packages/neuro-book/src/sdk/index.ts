@@ -38,6 +38,8 @@ export type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 export {clockKey as hostClockKey, stateRootKey as hostStateRootKey} from "nbook/shared/host";
 export type {StateRoot} from "nbook/shared/host";
 
-// 多语言文字。
+// 多语言文字。`pluginText` 给代码里直接构造的文字引用绑定插件 id（声明里的引用由宿主登记时补命名空间）。
 export {formatText, localize} from "nbook/shared/localized-text";
+export {pluginText} from "nbook/shared/plugin-text";
+export type {CatalogKey} from "nbook/shared/plugin-text";
 export type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";

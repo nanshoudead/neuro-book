@@ -9,6 +9,7 @@ import {Value} from "typebox/value";
 
 import type {ContributionDescriptor, ContributionPointDefinition} from "@notnotype/nb-runtime/plugins";
 
+import {conventionCompleter} from "nbook/shared/convention-keys";
 import {TextSchema} from "nbook/shared/text";
 
 export const WORKBENCH_STATUSBAR_ITEMS_POINT = "workbench.statusbar-items";
@@ -87,7 +88,10 @@ export function validateActivityBarItemContribution(descriptor: ContributionDesc
     return null;
 }
 
-/** 三个条目贡献点：插件与测试都用这一份定义。条目只有声明，内核却只能对整个贡献点规定要不要实现：要实现，贡献方交空对象。 */
-export const statusbarItemsPoint: ContributionPointDefinition = {id: WORKBENCH_STATUSBAR_ITEMS_POINT, implementation: "required", idPrefix: "plugin", validate: itemValidator(WORKBENCH_STATUSBAR_ITEMS_POINT)};
-export const titlebarItemsPoint: ContributionPointDefinition = {id: WORKBENCH_TITLEBAR_ITEMS_POINT, implementation: "required", idPrefix: "plugin", validate: itemValidator(WORKBENCH_TITLEBAR_ITEMS_POINT)};
-export const activityBarItemsPoint: ContributionPointDefinition = {id: WORKBENCH_ACTIVITYBAR_ITEMS_POINT, implementation: "required", idPrefix: "plugin", validate: validateActivityBarItemContribution};
+/**
+ * 三个条目贡献点：插件与测试都用这一份定义。条目只有声明，内核却只能对整个贡献点规定要不要实现：要实现，贡献方交空对象。
+ * 没写 `title` 时补约定键 `statusItems`、`titlebarItems`、`activityItems` 加 `.<本地 id>.title`（ui/workbench-shell.md 输出 33、40）。
+ */
+export const statusbarItemsPoint: ContributionPointDefinition = {id: WORKBENCH_STATUSBAR_ITEMS_POINT, implementation: "required", idPrefix: "plugin", complete: conventionCompleter({name: "statusItems", fields: ["title"]}), validate: itemValidator(WORKBENCH_STATUSBAR_ITEMS_POINT)};
+export const titlebarItemsPoint: ContributionPointDefinition = {id: WORKBENCH_TITLEBAR_ITEMS_POINT, implementation: "required", idPrefix: "plugin", complete: conventionCompleter({name: "titlebarItems", fields: ["title"]}), validate: itemValidator(WORKBENCH_TITLEBAR_ITEMS_POINT)};
+export const activityBarItemsPoint: ContributionPointDefinition = {id: WORKBENCH_ACTIVITYBAR_ITEMS_POINT, implementation: "required", idPrefix: "plugin", complete: conventionCompleter({name: "activityItems", fields: ["title"]}), validate: validateActivityBarItemContribution};

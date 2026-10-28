@@ -4,9 +4,11 @@
  * 插件自己的配置服务，与 page 页面一样。场景输入是行的数据属性，配置服务由这里补上。
  */
 import {SchemaField} from "@notnotype/nb-form/vue";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, onBeforeUnmount} from "vue";
 
 import {settingForm} from "nbook/plugins/settings/web/setting-form";
+import {resolverFor} from "nbook/shared/localized-text";
 import type {SettingLayer} from "nbook/shared/settings";
 import SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 
@@ -58,7 +60,12 @@ const bindings = computed(() => subject.bindings.value);
 const setting = computed(() => bindings.value.setting);
 /** 声明者自己的配置服务：恢复默认、移除本作品的设置与控件改值都只写它声明的这一项。 */
 const settings = computed(() => host.service(SETTINGS.find((entry) => entry.definition.key === setting.value.key)?.plugin ?? "nbook.workbench"));
-const form = computed(() => settingForm(setting.value.declaration));
+const text = resolverFor(() => bindings.value.locale, useText());
+/** 选项名取配置服务里接受的声明（登记时补全过），与设置窗口一致；场景的项都在局部宿主里，总有接受的声明。 */
+const form = computed(() => {
+    const accepted = settings.value.declaration(setting.value);
+    return accepted === null ? null : settingForm(accepted, bindings.value.locale, text);
+});
 
 async function write(value: unknown, layer: SettingLayer): Promise<void> {
     const result = await settings.value.update(setting.value, value, {layer});
@@ -71,7 +78,7 @@ async function write(value: unknown, layer: SettingLayer): Promise<void> {
         <SchemaField
             :id="row.id"
             :schema="setting.declaration.schema"
-            :hints="form.hints"
+            :hints="form?.hints"
             :model-value="row.value"
             :locale="bindings.locale"
             :disabled="row.disabled"

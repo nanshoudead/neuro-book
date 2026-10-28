@@ -17,7 +17,7 @@ import type {DiagnosticsService} from "@notnotype/nb-runtime/diagnostics";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 
-import type {SettingDeclaration, SettingLayer, SettingsFailure} from "nbook/shared/settings";
+import type {SettingLayer, SettingsFailure, WrittenSettingDeclaration} from "nbook/shared/settings";
 
 import {canonical, sameContent, userEditProblem, writeProblem} from "../shared/layers";
 import type {DeclaredSetting, LayerContent, LayerEdit, LayerProblem, LayerSnapshot, LayerTextRead, LayerTextWrite, LayerWriteResult, WriteProblem} from "../shared/layers";
@@ -284,7 +284,7 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
     };
 }
 
-function keysOf(declarations: ReadonlyMap<string, DeclaredSetting>): ReadonlyMap<string, SettingDeclaration> {
+function keysOf(declarations: ReadonlyMap<string, DeclaredSetting>): ReadonlyMap<string, WrittenSettingDeclaration> {
     return new Map([...declarations].map(([key, declared]) => [key, declared.declaration]));
 }
 

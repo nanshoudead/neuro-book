@@ -10,7 +10,7 @@ import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {COMMANDS_POINT, commandServiceKey, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
+import {COMMANDS_POINT, commandServiceKey, completeMenuItemDeclaration, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import {documentCoordinatorKey} from "nbook/plugins/editor/shared/contracts";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
 import {resolverFor} from "nbook/shared/localized-text";
@@ -89,7 +89,7 @@ function systemClipboard(): {writeText(text: string): Promise<void>} | undefined
 export const explorerBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
     // 右键菜单的贡献点：菜单项只有声明，同工作台的菜单位置交空实现（docs/specs/workbench/menus.md）。
-    contributionPoints: [{id: EXPLORER_CONTEXT_POINT, implementation: "required", validate: validateExplorerContextItem, idPrefix: "plugin"}],
+    contributionPoints: [{id: EXPLORER_CONTEXT_POINT, implementation: "required", complete: completeMenuItemDeclaration, validate: validateExplorerContextItem, idPrefix: "plugin"}],
     entries: [defineEntry({
         id: "browser",
         location: "browser",

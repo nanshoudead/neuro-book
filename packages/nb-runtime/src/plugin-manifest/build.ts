@@ -155,6 +155,9 @@ export function buildManifest(source: ManifestSource, context: ReadContext): Man
             if (point.validate !== undefined && !builtin) {
                 addOnce(at, "写了 validate 函数：函数进不了清单，宿主里不会运行；用 schema 与 idPrefix 写声明的规则，跨条目的规则放在接收者里");
             }
+            if (point.complete !== undefined && !builtin) {
+                addOnce(at, "写了 complete 函数：函数进不了清单，宿主里不会运行；第三方贡献点的声明按写下的原样交给接收者");
+            }
             // 有问题的 schema 不序列化（清单本来就不会生成）：其中进不了 JSON 的值会让序列化抛错。
             const schemaText = point.schema === undefined || portable.length > 0 ? null : JSON.stringify(point.schema);
             if (known !== undefined) {

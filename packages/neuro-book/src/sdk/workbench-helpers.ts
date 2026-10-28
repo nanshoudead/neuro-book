@@ -8,13 +8,14 @@ import type {AllowedComponentProps, Component, ComponentCustomProps, VNodeProps}
 
 import {WORKBENCH_STATUSBAR_ITEMS_POINT} from "nbook/plugins/workbench/shared/items";
 import type {ItemDeclaration} from "nbook/plugins/workbench/shared/items";
+import type {Written} from "nbook/shared/convention-keys";
 import {OPEN_VIEW_COMMAND, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/views";
-import type {ViewDeclaration} from "nbook/plugins/workbench/shared/views";
+import type {ViewDeclaration, WrittenViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {ItemImplementation} from "nbook/plugins/workbench/web/contracts";
 import {viewContribution} from "nbook/plugins/workbench/web/view-contribution";
 
 import type {CommandHelper} from "./command-helpers";
-import {bound, contributionId, localizedText} from "./plugin";
+import {bound, contributionId} from "./plugin";
 import type {BoundImplementation, ContributionHelper, PluginBuilder, ShortNameRule, Text} from "./plugin";
 
 /** `load` 取到的组件。 */
@@ -32,7 +33,7 @@ export type PropsOf<Load> = Loaded<Load> extends abstract new (...args: never) =
 
 export type ComponentLoad = () => Promise<Component | {readonly default: Component}>;
 
-export interface ViewHelper<Id extends string, Load extends ComponentLoad> extends ContributionHelper<typeof WORKBENCH_VIEWS_POINT, Id, ViewDeclaration> {
+export interface ViewHelper<Id extends string, Load extends ComponentLoad> extends ContributionHelper<typeof WORKBENCH_VIEWS_POINT, Id, WrittenViewDeclaration> {
     readonly where: "browser";
     /** `props` 在渲染时求值、作为视图组件的属性，读响应式的值时视图随之更新。组件另收宿主给的 `context`。 */
     implement(props?: () => PropsOf<Load>): BoundImplementation<typeof WORKBENCH_VIEWS_POINT, Id>;
@@ -40,18 +41,19 @@ export interface ViewHelper<Id extends string, Load extends ComponentLoad> exten
 
 /**
  * 侧栏、右栏或面板里的视图（docs/specs/workbench/views.md）：`location` 缺省 `sidebar`，`layout` 缺省 `scroll`。视图的实现要等
- * 入口激活才交出，入口通常写 `activationEvents: ["onStartup"]`。
+ * 入口激活才交出，入口通常写 `activationEvents: ["onStartup"]`。`title` 与标题动作的 `title` 省略时宿主登记时补成约定键
+ * （docs/specs/workbench/views.md 的“约定键”）。
  */
-export function view<const Id extends string, const Name extends string, const Load extends ComponentLoad>(plugin: PluginBuilder<Id>, options: Omit<ViewDeclaration, "title" | "location" | "layout"> & {
+export function view<const Id extends string, const Name extends string, const Load extends ComponentLoad>(plugin: PluginBuilder<Id>, options: Omit<WrittenViewDeclaration, "title" | "location" | "layout"> & {
     readonly name: Name;
-    readonly title: Text;
+    readonly title?: Text;
     readonly location?: ViewDeclaration["location"];
     readonly layout?: ViewDeclaration["layout"];
     readonly load: Load;
 } & ShortNameRule<Name>): ViewHelper<`${Id}.${Name}`, Load> {
     const id = contributionId(plugin.id, options.name, "视图");
     const {name: _name, title, location, layout, load, ...rest} = options;
-    const helper = viewContribution({id, declaration: {...rest, title: localizedText(title), location: location ?? "sidebar", layout: layout ?? "scroll"}, load});
+    const helper = viewContribution({id, declaration: {...rest, ...(title === undefined ? {} : {title}), location: location ?? "sidebar", layout: layout ?? "scroll"}, load});
     return {
         id,
         contribution: helper.contribution,
@@ -61,7 +63,7 @@ export function view<const Id extends string, const Name extends string, const L
     };
 }
 
-export interface StatusItemHelper<Id extends string> extends ContributionHelper<typeof WORKBENCH_STATUSBAR_ITEMS_POINT, Id, ItemDeclaration> {
+export interface StatusItemHelper<Id extends string> extends ContributionHelper<typeof WORKBENCH_STATUSBAR_ITEMS_POINT, Id, Written<ItemDeclaration, "title">> {
     readonly where: "browser";
     /** 三个函数每次渲染都调用，从响应式状态现算。 */
     implement(implementation: ItemImplementation): BoundImplementation<typeof WORKBENCH_STATUSBAR_ITEMS_POINT, Id>;
@@ -82,11 +84,12 @@ function itemCommandOf(command: ItemCommand): NonNullable<ItemDeclaration["comma
 
 /**
  * 状态栏条目（docs/specs/ui/workbench-shell.md 外壳四）：`alignment` 缺省 `right`，`order`、`priority` 缺省 0；`command`
- * 收命令助手（点击执行它，不带参数）、视图助手（点击打开那个视图）或 `{id, args}`。
+ * 收命令助手（点击执行它，不带参数）、视图助手（点击打开那个视图）或 `{id, args}`。`title` 省略时宿主登记时补成约定键
+ * `statusItems.<name>.title`（ui/workbench-shell.md 输出 33）。
  */
 export function statusItem<const Id extends string, const Name extends string>(plugin: PluginBuilder<Id>, options: Omit<ItemDeclaration, "title" | "alignment" | "order" | "priority" | "command"> & {
     readonly name: Name;
-    readonly title: Text;
+    readonly title?: Text;
     readonly alignment?: ItemDeclaration["alignment"];
     readonly order?: number;
     readonly priority?: number;
@@ -94,9 +97,9 @@ export function statusItem<const Id extends string, const Name extends string>(p
 } & ShortNameRule<Name>): StatusItemHelper<`${Id}.${Name}`> {
     const id = contributionId(plugin.id, options.name, "状态栏条目");
     const {name: _name, title, alignment, order, priority, command, ...rest} = options;
-    const declaration: ItemDeclaration = {
+    const declaration: Written<ItemDeclaration, "title"> = {
         ...rest,
-        title: localizedText(title),
+        ...(title === undefined ? {} : {title}),
         alignment: alignment ?? "right",
         order: order ?? 0,
         priority: priority ?? 0,

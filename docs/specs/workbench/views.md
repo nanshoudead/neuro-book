@@ -35,7 +35,7 @@ owners:
 
 ```ts
 interface ViewDeclaration {
-    readonly title: LocalizedText;                       // 与命令标题同一方案
+    readonly title: Text;                                // 文字值（ui/i18n），与命令标题同一方案；不写时取约定键
     readonly icon: string;                               // 图标类名，例如 i-lucide-files
     readonly location: "sidebar" | "auxiliarybar" | "panel"; // 默认位置
     readonly order?: number;                             // 同一位置内的顺序，同值按 id；不写时见输出 13
@@ -48,7 +48,7 @@ interface ViewDeclaration {
 interface ViewAction {
     readonly command: string;                            // 点了执行的命令
     readonly icon: string;
-    readonly title: LocalizedText;
+    readonly title: Text;                                // 不写时取约定键
     readonly args?: "instance";                          // 参数是被点的视图实例 {viewId, generation}；省略为 {}
     readonly toggled?: string;                           // 公开状态的布尔键：为真时按钮是按下的样子
     readonly placement?: "inline" | "menu";              // inline（缺省）画成按钮；menu 收进“⋯”
@@ -105,6 +105,10 @@ interface ViewContext {
 12. **滚动条**：视图里的竖向滚动条（`scroll` 由外框负责，`fill` 由视图自己的滚动元素负责）叠在内容上、不占宽度：6px 宽的半透明滑块、没有轨道底色，内容不溢出时不画；鼠标位于视图上、正在滚动（最后一次滚动后 500ms 内）或拖着滑块时显示，进入时淡入 100ms，离开后等 500ms 再用 800ms 淡出，系统减少动画时不过渡。拖滑块按比例滚动，点滑块以外的轨道按一页滚动。实现是 nb-ui 的 `OverlayScrollbar`。
 13. **不写 `order` 的缺省**：内置插件（发布者是保留的发布者）的视图按 0 排；第三方插件的视图按 1000 排，排在内置视图之后，装上插件后侧栏仍先显示内置视图。内置视图的 `order` 都小于 1000。写了 `order` 的照写的排。这个缺省算进视图的默认位置（[`ui.workbench-shell`](../ui/workbench-shell.md) 外壳二的默认指纹），与写明同一个 `order` 等价。
 14. **打开视图**：命令 `nbook.view.open {viewId?}`（`nbook.workbench` 的浏览器入口贡献，`effect: write`，不对 Agent 开放，`when` 要布局已就绪）选中视图所在的容器、显示它所在的区域（侧栏、右栏被隐藏或拖到零时显示，面板隐藏、收起时显示并展开），多视图容器里收起的视图先展开；成功表示布局已改，视图在下一次渲染时出现，不移动焦点。不给 `viewId` 时经选择服务列出已落位的视图（标签是视图标题、说明是所在容器），取消为成功且不写。`viewId` 没有已接受的声明或不在布局里为 `invalid-args`，不在工作台页面（没有布局）为 `unavailable`。作者的状态栏条目收视图助手时，点击即以它的 id 执行这条命令（[`runtime.plugin-api`](../runtime/plugin-api.md) 的“作者 API”）。
+
+### 约定键
+
+视图声明的 `title` 不写时，登记时补成文字引用 `{kind: "text", ns: <贡献方插件 id>, key: "views.<本地 id>.title"}`；标题动作的 `title` 不写时补成 `views.<本地 id>.actions.<命令 id>.title`（规则见 [`ui.i18n`](../ui/i18n.md) 的“约定键”）。本地 id 是视图 id 去掉开头的 `<插件 id>.`；命令 id 原样作为一段，所以它里面的 `.` 让键多出几层（`views.panel.actions.acme.hello.refresh.title`）。声明里写了、但没写 `ns` 的文字引用补成贡献方插件 id。注册表、导航与标题动作拿到的都是补好的声明。
 
 ## 状态与转换
 
@@ -168,7 +172,7 @@ Smoke 入口：`e2e/workbench-views.e2e.ts`（e2e 构建装上测试插件 `test
 
 ## 实现合同
 
-- 公开入口：贡献点与声明 `plugins/workbench/shared/views.ts`（`WORKBENCH_VIEWS_POINT`、`ViewDeclaration`、`validateViewContribution`）；实现与上下文 `plugins/workbench/web/contracts.ts`（`ViewImplementation`、`ViewContext`）；宿主能力 `shared/host.ts` 的 `windowPluginsKey`。
+- 公开入口：贡献点与声明 `plugins/workbench/shared/views.ts`（`WORKBENCH_VIEWS_POINT`、`ViewDeclaration`、作者写下的形状 `WrittenViewDeclaration`（`title` 与动作的 `title` 可省）、`validateViewContribution`）；实现与上下文 `plugins/workbench/web/contracts.ts`（`ViewImplementation`、`ViewContext`）；宿主能力 `shared/host.ts` 的 `windowPluginsKey`。
 - owner 与依赖方向：`nbook.workbench` 的浏览器入口拥有贡献点与注册表（`web/views/registry.ts`），只经内核的贡献句柄与宿主能力 `window.plugins` 知道入口状态；浏览器宿主（`web/host/window-plugins.ts`）用应用自己的插件宿主实现该能力。
 - 不变量：注册表不缓存实现，每次加载经句柄取；加载结果回来时句柄已不是当前句柄、不处于 published 或工作台已停止就作废（`registry.test.ts` 用真实内核的串行窗口锁定）。代际在实例层按视图 id 单调，每次加载与渲染重试加一。
 

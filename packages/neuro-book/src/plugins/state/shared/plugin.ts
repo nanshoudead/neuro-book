@@ -17,7 +17,8 @@ import type {RuntimeLocation} from "@notnotype/nb-runtime/lifecycle";
 import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {ContributionDeclarations, ContributionDescriptor, ContributionHandle, ContributionReceiver, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {LocalizedTextSchema} from "nbook/shared/localized-text";
+import {conventionCompleter} from "nbook/shared/convention-keys";
+import {TextSchema} from "nbook/shared/text";
 
 import {descriptor} from "../plugin";
 import {PUBLIC_STATE_POINT, publicStateKey} from "./contracts";
@@ -43,7 +44,7 @@ export function publicDeclarationProblem(contribution: ContributionDescriptor): 
     if (typeof fields.unready !== type || (type === "number" && !Number.isFinite(fields.unready))) return `公开键 ${contribution.id} 的 unready 必须是 ${String(type)}`;
     if (fields.reason !== undefined) {
         if (type !== "boolean") return `公开键 ${contribution.id} 不是布尔键，不能写 reason`;
-        if (!Value.Check(LocalizedTextSchema, fields.reason)) return `公开键 ${contribution.id} 的 reason 必须是中英两份文本`;
+        if (!Value.Check(TextSchema, fields.reason)) return `公开键 ${contribution.id} 的 reason 必须是文字（字符串、语言映射或文字引用）`;
     }
     return null;
 }
@@ -117,6 +118,6 @@ function createService(location: RuntimeLocation, bindings: ReadonlyMap<string, 
 
 export const statePlugin: PluginDefinition = {
     id: descriptor.id,
-    contributionPoints: [{id: PUBLIC_STATE_POINT, implementation: "required", validate: publicDeclarationProblem}],
+    contributionPoints: [{id: PUBLIC_STATE_POINT, implementation: "required", complete: conventionCompleter(null), validate: publicDeclarationProblem}],
     entries: [stateEntry("server"), stateEntry("project"), stateEntry("browser")],
 };

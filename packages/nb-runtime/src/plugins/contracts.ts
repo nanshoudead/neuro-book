@@ -61,6 +61,14 @@ export interface ContributionPointDefinition<Declaration = unknown> {
      */
     readonly idPrefix?: "plugin";
     /**
+     * 纯函数：把一条声明补成接收者看到的样子（例如按约定补上省略的文字字段）。在 `idPrefix` 之后、`schema` 之前运行，
+     * 拿到的声明还没按 `schema` 核对过，认不出的形状要原样返回。每条登记只补一次：`schema`、`validate`、
+     * `ContributionDeclarations` 与句柄的 `declaration` 看到的都是补好的这一份；抛出即这一条被拒（invalid-declaration）。
+     * 和 `validate` 一样进不了清单，只有内置贡献点能写。返回 `unknown`：补出的声明还要过 `schema` 与 `validate` 才算
+     * `Declaration`。
+     */
+    complete?(descriptor: ContributionDescriptor): unknown;
+    /**
      * 纯函数，只看这一条声明本身，返回拒绝原因或 null；查不到别的贡献，所以一条声明的接受与否不随别处的登记变化
      * （runtime.plugins 输出第 23 条）。
      */

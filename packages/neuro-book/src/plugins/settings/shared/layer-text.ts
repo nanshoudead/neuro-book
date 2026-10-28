@@ -12,7 +12,7 @@ import type {FormattingOptions, Node, ParseError} from "jsonc-parser";
 import {Value} from "typebox/value";
 
 import {freezeJson, isJson} from "nbook/shared/settings";
-import type {SettingDeclaration, SettingLayer} from "nbook/shared/settings";
+import type {SettingLayer, WrittenSettingDeclaration} from "nbook/shared/settings";
 
 import {canonical} from "./layers";
 import type {LayerEdit, LayerProblem} from "./layers";
@@ -38,7 +38,7 @@ export type ParsedLayer =
  * 解析一层的文件文本：空文本、只有空白或注释为空层；无法解析、根不是对象、任意深度出现重复键为 `invalid`。没有声明的键
  * 留在文件里、不进结果也不报问题；不符合 schema 或本层不允许的键进 `problems`（不含值）。
  */
-export function parseLayerText(text: string, declarations: ReadonlyMap<string, SettingDeclaration>, layer: SettingLayer): ParsedLayer {
+export function parseLayerText(text: string, declarations: ReadonlyMap<string, WrittenSettingDeclaration>, layer: SettingLayer): ParsedLayer {
     const tree = parseRoot(text);
     if (!tree.ok) return {status: "invalid", detail: tree.detail, reason: tree.reason, position: tree.position};
     const values: Record<string, unknown> = {};
