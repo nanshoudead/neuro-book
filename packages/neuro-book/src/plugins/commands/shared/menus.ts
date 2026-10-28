@@ -13,7 +13,7 @@ import type {ContributionDescriptor, ContributionHandle, ContributionReceiver} f
 
 import {conventionCompleter} from "nbook/shared/convention-keys";
 import {TextSchema} from "nbook/shared/text";
-import type {LocalizedText, TextResolver} from "nbook/shared/localized-text";
+import type {DisplayText, LocalizedText, TextResolver} from "nbook/shared/localized-text";
 
 import {formatKeybinding} from "./keybinding";
 import type {KeyPlatform} from "./keybinding";
@@ -24,7 +24,7 @@ export interface MenuItemDeclaration {
     readonly command: string;
     readonly section: string;
     readonly order?: number;
-    readonly label?: LocalizedText;
+    readonly label?: DisplayText;
     readonly toggled?: string;
     readonly when?: {readonly requires: ReadonlyArray<string>};
     readonly args?: Readonly<Record<string, unknown>>;
