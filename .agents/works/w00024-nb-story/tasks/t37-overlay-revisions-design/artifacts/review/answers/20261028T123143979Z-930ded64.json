@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t37-overlay-revisions-design",
+    "artifactId": "review",
+    "answerId": "20261028T123143979Z-930ded64",
+    "artifactVersion": 2,
+    "contentHash": "7a25879b540e338dd06cba1dc56820a6dc4b75240499331838e61e64ab5c8c5f",
+    "submittedAt": "2026-10-28T12:31:43.327Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "confirm-place": "both",
+        "edit-scope": "kind-name",
+        "scan-product": "later",
+        "rules": true
+    },
+    "comments": {},
+    "note": "这些功能不能在抽取的时候自动吗？例如马甲核对和事后扫描这个是 agent 自己发现的，放在这里请求确认吗？能否有选项改成自动确认？不确认就停止 ingest？（有必要吗？）"
+}
