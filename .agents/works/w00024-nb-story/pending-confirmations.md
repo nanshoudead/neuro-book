@@ -44,3 +44,6 @@ autonomous-delivery 推进时照推荐做了、本该由开发者决定的点。
 | 2026-10-27 | t32 | 审查取舍 | 依据弹出层关掉后焦点不回到色块（nb-ui `Popover` 既有行为，`Popover.md` 写明不保证焦点），本 Task 不绕过 | 改要动 nb-ui 的公开组件；查看器里键盘用户关掉依据后要重新 Tab（[前端审查](tasks/t32-record-tiers/evidences/impl-review-frontend.txt)第 6 条） | 在 `TierBadge` 拿按钮 ref、`update:open` 为 false 时 focus；或给 nb-ui `Popover` 加还焦点的选项 | 默认追认 |
 | 2026-10-27 | t32 | 审查取舍 | 窄档抽屉的 Escape 改为“有 reka 浮层开着（`data-dismissable-layer`）就不关抽屉”，没把抽屉换成 nb-ui 的浮层组件 | 抽屉是页内绝对定位的 `aside`，不在 reka 的层栈里；换组件牵动输出 32、33 的布局与 e2e，超出本 Task（前端审查第 2 条） | 抽屉改用 nb-ui 的浮层组件后删掉 `BookFrame.vue` 里那一行判断 | 默认追认 |
 | 2026-10-27 | t32 | 审查取舍 | 色块保留自写的方块样式，没换 nb-ui `Badge`；字号与圆角改用主题变量 | `Badge` 是带内边距的标签、不是按钮，方块只放一个数字还要当弹出层的触发器（前端审查第 7 条） | 改用 `Badge` 要包一层按钮并接受非方形 | 默认追认 |
+| 2026-10-28 | t34 | 审查取舍 | 实验的 ¥10 硬停止只在每个逻辑请求前检查，一次请求内的渠道重试与重发可能越过一点 | 单次请求约 ¥0.01 到 ¥0.03，为它另做预留不值得（[设计审查第 1 轮](tasks/t34-persona-link-probe/evidences/design-review.txt)第 9 条） | 在 `logicalCall` 里每次尝试前查预算 | 默认追认 |
+| 2026-10-28 | t35 | 产品取舍 | 马甲核对的结果一律写成候选身份说法（`certainty: candidate`），不按模型给的确定度写确定 | t34 里志愿者学姐两遍都被“确定”地连到洛萱；候选不会让查询把两个对象当成同一个人，之后的抽取或用户可以改成确定（[t34 结论](tasks/t34-persona-link-probe/README.md)） | 改 `persona-check.ts` 的写入一行；代价是错连会进确定的身份连接 | 默认追认 |
+| 2026-10-28 | t35 | 产品取舍 | 马甲核对默认开（`ingest.personaCheck.enabled`，可关），每章至多问 5 个马甲 | 修的是开发者实际遇到的漏连；按 t34 的触发频率，样例书 100 章约多 ¥1.8，约为抽取费用的一成 | 改配置默认值一处与 Spec 输出 20 的一句 | 默认追认 |
