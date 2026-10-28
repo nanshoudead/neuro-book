@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>t37 覆盖层与待确认修订：界面设计 第 1 轮</title>
+<style>
+body { font-family: system-ui, "Noto Sans CJK SC", sans-serif; max-width: 1040px; margin: 28px auto; padding: 0 16px; line-height: 1.65; color: #1f2328; }
+h1 { font-size: 24px; margin-bottom: 4px; }
+h2 { font-size: 19px; margin: 0 0 8px; }
+h3 { font-size: 16px; margin: 0 0 4px; }
+section.q, section.info { border: 1px solid #d0d7de; border-radius: 10px; padding: 14px 18px; margin: 20px 0; }
+.badge { font-size: 12px; padding: 1px 8px; border-radius: 4px; margin-right: 8px; font-weight: 600; }
+.todo { background: #fde68a; }
+.done { background: #bbf7d0; }
+.cand { border: 1px solid #e1e4e8; border-radius: 8px; padding: 10px 14px; margin: 12px 0; background: #fafbfc; }
+.cand.rec { border-color: #2f81f7; background: #f3f8ff; }
+.rec-tag { font-size: 12px; color: #1a5fd0; font-weight: 600; margin-left: 6px; }
+figure { margin: 8px 0; }
+figure img { max-width: 100%; border: 1px solid #d0d7de; border-radius: 6px; }
+figcaption { font-size: 13px; color: #57606a; }
+.row { display: flex; gap: 12px; flex-wrap: wrap; }
+.row figure { flex: 1 1 420px; }
+.muted { color: #57606a; font-size: 14px; }
+table { border-collapse: collapse; font-size: 14px; }
+td, th { border: 1px solid #d0d7de; padding: 4px 10px; text-align: left; vertical-align: top; }
+code { background: #eff1f3; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h1>覆盖层与待确认修订：界面设计（第 1 轮）</h1>
+<p class="muted">w00024 t37 · 2026-10-28。背景：t35 的真实小抽取里，核对只能写“可能是同一人”的候选，没有地方确认；抽取还留下核对管不到的错（马甲与人物的种类建错、称呼挂错对象）。下面是静态稿：数据取自那次真实抽取（样例书 sample-10、魔女学院 witch-20），按钮都不能点。三道待定的题，一道要你过目的规则。</p>
+
+<section class="q" data-nbdev-question="confirm-place" data-nbdev-type="single" data-nbdev-recommend="both">
+  <h2><span class="badge todo" data-nbdev-skip>待定</span>在哪里确认：人物卡就地、集中的“待确认”页，还是两处都有</h2>
+  <p>每章最多问 5 个马甲，一本书抽完可能有几十条候选，再加上以后“检查这本书”提出的建议。要定的是用户在哪里处理它们。</p>
+
+  <div class="cand" data-nbdev-option="inline" data-nbdev-label="A 只在人物卡上就地确认">
+    <h3>A 只在人物卡上就地确认</h3>
+    <p>候选连接显示在人物卡头部（称呼下面），带原文依据与“确认是同一人 / 不是”。没有新的页面。适合“正在看这个人、顺手处理”。</p>
+    <figure><img src="r1/card-inline-light.webp" alt="十万水星人物卡，头部有候选连接与确认按钮"><figcaption>十万水星：头部一块带原文依据的候选，记录里同一条标“候选”。要一个一个翻人物才能找到待处理的，没有汇总，也看不出还剩几条。</figcaption></figure>
+  </div>
+  <div class="cand" data-nbdev-option="page" data-nbdev-label="B 只做集中的“待确认”页">
+    <h3>B 只做集中的“待确认”页</h3>
+    <p>导航里加“待确认”（带数量），一页逐条列出所有建议：来源、要改什么、原文依据，按钮“确认 / 驳回”。适合一次处理一批，人物卡不动。</p>
+    <figure><img src="r1/pending-page-light.webp" alt="待确认页，四条建议"><figcaption>四条建议：一条来自马甲核对，三条来自事后扫描（改对象种类、挪称呼）。每条都有原文段落，点编号可去原文。</figcaption></figure>
+  </div>
+  <div class="cand rec" data-nbdev-option="both" data-nbdev-label="C 两处都有（页里汇总，人物卡就地）">
+    <h3>C 两处都有 <span class="rec-tag">推荐</span></h3>
+    <p>同一条建议两边显示同一份数据：待确认页里批量处理；点其中一条，右边抽屉打开那个人物卡，候选在头部高亮。人物卡上也能直接处理。多出来的只是人物卡头部那一块，数据与动作是同一套，成本不大。</p>
+    <figure><img src="r1/both-light.webp" alt="待确认页加人物卡抽屉"><figcaption>左：待确认页；右：点第一条后抽屉里的人物卡，同一条候选。导航“待确认”的数字是未处理总数。</figcaption></figure>
+    <div class="row">
+      <figure><img src="r1/applied-light.webp" alt="确认之后的人物卡"><figcaption>确认之后：头部“同一身份：苏天晴”，记录里的说法变成确定，两处都标“你确认的”，可撤销。</figcaption></figure>
+      <figure><img src="r1/history-light.webp" alt="已处理列表"><figcaption>“已处理”页签：你确认的、驳回的、后文已经明说而自动关闭的，每条可撤销（自动关闭的不用）。</figcaption></figure>
+    </div>
+  </div>
+  <p class="muted">推荐 C 的理由：候选多的时候人物卡逐个找不现实，页里批量更合适；但看人物时遇到候选，就地处理最自然。</p>
+</section>
+
+<section class="q" data-nbdev-question="edit-scope" data-nbdev-type="single" data-nbdev-recommend="kind-name">
+  <h2><span class="badge todo" data-nbdev-skip>待定</span>能改什么：第一版修订的范围</h2>
+  <p>人物卡右上角“⋯”菜单是用户主动改图的入口，下面的图把可能的操作按批次标出。魔女学院那一本实际暴露的错有三个：银色闪光与银空被建成同一个“马甲”（应当是人物）、墨砚秋是真名却被建成马甲、“小萱萱”挂在银色闪光上（其实是洛萱的昵称）。只做身份连接解决不了后两类。</p>
+  <figure><img src="r1/edit-menu-light.webp" alt="人物卡的修改菜单"><figcaption>菜单里每一项标了所属的批次。“更后”的项第一版不做，列在这里只为让你看全貌。</figcaption></figure>
+  <figure><img src="r1/edit-link-light.webp" alt="手动连到另一个对象的对话框"><figcaption>“连到另一个对象”：选对象、必选一句原文依据（修订从这一段起生效，读到它之前看不到，不剧透）、选“可能是”或“就是”。其余操作（改种类、挪称呼）的对话框同样要一句依据。</figcaption></figure>
+
+  <div class="cand" data-nbdev-option="identity-only" data-nbdev-label="A 只做身份连接">
+    <h3>A 只做身份连接</h3>
+    <p>确认或驳回候选、手动连两个对象。最小的一版，一个中等的 Task 能做完。魔女学院的三个错一个也改不了。</p>
+  </div>
+  <div class="cand rec" data-nbdev-option="kind-name" data-nbdev-label="B 再加改对象种类、挪称呼">
+    <h3>B 再加改对象种类、挪称呼 <span class="rec-tag">推荐</span></h3>
+    <p>菜单前三项（“第一批”“第二批”）。这样魔女学院三个错都能在界面里改掉；每一项都是一条修订记录，同一套“待确认 / 已采纳 / 已驳回”，加起来比 A 多的主要是一种对象种类的重新编译。</p>
+  </div>
+  <div class="cand" data-nbdev-option="all" data-nbdev-label="C 全做（含合并对象、改说法类别与挂靠）">
+    <h3>C 全做</h3>
+    <p>再加合并两个建重的对象、改一条说法的类别或挂在哪个对象上。合并会牵动出场、知情、秘密等一串派生数据，改说法类别要重算记录等级，范围和测试量都明显更大，建议等 B 用过之后再定。</p>
+  </div>
+</section>
+
+<section class="q" data-nbdev-question="scan-product" data-nbdev-type="single" data-nbdev-recommend="later">
+  <h2><span class="badge todo" data-nbdev-skip>待定</span>“检查这本书”（事后扫描）要不要进产品</h2>
+  <p>t33 试过让模型通读已抽取的图找问题。它提出的修订里真问题约三分之一，其余是噪声，所以不能自动套用，只能进“待确认”给人过目。做成产品大概是页面顶部的一块：点“开始检查”、看进度与费用，结果逐条进待确认。</p>
+  <div class="row">
+    <figure><img src="r1/scan-light.webp" alt="待确认页顶部的检查这本书"><figcaption>亮色。检查中显示章数、已提出条数与费用；每条建议带原文依据，驳回一下。</figcaption></figure>
+    <figure><img src="r1/scan-dark.webp" alt="暗色"><figcaption>暗色。</figcaption></figure>
+  </div>
+  <div class="cand" data-nbdev-option="now" data-nbdev-label="A 与覆盖层一起做">
+    <h3>A 与覆盖层一起做</h3>
+    <p>一个版本里用户就能从“检查”到“确认”走完。但要多一个长耗时的真实模型任务（进度、停止、断点、费用），覆盖层本身还没经过使用。</p>
+  </div>
+  <div class="cand rec" data-nbdev-option="later" data-nbdev-label="B 覆盖层先做，扫描另起一个 Task">
+    <h3>B 覆盖层先做，扫描另起一个 Task <span class="rec-tag">推荐</span></h3>
+    <p>覆盖层先带“马甲核对”与“你”两个来源。扫描建成覆盖层的第三个来源：待确认页的“来源”筛选已经为它留了位。先看覆盖层好不好用、噪声有多少，再定扫描要多贵多严。</p>
+  </div>
+  <div class="cand" data-nbdev-option="no" data-nbdev-label="C 不做，只保留马甲核对与手动修改">
+    <h3>C 不做</h3>
+    <p>改图靠用户自己发现问题再动手；程序提出的建议只有马甲核对这一种。</p>
+  </div>
+</section>
+
+<section class="q" data-nbdev-question="rules" data-nbdev-type="confirm" data-nbdev-label="按下面的规则往下写 Spec 与计划">
+  <h2><span class="badge todo" data-nbdev-skip>待定</span>下面几条规则，我先按这样定，有异议请驳回并写在备注里</h2>
+  <ol>
+    <li><b>不剧透：修订从依据段起生效。</b>每条修订带一个原文位置，读到那里之前看不到（确认十万水星就是苏天晴，之前读到第 3 章的人不会提前看到）。这与查看器“按读到哪里回答”的合同一致。</li>
+    <li><b>只改显示出来的图，不改抽取数据。</b>修订按书单独保存，查询时套上已采纳的；抽取数据原样不动，所以接着抽、追加新章，修订照样在。</li>
+    <li><b>待确认的不生效。</b>候选（可能是）原本就在图里，仍是“候选”；用户确认后才变成“确定”；驳回的不再被同一来源重复提出。</li>
+    <li><b>后文明说时自动关闭。</b>抽取后来写出了确定的说法（例如魔法少女狐狐official，第 6 章候选、第 8 章明说），候选自动记为“后文已确认”，不用你再点。</li>
+    <li><b>每条操作可撤销。</b>确认、驳回、手动改都能在“已处理”里撤销；撤销本身也留一条记录。</li>
+    <li><b>重新抽取同一本书时。</b>修订按“对象与原文位置”记，不按抽取出的编号。重抽后能对上的继续生效，对不上的转成“待重新确认”，不悄悄丢，也不悄悄套到别的对象上。</li>
+  </ol>
+</section>
+
+<section class="info">
+  <h2><span class="badge done" data-nbdev-skip>现状</span>现在的查看器（参照）</h2>
+  <div class="row">
+    <figure><img src="r1/cur-sample-card-persona.webp" alt="十万水星人物卡现状"><figcaption>十万水星的人物卡：头部没有“同一身份”（候选不算），只有一句概况。候选连接只躲在“记录 → 关于他的”里的一条“身份”说法。</figcaption></figure>
+    <figure><img src="r1/cur-witch-card-silver.webp" alt="银色闪光人物卡现状"><figcaption>银色闪光：称呼里有“小萱萱”，种类是马甲但页面上看不出来，也没有任何入口能改。</figcaption></figure>
+  </div>
+  <ul class="muted">
+    <li>依据：<a href="../../../t35-persona-check/evidences/extract.md">t35 小抽取结果</a>、t33 报告里“程序找问题、模型答窄问题”的数字。</li>
+    <li>候选身份说法的写法与不剧透规则：<code>docs/specs/story/ingest.md</code> 输出 20；候选与确定的区别：<code>docs/specs/story/queries.md</code> 的“身份连接”。</li>
+    <li>本轮没有画手机宽度与关系图里的显示；定下范围后再补。草稿代码在草稿 worktree，不提交。</li>
+  </ul>
+</section>
+</body>
+</html>
