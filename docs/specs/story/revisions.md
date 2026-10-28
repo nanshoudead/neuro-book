@@ -37,7 +37,7 @@ owners:
 
 | 方法 | 种类 | 主要参数 | 结果里必须有的字段 |
 |---|---|---|---|
-| `revisions.list` | 读 | 可选 `state`、`source`、`entity`（只要涉及这个对象的项，人物卡用）；长列表 | 每项：`id`、`op`、`state`、`source`、`by`、`summary`（一句话）、`entities`（涉及的对象编号）、`evidence`、`quote`（依据那一段原文，截到 120 字）、`refs`（出处）、`decidedAt`、`undoable`；`counts`（各状态条数，全书的，不受筛选影响） |
+| `revisions.list` | 读 | 可选 `state`（五种状态之一，或 `processed`：已采纳、已驳回、后文已确认三类）、`source`、`entity`（只要涉及这个对象的项，人物卡用）；长列表 | 每项：`id`、`op`、`state`、`source`、`by`、`summary`（一句话）、`entities`（涉及的对象编号）、`evidence`、`quote`（依据那一段原文，截到 120 字）、`refs`（出处）、`decidedAt`、`undoable`；`counts`（各状态条数，全书的，不受筛选影响） |
 | `revisions.confirm` | 写 | `statement`（候选身份说法的 id） | `revision`（修订项）、`version` |
 | `revisions.reject` | 写 | `statement`、可选 `reason` | 同上 |
 | `revisions.link` | 写 | `a`、`b`（对象 id 或名字）、`evidence`、`certainty`（`candidate` 或 `certain`） | 同上 |
@@ -46,7 +46,7 @@ owners:
 | `revisions.undo` | 写 | `revision`（修订项的 `id`） | 同上 |
 | `revisions.evidence` | 读 | `entity`、可选 `text`（称呼）；长列表 | 每项：`ref`（章.段）、`text`（段原文）、`names`（这一段里该对象的称呼） |
 
-- `book.info` 另给 `revisions: {pending, stale}`，按阅读位置算（与列表一致），供导航的角标用。
+- `book.info` 另给 `revisions: {pending, stale}`；它不带阅读位置，是全书的数，给命令行与脚本看。查看器的角标用 `revisions.list` 的 `counts`（按阅读位置算）。
 - 写入类方法的结果里的 `version` 是修订文件的版本号，每次成功写入加 1。
 
 ## 输出与可观察行为
