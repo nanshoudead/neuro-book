@@ -1,0 +1,38 @@
+w00028 t03 第 7 片：nbook.explorer 迁移报告
+
+结论：完成。typecheck、test:bun（1585 通过）、vitest（65 文件 380 通过）、message-catalogs、docs:check、governance:check 全部无失败。未提交。
+
+== 改动 ==
+目录：src/plugins/explorer/locales/{zh-CN,en-US}.json，181 个键（复数键 6 个：feedback.running、feedback.unknown.title、dialog.delete.title、tree.drop.open、tree.drop.openSome、tree.dragItems；中文只有 _other，英文 _one 与 _other 同文）。
+新增：shared/text.ts（explorerText、ExplorerTextKey）、web/text.ts（explorerCatalogs）、locales.test.ts、lab/web/fixtures/explorer-scene/explorer-text.ts。
+删除：web/messages.ts（旧双语表与取文字函数）。
+声明：命令（EXPLORER_COMMAND_DECLARATIONS）、视图及其五个动作、设置分区/设置项/选项、公开状态的 reason 全部按约定键；必填 title 省略，category 与 description、reason 显式写 explorerText 引用。
+运行期：feedback-text.ts、menu.ts、commands.ts 改收 TextResolver；plugin.ts 只建一个端口（windowTextPort）分给命令与视图宿主；view-host.ts 去掉 locale 选项；四个 .vue 去掉 locale 属性，改用 useText()。
+.md：四个组件加 state:inject 并写理由（ExplorerFeedback 新增“隐藏通道理由”一节），去掉 Props 里的 locale。
+登记：src/web/plugins.ts 的 builtinPluginCatalogs 加 "nbook.explorer"；scripts/ci/message-catalogs.ts 的 CATALOG_DIRECTORIES 加 explorer/locales。
+测试：locales.test.ts（LEGACY 表取自 HEAD 5b52fe5d5，双向键集、逐字值、复数键、命名空间；已做变异自检：改一个英文值即失败）。session.test.ts、三个 dom 测试改经 testTextPort/provideText，中文断言文字未变；英文用例改为另挂一个 en-US 端口。session.test.ts 的命令声明校验与登记改走 completeCommandDeclaration（标题现在是登记时补全的）。
+Lab：ExplorerRow/ExplorerTree/ExplorerFeedback 三个夹具由 defineSubjectFixture 改为 defineLabFixture + withExplorerText(createSubjectFixture(...))，FilesExplorerViewFixture 与 live 场景用 provideExplorerText；场景 id 为 english 或 -english 结尾用英文，其余中文；场景输入里的 locale 全部删除。ExplorerLiveScene 注册命令走 completeCommandDeclaration。
+
+== 没动的共享代码 ==
+src/ui、src/shared 未改，没有属于它们的文字。
+
+== 给主会话的决定点 / 没把握的 ==
+1. 命令标题、视图动作标题、右键菜单标签是三份独立的键（约定键强制命令与视图动作各一份，菜单项固定列表）；同一旧字面量在同一组件内多处使用时共用一键（如 tree.noProject、common.cancel）。若想三处共用，需要改约定键规则（上游），未做。
+2. 中文分隔符“：”“、”“；”仍留在代码里（拼接 `${code}：${detail}`、路径列表 join("、")），英文界面下也是中文标点，属原行为，未改。
+3. 参数超过 500 字符会被截断（此前服务端文字不截断）；长路径 reason 在极端情况下受影响。
+4. count/skipped 等参数由 String(n) 改为数字（复数选择需要）。
+5. 旧表中 readFailed 无任何使用（死条目），未迁移。
+6. reasonText 对未知失败码的兜底 `${code}：${detail}` 仍不可本地化。
+7. controller/session/plugin 里的中文开发者诊断（report(new Error(...))、explorer.command 诊断）不是界面文字，未迁。
+8. 是否让组件从 useText().locale 取语言属性：本片直接删了 locale 属性，未保留任何仅取文字用的语言来源。
+9. e2e（files-explorer.e2e.ts、lab-explorer.e2e.ts 等）断言中文，未运行；Lab 截图未拍。e2e 里没有对 explorer 场景输入 locale 的引用。
+10. 全量 test:bun 第一次跑有 3 个失败，其一为 session.test.ts 的声明校验（已修，见上）；再跑一次 1585 全过，另两个未复现（疑似并行负载下偶发），未单独追查。
+11. 目录中未被字面量引用的键（37 个）都是约定键补全的 title，由 convention-keys.test.ts 的声明测试覆盖。
+
+== 验证（packages/neuro-book 与仓库根） ==
+bun run typecheck：通过
+bun run test:bun：1585 pass / 0 fail
+bunx vitest run --testTimeout=30000：65 文件 380 通过
+bun scripts/ci/message-catalogs.ts：exit 0
+bun run docs:check：failures 空
+bun run governance:check：failures 空
