@@ -1,0 +1,39 @@
+# 工具历史与名字长度实测 2026-10-28T07:02:55.471Z
+deepseek chat	unlisted	200	reply: Sunny, 21°C.
+deepseek chat	no-tools	200	reply: It was sunny and 21°C.
+deepseek chat	name-65	200	reply: Hello
+deepseek chat	name-128	200	reply: Hello
+luna chat	unlisted	429	{"message":"All available accounts are currently rate-limited. Please retry later.","type":"rate_limit_error"}
+luna chat	no-tools	429	{"message":"All available accounts are currently rate-limited. Please retry later.","type":"rate_limit_error"}
+luna chat	name-65	429	{"message":"All available accounts are currently rate-limited. Please retry later.","type":"rate_limit_error"}
+luna chat	name-128	429	{"message":"All available accounts are currently rate-limited. Please retry later.","type":"rate_limit_error"}
+luna responses	unlisted	429	{"message":"All available accounts are currently rate-limited. Please retry later.","type":"rate_limit_error"}
+luna responses	no-tools	429	{"message":"All available accounts are currently rate-limited. Please retry later.","type":"rate_limit_error"}
+luna responses	name-65	429	{"message":"All available accounts are currently rate-limited. Please retry later.","type":"rate_limit_error"}
+luna responses	name-128	429	{"message":"All available accounts are currently rate-limited. Please retry later.","type":"rate_limit_error"}
+gemini openai-compat chat	unlisted	200	reply: The weather was sunny and 21°C.
+gemini openai-compat chat	no-tools	200	reply: The weather was sunny and 21 degrees Celsius.
+gemini openai-compat chat	name-65	200	reply: Hello.
+gemini openai-compat chat	name-128	200	reply: Hello.
+openrouter openai chat	unlisted	402	{"message":"Insufficient credits. This account never purchased credits. Make sure your key is on the correct account or org, and if so, purchase more at https://openrouter.ai/settings/credits","code":402,"metadata":{"limit_source":"openrouter_credits","remedy_hint":"Add credits at https://openrouter
+openrouter openai chat	no-tools	402	{"message":"Insufficient credits. This account never purchased credits. Make sure your key is on the correct account or org, and if so, purchase more at https://openrouter.ai/settings/credits","code":402,"metadata":{"limit_source":"openrouter_credits","remedy_hint":"Add credits at https://openrouter
+openrouter openai chat	name-65	402	{"message":"Insufficient credits. This account never purchased credits. Make sure your key is on the correct account or org, and if so, purchase more at https://openrouter.ai/settings/credits","code":402,"metadata":{"limit_source":"openrouter_credits","remedy_hint":"Add credits at https://openrouter
+openrouter openai chat	name-128	402	{"message":"Insufficient credits. This account never purchased credits. Make sure your key is on the correct account or org, and if so, purchase more at https://openrouter.ai/settings/credits","code":402,"metadata":{"limit_source":"openrouter_credits","remedy_hint":"Add credits at https://openrouter
+openrouter openai responses	unlisted	402	{"message":"Insufficient credits. This account never purchased credits. Make sure your key is on the correct account or org, and if so, purchase more at https://openrouter.ai/settings/credits","code":402,"metadata":{"limit_source":"openrouter_credits","remedy_hint":"Add credits at https://openrouter
+openrouter openai responses	no-tools	402	{"message":"Insufficient credits. This account never purchased credits. Make sure your key is on the correct account or org, and if so, purchase more at https://openrouter.ai/settings/credits","code":402,"metadata":{"limit_source":"openrouter_credits","remedy_hint":"Add credits at https://openrouter
+openrouter openai responses	name-65	402	{"message":"Insufficient credits. This account never purchased credits. Make sure your key is on the correct account or org, and if so, purchase more at https://openrouter.ai/settings/credits","code":402,"metadata":{"limit_source":"openrouter_credits","remedy_hint":"Add credits at https://openrouter
+openrouter openai responses	name-128	402	{"message":"Insufficient credits. This account never purchased credits. Make sure your key is on the correct account or org, and if so, purchase more at https://openrouter.ai/settings/credits","code":402,"metadata":{"limit_source":"openrouter_credits","remedy_hint":"Add credits at https://openrouter
+openrouter anthropic chat	unlisted	402	{"message":"Insufficient credits. This account never purchased credits. Make sure your key is on the correct account or org, and if so, purchase more at https://openrouter.ai/settings/credits","code":402,"metadata":{"limit_source":"openrouter_credits","remedy_hint":"Add credits at https://openrouter
+openrouter anthropic chat	no-tools	402	{"message":"Insufficient credits. This account never purchased credits. Make sure your key is on the correct account or org, and if so, purchase more at https://openrouter.ai/settings/credits","code":402,"metadata":{"limit_source":"openrouter_credits","remedy_hint":"Add credits at https://openrouter
+openrouter anthropic chat	name-65	402	{"message":"Insufficient credits. This account never purchased credits. Make sure your key is on the correct account or org, and if so, purchase more at https://openrouter.ai/settings/credits","code":402,"metadata":{"limit_source":"openrouter_credits","remedy_hint":"Add credits at https://openrouter
+openrouter anthropic chat	name-128	402	{"message":"Insufficient credits. This account never purchased credits. Make sure your key is on the correct account or org, and if so, purchase more at https://openrouter.ai/settings/credits","code":402,"metadata":{"limit_source":"openrouter_credits","remedy_hint":"Add credits at https://openrouter
+openrouter anthropic messages	unlisted	402	{"type":"billing_error","message":"Insufficient credits. This account never purchased credits. Make sure your key is on the correct account or org, and if so, purchase more at https://openrouter.ai/settings/credits","error_type":"payment_required"}
+openrouter anthropic messages	no-tools	402	{"type":"billing_error","message":"Insufficient credits. This account never purchased credits. Make sure your key is on the correct account or org, and if so, purchase more at https://openrouter.ai/settings/credits","error_type":"payment_required"}
+openrouter anthropic messages	name-65	402	{"type":"billing_error","message":"Insufficient credits. This account never purchased credits. Make sure your key is on the correct account or org, and if so, purchase more at https://openrouter.ai/settings/credits","error_type":"payment_required"}
+openrouter anthropic messages	name-128	402	{"type":"billing_error","message":"Insufficient credits. This account never purchased credits. Make sure your key is on the correct account or org, and if so, purchase more at https://openrouter.ai/settings/credits","error_type":"payment_required"}
+# 工具历史与名字长度实测 2026-10-28T07:09:55.102Z（只跑 deepseek anthropic）
+deepseek anthropic-compat messages	unlisted	200	reply: The weather was sunny at 21°C.
+deepseek anthropic-compat messages	no-tools	200	reply: The weather was sunny at 21°C.
+deepseek anthropic-compat messages	name-65	200	reply: Hello
+deepseek anthropic-compat messages	name-128	200	reply: Hello.
+# luna 一直 429、OpenRouter 402（账户无余额），开发者 2026-10-28 定不再重试，实施第一个切片时再测 OpenAI 与 Anthropic 官方接口
