@@ -177,6 +177,11 @@
 - 钩子的实现形态有 command（shell 命令，JSON 进出）、http、prompt（让模型判断）、agent、mcp_tool；按匹配器（例如工具名）选中。
 - 同一事件的所有匹配钩子并行运行（prompt、agent 类最多同时 12 个）；完全相同的处理器去重。缺省时限 command、http、mcp_tool 600 秒，prompt 30 秒，agent 60 秒；`UserPromptSubmit` 等降到 30 秒，`SessionEnd` 共用 1.5 秒。`PreToolUse` 超时不拦，除非设了 `onFailure: "block"`；退出码 2 一律拦下；不表态不等于放行。多个钩子决定冲突时的优先规则在已读部分没有写明。
 
+### 9.3 中间件式的扩展（官方文档，2026-10-28 检索）
+
+- **LangChain v1 的 `createAgent` 中间件**（[自定义中间件](https://docs.langchain.com/oss/javascript/langchain/middleware/custom)、[`AgentMiddleware` 参考](https://reference.langchain.com/javascript/langchain/index/AgentMiddleware)）：两种形态并存。节点式 `beforeAgent`、`beforeModel`、`afterModel`、`afterAgent` 返回状态更新，由图的 reducer 合并；包裹式 `wrapModelCall`、`wrapToolCall` 拿到下一层的处理函数，自己决定怎样调用，可以改请求、改结果、重试、短路。`beforeModel` 在 `wrapModelCall` 之前执行。中间件还能带自己的 `stateSchema` 与 `tools`。
+- **Vercel AI SDK 的语言模型中间件**（[Language Model Middleware](https://ai-sdk.dev/docs/ai-sdk-core/middleware)）：`wrapLanguageModel({model, middleware})` 返回一个新模型；中间件有 `transformParams`（调用前改参数，流式与非流式都走）、`wrapGenerate`、`wrapStream`（包住实际调用，可以改参数、调模型、改结果）。内置的 `defaultSettingsMiddleware` 用来给模型设缺省参数（例如 temperature）。
+
 ## 未验证边界
 
 - omp 18.12.3 与仓库锁定的 18.2.5 之间，`pi-coding-agent` 以外的包是否有与本文相关的变化，没有对照。
