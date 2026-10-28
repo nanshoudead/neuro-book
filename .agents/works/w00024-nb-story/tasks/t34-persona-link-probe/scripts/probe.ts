@@ -8,6 +8,7 @@
  * 第 3 条）：每个用例按触发章依次问，至多 25 次，揭示后至多 5 次；“答出就停”的产品策略由 score.ts 离线回放。不同用例并行。
  */
 
+import {mkdir} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {Dataset, Entity} from "../../../../../../packages/nb-story/src/core/dataset";
@@ -157,6 +158,8 @@ async function main() {
     const run = Number(option("--run"));
     if (!Number.isInteger(run) || run < 1) throw new Error("要写 --run <遍>");
     const parallel = Number(option("--parallel") ?? 4);
+    // 费用检查要扫描结果目录，第一次跑时先建好。
+    await mkdir(join(RUNS, String(run)), {recursive: true});
     let stopped = false;
 
     const doCase = async (item: Case) => {
