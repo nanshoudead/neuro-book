@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t39-npm-release-0-2
-status: planned
+status: done
 updated: 2026-10-28
 ---
 
