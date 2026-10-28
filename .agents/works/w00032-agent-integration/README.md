@@ -31,6 +31,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-10-28 | t11 定稿：阈值照 omp 三层；就地、摘要模型、shake 三种方法，阈值与溢出各一个缺省顺序；“压缩”专精角色；压缩后放回最近文件等走公共流程（[t11](tasks/t11-compaction/README.md)） |
 | 2026-10-28 | 提示词语言照 ADR 0034（领域与新写的基础设施提示词用中文）；长期目标是 i18n、现在用中文是为了方便（补进 `common.md`）；w00031 t05 评测继续搁置 |
 | 2026-10-28 | t12 定稿：第一批工具 read、write、edit、grep、glob、shell、todo；shell 的洞第一版不补；网页工具另做插件；外部命令行发布时做；eval 开 t21、后台工作开 t22，都搁置（[t12](tasks/t12-builtin-tools/README.md)） |
+| 2026-10-28 | t13 方向已讨论、优先级不高，排到末尾：归属 `nbook.history`；插件写入也记来源；收件箱不挡流程、参考旧组件迁移；会话回退与文件回退分开（[t13](tasks/t13-history/README.md)） |
 
 ## 调研
 
@@ -54,7 +55,6 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | [t10](tasks/t10-agent-plugin/README.md) | Agent 插件骨架与贡献点 | t02 到 t09 |
 | [t11](tasks/t11-compaction/README.md) | 上下文压缩 | t03、t09 |
 | [t12](tasks/t12-builtin-tools/README.md) | 基础工具与外部命令行依赖 | t04、t06、t08 |
-| [t13](tasks/t13-history/README.md) | nb-history 接入与文件变更感知 | t08、t12 |
 | [t14](tasks/t14-multi-agent/README.md) | 多 Agent 与 Workflow | t05、t06、t07 |
 | [t15](tasks/t15-skills/README.md) | Skill 规范与目录 | t05、t08、t10 |
 | [t16](tasks/t16-command-bridge/README.md) | Agent 操控 NeuroBook 与 `nbook project` 子命令 | t06、t10 |
@@ -63,6 +63,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | [t19](tasks/t19-mcp/README.md) | MCP 插件 | t04、t08、t10 |
 | [t21](tasks/t21-eval-codeact/README.md) | eval 工具（CodeAct），搁置 | t04、t12 |
 | [t22](tasks/t22-background-work/README.md) | 后台任务与协作：shell 后台、Agent 后台调用、Monitor、活动面板，搁置 | t07、t12、t14 |
+| [t13](tasks/t13-history/README.md) | nb-history 接入与文件变更感知（优先级不高，排到末尾） | t08、t12 |
 
 讨论顺序就是依赖顺序；讨论定的事写进各 Task 的 README，实施的切片与分支在讨论完后另定。
 
