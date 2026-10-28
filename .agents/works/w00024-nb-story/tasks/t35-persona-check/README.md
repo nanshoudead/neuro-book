@@ -36,6 +36,15 @@ omp（默认模型）审到第 7 条时，回退到的服务商额度用完（40
 | Opus O4 | 坏回复文件互相覆盖，进度重复 | 文件名带马甲编号；进度每章报一次 |
 | Opus O5 | 只写候选的理由与后果写错 | 按实际数字重写理由，写明后果（只显示“可能是同一人”）；仍只写候选，待确认清单同步改 |
 
+## 实施（2026-10-28）
+
+| 片 | 提交 | 内容 |
+|---|---|---|
+| 1 | `a84655f58`（分支）、`ee931ada6`（Spec） | `ingest/persona-check.ts`（选马甲、请求、解析、生成候选说法）；`chapter.ts` 的接入；复合泛称（`core/generic-names.ts`）；ingest 输出 20（planned）、queries 输出 22 |
+| 2、3 | `4eb6a7aca`（分支）、`785bc6df9`（Spec） | 配置 `ingest.personaCheck`、命令行与独立服务两个入口、runner、worker、job 与抽取记录的 `personas`；`config show`、`set`；网页进度的“核对马甲”；qa 输出 23 |
+
+验证：nb-story 单测全过（588）；类型检查通过。新增的场景：`persona-check.test.ts`（8 条）、`chapter.test.ts` 的马甲核对（4 条）、`runner.test.ts`（核对中停下、接着抽只写一次、之后不再问）、`cli/ingest.test.ts`（默认开、关掉后不发）、`server/ingest.test.ts`（默认开时进度步骤是 persona、关掉后不发）。旧的回放场景在配置里显式关掉核对；回放仍是“没有录音的请求即失败”。
+
 ## 下一步
 
-按切片 1 开工。
+第 4 片：真实模型小抽取（`scripts/extract-small.sh run-1`）在跑；同时跑全量 e2e。之后交实现审查。
