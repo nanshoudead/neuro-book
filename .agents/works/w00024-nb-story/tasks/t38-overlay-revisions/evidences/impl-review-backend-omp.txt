@@ -1,0 +1,128 @@
+# t38 后端与领域实现审查
+
+审查范围：afb252827..HEAD；仅覆盖 nb-story 的 core、contract、ingest、cli、testing 与相关测试，不审查 src/web 与 e2e。
+
+### 1. 重要｜不变量｜代际竞态仍会删除新一代的有效修订文件
+- 位置：packages/nb-story/src/core/overlay/store.ts:83-104；packages/nb-story/src/core/overlay/ops.ts:91-96
+- 现象：写入只在 `writableBook()` 返回目录时检查一次 generation；之后若旧书目录被删除、同 id 新书占用同一路径，EEXIST 分支把“generation 不匹配”的目标当作遗留文件删除，清理也按版本号删除而不检查 generation。
+- 为什么是问题：旧写入可以覆盖或删除新一代的 `revisions-n.json`，造成新书已经成功写入的修订丢失；文件内 generation 只能防止读取，不能防止这两个写路径破坏新文件。
+- 如何核实：真实运行 `/tmp/review-t38-impl/exp/store-generation-race.ts`；实验先放入 `{generation:"new",version:1}`，再调用 `writeOverlay(dir,"old",...)`，最终 `revisions-1.json` 被改成 `{generation:"old",version:1}`。现有测试只测八进程并发，不测删除/换代交错。
+- 建议改法：发布与回收必须通过能固定代际的 Library 写接口或目录句柄；EEXIST/回收先读取并确认目标 generation，绝不能删除不属于本次 generation 的文件；发布后再次核对 `book.json`，代际变化则报告失败并清理自己创建的文件。
+
+### 2. 重要｜不变量｜openBookIndex 没有把覆盖层纳入固定快照
+- 位置：packages/nb-story/src/core/book-index.ts:232-245
+- 现象：`pinBook()` 固定并打开了旧代/旧数据版本的文件句柄，但随后用可变的 `library.bookDir(bookId)` 路径读取覆盖层；`PinnedBook` 没有提供按已固定目录或句柄读取 `revisions-*` 的接口。
+- 为什么是问题：删除并同 id 换代发生在 `pinBook` 之后时，旧查询会从新目录读取覆盖层（generation 不同则丢掉旧修订；若竞态中出现同 generation 文件则可能套到旧数据上）；同代抽取或覆盖层写入也可能让固定的旧数据与非固定的覆盖层拼成不一致快照，违反查询固定一代、数据版本和修订版本的合同。
+- 如何核实：按 `Library.pinBook` 的真实语义，在固定数据文件后将 `<root>/<id>` 改名并发布同 id 新书，再让 `readOverlay(library.bookDir(bookId), oldGeneration)` 执行；静态可见覆盖层读取没有使用 `PinnedBook` 的固定句柄/目录。
+- 建议改法：把覆盖层读取放入 `Library.pinBook` 的固定窗口，使用固定目录句柄或随 `PinnedBook` 固定的文件内容，并把 generation、数据 revision、overlay version 一起作为一次快照返回。
+
+### 3. 重要｜正确性｜EEXIST 分支静默吞掉读取错误后会删除有效目标
+- 位置：packages/nb-story/src/core/overlay/store.ts:94-101
+- 现象：`readVersion(...).catch(() => null)` 把 `unsupported_format`、权限错误、I/O 错误和 JSON 读取以外的异常都当成“代号不匹配/损坏”，随后 `unlink(target)`；`unlink` 自身也用 `.catch(() => undefined)`。
+- 为什么是问题：另一个进程发布的有效文件在暂时不可读或格式未知时会被删掉；特别是 R6 要报告的未知格式可能被覆盖，数据损坏原因被隐藏，下一次写入还会把错误状态伪装成成功。
+- 如何核实：将 `revisions-1.json` 写成未知 `format: 2` 或使读取返回非 ENOENT 错误，再让另一写进程抢同一版本；当前分支会进入 `catch` 并尝试删除目标，而不是传播 `unsupported_format`/系统错误。
+- 建议改法：EEXIST 后只把“确认存在且 generation 不同的完整旧文件”作为可回收对象；`unsupported_format` 和非 ENOENT 读错必须原样传播，删除失败也不能静默成正常重试。
+
+### 4. 重要｜正确性｜幂等决定的返回条目可能是另一条修订
+- 位置：packages/nb-story/src/core/overlay/ops.ts:104-110、153-169
+- 现象：同一个决定再次提交时 `build()` 返回 `unchanged` 和旧 id，但 `describe()` 不使用这个 result id，而是从文件尾部找最后一条未撤销项。只要目标决定后又有另一条修订，尾部条目就会被当作本次结果。
+- 为什么是问题：调用方收到的 `revision`、摘要、对象、依据可能与它请求确认/驳回的说法完全不同；CLI 与 HTTP 虽然返回成功，客户端会按错的修订刷新状态。
+- 如何核实：真实运行 `/tmp/review-t38-impl/exp/describe-idempotence.ts`：先 confirm `s30-13`，再 link 一条 `r2`，再次 confirm `s30-13`；第三次返回的是 `r2` 的“风信子可能就是苏天晴”，version 仍为 2。
+- 建议改法：`OverlayWrite.result` 直接返回要描述的 revision id，`describe()` 按该 id 查；不要用文件顺序猜测本次触及的条目。
+
+### 5. 重要｜正确性｜撤销用户修订返回空壳条目
+- 位置：packages/nb-story/src/core/overlay/ops.ts:153-165
+- 现象：用户自己的 `link`、`kind`、`moveName` 撤销后，`listItems()` 排除 withdrawn；`describe()` 找不到目标就返回 `summary: ""`、`entities: []`、`quote: ""`，只保留 id、依据和新状态。
+- 为什么是问题：Spec 要求写入方法返回修订项，撤销本身也留在历史；调用方无法从返回值知道被撤销的操作、对象和原文，CLI 会打印空摘要，网页也不能正确更新提示。
+- 如何核实：真实运行 `/tmp/review-t38-impl/exp/undo-user-result.ts`；撤销 `identity.link` 后返回 `{state:"withdrawn",summary:"",entities:[],quote:""}`，而写入前同一条有完整摘要与两个对象。
+- 建议改法：撤销结果从 target revision 和原始 dataset 重新构造完整 `RevisionItem`，仅把 state 改为 withdrawn、undoable 改为 false，并保留原 summary/entities/quote/refs。
+
+### 6. 重要｜正确性｜stale 的确认/驳回项没有 entities，按对象筛选会漏项
+- 位置：packages/nb-story/src/core/overlay/items.ts:123-134；99-106
+- 现象：候选仍在原始数据中时，确认/驳回沿候选循环继承 `statement.about`；但锚 stale 后只走 stored 分支，`entitiesOf()` 对 `identity.confirm`/`identity.reject` 固定返回空数组。
+- 为什么是问题：`revisions.list(entity=...)` 依据 `item.entities` 筛选；stale 项因此不会出现在涉及对象的人物卡或对象筛选中，违背结果字段“涉及的对象编号”和 stale 可审阅/丢弃的合同。合并后 stale 也无法按新点成员筛选。
+- 如何核实：把 `s30-13` 的文字改掉后调用 `applyOverlay` 与 `listItems`，全量列表能得到 stale；对该结果按 `entities.some(...)` 执行当前 `revisionsList` 的筛选，结果为空。
+- 建议改法：从原始 dataset 通过 `revision.params.statement` 找到说法并返回其 `about`；若原说法也不存在，把对象锚解析到当前 `mergedFrom` 结果并保留旧 id 与当前 id 的筛选映射。
+
+### 7. 重要｜正确性｜CLI 没有暴露 evidence 的 `--text`，且静默忽略写入命令的 `--at`
+- 位置：packages/nb-story/src/cli/commands.ts:214-226；packages/nb-story/src/cli/revisions.ts:31-62
+- 现象：`revisions.evidence` 合同有可选 `text`，`revisions.ts` 也尝试读取 `params.text`，但 `commands.ts` 的 revisions 选项没有 `text`，因此 `nbstory revisions evidence <对象> --text <称呼>` 在 Commander 层是用法错误。相反，所有 revisions 命令因 `book: true` 自动接受 `--at`，但 confirm/reject/link/kind/move-name/undo 只构造 `writeBase`，把用户传入的 `at` 静默丢掉。
+- 为什么是问题：按称呼过滤依据段这个公开参数不可从命令行使用；写入命令接受却忽略阅读位置，用户以为限定了位置，实际仍按全书/原始目标写入，属于输入合同与 CLI 行为不一致。
+- 如何核实：静态追踪命令表到 `callOf()`；`base` 包含 `at` 仅用于 list/evidence，`writeBase` 不含 `at`，而 `text` 从未进入解析后的 options。现有 CLI 测试只覆盖无 `--text` 的 evidence 和无 `--at` 的写入。
+- 建议改法：给 evidence 命令登记 `text`；写入子命令不要继承 `at`，或显式把它判为用法错误，避免“接受但忽略”。
+
+### 8. 重要｜正确性｜抽取汇总把所有 pending 查询失败都吞成 0
+- 位置：packages/nb-story/src/cli/ingest.ts:283-297
+- 现象：`pendingRevisions()` 对整个 `api.call("revisions.list", ...)` 使用 `.catch(() => null)`，任何 `unsupported_format`、权限/文件系统错误、代码回归或异常都转换为 0；抽取完成或失败的汇总继续输出。
+- 为什么是问题：汇总里的“0 条待确认”不再表示真实计数，且丢失诊断；格式损坏或修订文件读取失败会被用户误认为没有候选，违反错误可观察性和“错误按 code 处理”的包规则。
+- 如何核实：让书目录中的最高修订文件为未知格式或使 `readOverlay` 抛错，再运行真实 `nbstory ingest` 收尾；当前函数返回 0，且不会写出错误码。
+- 建议改法：只对明确允许的“书已在收尾窗口删除”分支降级；其余错误保留 code/message，至少写入诊断并让汇总结果标记失败/未知，不伪装为 0。
+
+### 9. 重要｜正确性｜后续手动连接的文字不使用已套用的称呼修订
+- 位置：packages/nb-story/src/core/overlay/apply.ts:28-49、86-92；packages/nb-story/src/core/overlay/ops.ts:115-122
+- 现象：`identity.link` 的文字在套用阶段用 `displayName(a, evidence)`/`displayName(b, evidence)`，a、b 来自原始 dataset；之前已经写入的 `name.move` 只改 `entityPatch`，没有进入 `linkStatement` 的实体。
+- 为什么是问题：先把称呼从 A 挪到 B，再在之后依据段手动连接时，查询看到的 B 显示名与新说法文字可能不一致；同一套“依据位置上的显示名”规则在写入结果、图谱和原文链接之间分叉，且修订产生的 statement 可能带出旧对象称呼。
+- 如何核实：构造两条顺序修订：先 `name.move`，再以该移动后的称呼作为依据位置的显示名创建 `identity.link`；当前 `linkStatement` 仍只扫描原始 `Entity.names`，不会看到第一条修订新增的 name。
+- 建议改法：按文件顺序建立有效实体视图，或让 `linkStatement` 接收此前 name.move/kind 修订后的实体；同一显示名纯函数同时服务写入摘要、手动说法和投影。
+
+### 10. 重要｜正确性｜stale 改种类仍会参与 kind 冲突校验
+- 位置：packages/nb-story/src/core/overlay/ops.ts:77-81、124-129
+- 现象：`kindAt()` 只按 `state === "adopted"`、`params.entity` 和 evidence 筛选，不检查锚解析结果或 `applyOverlay.resolved` 的 stale 状态；数据整理改变对象首次位置后，旧 kind 修订可以已经 stale，但仍被当成当前种类。
+- 为什么是问题：用户在当前图上重新改同一对象的种类时可能得到错误的 `revision_conflict`，或者以一条已经不套用的旧修订决定当前种类；这违背 stale 只能丢弃、当前图重新操作的语义。
+- 如何核实：构造保留同 id 但改变 `at`/firstName 的整理后 dataset：`applyOverlay` 将旧 kind 修订解析为 stale，而 `kindAt` 仍把该修订计入 changes；当前没有覆盖这一组合的测试。
+- 建议改法：校验时用与 apply 相同的锚解析结果，排除 stale；最好传入一次由当前原始 dataset 与 file 算出的 resolved，而不是在 ops 中按 params.entity 复制一套有效性规则。
+
+### 11. 重要｜正确性｜readOverlay 达到重试上限后伪装成“没有修订”
+- 位置：packages/nb-story/src/core/overlay/store.ts:59-70
+- 现象：目录版本列表持续在列目录与读文件之间变化时，循环到 `MAX_ATTEMPTS` 后直接 `return null`；没有返回不稳定/冲突错误。
+- 为什么是问题：`openBookIndex` 会把 null 当成版本 0，查询看到无修订；`writeOverlay` 也会基于空文件重新生成版本 1。高并发或持续回收时，真实修订被暂时隐藏，写入还可能失去最新基线，违反写入不丢与查询固定版本。
+- 如何核实：在 `/tmp/review-t38-impl/exp/` 的真实目录上让 `versionsIn` 每次重读都观察到不同最高版本，调用 `readOverlay` 51 次循环后得到 null；静态判据是 60-69 没有任何失败分支。
+- 建议改法：超过重试上限抛明确的 `revision_conflict`/内部可诊断错误，不得把不稳定快照当作空文件；写入调用方也必须停止重算而不是从版本 0 起步。
+
+### 12. 重要｜正确性｜未知修订文件格式会让所有读查询失败，违背“只读”语义
+- 位置：packages/nb-story/src/core/overlay/store.ts:41-55、packages/nb-story/src/core/book-index.ts:232-245；packages/nb-story/src/contract/contract.ts:561-571
+- 现象：`readVersion` 对未知 `format` 直接抛 `unsupported_format`，`openBookIndex` 没有把它降级成原始图只读；同时 `revisions.list` 与 `revisions.evidence` 的读错误合同没有登记 `unsupported_format`。
+- 为什么是问题：Spec 明确修订文件格式不认识时只读、不写；当前 `book.info`、实体、原文等任何需要打开索引的读方法都会失败，用户无法查看未套用的原始书，也得到一个合同未声明的读错误。
+- 如何核实：在真实临时书目录写入最高版本 `{"format":2,...}`，调用 `createStoryApi().call("book.info",...)` 或 `revisions.list`；调用链会从 `readOverlay` 抛出 `unsupported_format`，而不是返回原图。
+- 建议改法：读路径把未知 overlay 标记为不可套用并继续构建 raw index；写路径在 `writableBook`/`writeOverlay` 报 R6。若产品决定读也必须拒绝，则先改 Spec 与所有 read method 的错误合同，不能保持当前隐含行为。
+
+### 13. 重要｜测试｜关键持久化失败路径没有真实覆盖
+- 位置：packages/nb-story/src/core/overlay/store.test.ts:27-40；packages/nb-story/src/core/overlay/revisions.test.ts:167-188
+- 现象：覆盖层测试只有八进程同时写、损坏最高版本回退和正常删书重导入；没有发布前强杀、发布后清理前强杀、EEXIST 目标属于新代、检查后删除并同 id 换代、未知格式读路径或清理交错。
+- 为什么是问题：本提交新增的硬链接发布、回收和代际隔离正是跨进程不变量；当前全绿测试不能发现第 1、3、11、12 条的行为，且 `revisions.evidence --text`、写入 `--at` 忽略、stale entity 筛选和用户修订 undo 返回字段也没有验收覆盖。
+- 如何核实：对照 `docs/specs/story/revisions.md` 验收 8 与计划的 store 测试映射，再对照实际测试文件；现有测试文件只启动 `revise-child.ts` 做普通并发写，没有任何 kill/barrier 或新代文件断言。
+- 建议改法：补真实子进程/屏障测试覆盖每个发布、回收、换代时序；补 CLI 参数行为、stale 按对象筛选、用户修订 undo 完整结果的可观察合同测试，失败时在 afterEach 收口子进程。
+
+### 14. 重要｜正确性｜挪称呼已属于目标时没有返回 R3，而是写入空操作修订
+- 位置：packages/nb-story/src/core/overlay/ops.ts:131-138
+- 现象：`revisions.moveName` 只检查 `from.names` 是否存在该文字，不检查 `to` 在依据位置已拥有同文字称呼，也不检查此前的 name.move 是否已把它移入目标；`applyOverlay` 遇到目标已有称呼时只是不再追加。
+- 为什么是问题：Spec 的 R3 明确把“称呼已经属于目标”列为冲突；当前调用会成功增加一个 adopted 版本但图没有变化，版本号和历史被无意义消耗，重复提交也不具备可观察的幂等/冲突语义。
+- 如何核实：在样例书先执行 `revisions.moveName(text:"狐狐", from:"e1-1", to:"e3-2", evidence:"30.1")`，再以同一参数执行一次；当前第二次仍写新版本，`apply.ts:111` 只走 `already` 分支。
+- 建议改法：按依据位置检查目标当前有效称呼（含前面已采纳的 name.move），命中时抛 `revision_conflict`；若需要支持撤销后重做，按 withdrawn 项排除并重新根据当前图校验。
+
+## 未发现问题的方面
+- `applyOverlay` 放在 `settle` 之前的接线符合计划；新增说法、删说法和改名后的记录会统一进入位置排序。
+- `identity.reject` 的 `dropReferences()` 已覆盖 `premises`、`rel.to`、`secret.statements`、`knowledge.about` 和 `question.updates.answer`；`book-index` 的 `secretOfStatement`、`knowledgeByWhoAbout`、`citations`、`tiersAt` 都从清理后的数据重建，未发现这几类已列引用的悬空。
+- `name.move` 在投影前同时改 `names` 与 `mentions`，`mentionsByParagraph`、原文链接和 `anonymous` 判断读取同一套套用后数据；未发现单次 name.move 在不剧透位置上分叉。第 9 条是后续 link 文字生成没有消费前一条修订的问题。
+- `tagPersonaOrigins` 在最终编译数据上补写 origin；`renderContext`、`personaRequest` 和整理上下文没有序列化 origin，prior 使用 tagged dataset 未改变已发给模型的文字。相关 context/persona 测试通过。
+- `projection.ts` 的 `VisibleEntity.kind` 会按阅读位置选 kindFrom；现有身份合并与查询路径均消费 `BookView` 的实体，未发现另一个直接绕过投影的读取点。第 10 条是写入校验复制有效性规则而未排除 stale。
+- `overlayVersion` 已进入索引缓存键和分页游标摘要；当前前端重取 cursor_invalid 的接线不在本次后端范围，未发现额外的游标失效死路。
+
+## 验证记录
+- `bun test src/core/overlay`：33 pass，0 fail，1218 expect() calls。
+- `bun test src/cli/revisions.test.ts src/ingest/persona-check.test.ts src/ingest/context.test.ts`：16 pass，0 fail，97 expect() calls。
+- `bun run typecheck`：通过（tsc、core tsconfig、vue-tsc、web-test 与 e2e tsconfig 均返回 0）。
+- `bun test src/core`：201 pass，0 fail，5572 expect() calls。
+- `/tmp/review-t38-impl/exp/store-generation-race.ts`：真实 `writeOverlay` 实验确认新 generation 的 `revisions-1.json` 被 old generation 写入覆盖。
+- `/tmp/review-t38-impl/exp/describe-idempotence.ts`：真实 API 实验确认重复 confirm 在存在后续修订时返回后续 `r2`。
+- `/tmp/review-t38-impl/exp/undo-user-result.ts`：真实 API 实验确认撤销用户 link 返回空 summary/entities/quote。
+- `/tmp/review-t38-impl/exp/cli-args.ts`：真实 CLI 实验确认 evidence `--text` 返回退出码 2；同脚本确认写入命令带 `--at` 仍返回成功并完成写入。
+- 未运行 e2e 与开发服务，符合本次只读后端审查范围。
+
+## 统计
+有效发现共 14 条：阻断 0 条，重要 14 条，建议 0 条。
+未审查：packages/nb-story/src/web/、packages/nb-story/e2e/。
+- `bun test src/cli src/ingest`：215 pass、2 fail（217 tests）；失败均在未改动的 `src/cli/config.test.ts`，交互测试在 4000ms 内未出现“推理档”，与 t38 修订后端改动无直接调用关系，未把它计入本次发现。
+- 工作区 `git status --short`：无输出；未修改仓库文件。
+
+最终统计：有效发现 14 条：阻断 0 条，重要 14 条，建议 0 条。
