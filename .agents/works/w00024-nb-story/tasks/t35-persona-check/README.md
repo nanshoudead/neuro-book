@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t35-persona-check
-status: active
+status: done
 updated: 2026-10-28
 ---
 
