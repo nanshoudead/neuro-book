@@ -1,0 +1,78 @@
+# w00028 t03 第 7 片（五个小插件）交付报告：html-preview、image-viewer 迁到消息目录；commands、markdown、files 无可迁文字
+
+状态：html-preview 与 image-viewer 已迁完；commands、markdown、files 不建目录（见“没有迁的”）。未提交。验证结果见文末。
+
+## 改动文件（worktree /home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n，路径相对 packages/neuro-book，除非写明）
+
+html-preview（命名空间 nbook.html-preview，10 个键，一处一键，无复数键）
+- 新增 src/plugins/html-preview/locales/zh-CN.json、en-US.json、web/text.ts（htmlPreviewCatalogs、htmlPreviewText、HtmlPreviewTextKey）、locales.test.ts（“文字没变”）、web/components/HtmlPreview.dom.test.ts。
+- 改 web/plugin.ts：编辑器声明改 `Written<EditorDeclaration, "title">`，title 省略（约定键 editors.html.title）；命令声明改 `WrittenCommandDeclaration`，title 省略（约定键 commands.nbook.editor.toggle-preview-network.title，命令 id 不以插件 id 开头，本地 id 取全名），category 写 `categories.preview`；公开状态 active 的 reason 写 `state.active.reason`；编辑区标题上的按钮 label 写 `titleItems.network`；删掉 `reason()` 双语助手。HtmlPreviewHost 包装组件声明 `locale` 属性（不用），免得编辑器区按控件合同传的 `locale` 落进 attrs、出现在 DOM 上。
+- 改 web/components/HtmlPreview.vue：删 TEXT 表、`say`、`locale` 属性（原来只用于取文字）；改 `useText()` + `text(key)`；失败种类到键的表 `DENIAL_KEYS`（`satisfies Record<PreviewDenial, …>`，加一种失败这里编译不过）。
+- 改 web/components/HtmlPreview.md：标签加 `state:inject`，Props 删 `locale`，加“隐藏通道理由”节。
+image-viewer（命名空间 nbook.image-viewer，9 个键，无复数键）
+- 新增 src/plugins/image-viewer/locales/zh-CN.json、en-US.json、web/text.ts、locales.test.ts、web/components/ImageViewer.dom.test.ts。
+- 改 web/plugin.ts：编辑器声明改 `Written<…, "title">`，title 省略（约定键 editors.image.title）。
+- 改 web/components/ImageViewer.vue：删 TEXT 表与 `say`，改 `useText()` + `text(key, params)`；`locale` 属性保留，只用于大小的 `Intl.NumberFormat`（注释与 .md 写明），文字经端口。
+- 改 web/components/ImageViewer.md：标签加 `state:inject`，Props 的 `locale` 注释改为只管数字格式，加“隐藏通道理由”节。
+登记与 Lab
+- src/web/plugins.ts：`builtinPluginCatalogs` 加 "nbook.html-preview"、"nbook.image-viewer"（及两个 import）。
+- scripts/ci/message-catalogs.ts（仓库根）：`CATALOG_DIRECTORIES` 加两个目录。
+- src/plugins/lab/web/fixtures/html-preview-scene/HtmlPreviewFixture.vue：另建宿主引擎、登记本插件目录、`provide(TEXT_PORT_KEY, …)`；语言由场景 id 决定（`english` 或 `-english` 结尾用英文）；去掉 `locale` 输入。
+- src/plugins/lab/web/fixtures/image-viewer-scene/ImageViewerFixture.vue：同样另建引擎注入端口；语言仍取场景输入的 `locale`（控件的 `locale` 属性还在，引擎与属性同一来源）。
+- src/plugins/lab/web/fixtures/index.ts：HtmlPreview 场景去掉 `locale` 输入，原来的 `denied`（英文）改成中文 `denied`，另加 `denied-english`；ImageViewer 场景没改。
+没有改的：src/plugins/commands、markdown、files 全部文件；backend、shared 里的任何文件；e2e。
+
+## 没有迁的（逐项列出，给主会话定）
+命令里没有任何要建目录的界面文字，所以 commands、markdown、files 都没建 locales 目录，也没登记。逐项：
+1. commands/shared/plugin.ts 的 `REASONS`（3 条双语：undeclared、notBoolean、notTrue）和 `reasonOf`/`keyProblem`：这是命令服务的“不可用原因”，服务端与浏览器入口共用同一份代码、返回的是字符串（`CommandResult.reason`），按说明保持原样。它们仍用旧的 `localize/formatText`（界面语言从设置读）。若以后要迁，需要让命令服务的 reason 能带 TextRef，是合同变化，不在本片。
+2. commands 其余（shared/keybinding.ts、registry.ts、menus.ts、context-keys.ts、plugin.ts 里的错误与诊断消息）：校验原因、`reject(...)`、诊断 message，都是中文字符串，给开发者与日志看，不是界面文字，没动。commands 的 .test.ts 里的双语字面量（registry.test、menus.test、remote.test、plugin.test）是测试数据，没动。
+3. markdown/web/host.ts 的 `NBOOK_IMAGE_MISSING`（1 条双语：`{name}（不在作品里，不显示）` / `{name} (not in the work, not shown)`）：它是交给 nb-markdown 包的 `MarkdownText`（包的类型只认 zh-CN/en-US 两键的对象，包内用 `say(text, locale)` 取），属于包的接口；包自己的目录迁移（计划里 nb-markdown 自带目录）那一片再处理，这里没法单独改成目录键。Lab 的 MarkdownImageFixture.vue 也在引用它。MarkdownControl 的 `locale` 属性同理，是传给包的。
+4. markdown 里 syntax-catalog.ts、language-registry.ts、shared/dialects.ts、web/plugin.ts、MarkdownHosted.vue、MarkdownControl.vue 的中文：诊断消息、校验原因、`throw new Error` 的开发者消息，不是界面文字。
+5. files 全部：backend 的 `detail`、`rejected(...)`、`fail(...)` 文案（entry-ops、rooted、operations、raw-route、manifest-edit、folder-kinds、batch、commit、manifests、files-service、plugin.ts），shared/resource.ts、shared/names.ts（“第N”规范化、路径校验原因），web/client.ts 里浏览器侧拼的 `detail`（“没有给出任何地址”“一次最多 N 项”“的正文超过上限”等）：都是服务端或合同层产出的失败详情字符串，随失败结果交给调用方（资源管理器等）当原文显示，服务端也不翻译 TextRef；没有界面组件。不属于本片。资源管理器怎么显示这些 `detail` 在 explorer 那一片已处理。
+6. html-preview/web/plugin.ts 的命令 `run` 返回 `{ok:false, code:"unavailable", reason:"活动的不是 HTML 预览"}`：命令结果的 reason 是字符串，给 Agent 与调用方的原文，不是界面；目录里同样内容的 `state.active.reason` 是公开状态给用户看的。两处文字相同但用途不同，没合并。另有 report(`申请预览令牌失败：…`) 等诊断消息，没动。
+
+## 键数与对照
+- html-preview：10 个键（迁移前 10 处：编辑器标题、命令标题、命令分类、按钮标签、公开状态原因各 1，控件文字表 5）。
+- image-viewer：9 个键（迁移前 9 处：编辑器标题 1，控件文字表 8）。
+- 迁移前字面量用 extract.ts 从 HEAD(f880309da) 的四个文件抽出核对：html-preview 的 web/plugin.ts 4 条单行字面量加 `reason(zh, en)` 1 条（该助手是两参数调用，脚本不认，手补）、HtmlPreview.vue 5 条；image-viewer 的 web/plugin.ts 1 条、ImageViewer.vue 8 条；与 grep 一致。
+- 两种语言的值逐字沿用旧字面量，只把 `{name}` 换成 `{{name}}`；没有发现错字或需要报的生硬英文。
+
+## 测试
+- src/plugins/html-preview/locales.test.ts、src/plugins/image-viewer/locales.test.ts（bun test）：对照表来自迁移前提交 f880309da，断言目录展开后的键与表的键集合双向相等、每个值与旧字面量（`{x}` 换 `{{x}}` 后）逐字相同，以及取文字函数的命名空间等于插件 id、源语言是 zh-CN。变异自检：改一个英文值、改一个中文值，两个测试都变红；把目录顶层键改名，src/convention-keys.test.ts 的声明测试报 missing-key；都已复原。
+- HtmlPreview.dom.test.ts（Vitest，严格模式端口）：令牌申请被拒绝三种（no-project、closed、unreachable）的中文说明与“重试”，不是作品里的文件只有说明无“重试”，英文界面一条。令牌服务是按 PreviewAccess 接口写的内存实现。
+- ImageViewer.dom.test.ts（Vitest，严格模式端口）：没有绑定项目、404、410、413、500 的中文说明（含文件名与状态码参数）与“重试”，英文界面一条，读取中的提示（中英文），回应放行后换成失败说明。HTTP 状态来自测试里用 node:http 起的本机真实服务（带预检应答），没有 mock。图片解码失败（undecodable）和成功显示在 happy-dom 里不能完成解码，没在 Vitest 测；该条文字只由目录对照测试与 vue-tsc 的键核对覆盖，Lab 场景 `broken` 与 e2e/editor-types.e2e.ts（没跑）会走到。
+- 原有测试里没有断言这两个插件界面文字的中文断言（compose.test.ts 的中文是测试数据），所以没有“改经端口断言”的项。e2e/editor-types.e2e.ts 里只有“预览 index.html”标签名（来自 nbook.editor 的 tab.previewOf），不是本插件的文字。
+- 没有 mock、spy、假计时器与固定等待（等待用 expect.poll）。
+
+## 没把握的 / 给主会话的决定点
+1. HtmlPreview 的 `locale` 属性删除后，控件合同 EditorControlProps 仍要求编辑器区传 `locale`；我在插件入口的 HtmlPreviewHost 包装组件里声明了 `locale` 属性接下它（不使用），否则它会进 attrs 落到根 div。这是一个小的不对称：合同属性是控件“可以不用”的。若主会话想让合同去掉 `locale`（只给分语言的控件如 Markdown、Monaco），那是编辑器合同的变化，另议。
+2. ImageViewer 的 `locale` 属性保留（`Intl.NumberFormat` 的大小格式）。与试点决定点 3 同类：端口有 `locale`，改读 `useText().locale` 就能删掉这个属性。是否统一处理，请定。
+3. 失败说明（`problem`）是失败那一刻翻成的字符串快照，切换语言后不更新（迁移前同样如此）。已在两份 .md 里写明。与试点决定点 6 同类。
+4. commands 的 REASONS、markdown 的 NBOOK_IMAGE_MISSING 没迁，原因见“没有迁的”第 1、3 条；后者要等 nb-markdown 的目录化那一片。
+5. HtmlPreview 的失败分支新增了 `DENIAL_KEYS` 表（原来直接拿 denial 当 TEXT 键）；行为不变。
+6. Lab：HtmlPreview 的 `denied` 场景原来是英文，现在 `denied` 为中文、新增 `denied-english`（场景 id 约定）；截图基线若按场景 id 对照，需要更新。截图对照我没做。
+7. 组件 .md 里“隐藏通道理由”小节是我新加的（这两份 .md 之前没有这一节，只在标签里写了 state:local）；若 docs:check 的组件文档检查要求别的写法，见验证结果。
+
+## 禁止清单自查
+- 不按错误文案做分支：失败分支按 denial 种类、HTTP 状态码查键，没有比较文字。
+- 不静默吞错：没有新增 catch；原有 catch 原样保留。
+- 不放宽断言、不跳过测试、不加测试专用分支：新增测试，产品代码里没有测试分支；`testTextPort` 只在 shared/testing/。
+- 不改写文字：目录由旧字面量逐字转写，对照测试逐字核对并做过变异自检。
+- 不删改任务之外的代码、配置、注释：只改上面列出的文件；Lab 的 fixtures/index.ts 只动了这两个组件的场景。HtmlPreviewFixture.vue 头注释追加了两行说明，其余原样。
+- 不留旧入口第二条路径：html-preview、image-viewer 里已无 `localize`、`formatText`、`LocalizedText` 的引用。
+- 不跨包深导入：只用 `@notnotype/nb-ui/text`、`@notnotype/nb-ui/text-port` 公开子路径；插件之间只有 type import 与 Lab 允许的 web/ 导入，architecture.test 通过。
+- 保留清理收口：onBeforeUnmount 等原样。
+- 测试规则：没有 mock/spy/假计时器/固定等待。
+
+## 验证结果（2026-10-28，worktree HEAD f880309da，未提交）
+packages/neuro-book：
+- `bun run typecheck`：通过（tsc、vue-tsc web、vue-tsc browser-test）。
+- `bun run test:bun`：1609 pass，0 fail（182 个文件）。
+- `bunx vitest run --testTimeout=30000`：67 个文件，394 个测试全部通过。
+- `bun test src/plugins/html-preview src/plugins/image-viewer src/convention-keys.test.ts src/architecture.test.ts`：20 pass。
+- Lab 夹具：临时写过一个 Vitest 用例挂载 HtmlPreviewFixture（denied 中文、denied-english 英文，说明文字对），通过；ImageViewerFixture 挂载不报错（没断言输出内容）；临时文件已删，git status 里没有。
+仓库根：
+- `bun scripts/ci/message-catalogs.ts`：退出 0，无输出。
+- `bun run docs:check`：failures []、warnings []。
+- `bun run governance:check`：failures []、warnings []。
+没跑的：e2e（e2e/editor-types.e2e.ts 涉及预览与图片标签，没有断言这两个插件的文字，但需要构建后确认窗口登记的目录生效）、Lab 截图对照、plugin-sdk 测试（没动 sdk）。
