@@ -31,6 +31,19 @@ code { background: #eff1f3; padding: 1px 5px; border-radius: 4px; }
 <h1>覆盖层与待确认修订：界面设计（第 1 轮）</h1>
 <p class="muted">w00024 t37 · 2026-10-28。背景：t35 的真实小抽取里，核对只能写“可能是同一人”的候选，没有地方确认；抽取还留下核对管不到的错（马甲与人物的种类建错、称呼挂错对象）。下面是静态稿：数据取自那次真实抽取（样例书 sample-10、魔女学院 witch-20），按钮都不能点。三道待定的题，一道要你过目的规则。</p>
 
+<section class="q" data-nbdev-question="draft-final" data-nbdev-type="confirm" data-nbdev-label="第 2 轮补稿可以定稿，按它写 Spec 与计划">
+  <h2><span class="badge todo" data-nbdev-skip>待定</span>第 2 轮：范围定为“身份连接、改种类、挪称呼”之后的补稿</h2>
+  <p>下面三道题第 1 轮已答（确认两处都有、范围到改种类与挪称呼、扫描另起 Task，规则六条确认），这里补第一版新增的两个对话框和手机宽度。想改的地方写在备注里。</p>
+  <div class="row">
+    <figure><img src="r2/edit-kind-light.webp" alt="改对象种类对话框"><figcaption>改对象种类：必选一句依据，从这一段起生效；“改完会怎样”写明波及什么。注意：现有数据里对象的种类是整本书不变的，改种类要按位置生效，是这次新增的能力，Spec 里单独写。</figcaption></figure>
+    <figure><img src="r2/edit-name-light.webp" alt="挪称呼对话框"><figcaption>挪称呼：选哪个称呼、挂到谁、一句依据。只改依据段之后的出现，之前章节不变（不剧透、不改过去）。</figcaption></figure>
+  </div>
+  <div class="row">
+    <figure><img src="r2/phone-list-light.webp" alt="手机宽度的待确认页"><figcaption>手机：待确认页单列，卡片里直接放按钮；导航在底部页签里多一项“待确认”。</figcaption></figure>
+    <figure><img src="r2/phone-card-light.webp" alt="手机宽度的人物卡"><figcaption>手机：点一条或人物，人物卡从底部拉起（与现有抽屉在手机上的做法一致），候选在头部。</figcaption></figure>
+  </div>
+</section>
+
 <section class="q" data-nbdev-question="confirm-place" data-nbdev-type="single" data-nbdev-recommend="both">
   <h2><span class="badge todo" data-nbdev-skip>待定</span>在哪里确认：人物卡就地、集中的“待确认”页，还是两处都有</h2>
   <p>每章最多问 5 个马甲，一本书抽完可能有几十条候选，再加上以后“检查这本书”提出的建议。要定的是用户在哪里处理它们。</p>

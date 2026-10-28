@@ -1,0 +1,145 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t37-overlay-revisions-design",
+    "artifactId": "review",
+    "version": 3,
+    "supersedes": 2,
+    "action": "publish",
+    "kind": "design",
+    "title": "覆盖层与待确认修订：界面设计 第 1 轮",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "6588ff044141d6cd86c02570b5498c2e5269624da282d951be33ca358de04783",
+    "files": [
+        "index.html",
+        "r1/applied-light.webp",
+        "r1/both-light.webp",
+        "r1/card-inline-light.webp",
+        "r1/cur-sample-card-persona.webp",
+        "r1/cur-witch-card-silver.webp",
+        "r1/edit-link-light.webp",
+        "r1/edit-menu-light.webp",
+        "r1/history-light.webp",
+        "r1/pending-page-light.webp",
+        "r1/scan-dark.webp",
+        "r1/scan-light.webp",
+        "r2/edit-kind-light.webp",
+        "r2/edit-name-light.webp",
+        "r2/phone-card-light.webp",
+        "r2/phone-list-light.webp"
+    ],
+    "questions": [
+        {
+            "id": "confirm-place",
+            "type": "single",
+            "label": "在哪里确认：人物卡就地、集中的“待确认”页，还是两处都有",
+            "options": [
+                {
+                    "value": "inline",
+                    "label": "A 只在人物卡上就地确认"
+                },
+                {
+                    "value": "page",
+                    "label": "B 只做集中的“待确认”页"
+                },
+                {
+                    "value": "both",
+                    "label": "C 两处都有（页里汇总，人物卡就地）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "both"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "edit-scope",
+            "type": "single",
+            "label": "能改什么：第一版修订的范围",
+            "options": [
+                {
+                    "value": "identity-only",
+                    "label": "A 只做身份连接"
+                },
+                {
+                    "value": "kind-name",
+                    "label": "B 再加改对象种类、挪称呼"
+                },
+                {
+                    "value": "all",
+                    "label": "C 全做（含合并对象、改说法类别与挂靠）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "kind-name"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "scan-product",
+            "type": "single",
+            "label": "“检查这本书”（事后扫描）要不要进产品",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "A 与覆盖层一起做"
+                },
+                {
+                    "value": "later",
+                    "label": "B 覆盖层先做，扫描另起一个 Task"
+                },
+                {
+                    "value": "no",
+                    "label": "C 不做，只保留马甲核对与手动修改"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "later"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "rules",
+            "type": "confirm",
+            "label": "按下面的规则往下写 Spec 与计划",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "draft-final",
+            "type": "confirm",
+            "label": "第 2 轮补稿可以定稿，按它写 Spec 与计划",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-28T12:35:25.478Z"
+}
