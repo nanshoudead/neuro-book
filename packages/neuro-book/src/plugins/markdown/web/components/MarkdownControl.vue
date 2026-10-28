@@ -9,6 +9,7 @@ import "@notnotype/nb-markdown/markdown.css";
 
 import {createMarkdownEditorExtensions, REFRESH_REFERENCE_LINKS} from "@notnotype/nb-markdown/editor";
 import type {MarkdownViewHost} from "@notnotype/nb-markdown/editor";
+import {markdownViewContext} from "@notnotype/nb-markdown/host";
 import {codecFor} from "@notnotype/nb-markdown/language";
 import type {MarkdownCodec, MarkdownLanguage, SourceMap} from "@notnotype/nb-markdown/language";
 
@@ -21,7 +22,8 @@ import {languageFor} from "../language-registry";
 import {markdownAssetsKey} from "../parts/asset-urls";
 import {syntaxCatalogKey} from "../syntax-catalog";
 
-// `locale`：控件合同的一员；引用小块的悬停提示与图片的说明按它显示（占位文字由宿主给出）。
+// `locale`：控件合同的一员。本控件不按它取文字：引用小块的悬停提示与图片的说明经窗口注入的翻译端口（下面的 `context`），
+// 编辑器区传的 `locale` 就是那个端口的语言。
 const props = defineProps<{binding: TextEditorBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; placeholder?: string; locale?: DisplayLocale}>();
 const emit = defineEmits<EditorControlEmits>();
 
@@ -46,10 +48,13 @@ interface MarkdownViewState {
     scroll: number;
 }
 
-/** 方言外观（引用小块、图片）要的宿主信息：地址与语言按函数取，换文档不重建扩展。 */
+/**
+ * 方言外观（引用小块、图片）要的宿主信息：地址按函数取，换文档不重建扩展；`context` 带着注入的翻译端口，节点视图挂的图片
+ * 跟着端口换语言。
+ */
 const viewHost: MarkdownViewHost = {
     base: () => bound?.address.value ?? null,
-    locale: () => props.locale ?? "zh-CN",
+    context: markdownViewContext(),
     assets: inject(markdownAssetsKey, null),
     chips: nbookChips,
     imageMissing: NBOOK_IMAGE_MISSING,

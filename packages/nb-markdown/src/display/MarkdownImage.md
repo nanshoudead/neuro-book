@@ -1,5 +1,5 @@
 ---
-标签: []
+标签: [state:inject]
 别名: ["Markdown 图片", "Markdown Image"]
 ---
 
@@ -22,8 +22,6 @@ Markdown 里一张图片 `![说明](地址)` 的样子：Markdown 编辑器的�
 interface MarkdownImageProps {
     /** 必填：原文里写的地址。 */
     src: string;
-    /** 界面语言。必填。 */
-    locale: MarkdownLocale;
     /** 说明；默认空字符串。 */
     alt?: string;
     /** 标题；默认 null。 */
@@ -32,8 +30,11 @@ interface MarkdownImageProps {
     resolveAsset?: (src: string, signal: AbortSignal) => Promise<{url: string; release(): void} | null>;
     /** 每变一次重新取一次 URL（文件在磁盘上变了）。默认 0。 */
     refresh?: number;
-    /** 不显示时的说明，中英两份，`{name}` 是说明或地址；默认“{name}（不显示）”。 */
-    missing?: {"zh-CN": string; "en-US": string};
+    /**
+     * 不显示时的说明（nb-ui 的文字值），参数 `name` 是说明或地址：目录里的键由组件补上 `name` 经翻译端口翻译，字符串与
+     * 语言映射写 `{name}`。默认“{name}（不显示）”。
+     */
+    missing?: Text;
 }
 
 interface MarkdownImageEmits {
@@ -41,11 +42,15 @@ interface MarkdownImageEmits {
 }
 ```
 
-不 inject 宿主：展示器的静态视图与编辑器的节点视图用 `render()` 把它挂到普通 DOM 上，那里没有应用上下文；要的都经属性给。
+不 inject 宿主：展示器的静态视图与编辑器的节点视图用 `render()` 把它挂到普通 DOM 上，挂的时候只带着翻译端口；宿主的东西都经属性给。
+
+## 隐藏通道理由
+
+- `state:inject`：界面文字读宿主注入的翻译端口（nb-ui 的 `TEXT_PORT_KEY`），宿主要登记本包的目录（`@notnotype/nb-markdown/locales`）。挂在普通 DOM 上时，建视图的组件用 `markdownViewContext` 把端口带进挂载的上下文；单独挂载、上面也没有注入时用包内的缺省端口，语言 zh-CN（[README](../../README.md#界面文字)）。
 
 没有 slot 与 expose。根元素带 `data-markdown-image`，状态写在 `data-state`（`loading`、`shown`、`none`、`failed`）。
 
 ## 注意事项
 
 - **释放**：`resolveAsset` 给出的 `release` 在地址或 `refresh` 变了、卸载时各调用一次；取消之后才到的结果立即释放，不显示。
-- 编辑器与展示器是普通 DOM（节点视图、静态视图），用 Vue 的 `render()` 把它挂进各自的容器，卸载时 `render(null, 容器)`。
+- 编辑器与展示器是普通 DOM（节点视图、静态视图），用 Vue 的 `render()` 把它挂进各自的容器，vnode 带上建视图的组件给的上下文（`markdownViewContext`），卸载时 `render(null, 容器)`。

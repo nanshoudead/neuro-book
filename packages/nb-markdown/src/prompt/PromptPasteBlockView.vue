@@ -3,12 +3,16 @@ import {computed, nextTick, ref, useId} from "vue";
 import {NodeViewWrapper, nodeViewProps} from "@tiptap/vue-3";
 import {TextSelection} from "@tiptap/pm/state";
 import {IconButton} from "@notnotype/nb-ui/components";
-import {promptText} from "./prompt-labels";
+
+import {useMarkdownText} from "../host/text";
+
 import {selectionBesideBlock, type PromptNodeContext} from "./prompt-editor-extensions";
 import {breaksPasteBlock, numberKey, PASTE_COLLAPSED_LINES, type PromptPasteBlockAttrs} from "./prompt-text";
 import PromptPasteFrame from "./PromptPasteFrame.vue";
 
 const props = defineProps(nodeViewProps);
+/** 文字读翻译端口：TipTap 的 Vue 节点视图挂在 `EditorContent` 的应用上下文里，拿得到 PromptEditor 与它祖先提供的端口。 */
+const {t} = useMarkdownText();
 
 const expanded = ref(false);
 /** 文本框里还没写回的内容：有恰好是 `</paste>` 的一行，写回会让粘贴块提前结束。 */
@@ -163,7 +167,6 @@ function leave(side: "before" | "after"): void {
     <NodeViewWrapper :data-prompt-paste="attrs.number">
         <PromptPasteFrame
             v-model:expanded="expanded"
-            :locale="context.locale"
             :number="attrs.number"
             :content="attrs.content"
             :highlighted="highlighted"
@@ -175,8 +178,8 @@ function leave(side: "before" | "after"): void {
                 <IconButton
                     size="sm"
                     icon-class="i-lucide-text"
-                    :title="promptText(context.locale, 'pasteToText')"
-                    :aria-label="promptText(context.locale, 'pasteToText')"
+                    :title="t('prompt.pasteToText')"
+                    :aria-label="t('prompt.pasteToText')"
                     data-prompt-paste-action="to-text"
                     @click="convertToText"
                 />
@@ -184,8 +187,8 @@ function leave(side: "before" | "after"): void {
                     size="sm"
                     variant="danger"
                     icon-class="i-lucide-trash-2"
-                    :title="promptText(context.locale, 'pasteRemove')"
-                    :aria-label="promptText(context.locale, 'pasteRemove')"
+                    :title="t('prompt.pasteRemove')"
+                    :aria-label="t('prompt.pasteRemove')"
                     data-prompt-paste-action="remove"
                     @click="remove"
                 />
@@ -197,7 +200,7 @@ function leave(side: "before" | "after"): void {
                     :value="invalidDraft ?? attrs.content"
                     rows="1"
                     spellcheck="false"
-                    :aria-label="promptText(context.locale, 'pasteEdit', {number: attrs.number})"
+                    :aria-label="t('prompt.pasteEdit', {number: attrs.number})"
                     :aria-invalid="invalidDraft !== null"
                     :aria-describedby="invalidDraft !== null ? errorId : undefined"
                     data-prompt-paste-area
@@ -206,7 +209,7 @@ function leave(side: "before" | "after"): void {
                     @blur="invalidDraft = null"
                 />
                 <p v-if="invalidDraft !== null" :id="errorId" class="prompt-paste__error" role="alert">
-                    {{ promptText(context.locale, "pasteInvalidClose", {tag: "</paste>"}) }}
+                    {{ t("prompt.pasteInvalidClose", {tag: "</paste>"}) }}
                 </p>
             </template>
         </PromptPasteFrame>

@@ -18,6 +18,7 @@ import {renderFileIcon} from "nbook/ui/file-icons/render";
 
 import {classifyTarget, encodeFileTarget} from "../shared/targets";
 import type {MarkdownReport} from "./parts/report";
+import {markdownText} from "./text";
 
 /** 两边的界面语言是同一组值；改了一边这里报错。 */
 const sameLocale: [DisplayLocale, MarkdownLocale] extends [MarkdownLocale, DisplayLocale] ? true : never = true;
@@ -38,8 +39,11 @@ export const nbookChips: ChipEnv = {
     fileIcon: (name) => ({render: (document) => renderFileIcon(document, fileIconForName(name))}),
 };
 
-/** 图片不显示时的说明：作品里的图片才显示（docs/specs/workspace/markdown-dialect.md 输出 18）。 */
-export const NBOOK_IMAGE_MISSING: MarkdownText = {"zh-CN": "{name}（不在作品里，不显示）", "en-US": "{name} (not in the work, not shown)"};
+/**
+ * 图片不显示时的说明：作品里的图片才显示（docs/specs/workspace/markdown-dialect.md 输出 18）。是本插件目录里的键，nb-markdown 的
+ * 组件补上 `name` 后经注入的端口翻译，所以端口要登记 `nbook.markdown` 的目录（窗口按 `builtinPluginCatalogs` 登记）。
+ */
+export const NBOOK_IMAGE_MISSING: MarkdownText = markdownText("image.missing");
 
 export function nbookMarkdownHost(options: {readonly language?: () => MarkdownLanguage; readonly report?: MarkdownReport}): MarkdownHost {
     return {

@@ -9,8 +9,11 @@ import {afterEach, describe, expect, it} from "vitest";
 
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
+
 import {markdownReportKey} from "../parts/report";
 import {SyntaxCatalog, syntaxCatalogKey} from "../syntax-catalog";
+import {markdownCatalogs} from "../text";
 import MarkdownHosted from "./MarkdownHosted.vue";
 import type {HostedComponent} from "./MarkdownHosted.vue";
 
@@ -20,14 +23,14 @@ afterEach(() => {
     for (const cleanup of cleanups.splice(0)) cleanup();
 });
 
-/** 与插件的 `withHost` 一样，祖先给方言目录与诊断出口。 */
+/** 与插件的 `withHost` 一样，祖先给方言目录与诊断出口；窗口给翻译端口（登记了内置插件的目录）。 */
 async function hosted(component: HostedComponent, attrs: Record<string, unknown>) {
     const reports: string[] = [];
     const wrapper = mount(MarkdownHosted, {
         props: {component},
-        attrs: {locale: "zh-CN", ...attrs},
+        attrs,
         attachTo: document.body,
-        global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownReportKey as symbol]: (event: string) => reports.push(event)}},
+        global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownReportKey as symbol]: (event: string) => reports.push(event), ...provideText(testTextPort("zh-CN", {"nbook.markdown": markdownCatalogs}))}},
     });
     cleanups.push(() => wrapper.unmount());
     await flushPromises();

@@ -65,7 +65,7 @@ owners:
 9. **附件状态**：新加入的附件由组件生成 `localId`，状态按 `attachments` 里同一 `localId` 的项显示：上传中、失败（点“重试”发出 `attachment-retry`）、就绪。就绪后小块写回 `![image #N](目标)` 或 `[file #N · 文件名](目标)` 并发出一次 `change`；就绪前附件不在文字里。未就绪的附件从正文消失时发出一次 `attachment-remove`；撤销把它带回来时换新的 `localId` 并重新发出 `attachment-add`。
 10. **输入历史**：正文为空、或仍是刚调出且未改动的那一条时，光标在第一行按上方向键调出更早的一条，在最后一行按下方向键调出较新的一条，越过最新一条回到空正文；一旦编辑就不再处于翻看状态。Ctrl+R 打开输入历史搜索：输入文字过滤，方向键选择，回车替换正文并把焦点移回正文，Escape 关闭且正文不变。
 11. **只读**：不能编辑（包括粘贴块的内容）、粘贴、拖入，不开菜单、不翻看输入历史；可以选中与复制；附件条与粘贴块的按钮只剩“展开”。
-12. **界面语言**：按钮、提示与说明按宿主给的 `locale` 显示；`locale` 变了随即换成新的文字，正文不变。
+12. **界面语言**：按钮、提示与说明按界面语言显示：宿主注入了翻译端口时按端口的语言，没有注入时按 `locale`（见“边界与兼容”）；语言变了随即换成新的文字，正文不变。
 13. **可访问性**：正文区是 `role="textbox"`、`aria-multiline="true"`，可访问名称取 `ariaLabel`，为空时取 `placeholder`；菜单开着时正文区带 `aria-expanded`、`aria-controls`、`aria-activedescendant`；菜单是 `role="listbox"`，每项 `role="option"`，禁用项带 `aria-disabled`、没有选项 id；`aria-activedescendant` 指向的就是高亮的那一项（id 由 nb-ui 的 `suggestionOptionId` 按可选项的顺序给出）。输入历史开着时，搜索框是 `role="combobox"`，带同样的 `aria-controls`、`aria-activedescendant`；附件卡片与粘贴块的按钮都有可访问名称，失败原因写在卡片的可访问描述里。
 14. **静态显示**：`PromptTextView` 按同一套文字写法显示已发送的文字：小块与编辑组件里的一样，粘贴块默认折叠，附件进附件条；小块可聚焦，回车或空格发出 `token-activate`。
 
@@ -97,6 +97,7 @@ owners:
 - 公开接口：两个组件的属性、事件与命令面（`focus`、`insertText`、`insertFiles`）。
 - 文字写法是与宿主、服务端共用的数据格式：改写法要保证旧文字照常读入、原样写回。旧应用写出的引用目标（`chapter://` 等领域地址）照常是引用小块的原文，按目标分类归为“其它”。
 - 编辑内核是 Tiptap（ProseMirror）。撤销重做、输入法、选区与光标移动、拼写检查来自上游，不作承诺；按键与粘贴行为只在 Chromium 上验证。
+- 界面文字在 nb-markdown 自带的消息目录里（命名空间 `nb-markdown`，源语言 zh-CN，经 `@notnotype/nb-markdown/locales` 导出），按[界面语言与消息目录](i18n.md)显示：宿主注入了翻译端口时登记这份目录，语言以端口为准，`locale` 属性不起作用；没有注入时两个组件按 `locale`（缺省 zh-CN）用包内的缺省端口，单独挂载的零件用中文。
 
 ## 验收与 Smoke
 

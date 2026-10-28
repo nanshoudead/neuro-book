@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import {IconButton} from "@notnotype/nb-ui/components";
-import type {MarkdownLocale} from "../locale";
 
-import {promptText} from "./prompt-labels";
+import {useMarkdownText} from "../host/text";
+
 import type {PromptAttachmentCard} from "./prompt-editor.types";
 
 const props = withDefaults(defineProps<{
     cards: readonly PromptAttachmentCard[];
-    locale: MarkdownLocale;
     highlighted?: string | null;
     readonly?: boolean;
 }>(), {
@@ -22,11 +21,12 @@ const emit = defineEmits<{
     (e: "hover", key: string | null): void;
 }>();
 
+const {t} = useMarkdownText();
 
 function cardLabel(card: PromptAttachmentCard): string {
     return card.kind === "image"
-        ? promptText(props.locale, "tokenImage", {number: card.number})
-        : promptText(props.locale, "tokenFile", {number: card.number, name: card.name});
+        ? t("prompt.tokenImage", {number: card.number})
+        : t("prompt.tokenFile", {number: card.number, name: card.name});
 }
 
 function formatSize(bytes: number): string {
@@ -41,14 +41,14 @@ function formatSize(bytes: number): string {
 
 function detail(card: PromptAttachmentCard): string {
     if (card.excerpt) {
-        return promptText(props.locale, "lines", {count: card.excerpt.lines});
+        return t("prompt.lines", {count: card.excerpt.lines});
     }
     return typeof card.size === "number" ? formatSize(card.size) : "";
 }
 </script>
 
 <template>
-    <div v-if="props.cards.length > 0" class="prompt-strip" role="list" :aria-label="promptText(props.locale, 'attachmentLabel')">
+    <div v-if="props.cards.length > 0" class="prompt-strip" role="list" :aria-label="t('prompt.attachmentLabel')">
         <div
             v-for="card in props.cards"
             :key="card.id"
@@ -67,7 +67,7 @@ function detail(card: PromptAttachmentCard): string {
                 class="prompt-strip__main"
                 :title="card.state === 'failed' ? `${cardLabel(card)} · ${card.error ?? ''}` : cardLabel(card)"
                 :aria-label="cardLabel(card)"
-                :aria-description="card.state === 'failed' ? promptText(props.locale, 'attachmentFailed', {error: card.error ?? ''}) : card.state === 'uploading' ? promptText(props.locale, 'attachmentUploading') : undefined"
+                :aria-description="card.state === 'failed' ? t('prompt.attachmentFailed', {error: card.error ?? ''}) : card.state === 'uploading' ? t('prompt.attachmentUploading') : undefined"
                 @click="emit('activate', card.id)"
             >
                 <span v-if="card.kind === 'image'" class="prompt-strip__thumb">
@@ -92,8 +92,8 @@ function detail(card: PromptAttachmentCard): string {
                     v-if="card.state === 'failed'"
                     size="sm"
                     icon-class="i-lucide-rotate-ccw"
-                    :title="promptText(props.locale, 'attachmentRetry')"
-                    :aria-label="`${promptText(props.locale, 'attachmentRetry')} ${cardLabel(card)}`"
+                    :title="t('prompt.attachmentRetry')"
+                    :aria-label="`${t('prompt.attachmentRetry')} ${cardLabel(card)}`"
                     data-prompt-card-action="retry"
                     @click="emit('retry', card.id)"
                 />
@@ -101,8 +101,8 @@ function detail(card: PromptAttachmentCard): string {
                     size="sm"
                     variant="danger"
                     icon-class="i-lucide-x"
-                    :title="promptText(props.locale, 'attachmentRemove')"
-                    :aria-label="`${promptText(props.locale, 'attachmentRemove')} ${cardLabel(card)}`"
+                    :title="t('prompt.attachmentRemove')"
+                    :aria-label="`${t('prompt.attachmentRemove')} ${cardLabel(card)}`"
                     data-prompt-card-action="remove"
                     @click="emit('remove', card.id)"
                 />

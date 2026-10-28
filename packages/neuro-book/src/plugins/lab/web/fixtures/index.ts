@@ -70,6 +70,7 @@ import {withProjectsText} from "./projects-scene/projects-text";
 import {withSettingsText} from "./settings-scene/settings-text";
 import {withWorkbenchText} from "./workbench-scene/workbench-text";
 import {withNbookMarkdownHost} from "./markdown-host";
+import {withMarkdownSceneText} from "./markdown-text";
 import {nbAgentUiFixtures} from "./nb-agent-ui";
 import {nbFormFixtures} from "./nb-form";
 import {nbUiFixtures} from "./nb-ui";
@@ -596,25 +597,25 @@ export const labFixtures: LabFixture[] = [
     defineLabFixture<typeof InlineChip>({
         component: "InlineChip",
         scenes: [
-            {id: "reference", label: "引用作品里的文件", input: {props: {kind: "reference", locale: "zh-CN", label: "林雪", target: "/设定/林雪.md"}}},
-            {id: "reference-image", label: "引用一张图片", input: {props: {kind: "reference", locale: "zh-CN", label: "地图", target: "/资料/地图.png"}}},
-            {id: "attachment", label: "引用会话附件", input: {props: {kind: "reference", locale: "zh-CN", label: "截图", target: "local://截图.png"}}},
-            {id: "external", label: "外部链接", input: {props: {kind: "reference", locale: "zh-CN", label: "官网", target: "https://example.com"}}},
-            {id: "other", label: "旧应用的领域地址", input: {props: {kind: "reference", locale: "zh-CN", label: "第一章", target: "chapter://c1"}}},
-            {id: "long", label: "过长的名称截断", input: {props: {kind: "reference", locale: "zh-CN", label: "一个非常非常非常非常非常非常长的设定文件名字", target: "/设定/很长.md"}}},
-            {id: "skill", label: "技能", input: {props: {kind: "skill", locale: "zh-CN", label: "reviewer"}}},
-            {id: "selection", label: "选区", input: {props: {kind: "selection", locale: "zh-CN", label: "第一章.md#L3-L8"}}},
-            {id: "command", label: "命令", input: {props: {kind: "command", locale: "zh-CN", label: "plan"}}},
-            {id: "image", label: "图片 #1", input: {props: {kind: "image", locale: "zh-CN", number: 1}}},
-            {id: "uploading", label: "文件上传中", input: {props: {kind: "file", locale: "zh-CN", label: "笔记.txt", number: 2, state: "uploading"}}},
-            {id: "failed", label: "上传失败", input: {props: {kind: "image", locale: "zh-CN", number: 3, state: "failed", error: "文件太大"}}},
-            {id: "paste", label: "粘贴位置", input: {props: {kind: "paste", locale: "zh-CN", number: 4}}},
-            {id: "highlighted", label: "联动高亮", input: {props: {kind: "image", locale: "zh-CN", number: 1, highlighted: true}}},
-            {id: "selected", label: "在选区里", input: {props: {kind: "reference", locale: "zh-CN", label: "林雪", target: "/设定/林雪.md", selected: true}}},
-            {id: "interactive", label: "可聚焦（静态显示里）", input: {props: {kind: "reference", locale: "zh-CN", label: "林雪", target: "/设定/林雪.md", interactive: true}}},
-            {id: "english", label: "英文界面", input: {props: {kind: "file", locale: "en-US", label: "notes.txt", number: 2, state: "uploading"}}},
+            {id: "reference", label: "引用作品里的文件", input: {props: {kind: "reference", label: "林雪", target: "/设定/林雪.md"}}},
+            {id: "reference-image", label: "引用一张图片", input: {props: {kind: "reference", label: "地图", target: "/资料/地图.png"}}},
+            {id: "attachment", label: "引用会话附件", input: {props: {kind: "reference", label: "截图", target: "local://截图.png"}}},
+            {id: "external", label: "外部链接", input: {props: {kind: "reference", label: "官网", target: "https://example.com"}}},
+            {id: "other", label: "旧应用的领域地址", input: {props: {kind: "reference", label: "第一章", target: "chapter://c1"}}},
+            {id: "long", label: "过长的名称截断", input: {props: {kind: "reference", label: "一个非常非常非常非常非常非常长的设定文件名字", target: "/设定/很长.md"}}},
+            {id: "skill", label: "技能", input: {props: {kind: "skill", label: "reviewer"}}},
+            {id: "selection", label: "选区", input: {props: {kind: "selection", label: "第一章.md#L3-L8"}}},
+            {id: "command", label: "命令", input: {props: {kind: "command", label: "plan"}}},
+            {id: "image", label: "图片 #1", input: {props: {kind: "image", number: 1}}},
+            {id: "uploading", label: "文件上传中", input: {props: {kind: "file", label: "笔记.txt", number: 2, state: "uploading"}}},
+            {id: "failed", label: "上传失败", input: {props: {kind: "image", number: 3, state: "failed", error: "文件太大"}}},
+            {id: "paste", label: "粘贴位置", input: {props: {kind: "paste", number: 4}}},
+            {id: "highlighted", label: "联动高亮", input: {props: {kind: "image", number: 1, highlighted: true}}},
+            {id: "selected", label: "在选区里", input: {props: {kind: "reference", label: "林雪", target: "/设定/林雪.md", selected: true}}},
+            {id: "interactive", label: "可聚焦（静态显示里）", input: {props: {kind: "reference", label: "林雪", target: "/设定/林雪.md", interactive: true}}},
+            {id: "english", label: "英文界面", input: {props: {kind: "file", label: "notes.txt", number: 2, state: "uploading"}}},
         ],
-        load: async () => (await import("./InlineChipFixture.vue")).default,
+        load: async () => withMarkdownSceneText((await import("./InlineChipFixture.vue")).default),
     }),
     defineLabFixture<typeof MarkdownDisplay>({
         component: "MarkdownDisplay",
@@ -625,46 +626,50 @@ export const labFixtures: LabFixture[] = [
             {id: "plain", label: "只有普通 Markdown", input: {props: {text: "## 小结\n\n- 第一章节奏**偏快**\n- 第二章的*伏笔*可以提前，~~旧的开头~~删掉\n\n#### 细节\n\n---\n\n```ts\nconst answer = 42;\n```\n\n| 章 | 字数 |\n|---|---|\n| 一 | 3200 |", locale: "zh-CN"}}},
             {id: "empty", label: "空文本", input: {props: {text: "", locale: "zh-CN"}}},
         ],
-        load: async () => (await import("./MarkdownDisplayFixture.vue")).default,
+        load: async () => withMarkdownSceneText((await import("./MarkdownDisplayFixture.vue")).default),
     }),
     defineLabFixture<typeof PromptEditor>({
         component: "PromptEditor",
         scenes: promptEditorScenes,
-        load: async () => (await import("./prompt-scene/PromptEditorFixture.vue")).default,
+        load: async () => withMarkdownSceneText((await import("./prompt-scene/PromptEditorFixture.vue")).default),
     }),
-    defineSubjectFixture<typeof PromptTextView>({
+    // 这三个零件经场景端口取文字（`markdown-text.ts`），所以不用 defineSubjectFixture，自己包一层（同 ExplorerTree）。
+    defineLabFixture<typeof PromptTextView>({
         component: "PromptTextView",
         scenes: promptTextViewScenes,
-        subject: async () => withNbookMarkdownHost((await import("@notnotype/nb-markdown/prompt")).PromptTextView),
-        events: ["token-activate"],
-        class: "w-full p-4 text-[13px] leading-[1.6] text-[var(--text-main)]",
-        runtimeProps: () => Promise.resolve({resolveThumbnail: (target: string) => PROMPT_LAB_THUMBNAILS[target] ?? null}),
+        load: async () => withMarkdownSceneText(createSubjectFixture<typeof PromptTextView>(withNbookMarkdownHost((await import("@notnotype/nb-markdown/prompt")).PromptTextView).default, {
+            events: ["token-activate"],
+            class: "w-full p-4 text-[13px] leading-[1.6] text-[var(--text-main)]",
+            runtimeProps: {resolveThumbnail: (target: string) => PROMPT_LAB_THUMBNAILS[target] ?? null},
+        })),
     }),
-    defineSubjectFixture<typeof PromptAttachmentStrip>({
+    defineLabFixture<typeof PromptAttachmentStrip>({
         component: "PromptAttachmentStrip",
         scenes: promptAttachmentStripScenes,
-        subject: async () => ({default: (await import("@notnotype/nb-markdown/prompt")).PromptAttachmentStrip}),
-        events: ["activate", "remove", "retry", "hover"],
-        writeBack: {hover: {layer: "props", key: "highlighted"}},
-        class: "w-full",
+        load: async () => withMarkdownSceneText(createSubjectFixture<typeof PromptAttachmentStrip>((await import("@notnotype/nb-markdown/prompt")).PromptAttachmentStrip, {
+            events: ["activate", "remove", "retry", "hover"],
+            writeBack: {hover: {layer: "props", key: "highlighted"}},
+            class: "w-full",
+        })),
     }),
-    defineSubjectFixture<typeof PromptPasteFrame>({
+    defineLabFixture<typeof PromptPasteFrame>({
         component: "PromptPasteFrame",
         scenes: promptPasteFrameScenes,
-        subject: async () => ({default: (await import("@notnotype/nb-markdown/prompt")).PromptPasteFrame}),
-        events: ["hover"],
-        class: "w-full",
+        load: async () => withMarkdownSceneText(createSubjectFixture<typeof PromptPasteFrame>((await import("@notnotype/nb-markdown/prompt")).PromptPasteFrame, {
+            events: ["hover"],
+            class: "w-full",
+        })),
     }),
     defineLabFixture<typeof MarkdownImage>({
         component: "MarkdownImage",
         scenes: [
-            {id: "shown", label: "显示", input: {props: {src: "images/封面.png", alt: "封面", title: "第一卷封面", locale: "zh-CN"}}},
-            {id: "loading", label: "读取中", input: {props: {src: "lab://loading", alt: "封面", locale: "zh-CN"}}},
-            {id: "outside", label: "不在作品里", input: {props: {src: "lab://outside", alt: "外面的图", locale: "zh-CN"}}},
-            {id: "broken", label: "读不出", input: {props: {src: "lab://broken", alt: "坏图", locale: "zh-CN"}}},
-            {id: "no-alt", label: "没有说明", input: {props: {src: "lab://outside", locale: "zh-CN"}}},
+            {id: "shown", label: "显示", input: {props: {src: "images/封面.png", alt: "封面", title: "第一卷封面"}}},
+            {id: "loading", label: "读取中", input: {props: {src: "lab://loading", alt: "封面"}}},
+            {id: "outside", label: "不在作品里", input: {props: {src: "lab://outside", alt: "外面的图"}}},
+            {id: "broken", label: "读不出", input: {props: {src: "lab://broken", alt: "坏图"}}},
+            {id: "no-alt", label: "没有说明", input: {props: {src: "lab://outside"}}},
         ],
-        load: async () => (await import("./MarkdownImageFixture.vue")).default,
+        load: async () => withMarkdownSceneText((await import("./MarkdownImageFixture.vue")).default),
     }),
     defineLabFixture<typeof FileIcon>({
         component: "FileIcon",

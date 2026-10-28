@@ -15,6 +15,7 @@ import {shallowRef} from "vue";
 
 import {NB_AGENT_UI_CATALOGS, NB_AGENT_UI_NAMESPACE} from "@notnotype/nb-agent-ui/locales";
 import {NB_FORM_CATALOGS, NB_FORM_NAMESPACE} from "@notnotype/nb-form/locales";
+import {NB_MARKDOWN_CATALOGS, NB_MARKDOWN_NAMESPACE} from "@notnotype/nb-markdown/locales";
 import {NB_UI_CATALOGS, NB_UI_NAMESPACE} from "@notnotype/nb-ui/locales";
 import {isLocaleMap, isTextRef, resolveLocaleMap, sanitizeParams} from "@notnotype/nb-ui/text";
 import type {Catalog, ReportTextProblem, Text, TextParams, TextProblem} from "@notnotype/nb-ui/text";
@@ -143,7 +144,7 @@ export function createTextEngine(options: TextEngineOptions): WindowText {
 }
 
 /**
- * 宿主窗口用的引擎：在 `createTextEngine` 之上登记共享包的目录（`nb-ui`、`nb-agent-ui`、`nb-form`）与宿主自己的目录（`nbook.host`），
+ * 宿主窗口用的引擎：在 `createTextEngine` 之上登记共享包的目录（`nb-ui`、`nb-agent-ui`、`nb-form`、`nb-markdown`）与宿主自己的目录（`nbook.host`），
  * 源语言都是 `zh-CN`。窗口缺省与浏览器引导都用它，页面和失败页才翻得出文字；插件的目录由各插件自己登记。共享包的
  * 组件读注入的端口，不再用包内的缺省，所以用到哪个共享包，就要在这里登记它的目录。
  */
@@ -152,6 +153,7 @@ export function createHostTextEngine(options: TextEngineOptions): WindowText {
     text.register(NB_UI_NAMESPACE, NB_UI_CATALOGS, "zh-CN");
     text.register(NB_AGENT_UI_NAMESPACE, NB_AGENT_UI_CATALOGS, "zh-CN");
     text.register(NB_FORM_NAMESPACE, NB_FORM_CATALOGS, "zh-CN");
+    text.register(NB_MARKDOWN_NAMESPACE, NB_MARKDOWN_CATALOGS, "zh-CN");
     text.register(HOST_NAMESPACE, {"zh-CN": zhCN, "en-US": enUS}, "zh-CN");
     return text;
 }

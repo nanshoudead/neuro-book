@@ -1,5 +1,5 @@
 ---
-标签: []
+标签: [state:inject]
 别名: ["粘贴块外框", "Paste Frame"]
 ---
 
@@ -21,8 +21,6 @@
 interface PromptPasteFrameProps {
     /** 必填。 */
     number: number;
-    /** 必填：界面语言，决定按钮与说明的文字。 */
-    locale: MarkdownLocale;
     /** 必填：粘贴的内容，按 `\n` 计行数并生成预览。 */
     content: string;
     /** 受控，默认 false；没有超过 3 行时不起作用。 */
@@ -49,3 +47,7 @@ interface PromptPasteFrameSlots {
 ```
 
 没有 expose。未声明的 attribute 落到根元素上。“展开”按钮带 `data-prompt-paste-action="expand"`。
+
+## 隐藏通道理由
+
+- `state:inject`：界面文字读注入的翻译端口（nb-ui 的 `TEXT_PORT_KEY`）：在根组件（`PromptEditor`、`PromptTextView`）里拿到根提供的同一个端口；单独挂载、上面也没有注入时用包内的缺省端口，语言 zh-CN（[README](../../README.md#界面文字)）。这条通道属于组件本身：文字是零件自己画的，翻译端口是整棵子树共用的环境，经属性逐层传语言会让每个调用方（包括 `render()` 挂到普通 DOM 上的位置）各传一份。

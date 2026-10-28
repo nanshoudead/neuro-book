@@ -33,8 +33,8 @@ interface MarkdownDisplayProps {
     text: string;
     /** 正在流式生成；为真时在末尾显示光标。默认 false。 */
     streaming?: boolean;
-    /** 界面语言，决定按钮与说明的文字。必填。 */
-    locale: DisplayLocale;
+    /** 界面语言，决定按钮与说明的文字；只在宿主没有注入翻译端口时起作用，缺省 zh-CN（见“边界与兼容”）。 */
+    locale?: DisplayLocale;
     /** 图片地址到可显示地址的换算；省略时图片显示说明文字。 */
     resolveAsset?: (address: string, signal: AbortSignal) => Promise<{url: string; release(): void} | null>;
 }
@@ -91,6 +91,8 @@ interface MarkdownDisplayEmits {
 
 - 公开接口：`MarkdownDisplay` 的属性与事件。
 - 原文是不可信内容：可渲染 HTML 只在沙箱里运行，其余 HTML 原样显示为源码，不插入页面。
+- 界面文字在 nb-markdown 自带的消息目录里（命名空间 `nb-markdown`，源语言 zh-CN，经 `@notnotype/nb-markdown/locales` 导出），按[界面语言与消息目录](i18n.md)显示：宿主注入了翻译端口时登记这份目录，语言以端口为准，`locale` 属性不起作用；没有注入时展示器按 `locale`（缺省 zh-CN）用包内的缺省端口，单独挂载的零件用中文。宿主给的文字（例如图片不显示时的说明）可以是语言映射或文字引用。
+- 宿主注入了翻译端口却没有登记这份目录：文字显示为键名，由宿主的翻译引擎报缺键；不悄悄换成包内的中文。
 
 ## 验收与 Smoke
 
@@ -115,5 +117,5 @@ Smoke：`packages/neuro-book/src/plugins/markdown/web/components/MarkdownDisplay
 
 - 批准依据：开发者 2026-10-16 的决定，记录在主工作区 master 的 `.agents/works/w00025-editor/tasks/t07-markdown-plugins/README.md`（“开发者的决定”1、3、4）与同目录的 `plan.md`、`evidences/display-perf.md`。
 - 实现入口：[`MarkdownDisplay.vue`](../../../packages/nb-markdown/src/display/MarkdownDisplay.vue)、[`display/renderer.ts`](../../../packages/nb-markdown/src/display/renderer.ts)（按块生成与更新）、[`display/static-views.ts`](../../../packages/nb-markdown/src/display/static-views.ts)（提示块、可渲染 HTML 与图片的静态视图）、[`host/index.ts`](../../../packages/nb-markdown/src/host/index.ts)（宿主接口）、neuro-book 的 [`MarkdownHosted.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/MarkdownHosted.vue)（作品文件的宿主）
-- 合同测试：[`MarkdownDisplay.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/MarkdownDisplay.dom.test.ts)（经 neuro-book 的宿主：场景 1、3、4，输出 2、3、5–8 与“失败与恢复”）、[`nb-markdown 的 MarkdownDisplay.dom.test.ts`](../../../packages/nb-markdown/src/display/MarkdownDisplay.dom.test.ts)（不提供宿主、宿主换语言、组不成语言）、[`MarkdownHosted.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/MarkdownHosted.dom.test.ts)（作品文件的分类经宿主到达展示器，输出 3）
+- 合同测试：[`MarkdownDisplay.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/MarkdownDisplay.dom.test.ts)（经 neuro-book 的宿主：场景 1、3、4，输出 2、3、5–8 与“失败与恢复”）、[`nb-markdown 的 MarkdownDisplay.dom.test.ts`](../../../packages/nb-markdown/src/display/MarkdownDisplay.dom.test.ts)（不提供宿主、宿主换语言、组不成语言）、[`MarkdownHosted.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/MarkdownHosted.dom.test.ts)（作品文件的分类经宿主到达展示器，输出 3）、[`host/text.dom.test.ts`](../../../packages/nb-markdown/src/host/text.dom.test.ts)（注入的端口优先于 `locale`；静态视图里的图片跟着端口换语言）
 - Smoke：[`lab-markdown.e2e.ts`](../../../packages/neuro-book/e2e/lab-markdown.e2e.ts)（场景 1、2 与输出 2 的普通 Markdown 样子，本机 Chrome）

@@ -32,8 +32,8 @@ import type {PromptEditorToken} from "./prompt-editor.types";
 interface PromptTextViewProps {
     /** 必填：按“文字写法”写的文字。 */
     text: string;
-    /** 必填：界面语言，决定按钮与说明的文字。 */
-    locale: MarkdownLocale;
+    /** 界面语言：只在上面没有注入翻译端口时起作用，决定按钮与说明的文字；缺省 zh-CN。 */
+    locale?: MarkdownLocale;
     /** 正文开头显示为命令小块的命令名，不含 `/`；默认没有，开头的 `/名称` 按普通文字显示。 */
     commands?: readonly string[];
     /** 就绪图片的缩略图地址；返回 null 时显示占位图标；默认总是 null。 */
@@ -46,6 +46,8 @@ interface PromptTextViewEmits {
 ```
 
 没有 slot 与 expose。未声明的 attribute 落到根元素上。
+
+界面文字读宿主注入的翻译端口（nb-ui 的 `TEXT_PORT_KEY`，宿主要登记本包的目录 `@notnotype/nb-markdown/locales`），语言以端口为准；上面没有注入时按 `locale`（缺省 zh-CN）建包内的缺省端口，提供给子组件与嵌套的 nb-ui 控件（[README](../../README.md#界面文字)）。
 
 ## 不支持
 

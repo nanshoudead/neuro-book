@@ -8,11 +8,13 @@ import type {Editor} from "@tiptap/core";
 import type {Node as PMNode} from "@tiptap/pm/model";
 import {EditorState} from "@tiptap/pm/state";
 import {mount} from "@vue/test-utils";
+import {nextTick} from "vue";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {codecFor, defaultMarkdownLanguage as markdownLanguage} from "@notnotype/nb-markdown/language";
+import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
 
 import {createMemoryFiles} from "nbook/plugins/lab/web/fixtures/explorer-scene/memory-files";
 
@@ -20,8 +22,11 @@ import {MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlHandle, TextEditorBinding} from "nbook/plugins/editor/shared/contracts";
 import {createEditorArea} from "nbook/plugins/editor/web/area";
 import type {EditorArea} from "nbook/plugins/editor/web/area";
+import type {WindowText} from "nbook/shared/window-text";
+import {createHostTextEngine} from "nbook/web/host/text-engine";
 import {createAssetUrls, markdownAssetsKey} from "../parts/asset-urls";
 import {SyntaxCatalog, syntaxCatalogKey} from "../syntax-catalog";
+import {markdownCatalogs} from "../text";
 import MarkdownControl from "./MarkdownControl.vue";
 
 /** nbook.markdown 交组件时给的方言目录（`web/plugin.ts`）：这里没有外来方言。 */
@@ -44,6 +49,8 @@ interface Opened {
     readonly editor: Editor;
     readonly handle: EditorControlHandle;
     readonly groupId: string;
+    /** 窗口的翻译引擎：登记了内置插件 `nbook.markdown` 的目录，控件经它注入的端口取文字。 */
+    readonly text: WindowText;
 }
 
 /** 打开 `a.md`（正文 `text`），挂一个 Markdown 控件到活动组。 */
@@ -64,14 +71,16 @@ async function opened(text: string, area?: {readonly area: EditorArea; readonly 
     });
     let handle: EditorControlHandle | null = null;
     const host = editorArea.controlSlot(groupId, MARKDOWN_EDITOR);
+    const windowText = createHostTextEngine({locale: "zh-CN", strict: true});
+    windowText.register("nbook.markdown", markdownCatalogs.catalogs, markdownCatalogs.source);
     // 句柄交给编辑器区（与 `EditorGroup` 一样），区域的定位、结算经它找到控件。
     const wrapper = mount(MarkdownControl, {props: {binding, host, readonly: false, visible: true, label: "a.md", onReady: (ready: EditorControlHandle | null) => {
         handle = ready;
         editorArea.registerHandle(groupId, MARKDOWN_EDITOR, ready);
-    }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownAssetsKey as symbol]: assets}, ...(onError === undefined ? {} : {config: {errorHandler: onError}})}});
+    }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownAssetsKey as symbol]: assets, [TEXT_PORT_KEY as symbol]: windowText.port}, ...(onError === undefined ? {} : {config: {errorHandler: onError}})}});
     cleanups.push(() => wrapper.unmount());
     const editor = (host.state as {editor: Editor}).editor;
-    return {area: editorArea, memory, binding, editor, handle: handle as unknown as EditorControlHandle, groupId};
+    return {area: editorArea, memory, binding, editor, handle: handle as unknown as EditorControlHandle, groupId, text: windowText};
 }
 
 /** 第 n 个顶层块里第一个文本块的末尾。 */
@@ -366,12 +375,16 @@ describe("引用小块与图片（方言 Spec 输出 18、27）", () => {
         expect(root.querySelectorAll(".nb-chip-link__icon")).toHaveLength(1);
     });
 
-    it("图片按所在文件的目录解析，经文件服务显示；作品根以外的不显示、写明原因；不编辑写回不变", async () => {
+    it("图片按所在文件的目录解析，经文件服务显示；作品根以外的不显示、写明原因（窗口换语言时跟着换）；不编辑写回不变", async () => {
         const source = "![封面](images/a.png) ![外面](../外面.png)\n";
-        const {editor, handle, binding} = await opened(source);
+        const {editor, handle, binding, text} = await opened(source);
         await waitUntil("图片显示", () => editor.view.dom.querySelector("img"));
         expect(editor.view.dom.querySelector("img")?.getAttribute("src")).toBe("/raw/project://images/a.png");
-        expect(editor.view.dom.querySelector("[data-markdown-image][data-state='none']")?.textContent?.trim()).toBe("外面（不在作品里，不显示）");
+        const missing = (): string | undefined => editor.view.dom.querySelector("[data-markdown-image][data-state='none']")?.textContent?.trim();
+        expect(missing()).toBe("外面（不在作品里，不显示）");
+        text.setLocale("en-US");
+        await nextTick();
+        expect(missing()).toBe("外面 (not in the work, not shown)");
         handle.flushPendingChange();
         expect(binding.text.value).toBe(source);
     });

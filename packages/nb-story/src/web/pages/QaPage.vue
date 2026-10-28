@@ -21,6 +21,7 @@ import {AgentConversationView, AgentSessionList, builtinMessageActionsContributi
 import {decodeTarget} from "@notnotype/nb-markdown";
 import {provideMarkdownHost} from "@notnotype/nb-markdown/host";
 import {PromptEditor, PromptTextView} from "@notnotype/nb-markdown/prompt";
+import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
 
 import type {QaConfig} from "../../contract/config-schema";
 import type {QaRunView, ViewerResult} from "../../contract/contract";
@@ -41,6 +42,7 @@ import QaInspector from "../qa/QaInspector.vue";
 import QaPositionControl from "../qa/QaPositionControl.vue";
 import QaStatusBar from "../qa/QaStatusBar.vue";
 import StoryMarkdown from "../qa/StoryMarkdown.vue";
+import {storyTextPort} from "../qa/text-port";
 import {storyToolsContribution} from "../qa/tools";
 import {UNVERIFIED_REFS} from "../qa/turns";
 import UnverifiedRefs from "../qa/UnverifiedRefs.vue";
@@ -50,6 +52,8 @@ const client = useStoryClient();
 const router = useRouter();
 
 provideMarkdownHost({report: (event, message, error) => console.warn({event, error}, message)});
+// 对话视图与它里面的 nb-markdown 组件共用一个端口；不注入时里面的输入框只显示键名（见 qa/text-port.ts）。
+provide(TEXT_PORT_KEY, storyTextPort());
 
 // nb-story 的 Agent 没有文件与命令工具：不登记内置工具（read 同名会冲突）与内置输入框命令（`/` 命令在这里没人处理）。
 // 输入框只登记 `@`（引用人物、章节与段落，w00024 t15 决定 2）；问题前面的 `+` 插 `@` 打开同一个菜单（t16 决定 1）。

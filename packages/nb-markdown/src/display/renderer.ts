@@ -86,7 +86,7 @@ function decorateLinks(root: HTMLElement, host: StaticViewHost): void {
         const href = first.getAttribute("href") ?? "";
         const target = host.chips.targets.classify(href, null);
         if (!showsAsChip(target)) continue;
-        const chip = chipView({kind: "reference", label: group.map((anchor) => anchor.textContent ?? "").join(""), target: href, base: null, number: null, state: "ready", error: "", locale: host.locale}, host.chips);
+        const chip = chipView({kind: "reference", label: group.map((anchor) => anchor.textContent ?? "").join(""), target: href, base: null, number: null, state: "ready", error: "", translate: (text) => host.text.port.t(text)}, host.chips);
         // 与编辑器的装饰同一个结构：小块的样子画在链接里面的一层 span 上，链接本身的样式按 `:has(.nb-chip-link)` 去掉。
         const spans = group.map((anchor) => {
             const span = document.createElement("span");

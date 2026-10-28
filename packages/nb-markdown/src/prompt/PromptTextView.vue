@@ -4,7 +4,7 @@ import {computed, ref, watch} from "vue";
 
 import InlineChip from "../chip/InlineChip.vue";
 import {useMarkdownHost} from "../host";
-
+import {provideMarkdownText} from "../host/text";
 import type {MarkdownLocale} from "../locale";
 
 import type {PromptAttachmentCard, PromptEditorToken} from "./prompt-editor.types";
@@ -24,10 +24,12 @@ import PromptPasteFrame from "./PromptPasteFrame.vue";
 const host = useMarkdownHost();
 const props = withDefaults(defineProps<{
     text: string;
-    locale: MarkdownLocale;
+    /** 只在上面没有注入翻译端口时起作用（`../host/text.ts`）。 */
+    locale?: MarkdownLocale;
     commands?: readonly string[];
     resolveThumbnail?: (target: string) => string | null;
 }>(), {
+    locale: undefined,
     commands: () => [],
     resolveThumbnail: () => null,
 });
@@ -35,6 +37,9 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
     (e: "token-activate", token: PromptEditorToken): void;
 }>();
+
+// 附件条、粘贴块与小块经 inject 拿到同一个端口。
+provideMarkdownText(() => props.locale);
 
 type TokenPiece = {kind: "token"; attrs: PromptTokenAttrs; hoverKey: string | null};
 type Piece = {kind: "text"; text: string} | TokenPiece;
@@ -121,7 +126,6 @@ function activateCard(id: string): void {
     <div class="prompt-text">
         <PromptAttachmentStrip
             :cards="cards"
-            :locale="props.locale"
             :highlighted="highlighted"
             readonly
             class="prompt-text__strip"
@@ -131,7 +135,6 @@ function activateCard(id: string): void {
         <template v-for="(block, index) in blocks" :key="index">
             <PromptPasteFrame
                 v-if="block.kind === 'paste'"
-                :locale="props.locale"
                 :number="block.attrs.number"
                 :content="block.attrs.content"
                 :expanded="expanded.has(index)"
@@ -147,7 +150,6 @@ function activateCard(id: string): void {
                         :env="host.chips"
                         v-else
                         :kind="piece.attrs.kind"
-                        :locale="props.locale"
                         :label="piece.attrs.label"
                         :target="piece.attrs.target"
                         :number="piece.attrs.number"

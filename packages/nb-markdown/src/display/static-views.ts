@@ -6,11 +6,13 @@
 
 import type {Node as PMNode} from "@tiptap/pm/model";
 import {h, render} from "vue";
+import type {AppContext} from "vue";
 
 import type {ChipEnv} from "../chip/chip";
 import {buildCallout} from "../language/syntax/callout";
 import {renderHtmlEmbedElement} from "../language/syntax/html-embed";
-import type {MarkdownLocale, MarkdownText} from "../locale";
+import type {MarkdownTextApi} from "../host/text";
+import type {MarkdownText} from "../locale";
 import MarkdownImage from "./MarkdownImage.vue";
 import type {ResolveAsset} from "./MarkdownImage.vue";
 
@@ -21,7 +23,10 @@ export type DisplayActivation =
 
 export interface StaticViewHost {
     readonly document: Document;
-    readonly locale: MarkdownLocale;
+    /** 展示器的上下文（`markdownViewContext`）：图片挂在它上面，读得到展示器所用的翻译端口。 */
+    readonly context: AppContext;
+    /** 普通 DOM 的文字（引用小块的悬停提示、HTML 卡片的按钮）；与 `context` 里的是同一个端口。 */
+    readonly text: MarkdownTextApi;
     readonly resolveAsset: ResolveAsset | undefined;
     /** 链接的小块：宿主的目标分类与文件图标。 */
     readonly chips: ChipEnv;
@@ -42,11 +47,6 @@ export interface StaticView {
 
 export type StaticViewFactory = (node: PMNode, host: StaticViewHost) => StaticView;
 
-const HTML_LABELS: Readonly<Record<MarkdownLocale, {render: string; viewSource: string; caption: string}>> = {
-    "zh-CN": {render: "渲染", viewSource: "查看源码", caption: "HTML"},
-    "en-US": {render: "Render", viewSource: "View Source", caption: "HTML"},
-};
-
 export const STATIC_VIEWS: Readonly<Record<string, StaticViewFactory>> = {
     callout: (node, host) => {
         let folded = node.attrs.fold === "-";
@@ -64,7 +64,7 @@ export const STATIC_VIEWS: Readonly<Record<string, StaticViewFactory>> = {
         let teardown: (() => void) | null = null;
         const draw = (): void => {
             teardown?.();
-            teardown = renderHtmlEmbedElement(wrapper, String(node.attrs.html ?? ""), rendered, {resolveLabels: () => HTML_LABELS[host.locale]}, () => {
+            teardown = renderHtmlEmbedElement(wrapper, String(node.attrs.html ?? ""), rendered, {resolveLabels: () => ({render: host.text.t("htmlEmbed.render"), viewSource: host.text.t("htmlEmbed.viewSource"), caption: host.text.t("htmlEmbed.caption")})}, () => {
                 rendered = !rendered;
                 draw();
             });
@@ -76,7 +76,10 @@ export const STATIC_VIEWS: Readonly<Record<string, StaticViewFactory>> = {
         const dom = host.document.createElement("span");
         dom.className = "nb-markdown-image-node";
         const src = String(node.attrs.src ?? "");
-        render(h(MarkdownImage, {src, alt: String(node.attrs.alt ?? ""), title: (node.attrs.title as string | null) ?? null, locale: host.locale, resolveAsset: host.resolveAsset, missing: host.imageMissing, onActivate: () => host.activate({kind: "image", address: src})}), dom);
+        const image = h(MarkdownImage, {src, alt: String(node.attrs.alt ?? ""), title: (node.attrs.title as string | null) ?? null, resolveAsset: host.resolveAsset, missing: host.imageMissing, onActivate: () => host.activate({kind: "image", address: src})});
+        // 没有父组件，inject 只看 vnode 的上下文：不带上的话图片拿不到展示器的翻译端口。
+        image.appContext = host.context;
+        render(image, dom);
         return {dom, destroy: () => render(null, dom)};
     },
 };

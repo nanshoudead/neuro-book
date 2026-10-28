@@ -33,8 +33,8 @@ export const promptTextViewProps: Accepts<PropsOf<typeof PromptTextView>, Prompt
 export const markdownDisplayProps: Accepts<PropsOf<typeof MarkdownDisplay>, MarkdownDisplayPortProps> = true;
 
 // 反例：证明上面几条真的会失败，而不是对任何组件都成立。
-// @ts-expect-error 端口不给必填的 locale 时不能通过。
-export const missingLocale: Accepts<PropsOf<typeof PromptEditor>, Omit<PromptEditorPortProps, "locale">> = true;
+// @ts-expect-error 端口不给必填的 draft 时不能通过。
+export const missingDraft: Accepts<PropsOf<typeof PromptEditor>, Omit<PromptEditorPortProps, "draft">> = true;
 // @ts-expect-error 端口监听组件不发出的事件时不能通过。
 export const unknownEvent: Accepts<PropsOf<typeof PromptEditor>, PromptEditorPortProps & {onSubmitted?: () => void}> = true;
 // @ts-expect-error 事件参数的类型不兼容时不能通过。

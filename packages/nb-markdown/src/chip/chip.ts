@@ -3,8 +3,10 @@
  * 展示器的静态视图都从这里取，所以三处的小块一样。引用的目标怎样归类、文件取什么图标由宿主给（`ChipEnv`）。
  */
 
-import {say} from "../locale";
-import type {MarkdownLocale, MarkdownText} from "../locale";
+import type {TextRef} from "@notnotype/nb-ui/text";
+
+import {markdownRef} from "../locales";
+import type {MarkdownTextKey} from "../locales";
 import {schemeTargets} from "../targets";
 import type {MarkdownTargets, TargetKind} from "../targets";
 import "./chip.css";
@@ -20,7 +22,8 @@ export interface ChipInput {
     readonly number: number | null;
     readonly state: "ready" | "uploading" | "failed";
     readonly error: string;
-    readonly locale: MarkdownLocale;
+    /** 把本包目录里的文字翻成当前语言：组件里是翻译端口（`useMarkdownText().port.t`），普通 DOM 里取 `markdownTextIn`。 */
+    readonly translate: (text: TextRef) => string;
 }
 
 /** 图标：图标类（Tailwind 的 lucide 图标类），或宿主画的元素（例如按文件名取的文件图标）。 */
@@ -44,18 +47,6 @@ export interface ChipView {
     readonly busy: boolean;
 }
 
-const TEXT = {
-    reference: {"zh-CN": "引用：{label}", "en-US": "Reference: {label}"},
-    skill: {"zh-CN": "技能：{name}", "en-US": "Skill: {name}"},
-    selection: {"zh-CN": "选区：{label}", "en-US": "Selection: {label}"},
-    command: {"zh-CN": "命令：/{name}", "en-US": "Command: /{name}"},
-    image: {"zh-CN": "图片 #{number}", "en-US": "Image #{number}"},
-    file: {"zh-CN": "文件 #{number}：{name}", "en-US": "File #{number}: {name}"},
-    paste: {"zh-CN": "粘贴的文本 #{number}", "en-US": "Pasted text #{number}"},
-    uploading: {"zh-CN": "{label}，正在上传", "en-US": "{label}, uploading"},
-    failed: {"zh-CN": "{label}，上传失败：{error}", "en-US": "{label}, upload failed: {error}"},
-} satisfies Record<string, MarkdownText>;
-
 /** 引用按目标分类取图标（输出 27）：文件的图标由宿主按文件名取。 */
 const REFERENCE_ICONS: Readonly<Record<Exclude<TargetKind, "file">, string>> = {
     attachment: "i-lucide-paperclip",
@@ -63,8 +54,11 @@ const REFERENCE_ICONS: Readonly<Record<Exclude<TargetKind, "file">, string>> = {
     other: "i-lucide-link",
 };
 
+/** 悬停提示在目录的 `chip` 下（`src/locales`）。 */
+type ChipTextKey = MarkdownTextKey extends infer Key ? (Key extends `chip.${infer Rest}` ? Rest : never) : never;
+
 export function chipView(input: ChipInput, env: ChipEnv = defaultChipEnv): ChipView {
-    const words = (key: keyof typeof TEXT, values: Readonly<Record<string, string>>): string => say(TEXT[key], input.locale, values);
+    const words = (key: ChipTextKey, values: Readonly<Record<string, string>>): string => input.translate(markdownRef(`chip.${key}`, values));
     const number = String(input.number ?? 0);
     const attachment = (className: string, label: string): ChipView => {
         const text = `#${number}`;

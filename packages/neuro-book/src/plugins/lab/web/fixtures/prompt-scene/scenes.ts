@@ -85,7 +85,7 @@ export const promptAttachmentStripScenes: Array<Scene<typeof PromptAttachmentStr
     {
         id: "states",
         label: "三种状态",
-        input: {props: {locale: "zh-CN", highlighted: "image:1", cards: [
+        input: {props: {highlighted: "image:1", cards: [
             {id: "a", hoverKey: "image:1", kind: "image", number: 1, name: "草图.png", state: "ready", thumbnail: SKETCH_URL},
             {id: "b", hoverKey: "image:2", kind: "image", number: 2, name: "地图.png", state: "uploading", thumbnail: null},
             {id: "c", hoverKey: "image:3", kind: "image", number: 3, name: "坏图.png", state: "failed", error: "文件超过 16 MB"},
@@ -96,7 +96,7 @@ export const promptAttachmentStripScenes: Array<Scene<typeof PromptAttachmentStr
     {
         id: "readonly",
         label: "只读",
-        input: {props: {locale: "zh-CN", readonly: true, cards: [
+        input: {props: {readonly: true, cards: [
             {id: "a", hoverKey: "image:1", kind: "image", number: 1, name: "草图.png", state: "ready", thumbnail: SKETCH_URL},
             {id: "d", hoverKey: "file:1", kind: "file", number: 1, name: "采访记录.pdf", state: "ready", size: 284_000},
         ]}},
@@ -104,16 +104,16 @@ export const promptAttachmentStripScenes: Array<Scene<typeof PromptAttachmentStr
     {
         id: "overflow",
         label: "放不下时横向滚动",
-        input: {props: {locale: "zh-CN", cards: Array.from({length: 12}, (_, index) => ({id: String(index), hoverKey: `image:${String(index + 1)}`, kind: "image" as const, number: index + 1, name: `图 ${String(index + 1)}.png`, state: "ready" as const, thumbnail: SKETCH_URL}))}},
+        input: {props: {cards: Array.from({length: 12}, (_, index) => ({id: String(index), hoverKey: `image:${String(index + 1)}`, kind: "image" as const, number: index + 1, name: `图 ${String(index + 1)}.png`, state: "ready" as const, thumbnail: SKETCH_URL}))}},
     },
 ];
 
 export const promptPasteFrameScenes: Array<Scene<typeof PromptPasteFrame>> = [
-    {id: "collapsed", label: "收起", input: {props: {locale: "zh-CN", number: 2, content: PASTE_SAMPLE}, model: {expanded: false}}},
-    {id: "expanded", label: "展开", input: {props: {locale: "zh-CN", number: 2, content: PASTE_SAMPLE}, model: {expanded: true}}},
-    {id: "short", label: "不超过 3 行不折叠", input: {props: {locale: "zh-CN", number: 3, content: "第一行\n第二行"}, model: {expanded: false}}},
-    {id: "highlighted", label: "与位置标记联动", input: {props: {locale: "zh-CN", number: 2, content: PASTE_SAMPLE, highlighted: true}, model: {expanded: false}}},
-    {id: "invalid", label: "内容无效", input: {props: {locale: "zh-CN", number: 2, content: PASTE_SAMPLE, invalid: true}, model: {expanded: true}}},
+    {id: "collapsed", label: "收起", input: {props: {number: 2, content: PASTE_SAMPLE}, model: {expanded: false}}},
+    {id: "expanded", label: "展开", input: {props: {number: 2, content: PASTE_SAMPLE}, model: {expanded: true}}},
+    {id: "short", label: "不超过 3 行不折叠", input: {props: {number: 3, content: "第一行\n第二行"}, model: {expanded: false}}},
+    {id: "highlighted", label: "与位置标记联动", input: {props: {number: 2, content: PASTE_SAMPLE, highlighted: true}, model: {expanded: false}}},
+    {id: "invalid", label: "内容无效", input: {props: {number: 2, content: PASTE_SAMPLE, invalid: true}, model: {expanded: true}}},
 ];
 
 const PASTE_TEXT = [
