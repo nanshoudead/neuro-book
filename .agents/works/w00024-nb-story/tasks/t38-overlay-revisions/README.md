@@ -38,6 +38,24 @@ omp（默认模型）审计划与 Spec：[报告](evidences/design-review.txt)�
 
 另：审查认可 `applyOverlay` 接在 `settle` 之前、对象种类只经 `projection` 读取（未发现绕过的查询）、游标失效的前端收口，以及“不做”各项。
 
+## 实施（2026-10-28，分支 `feat/w00024-t38-overlay-revisions`）
+
+| 片 | 提交 | 内容 |
+|---|---|---|
+| 1 | `fa800b0b7` | `core/overlay/`：修订文件结构、锚、`applyOverlay`、待确认列表；`BookIndex` 与 `projection` 接线（对象种类按位置）；`displayName` 抽到 core |
+| 2 | `99b3c66c7` | 修订文件的读写（临时文件加硬链接发布）、写入方法与读方法、`book.info.revisions`、游标绑定修订版本、错误码 R1 到 R5；跨进程并发写入用真实子进程测 |
+| 3 | `5ff370645` | `nbstory revisions`、抽取汇总的待确认数、马甲核对说法的 `origin`、Skill 文字 |
+| 4 | 见分支 | 待确认页、人物卡候选块、“⋯”菜单与三个修订对话框、导航角标（手机在“更多”）、`e2e/revisions.e2e.ts` |
+
+实施中与计划不同的几处（计划与 Spec 已同步改）：
+
+- 旧版本保留最近 50 个而不是只留最新：跨进程并发写入的测试里，较早写入者晚到、把已被回收的版本号当空位重新发布，覆盖了别人的写入（八个进程里出现过两个版本 3）。
+- 列表项多了 `entities`（涉及的对象）与 `quote`（依据原文），`revisions.list` 多一个 `entity` 筛选：人物卡要按对象找自己的候选，卡片要直接显示依据原文。
+- 网页进度不单独写“N 条待确认”，网页里是导航“待确认”的角标；命令行汇总照写。
+- 手机宽度的“待确认”在“更多”里，“更多”带点（沿用 viewer 输出 33）。
+
+验证：nb-story 单测、类型检查、`e2e/revisions.e2e.ts` 4 条通过（全量 e2e 与审查见下）。
+
 ## 下一步
 
-按计划的切片 1 到 5 实施；前端部分用 Claude Sonnet 审查。
+全量 e2e、`book.info` 计数的耗时量一次、实现审查（后端 omp、前端 Sonnet）、处理审查后合入 master。
