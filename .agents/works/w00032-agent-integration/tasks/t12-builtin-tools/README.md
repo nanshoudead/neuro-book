@@ -32,10 +32,21 @@ updated: 2026-10-28
 
 t04、t06、t08。
 
+## 讨论进展（2026-10-28）
+
+事实见[外部参照](../../../../../docs/research/agent-runtime-references.md)“shell 工具、执行时限与后台任务”一节：`pi-natives` 自带原生 `grep`、`glob` 与内嵌的 brush shell。
+
+开发者已定：
+
+- 网页工具（`web_fetch`、`web_search`）不进 Agent 插件，单独做成插件；网页搜索先不做，另开 Work。
+- shell 工具叫 `shell`（`builtin.shell`），同 omp。
+
+待议：shell 的几个洞要不要补；执行时限与后台任务（要调研加讨论）；外部命令行按部署形态（npm 包、目录包即便捷版、桌面壳）定哪些自带、要不要自动安装、什么时候安装、什么时候检测。
+
 ## 当前状态
 
-草稿，未开工（2026-10-28 建）。
+讨论中。
 
 ## 下一步
 
-轮到时与开发者逐条讨论，决定写进本 README，再按 implementation-planning 写计划。
+定完待议的三件后写成决定。
