@@ -2,13 +2,11 @@
 /** 书卡（同名 .md）：封面、书名、简介、统计与最近编辑；只发事件，键盘与选中归 ShelfCards。 */
 import {DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
-import type {TextParams} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 
 import {projectDisplayName} from "../../shared/shelf";
 import type {ShelfItem} from "../../shared/shelf";
-import {projectsText} from "../../shared/text";
-import type {ProjectsTextKey} from "../../shared/text";
+import {useProjectsText} from "../text";
 import {formatFiles, formatWhen, formatWords} from "../shelf-format";
 import BookCover from "./BookCover.vue";
 
@@ -37,7 +35,7 @@ const emit = defineEmits<{
 }>();
 
 const port = useText();
-const text = (key: ProjectsTextKey, params?: TextParams): string => port.t(projectsText(key, params));
+const text = useProjectsText();
 
 /** 字数与篇数；`none` 写“尚未统计”。 */
 function counts(): string {

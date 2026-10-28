@@ -6,6 +6,7 @@
 
 import type {PluginCatalogs} from "nbook/shared/convention-keys";
 import {pluginText} from "nbook/shared/plugin-text";
+import {usePluginText} from "nbook/shared/use-plugin-text";
 import type {CatalogKey} from "nbook/shared/plugin-text";
 
 import enUS from "../locales/en-US.json";
@@ -16,6 +17,9 @@ export const imageViewerCatalogs: PluginCatalogs = {source: "zh-CN", catalogs: {
 
 /** 本插件命名空间下的文字引用；键按源语言目录核对，写错编译不过。 */
 export const imageViewerText = pluginText<typeof zhCN>(descriptor.id);
+
+/** 组件里取文字：`const text = useImageViewerText();`，之后用 `text(键, 参数)`。 */
+export const useImageViewerText = (): ReturnType<typeof usePluginText<typeof zhCN>> => usePluginText<typeof zhCN>(descriptor.id);
 
 /** 源语言目录里的键（复数形归到不带后缀的键）。 */
 export type ImageViewerTextKey = CatalogKey<typeof zhCN>;

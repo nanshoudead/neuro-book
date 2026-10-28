@@ -21,7 +21,6 @@
  *   时（位置是后来才挂上的）就地定位。取走之后模型里没有了，之后的重读、换标签不会再跳。
  */
 import {Button, Kbd, Spinner, Textarea} from "@notnotype/nb-ui/components";
-import type {TextParams} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, onBeforeUnmount, ref, useId, watch} from "vue";
 
@@ -32,8 +31,7 @@ import SettingsSaveBar from "nbook/ui/settings/SettingsSaveBar.vue";
 import {settingsFailureText} from "nbook/ui/settings/setting-text";
 
 import type {LayerTextPosition} from "../../shared/layers";
-import {settingsText} from "../../shared/text";
-import type {SettingsTextKey} from "../../shared/text";
+import {useSettingsText} from "../text";
 import {composing, isModKey} from "../keys";
 import type {SettingsWindow} from "../settings-window";
 
@@ -47,7 +45,7 @@ const props = defineProps<{
 }>();
 
 const port = useText();
-const text = (key: SettingsTextKey, params?: TextParams): string => port.t(settingsText(key, params));
+const text = useSettingsText();
 
 const textareaId = `settings-file-${useId()}`;
 const hintId = `${textareaId}-hint`;

@@ -2,15 +2,13 @@
 /** 编辑组的面包屑（同名 .md）。 */
 import {DropdownMenu} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
-import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, onBeforeUnmount, ref, shallowRef, watch} from "vue";
 
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type {CatppuccinIcon} from "nbook/ui/file-icons/catppuccin";
 
 import type {EditorOutline} from "../../shared/contracts";
-import {editorText} from "../../shared/text";
-import type {EditorTextKey} from "../../shared/text";
+import {useEditorText} from "../text";
 
 export interface BreadcrumbSegment {
     readonly kind: "root" | "dir" | "file";
@@ -53,8 +51,7 @@ let controller: AbortController | null = null;
 /** 选中目录项会让下拉报一次关闭：这一次不当真（进下一层时下拉留着）。 */
 let keepOpen = false;
 
-const port = useText();
-const t = (key: EditorTextKey): string => port.t(editorText(key));
+const t = useEditorText();
 
 const stop = (): void => {
     seq += 1;

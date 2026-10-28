@@ -5,8 +5,6 @@
  */
 import {AlertDialog, Dialog, Input, ScrollArea, SegmentedControl, Separator, Tooltip} from "@notnotype/nb-ui/components";
 import type {SegmentedControlValue} from "@notnotype/nb-ui/components";
-import type {TextParams} from "@notnotype/nb-ui/text";
-import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, provide, ref, useId, watch} from "vue";
 
 import type {SettingLayer} from "nbook/shared/settings";
@@ -16,8 +14,7 @@ import {createPageChrome, SETTINGS_PAGE_CHROME} from "nbook/ui/settings/page-chr
 import {DEFAULT_SETTINGS_WINDOW_SIZE, MIN_SETTINGS_WINDOW_SIZE} from "../settings-window";
 import type {SettingsLeaveTarget, SettingsNavItem, SettingsWindow} from "../settings-window";
 import {composing, isModKey} from "../keys";
-import {settingsText} from "../../shared/text";
-import type {SettingsTextKey} from "../../shared/text";
+import {useSettingsText} from "../text";
 import SettingsFileView from "./SettingsFileView.vue";
 import SettingsListSection from "./SettingsListSection.vue";
 import SettingsPageFrame from "./SettingsPageFrame.vue";
@@ -32,8 +29,7 @@ const props = defineProps<{
 
 const model = props.window;
 /** 窗口自己的文字在 `nbook.settings` 的目录里，经宿主注入的翻译端口翻译。 */
-const port = useText();
-const text = (key: SettingsTextKey, params?: TextParams): string => port.t(settingsText(key, params));
+const text = useSettingsText();
 
 const root = ref<HTMLElement | null>(null);
 const open = computed(() => model.open.value);

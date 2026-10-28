@@ -1,7 +1,6 @@
 <script setup lang="ts">
 /** 案头（同名 .md）：统计、最近写到与看板娘；空书架时是问候。只发事件。 */
 import {Button} from "@notnotype/nb-ui/components";
-import type {TextParams} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 import {computed} from "vue";
 
@@ -9,8 +8,7 @@ import NeuroBookMood from "nbook/ui/brand/NeuroBookMood.vue";
 
 import {projectDisplayName} from "../../shared/shelf";
 import type {ShelfItem} from "../../shared/shelf";
-import {projectsText} from "../../shared/text";
-import type {ProjectsTextKey} from "../../shared/text";
+import {useProjectsText} from "../text";
 import {continueTarget, formatBooks, formatFiles, formatSigned, formatWhen, formatWords, recentPieces, shelfTotals} from "../shelf-format";
 
 defineOptions({name: "ShelfDesk"});
@@ -25,7 +23,7 @@ const emit = defineEmits<{
 }>();
 
 const port = useText();
-const text = (key: ProjectsTextKey, params?: TextParams): string => port.t(projectsText(key, params));
+const text = useProjectsText();
 const totals = computed(() => shelfTotals(props.items));
 const target = computed(() => continueTarget(props.items));
 const recent = computed(() => recentPieces(props.items, 3));

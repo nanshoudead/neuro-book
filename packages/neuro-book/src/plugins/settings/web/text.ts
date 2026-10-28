@@ -5,8 +5,13 @@
  */
 
 import type {PluginCatalogs} from "nbook/shared/convention-keys";
+import {SETTINGS_TEXT_NAMESPACE} from "../shared/text";
+import {usePluginText} from "nbook/shared/use-plugin-text";
 
 import enUS from "../locales/en-US.json";
 import zhCN from "../locales/zh-CN.json";
 
 export const settingsCatalogs: PluginCatalogs = {source: "zh-CN", catalogs: {"zh-CN": zhCN, "en-US": enUS}};
+
+/** 组件里取文字：`const text = useSettingsText();`，之后用 `text(键, 参数)`。命名空间与 `shared/text.ts` 的同名函数一致。 */
+export const useSettingsText = (): ReturnType<typeof usePluginText<typeof zhCN>> => usePluginText<typeof zhCN>(SETTINGS_TEXT_NAMESPACE);

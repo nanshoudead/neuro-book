@@ -5,14 +5,11 @@
  * 选作品（打开已有作品）或选目录（更改作品目录）两种用途，区别只在哪些条目能选、确认按钮叫什么。
  */
 import {Button, Dialog, Input, IconButton, InfoTip, Tooltip} from "@notnotype/nb-ui/components";
-import type {TextParams} from "@notnotype/nb-ui/text";
-import {useText} from "@notnotype/nb-ui/text-port";
 
 import {computed, nextTick, ref, useId, watch} from "vue";
 
 import type {BrowseEntry} from "../../shared/contracts";
-import {projectsText} from "../../shared/text";
-import type {ProjectsTextKey} from "../../shared/text";
+import {useProjectsText} from "../text";
 import {autoBookColor} from "../shelf-format";
 import FileBrowser from "./FileBrowser.vue";
 import type {FileBrowserEntry, FileBrowserSegment} from "./FileBrowser.vue";
@@ -49,8 +46,7 @@ const emit = defineEmits<{
     (event: "cancel"): void;
 }>();
 
-const port = useText();
-const text = (key: ProjectsTextKey, params?: TextParams): string => port.t(projectsText(key, params));
+const text = useProjectsText();
 
 const listing = ref<PathPickerListing | null>(null);
 const loading = ref(false);

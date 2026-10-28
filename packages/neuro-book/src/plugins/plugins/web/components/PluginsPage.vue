@@ -5,8 +5,6 @@
  */
 import type {RemoteFailureCode} from "@notnotype/nb-runtime/remote";
 import {Badge, Button, Dialog, Input, Spinner, Switch} from "@notnotype/nb-ui/components";
-import type {TextParams} from "@notnotype/nb-ui/text";
-import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
@@ -15,7 +13,7 @@ import {compareVersions} from "nbook/plugin-platform/shared/versions";
 import type {WindowPlugins} from "nbook/shared/host";
 
 import type {BlockedPlugin, InstallPreview, PendingChange, PluginFailureCode, PluginListEntry, PluginListItem, PluginProblem, PluginsRegistry} from "../../shared/contracts";
-import {pluginsText} from "../text";
+import {usePluginsText} from "../text";
 import type {PluginsTextKey} from "../text";
 
 defineOptions({name: "PluginsPage"});
@@ -84,9 +82,8 @@ const STALE_CODES: ReadonlySet<FailureCode> = new Set<FailureCode>(["unknown-out
 type Failure = {readonly ok: false; readonly code: FailureCode; readonly detail?: unknown};
 type Problem = {readonly serial: number; readonly code: string; readonly reason: string; readonly lines: ReadonlyArray<string>};
 
-const port = useText();
 /** 本插件目录里的一段文字，按窗口的当前语言。 */
-const text = (key: PluginsTextKey, params?: TextParams): string => port.t(pluginsText(key, params));
+const text = usePluginsText();
 /** 列表按界面语言连接（“a、b和c”“a, b, and c”）。 */
 const list = (items: ReadonlyArray<string>): string => new Intl.ListFormat(props.locale, {type: "conjunction"}).format(items);
 const BLOCKED_KEYS: Readonly<Record<BlockedPlugin["reason"], PluginsTextKey>> = {

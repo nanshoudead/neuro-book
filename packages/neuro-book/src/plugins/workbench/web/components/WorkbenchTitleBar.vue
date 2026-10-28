@@ -2,14 +2,13 @@
 /** 标题栏（同名 .md）：品牌标志、项目切换、应用菜单、命令搜索、布局按钮与条目区；只发事件。 */
 import {Button, DropdownMenu, IconButton, Menubar} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData, MenubarItemData, MenubarMenuData} from "@notnotype/nb-ui/components";
-import {useText} from "@notnotype/nb-ui/text-port";
 import {useElementSize} from "@vueuse/core";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import NeuroBookLockup from "nbook/ui/brand/NeuroBookLockup.vue";
 import NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
 
-import {workbenchText} from "../../shared/text";
+import {useWorkbenchText} from "../text";
 import type {WorkbenchTextKey} from "../../shared/text";
 import type {StripEntry} from "../items/registry";
 import {withNativeEditing} from "../titlebar/menu-model";
@@ -54,8 +53,7 @@ const PARTS: ReadonlyArray<Part> = ["sidebar", "panel", "auxiliarybar"];
 const OPEN_PROJECT = "open-project";
 const GROUP_PREFIX = "group:";
 
-const port = useText();
-const text = (key: WorkbenchTextKey): string => port.t(workbenchText(key));
+const text = useWorkbenchText();
 
 const root = ref<HTMLElement | null>(null);
 const measureEl = ref<HTMLElement | null>(null);

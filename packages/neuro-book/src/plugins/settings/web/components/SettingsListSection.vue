@@ -11,8 +11,6 @@ import {toPointer} from "@notnotype/nb-form";
 import type {FormIssue} from "@notnotype/nb-form";
 import {describeIssues, SchemaField} from "@notnotype/nb-form/vue";
 import type {DraftState, FieldState} from "@notnotype/nb-form/vue";
-import type {TextParams} from "@notnotype/nb-ui/text";
-import {useText} from "@notnotype/nb-ui/text-port";
 import {reactive, watch} from "vue";
 
 import HighlightedText from "nbook/ui/settings/HighlightedText.vue";
@@ -21,8 +19,7 @@ import type {SettingsRowReason} from "nbook/ui/settings/row-state";
 import SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 
 import {settingErrors, settingForm} from "../setting-form";
-import {settingsText} from "../../shared/text";
-import type {SettingsTextKey} from "../../shared/text";
+import {useSettingsText} from "../text";
 import type {SettingsSectionView, SettingsWindow} from "../settings-window";
 import type {WindowSetting} from "../window-source";
 
@@ -35,8 +32,7 @@ const props = withDefaults(defineProps<{
     highlight?: ReadonlyArray<string>;
 }>(), {highlight: () => []});
 
-const port = useText();
-const text = (key: SettingsTextKey, params?: TextParams): string => port.t(settingsText(key, params));
+const text = useSettingsText();
 
 const locale = props.window.locale;
 

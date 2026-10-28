@@ -1,13 +1,10 @@
 <script setup lang="ts">
 /** 资源管理器的一行：根或资源，以及新建与改名的内联输入（同名 .md）。 */
 import {Input, Tooltip} from "@notnotype/nb-ui/components";
-import type {TextParams} from "@notnotype/nb-ui/text";
-import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, onMounted, ref, watch} from "vue";
 
 import {fileIconOf} from "../icons/file-icons";
-import {explorerText} from "../../shared/text";
-import type {ExplorerTextKey} from "../../shared/text";
+import {useExplorerText} from "../text";
 import {displayLabel} from "../tree/rows";
 import type {Problem, Row} from "../tree/rows";
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
@@ -28,8 +25,7 @@ const props = defineProps<{
     guideActive?: number | null;
 }>();
 
-const port = useText();
-const text = (key: ExplorerTextKey, params?: TextParams): string => port.t(explorerText(key, params));
+const text = useExplorerText();
 
 const emit = defineEmits<{
     (event: "press", mouse: MouseEvent, part: "twisty" | "row"): void;

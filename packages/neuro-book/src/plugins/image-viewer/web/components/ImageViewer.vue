@@ -1,21 +1,17 @@
 <script setup lang="ts">
 /** 图片查看器的控件（同名 .md）：按字节绑定读取图片并显示，只看不改。 */
 import {Button} from "@notnotype/nb-ui/components";
-import type {TextParams} from "@notnotype/nb-ui/text";
-import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 
 import type {BytesEditorBinding, EditorControlHandle, ViewStateSlot} from "nbook/plugins/editor/shared/contracts";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
-import {imageViewerText} from "../text";
-import type {ImageViewerTextKey} from "../text";
+import {useImageViewerText} from "../text";
 
 const props = defineProps<{binding: BytesEditorBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; locale: DisplayLocale}>();
 const emit = defineEmits<{(event: "ready", handle: EditorControlHandle | null): void; (event: "focus", focused: boolean): void}>();
 
-const port = useText();
-const text = (key: ImageViewerTextKey, params?: TextParams): string => port.t(imageViewerText(key, params));
+const text = useImageViewerText();
 
 /** 比例的上下限（docs/specs/workbench/image-viewer.md 输出 4）。 */
 const MIN_SCALE = 0.1;

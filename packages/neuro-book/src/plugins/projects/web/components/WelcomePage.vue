@@ -3,14 +3,12 @@
 import {computed} from "vue";
 
 import {Button, Kbd} from "@notnotype/nb-ui/components";
-import type {TextParams} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 
 import {basenameOf, parentOf, parseResource} from "nbook/plugins/files/shared/contracts";
 
 import type {ShelfStats} from "../../shared/contracts";
-import {projectsText} from "../../shared/text";
-import type {ProjectsTextKey} from "../../shared/text";
+import {useProjectsText} from "../text";
 import {formatFiles, formatWhen, formatWords} from "../shelf-format";
 
 defineOptions({name: "WelcomePage"});
@@ -38,7 +36,7 @@ const emit = defineEmits<{
 }>();
 
 const port = useText();
-const text = (key: ProjectsTextKey, params?: TextParams): string => port.t(projectsText(key, params));
+const text = useProjectsText();
 
 /** 字数 · 篇数，过时的统计带“统计于…”（与书架的书卡同一写法）；还没取到统计时没有这一行。 */
 const statsLine = computed((): string | null => {

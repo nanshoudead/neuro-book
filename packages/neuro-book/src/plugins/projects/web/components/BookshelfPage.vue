@@ -1,7 +1,6 @@
 <script setup lang="ts">
 /** 书架页（同名 .md）：标题栏、案头、卡片与列表两种视图；只呈现数据、发出用户动作。 */
 import {Button, Select, IconButton, SegmentedControl, Skeleton} from "@notnotype/nb-ui/components";
-import type {TextParams} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 import {useElementSize} from "@vueuse/core";
 import {computed, ref} from "vue";
@@ -9,8 +8,7 @@ import {computed, ref} from "vue";
 import NeuroBookLockup from "nbook/ui/brand/NeuroBookLockup.vue";
 
 import type {ShelfItem} from "../../shared/shelf";
-import {projectsText} from "../../shared/text";
-import type {ProjectsTextKey} from "../../shared/text";
+import {useProjectsText} from "../text";
 import {sortShelf} from "../shelf-format";
 import type {ShelfSort} from "../shelf-format";
 import ShelfCards from "./ShelfCards.vue";
@@ -57,7 +55,7 @@ const emit = defineEmits<{
 const NARROW_WIDTH = 720;
 
 const port = useText();
-const text = (key: ProjectsTextKey, params?: TextParams): string => port.t(projectsText(key, params));
+const text = useProjectsText();
 
 const root = ref<HTMLElement | null>(null);
 const {width} = useElementSize(root);

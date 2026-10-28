@@ -1,7 +1,6 @@
 <script setup lang="ts">
 /** HTML 预览的控件（同名 .md）：正文拼成 `srcdoc` 放进沙箱 iframe，相对引用经预览令牌读作品里的文件。 */
 import {Button} from "@notnotype/nb-ui/components";
-import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
@@ -10,14 +9,13 @@ import type {EditorControlHandle, TextEditorBinding, ViewStateSlot} from "nbook/
 
 import type {PreviewAccess, PreviewDenial} from "../access";
 import {composePreview, PREVIEW_DELAY_MS} from "../compose";
-import {htmlPreviewText} from "../text";
+import {useHtmlPreviewText} from "../text";
 import type {HtmlPreviewTextKey} from "../text";
 
 const props = defineProps<{binding: TextEditorBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; access: PreviewAccess; clock: RuntimeClock; network: (address: string) => boolean}>();
 const emit = defineEmits<{(event: "ready", handle: EditorControlHandle | null): void; (event: "focus", focused: boolean): void}>();
 
-const port = useText();
-const text = (key: HtmlPreviewTextKey): string => port.t(htmlPreviewText(key));
+const text = useHtmlPreviewText();
 
 /** 申请失败的种类对应的说明（`PreviewDenial` 加一个键，这里编译不过）。 */
 const DENIAL_KEYS = {

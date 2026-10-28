@@ -1,14 +1,12 @@
 <script setup lang="ts">
 /** 资源管理器的结果区（同名 .md）。 */
 import {IconButton} from "@notnotype/nb-ui/components";
-import type {TextParams} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 import {computed} from "vue";
 
 import type {BatchAction, Notice, OperationReport, Unknown} from "../controller";
 import {actionText, itemText, noticeText} from "../feedback-text";
-import {explorerText} from "../../shared/text";
-import type {ExplorerTextKey} from "../../shared/text";
+import {useExplorerText} from "../text";
 
 const props = defineProps<{
     notice: Notice | null;
@@ -29,7 +27,7 @@ const emit = defineEmits<{
 }>();
 
 const port = useText();
-const text = (key: ExplorerTextKey, params?: TextParams): string => port.t(explorerText(key, params));
+const text = useExplorerText();
 
 const noticeLine = computed(() => (props.notice === null ? "" : noticeText(port, props.notice)));
 

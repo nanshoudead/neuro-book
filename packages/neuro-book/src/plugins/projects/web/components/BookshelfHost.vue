@@ -4,8 +4,6 @@
  * 窗口焦点带来的刷新。模型由 `bookshelf-home.ts` 按挂载创建。
  */
 import {AlertDialog} from "@notnotype/nb-ui/components";
-import type {TextParams} from "@notnotype/nb-ui/text";
-import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref} from "vue";
 
 import {OPEN_SETTINGS_COMMAND} from "nbook/plugins/settings/shared/contracts";
@@ -13,8 +11,7 @@ import {OPEN_SETTINGS_COMMAND} from "nbook/plugins/settings/shared/contracts";
 import {projectCoverUrl} from "../../shared/cover";
 import {projectDisplayName} from "../../shared/shelf";
 import type {ShelfItem} from "../../shared/shelf";
-import {projectsText} from "../../shared/text";
-import type {ProjectsTextKey} from "../../shared/text";
+import {useProjectsText} from "../text";
 import type {LibraryInfo, ProjectInfoField, ShelfPage} from "../shelf-page";
 import BookshelfPage from "./BookshelfPage.vue";
 import PathPickerDialog from "./PathPickerDialog.vue";
@@ -30,8 +27,7 @@ const props = defineProps<{
     settingsOpen: boolean;
 }>();
 
-const port = useText();
-const text = (key: ProjectsTextKey, params?: TextParams): string => port.t(projectsText(key, params));
+const text = useProjectsText();
 
 const shelf = ref<InstanceType<typeof BookshelfPage> | null>(null);
 /** 最近一次取到的作品目录：空书架的卡上写它，新建窗口从它开始。 */

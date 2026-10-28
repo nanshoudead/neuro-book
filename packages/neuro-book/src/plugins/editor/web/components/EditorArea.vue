@@ -7,15 +7,13 @@ import {NestedGrid} from "@notnotype/nb-ui/layout";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 
-import type {TextParams} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 
 import type {EditorArea} from "../area";
 import type {EmptyTip} from "../empty-tips";
 import type {EditorState} from "../editor-registry";
 import type {EditorPageSource} from "../pages";
-import {editorText} from "../../shared/text";
-import type {EditorTextKey} from "../../shared/text";
+import {useEditorText} from "../text";
 import {nameOf} from "../documents/address";
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
@@ -46,7 +44,7 @@ const props = withDefaults(defineProps<{
     workTitle?: string | null;
 }>(), {pages: null, emptyTips: () => [], titleActions: null, tabMenu: null, wrapTabs: true, breadcrumbs: true, workTitle: null});
 const port = useText();
-const t = (key: EditorTextKey, params?: TextParams): string => port.t(editorText(key, params));
+const t = useEditorText();
 const emit = defineEmits<{(event: "intent", intent: EditorIntent): void; (event: "run-tip", command: string): void; (event: "title-action", key: string): void; (event: "tab-menu", tabId: string, key: string): void}>();
 
 const root = ref<HTMLElement | null>(null);

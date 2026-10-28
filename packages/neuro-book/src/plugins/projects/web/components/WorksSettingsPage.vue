@@ -4,16 +4,13 @@
  * 服务端实际会用的缺省目录（docs/specs/workbench/bookshelf.md 输出 21）。
  */
 import {Button} from "@notnotype/nb-ui/components";
-import type {TextParams} from "@notnotype/nb-ui/text";
-import {useText} from "@notnotype/nb-ui/text-port";
 import {ref, watch} from "vue";
 
 import type {SettingLayer, SettingsFailure, SettingsService} from "nbook/shared/settings";
 import SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 
 import {librarySetting} from "../../shared/contracts";
-import {projectsText} from "../../shared/text";
-import type {ProjectsTextKey} from "../../shared/text";
+import {useProjectsText} from "../text";
 import type {LibraryInfo} from "../shelf-page";
 import PathPickerDialog from "./PathPickerDialog.vue";
 import type {PathPickerSource} from "./PathPickerDialog.vue";
@@ -33,8 +30,7 @@ const emit = defineEmits<{
     (event: "write-failed", failure: {readonly code: SettingsFailure; readonly detail: string}): void;
 }>();
 
-const port = useText();
-const text = (key: ProjectsTextKey, params?: TextParams): string => port.t(projectsText(key, params));
+const text = useProjectsText();
 
 const picking = ref(false);
 /** 这次选定、还在写的目录：写入结算之前显示它，结算后回到层里的值。 */

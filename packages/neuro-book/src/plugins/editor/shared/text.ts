@@ -10,7 +10,9 @@ import type {CatalogKey} from "nbook/shared/plugin-text";
 import type zhCN from "../locales/zh-CN.json";
 
 /** 本插件命名空间（插件 id `nbook.editor`，由 `locales.test.ts` 核对）下的文字引用；键按源语言目录核对，写错编译不过。 */
-export const editorText = pluginText<typeof zhCN>("nbook.editor");
+/** 命名空间 = 插件 id；写字面量是因为取 `descriptor` 会成环（见上）。浏览器端的 `useXxxText` 也用它，不另写一份。 */
+export const EDITOR_TEXT_NAMESPACE = "nbook.editor";
+export const editorText = pluginText<typeof zhCN>(EDITOR_TEXT_NAMESPACE);
 
 /** 源语言目录里的键（复数形归到不带后缀的键）。 */
 export type EditorTextKey = CatalogKey<typeof zhCN>;

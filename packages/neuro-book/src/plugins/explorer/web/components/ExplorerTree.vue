@@ -3,14 +3,11 @@
 import {DropFeedbackOverlay, OverlayScrollbar} from "@notnotype/nb-ui/components";
 import type {DropFeedbackPreview} from "@notnotype/nb-ui/components";
 import {useLayoutExtent} from "@notnotype/nb-ui/composables";
-import type {TextParams} from "@notnotype/nb-ui/text";
-import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch} from "vue";
 
 import type {DropAction, DropOver} from "../actions/drop";
 import type {KeyOutcome} from "../controller";
-import {explorerText} from "../../shared/text";
-import type {ExplorerTextKey} from "../../shared/text";
+import {useExplorerText} from "../text";
 import {createTreeDrag} from "../tree-drag";
 import type {TreeDrag, TreeDragPointer, TreeDragTarget} from "../tree-drag";
 import {parentAddress} from "../tree/address";
@@ -44,8 +41,7 @@ const props = defineProps<{
     motion?: MotionNote | null;
 }>();
 
-const port = useText();
-const text = (key: ExplorerTextKey, params?: TextParams): string => port.t(explorerText(key, params));
+const text = useExplorerText();
 
 const emit = defineEmits<{
     (event: "row-press", id: string, modifiers: Modifiers, part: "twisty" | "row"): void;

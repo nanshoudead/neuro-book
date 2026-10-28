@@ -5,7 +5,6 @@ import type {BannerTone, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 
-import type {TextParams} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 import NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
 import TitleActions from "nbook/ui/menus/TitleActions.vue";
@@ -20,8 +19,7 @@ import {EDITOR_TITLE_MAX_BUTTONS, EDITOR_TITLE_TAB_RESERVE} from "../title-actio
 import type {TabMenuEntry} from "../tab-menu";
 import {pageIdOf} from "../pages";
 import type {EditorPageSource} from "../pages";
-import {editorText} from "../../shared/text";
-import type {EditorTextKey} from "../../shared/text";
+import {useEditorText} from "../text";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 
 import {formatResource} from "nbook/plugins/files/shared/contracts";
@@ -54,7 +52,7 @@ const props = withDefaults(defineProps<{
     workTitle?: string | null;
 }>(), {pages: null, emptyTips: () => [], titleActions: null, tabMenu: null, wrapTabs: true, breadcrumbs: true, workTitle: null});
 const port = useText();
-const t = (key: EditorTextKey, params?: TextParams): string => port.t(editorText(key, params));
+const t = useEditorText();
 
 /** 点了空态里的一条提示：交出它的命令，由宿主执行（组件不执行命令）。点了标题动作、标签菜单的一项：交出它的 key。 */
 const emit = defineEmits<{(event: "run-tip", command: string): void; (event: "title-action", key: string): void; (event: "tab-menu", tabId: string, key: string): void}>();

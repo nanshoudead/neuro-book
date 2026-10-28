@@ -1,11 +1,9 @@
 <script setup lang="ts">
 /** 状态栏（同名 .md）：项目名、布局记录的问题与面板显隐按钮；只发事件，不执行命令。 */
 import {Button} from "@notnotype/nb-ui/components";
-import type {TextParams} from "@notnotype/nb-ui/text";
-import {useText} from "@notnotype/nb-ui/text-port";
 import {computed} from "vue";
 
-import {workbenchText} from "../../shared/text";
+import {useWorkbenchText} from "../text";
 import type {WorkbenchTextKey} from "../../shared/text";
 import type {StripEntry} from "../items/registry";
 import WorkbenchItemStrip from "./WorkbenchItemStrip.vue";
@@ -37,8 +35,7 @@ const emit = defineEmits<{
 const leftItems = computed(() => props.items.filter((item) => item.alignment === "left"));
 const rightItems = computed(() => props.items.filter((item) => item.alignment === "right"));
 
-const port = useText();
-const text = (key: WorkbenchTextKey, params?: TextParams): string => port.t(workbenchText(key, params));
+const text = useWorkbenchText();
 
 /** 常见失败码的可读原因（目录里 `statusBar.reasons` 下的键）；不认识的码原样显示。 */
 const REASON_KEYS: Readonly<Record<string, WorkbenchTextKey>> = {

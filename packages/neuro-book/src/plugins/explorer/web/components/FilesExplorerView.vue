@@ -2,7 +2,6 @@
 /** 资源管理器视图的界面（同名 .md）。 */
 import {AlertDialog, Button, ContextMenu, Dialog, Checkbox, Input} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
-import type {TextParams} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, ref, watch} from "vue";
 
@@ -11,8 +10,7 @@ import type {CollisionChoice} from "../actions/paste-plan";
 import type {BatchAction, Dialog as ExplorerDialog, KeyOutcome, Notice, OperationReport, Unknown} from "../controller";
 import {nameErrorText} from "../feedback-text";
 import type {MenuEntry} from "../menu";
-import {explorerText} from "../../shared/text";
-import type {ExplorerTextKey} from "../../shared/text";
+import {useExplorerText} from "../text";
 import type {FieldProblem} from "nbook/shared/store/problem";
 import type {TreeKey} from "../tree/keys";
 import type {MotionNote} from "../tree/motion";
@@ -51,7 +49,7 @@ const props = defineProps<{
 }>();
 
 const port = useText();
-const text = (key: ExplorerTextKey, params?: TextParams): string => port.t(explorerText(key, params));
+const text = useExplorerText();
 
 const emit = defineEmits<{
     (event: "row-press", id: string, modifiers: Modifiers, part: "twisty" | "row"): void;

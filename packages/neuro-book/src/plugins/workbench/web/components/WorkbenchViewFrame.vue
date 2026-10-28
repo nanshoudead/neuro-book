@@ -4,11 +4,8 @@ import {computed, defineComponent, h, onErrorCaptured, ref} from "vue";
 import type {Component, PropType} from "vue";
 
 import {Button, OverlayScrollbar, Spinner} from "@notnotype/nb-ui/components";
-import type {TextParams} from "@notnotype/nb-ui/text";
-import {useText} from "@notnotype/nb-ui/text-port";
 
-import {workbenchText} from "../../shared/text";
-import type {WorkbenchTextKey} from "../../shared/text";
+import {useWorkbenchText} from "../text";
 import type {ViewContext} from "../contracts";
 import type {ViewDelivery} from "../views/registry";
 
@@ -35,8 +32,7 @@ const emit = defineEmits<{
     (event: "render-error", generation: number, message: string): void;
 }>();
 
-const port = useText();
-const text = (key: WorkbenchTextKey, params?: TextParams): string => port.t(workbenchText(key, params));
+const text = useWorkbenchText();
 
 const state = computed(() => (props.delivery.kind === "available" ? props.status : props.delivery.kind));
 

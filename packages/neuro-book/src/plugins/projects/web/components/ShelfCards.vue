@@ -1,13 +1,10 @@
 <script setup lang="ts">
 /** 卡片视图（同名 .md）：书卡网格的列表框语义与键盘；有作品时网格末尾一张“新建作品”占位，空书架时是两张“待写的书”。 */
-import type {TextParams} from "@notnotype/nb-ui/text";
-import {useText} from "@notnotype/nb-ui/text-port";
 
 import {computed, ref, watch} from "vue";
 
 import type {ShelfItem} from "../../shared/shelf";
-import {projectsText} from "../../shared/text";
-import type {ProjectsTextKey} from "../../shared/text";
+import {useProjectsText} from "../text";
 import BookCard from "./BookCard.vue";
 
 defineOptions({name: "ShelfCards"});
@@ -32,8 +29,7 @@ const emit = defineEmits<{
     (event: "add-existing"): void;
 }>();
 
-const port = useText();
-const text = (key: ProjectsTextKey, params?: TextParams): string => port.t(projectsText(key, params));
+const text = useProjectsText();
 
 const grid = ref<HTMLElement | null>(null);
 const optionId = (id: string): string => `book-card-${id}`;
