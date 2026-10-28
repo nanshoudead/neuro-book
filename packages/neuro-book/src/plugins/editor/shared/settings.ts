@@ -74,8 +74,7 @@ export const {settings: codeSettings, contributions: codeSettingContributions} =
         schema: Type.Integer({minimum: 8, maximum: 40}),
         default: 14,
         section: EDITOR_SECTION, group: "code", order: 20,
-        // 设置窗口把 `ui` 原样交给表单，表单的文字只认字符串与语言映射、认不得文字引用，所以单位仍写语言映射。
-        ui: {unit: {"zh-CN": "像素", "en-US": "px"}},
+        ui: {unit: editorText("settings.code.fontSize.unit")},
     },
     "code.lineHeight": {
         schema: Type.Number({minimum: 0, maximum: 100}),

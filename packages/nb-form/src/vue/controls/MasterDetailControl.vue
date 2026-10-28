@@ -11,7 +11,7 @@ import {computed, useId, useTemplateRef, watch} from "vue";
 import {itemNode} from "../../model";
 import {toPointer} from "../../path";
 import {useList} from "../list";
-import {messagesFor} from "../messages";
+import {useFormText} from "../text";
 import {itemTitle} from "../order";
 import {issuesUnder, useFormScope} from "../scope";
 import ListActions from "./ListActions.vue";
@@ -25,7 +25,7 @@ const scope = useFormScope();
 const field = useFieldContext();
 const prefix = `nb-form-md-${useId()}`;
 const root = useTemplateRef<HTMLElement>("root");
-const messages = computed(() => messagesFor(props.locale));
+const text = useFormText();
 const editable = computed(() => scope.editable(props.node) && !props.disabled);
 const showActions = computed(() => scope.mode.value === "edit" && !props.readonly);
 
@@ -39,7 +39,6 @@ const FOCUSABLE = "input:not([type='hidden']):not([disabled]), textarea:not([dis
 const list = useList({
     node: () => props.node,
     value: () => props.modelValue,
-    locale: () => props.locale,
     scope,
     editable: () => editable.value,
     emit: (next) => emit("update:modelValue", next),
@@ -78,7 +77,7 @@ const selected = computed(() => {
 });
 const selectedEntry = computed(() => list.entries.value[selected.value]);
 
-const title = (value: unknown, index: number) => itemTitle(props.node, value, index, props.locale);
+const title = (value: unknown, index: number) => itemTitle(props.node, value, index, text);
 const issueCount = (index: number) => issuesUnder(scope.shownIssues.value, [...props.node.path, index]).length;
 
 // 外部把列表换短了：选中项落回范围内（`selected` 已经夹住，这里把记下的值也改掉，免得以后变长时跳回去）。
@@ -100,10 +99,10 @@ watch(() => list.items.value.length, (count) => {
         :aria-invalid="props.invalid || undefined"
     >
         <div class="nb-form-md__master">
-            <p v-if="list.items.value.length === 0" class="nb-form-md__empty">{{ messages.noItems }}</p>
+            <p v-if="list.items.value.length === 0" class="nb-form-md__empty">{{ text.t('noItems') }}</p>
             <div v-else-if="list.folded.value" class="nb-form-md__empty">
-                <span>{{ messages.items(list.items.value.length) }}</span>
-                <button type="button" class="nb-form-md__link" :aria-expanded="false" @click="list.expanded.value = true">{{ messages.expand }}</button>
+                <span>{{ text.t('items', {count: list.items.value.length}) }}</span>
+                <button type="button" class="nb-form-md__link" :aria-expanded="false" @click="list.expanded.value = true">{{ text.t('expand') }}</button>
             </div>
             <ul v-else class="nb-form-md__items">
                 <li
@@ -123,8 +122,8 @@ watch(() => list.items.value.length, (count) => {
                         @click="selection.set(entry.index)"
                     >
                         <span class="nb-form-md__title">{{ title(entry.value, entry.index) }}</span>
-                        <span v-if="list.duplicates.value.has(entry.index)" class="nb-form-md__mark">{{ messages.duplicate }}</span>
-                        <span v-else-if="issueCount(entry.index) > 0" class="nb-form-md__mark">{{ messages.containsIssues(issueCount(entry.index)) }}</span>
+                        <span v-if="list.duplicates.value.has(entry.index)" class="nb-form-md__mark">{{ text.t('duplicate') }}</span>
+                        <span v-else-if="issueCount(entry.index) > 0" class="nb-form-md__mark">{{ text.t('containsIssues', {count: issueCount(entry.index)}) }}</span>
                     </button>
                     <ListActions
                         v-if="showActions"
@@ -133,19 +132,18 @@ watch(() => list.items.value.length, (count) => {
                         :title="title(entry.value, entry.index)"
                         :disabled="!editable"
                         :can-remove="list.canRemove.value"
-                        :locale="props.locale"
                         @move="(delta) => list.move(entry.index, delta)"
                         @remove="list.remove(entry.index)"
                     />
                 </li>
             </ul>
             <div v-if="list.expanded.value && list.pageCount.value > 1" class="nb-form-md__pager">
-                <button type="button" class="nb-form-md__link" :disabled="list.page.value === 0" @click="list.page.value -= 1">{{ messages.previousPage }}</button>
-                <span>{{ messages.page(list.page.value + 1, list.pageCount.value) }}</span>
-                <button type="button" class="nb-form-md__link" :disabled="list.page.value >= list.pageCount.value - 1" @click="list.page.value += 1">{{ messages.nextPage }}</button>
+                <button type="button" class="nb-form-md__link" :disabled="list.page.value === 0" @click="list.page.value -= 1">{{ text.t('previousPage') }}</button>
+                <span>{{ text.t('page', {current: list.page.value + 1, total: list.pageCount.value}) }}</span>
+                <button type="button" class="nb-form-md__link" :disabled="list.page.value >= list.pageCount.value - 1" @click="list.page.value += 1">{{ text.t('nextPage') }}</button>
             </div>
             <div v-if="showActions">
-                <Button size="sm" variant="secondary" data-nb-list-add :disabled="!list.canAdd.value" @click="list.add()">{{ messages.add }}</Button>
+                <Button size="sm" variant="secondary" data-nb-list-add :disabled="!list.canAdd.value" @click="list.add()">{{ text.t('add') }}</Button>
             </div>
         </div>
         <div v-if="selectedEntry !== undefined" :id="`${prefix}-detail`" class="nb-form-md__detail" data-nb-detail>

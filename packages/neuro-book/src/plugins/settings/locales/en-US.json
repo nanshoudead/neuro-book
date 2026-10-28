@@ -120,6 +120,12 @@
         "notSaved": "Not saved: {{reason}}",
         "separator": ", "
     },
+    "choices": {
+        "missing": "Can't load options: there is no option provider {{id}}",
+        "unavailable": "Can't load options: {{reason}}",
+        "stopped": "Can't load options: plugin {{plugin}} has stopped",
+        "notActivatable": "Can't load options: the plugin does not provide options when settings open: {{reason}}"
+    },
     "pageFrame": {
         "declared": "Waiting for this section's plugin to start",
         "blocked": "This section's plugin cannot start: {{reason}}",

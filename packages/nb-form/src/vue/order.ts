@@ -10,9 +10,9 @@ import type {FieldNode, FormLayout, FormModel} from "../model";
 import {itemNode, resolveForm} from "../model";
 import {getAt, toPointer} from "../path";
 import type {FieldPath} from "../path";
-import {resolveText} from "../text";
 import type {FormIssue} from "../validate";
-import {issueText, messagesFor} from "./messages";
+import {issueText} from "./text";
+import type {FormTextApi} from "./text";
 import {withHints} from "./with-hints";
 
 function layoutOrder(layout: FormLayout, into: string[]): string[] {
@@ -59,28 +59,28 @@ export function sortIssues(issues: ReadonlyArray<FormIssue>, model: FormModel): 
 }
 
 /** 列表项的标题：`itemLabel` 指向的字段有文字时用它，否则“第 N 项”（输出 20）。列表控件与问题汇总共用。 */
-export function itemTitle(list: FieldNode, item: unknown, index: number, locale: string): string {
+export function itemTitle(list: FieldNode, item: unknown, index: number, text: FormTextApi): string {
     const key = list.hints.itemLabel;
     const named = key !== undefined && item !== null && typeof item === "object" ? (item as Record<string, unknown>)[key] : undefined;
-    return typeof named === "string" && named.trim() !== "" ? named : messagesFor(locale).item(index + 1);
+    return typeof named === "string" && named.trim() !== "" ? named : text.t("item", {position: index + 1});
 }
 
 /**
  * 问题所在字段的名字，逐层连起来：“人物 · 林照 · 名字”。走出字段树时（`required` 里多出来的键）用键名；根上的问题
  * 没有名字。
  */
-export function fieldLabel(root: FieldNode, value: unknown, path: FieldPath, locale: string): string {
+export function fieldLabel(root: FieldNode, value: unknown, path: FieldPath, text: FormTextApi): string {
     const parts: string[] = [];
     let node: FieldNode | undefined = root;
     path.forEach((segment, depth) => {
         if (node === undefined) return;
         if (typeof segment === "number") {
-            parts.push(itemTitle(node, getAt(value, path.slice(0, depth + 1)), segment, locale));
+            parts.push(itemTitle(node, getAt(value, path.slice(0, depth + 1)), segment, text));
             node = node.item === undefined ? undefined : itemNode(node, segment);
             return;
         }
         const child: FieldNode | undefined = node.children.find((entry) => entry.path[entry.path.length - 1] === segment);
-        parts.push(child === undefined ? segment : resolveText(child.label, locale));
+        parts.push(child === undefined ? segment : text.text(child.label));
         node = child;
     });
     return parts.filter((part) => part !== "").join(" · ");
@@ -88,13 +88,14 @@ export function fieldLabel(root: FieldNode, value: unknown, path: FieldPath, loc
 
 /**
  * 一组问题写成给人看的文字（接口 `describeIssues`），按看得见的先后排，每条前面是所在字段的名字（根上的没有）：
- * 只用 `SchemaField` 的调用方没有问题汇总，要在自己的位置写出原因时用它（设置窗口的一行）。
+ * 只用 `SchemaField` 的调用方没有问题汇总，要在自己的位置写出原因时用它（设置窗口的一行）。`text` 由调用方在自己组件的
+ * `setup` 里用 `useFormText()` 取得：字段名可能是插件目录里的键，要经宿主的翻译端口才翻得出来。
  */
-export function describeIssues(schema: object, value: unknown, issues: ReadonlyArray<FormIssue>, locale: string, hints?: FormHints): string[] {
+export function describeIssues(schema: object, value: unknown, issues: ReadonlyArray<FormIssue>, text: FormTextApi, hints?: FormHints): string[] {
     const model = resolveForm(withHints(schema, hints));
     return sortIssues(issues, model).map((issue) => {
-        const label = fieldLabel(model.root, value, issue.path, locale);
-        const text = issueText(issue, locale);
-        return label === "" ? text : `${label}：${text}`;
+        const label = fieldLabel(model.root, value, issue.path, text);
+        const wording = issueText(issue, text);
+        return label === "" ? wording : `${label}：${wording}`;
     });
 }

@@ -14,6 +14,8 @@ import {validateForm} from "../validate";
 import SchemaField from "./SchemaField.vue";
 import {widgetLayout} from "./layout";
 import {describeIssues} from "./order";
+import {useFormText} from "./text";
+import type {FormTextApi} from "./text";
 
 const mounted: VueWrapper[] = [];
 afterEach(() => {
@@ -226,7 +228,13 @@ describe("describeIssues", () => {
         const schema = Type.Array(Type.Object({name: Type.String({minLength: 1, "x-form": {label: {"zh-CN": "名字", "en-US": "Name"}}})}), {minItems: 3});
         const value = [{name: "林照"}, {}];
         const issues = validateForm(resolveForm(schema), value);
-        expect(describeIssues(schema, value, issues, "zh-CN", {itemLabel: "name"})).toEqual(["至少 3 项", "第 2 项 · 名字：必填"]);
+        // 调用方在自己组件的 setup 里取文字函数；这里没有宿主注入，得到包内的缺省（中文）。
+        let text: FormTextApi | undefined;
+        mounted.push(mount(defineComponent({setup: () => {
+            text = useFormText();
+            return () => null;
+        }})));
+        expect(describeIssues(schema, value, issues, text!, {itemLabel: "name"})).toEqual(["至少 3 项", "第 2 项 · 名字：必填"]);
     });
 });
 

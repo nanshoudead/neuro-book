@@ -94,6 +94,11 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "list.excludedProject": {"zh-CN": "{titles}仅可在本作品中设置", "en-US": "{titles}: can only be set for a book"},
     "list.notSaved": {"zh-CN": "未保存：{reason}", "en-US": "Not saved: {reason}"},
     "list.separator": {"zh-CN": "、", "en-US": ", "},
+    // 下面四条是选项提供者不可用的原因，晚于上面的迁移：抄自提交 452ae72bf 的 `web/choices.ts`。
+    "choices.missing": {"zh-CN": "无法加载选项：没有选项提供者 {id}", "en-US": "Can't load options: there is no option provider {id}"},
+    "choices.unavailable": {"zh-CN": "无法加载选项：{reason}", "en-US": "Can't load options: {reason}"},
+    "choices.stopped": {"zh-CN": "无法加载选项：插件 {plugin} 已停止", "en-US": "Can't load options: plugin {plugin} has stopped"},
+    "choices.notActivatable": {"zh-CN": "无法加载选项：插件没有声明打开设置时提供选项：{reason}", "en-US": "Can't load options: the plugin does not provide options when settings open: {reason}"},
     "pageFrame.declared": {"zh-CN": "正在等待这个分区所属的插件启动", "en-US": "Waiting for this section's plugin to start"},
     "pageFrame.blocked": {"zh-CN": "这个分区所属的插件无法启动：{reason}", "en-US": "This section's plugin cannot start: {reason}"},
     "pageFrame.failed": {"zh-CN": "这个分区所属的插件启动失败：{reason}", "en-US": "This section's plugin failed to start: {reason}"},

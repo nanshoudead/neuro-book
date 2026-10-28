@@ -113,7 +113,8 @@
                 "description": "CSS 的 font-family 写法；留空跟随主题的等宽字体"
             },
             "fontSize": {
-                "title": "字号"
+                "title": "字号",
+                "unit": "像素"
             },
             "lineHeight": {
                 "title": "行高",

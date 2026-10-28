@@ -6,14 +6,14 @@
 import {NumberInput} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 
-import {resolveText} from "../../text";
 import {numberCodec, useDraft} from "../draft";
-import {messagesFor} from "../messages";
 import {useFormScope} from "../scope";
+import {useFormText} from "../text";
 import {defaultPlaceholder} from "./placeholder";
 import type {ControlProps, DraftControl} from "./control";
 
 const props = defineProps<ControlProps>();
+const text = useFormText();
 
 const draft = useDraft({
     node: () => props.node,
@@ -27,8 +27,8 @@ const bound = (key: string) => computed(() => (typeof schema.value[key] === "num
 const min = bound("minimum");
 const max = bound("maximum");
 const step = computed(() => (typeof schema.value.multipleOf === "number" ? String(schema.value.multipleOf) : schema.value.type === "integer" ? "1" : undefined));
-const placeholder = computed(() => (props.modelValue === undefined ? defaultPlaceholder(props.node, props.locale) : undefined) ?? resolveText(props.node.hints.placeholder, props.locale));
-const unit = computed(() => resolveText(props.node.hints.unit, props.locale));
+const placeholder = computed(() => (props.modelValue === undefined ? defaultPlaceholder(props.node, text) : undefined) ?? text.text(props.node.hints.placeholder));
+const unit = computed(() => text.text(props.node.hints.unit));
 
 /** 焦点离开整个控件才提交：点步进按钮时焦点还在里面。 */
 function onFocusOut(event: FocusEvent): void {
@@ -50,8 +50,8 @@ defineExpose<DraftControl>({commit: draft.commit, reset: draft.reset});
             :max="max"
             :step="step"
             :placeholder="placeholder"
-            :increment-label="messagesFor(props.locale).increment"
-            :decrement-label="messagesFor(props.locale).decrement"
+            :increment-label="text.t('increment')"
+            :decrement-label="text.t('decrement')"
             :readonly="props.readonly"
             :disabled="props.disabled"
             :invalid="props.invalid"

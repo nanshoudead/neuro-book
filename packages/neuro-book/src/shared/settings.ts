@@ -20,7 +20,6 @@ import type {Text} from "@notnotype/nb-ui/text";
 
 import {conventionCompleter} from "nbook/shared/convention-keys";
 import {TextSchema} from "nbook/shared/text";
-import type {LocalizedText} from "nbook/shared/localized-text";
 
 export type {DeepReadonly};
 
@@ -64,8 +63,8 @@ export interface SettingChoiceSource {
 export interface SettingUiHints {
     /** 例如 `multiline`、`radio`、`json`；要与 schema 的种类相配（同 `ui.forms` 输出 2）。 */
     readonly widget?: string;
-    readonly placeholder?: LocalizedText;
-    readonly unit?: LocalizedText;
+    readonly placeholder?: Text;
+    readonly unit?: Text;
     readonly rows?: number;
     readonly searchable?: boolean;
     /** 对象列表里当作每项标题的字段名。 */

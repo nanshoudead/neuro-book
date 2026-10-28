@@ -11,9 +11,9 @@
 import {Button, useFieldContext} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 
-import {messagesFor} from "../messages";
 import NodeField from "../NodeField.vue";
 import {useFormScope} from "../scope";
+import {useFormText} from "../text";
 import type {ControlProps} from "./control";
 
 const props = defineProps<ControlProps & {
@@ -26,6 +26,7 @@ const emit = defineEmits<{(event: "update:modelValue", value: unknown): void}>()
 
 const scope = useFormScope();
 const field = useFieldContext();
+const text = useFormText();
 /** 作为字段自己的控件时（不是列表项、详情区），组上带外壳的说明与出错（审查 S3 Sonnet 5）。 */
 const own = computed(() => props.labelledby === undefined);
 const unset = computed(() => props.node.nullable && props.modelValue === null);
@@ -43,8 +44,8 @@ const unset = computed(() => props.node.nullable && props.modelValue === null);
         :aria-invalid="own && props.invalid ? true : undefined"
     >
         <div v-if="unset">
-            <Button v-if="scope.editable(props.node) && !props.disabled" size="sm" variant="secondary" @click="emit('update:modelValue', {})">{{ messagesFor(props.locale).fillIn }}</Button>
-            <span v-else class="nb-form-object__empty">{{ messagesFor(props.locale).empty }}</span>
+            <Button v-if="scope.editable(props.node) && !props.disabled" size="sm" variant="secondary" @click="emit('update:modelValue', {})">{{ text.t('fillIn') }}</Button>
+            <span v-else class="nb-form-object__empty">{{ text.t('empty') }}</span>
         </div>
         <NodeField v-for="child in unset ? [] : props.node.children" :key="String(child.path[child.path.length - 1])" :node="child" />
     </div>

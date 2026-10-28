@@ -6,14 +6,14 @@
 import {Input, Textarea} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 
-import {resolveText} from "../../text";
 import {TEXT_CODEC, useDraft} from "../draft";
-import {messagesFor} from "../messages";
 import {useFormScope} from "../scope";
+import {useFormText} from "../text";
 import {defaultPlaceholder} from "./placeholder";
 import type {ControlProps, DraftControl} from "./control";
 
 const props = defineProps<ControlProps>();
+const text = useFormText();
 
 const draft = useDraft({
     node: () => props.node,
@@ -22,7 +22,7 @@ const draft = useDraft({
     scope: useFormScope(),
 });
 
-const placeholder = computed(() => (props.modelValue === undefined ? defaultPlaceholder(props.node, props.locale) : undefined) ?? resolveText(props.node.hints.placeholder, props.locale));
+const placeholder = computed(() => (props.modelValue === undefined ? defaultPlaceholder(props.node, text) : undefined) ?? text.text(props.node.hints.placeholder));
 const minLength = computed(() => (typeof props.node.schema.minLength === "number" ? props.node.schema.minLength : undefined));
 const maxLength = computed(() => (typeof props.node.schema.maxLength === "number" ? props.node.schema.maxLength : undefined));
 /** 只换软键盘，不用原生的 email、url 类型：格式由 schema 校验，原生校验的提示文字与表单的问题显示不一致。 */
@@ -67,7 +67,7 @@ defineExpose<DraftControl>({commit: draft.commit, reset: draft.reset});
             :minlength="minLength"
             :maxlength="maxLength"
             :autocomplete="props.widget === 'secret' ? 'off' : undefined"
-            :clear-label="messagesFor(props.locale).clearInput"
+            :clear-label="text.t('clearInput')"
             :readonly="props.readonly"
             :disabled="props.disabled"
             :invalid="props.invalid"

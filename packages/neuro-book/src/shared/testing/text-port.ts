@@ -1,5 +1,5 @@
 /**
- * 组件测试用的翻译端口：与窗口同一个宿主引擎（nb-ui、nb-agent-ui 与 `nbook.host` 的目录已登记），再登记给定插件的目录，严格模式下缺键、
+ * 组件测试用的翻译端口：与窗口同一个宿主引擎（nb-ui、nb-agent-ui、nb-form 与 `nbook.host` 的目录已登记），再登记给定插件的目录，严格模式下缺键、
  * 缺插值参数抛错。挂载时经 `provideText` 注入，组件里的 `useText()` 拿到的就是它（docs/specs/ui/i18n.md）。
  */
 

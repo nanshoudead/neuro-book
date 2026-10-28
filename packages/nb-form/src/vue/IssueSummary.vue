@@ -9,28 +9,27 @@
 import {computed, ref, useId, watch} from "vue";
 
 import type {FormIssue} from "../validate";
-import {issueText, messagesFor} from "./messages";
 import {fieldLabel, sortIssues} from "./order";
 import {useFormScope} from "./scope";
+import {issueText, useFormText} from "./text";
 
 const emit = defineEmits<{(event: "focus", issue: FormIssue): void}>();
 
 const scope = useFormScope();
 const listId = `nb-form-issues-${useId()}`;
 const expanded = ref(false);
-const locale = computed(() => scope.locale.value);
-const messages = computed(() => messagesFor(locale.value));
+const text = useFormText();
 const issues = computed(() => sortIssues(scope.shownIssues.value, scope.model.value));
 const hasError = computed(() => issues.value.some((issue) => issue.severity === "error"));
 const entries = computed(() => issues.value.map((issue) => {
-    const label = fieldLabel(scope.model.value.root, scope.rootValue(), issue.path, locale.value);
-    const text = issueText(issue, locale.value);
-    return {issue, text: label ? `${label}：${text}` : text};
+    const label = fieldLabel(scope.model.value.root, scope.rootValue(), issue.path, text);
+    const wording = issueText(issue, text);
+    return {issue, text: label ? `${label}：${wording}` : wording};
 }));
 
 const announcement = ref("");
 watch(() => scope.revealCount.value, () => {
-    announcement.value = messages.value.issueCount(issues.value.length);
+    announcement.value = text.t("issueCount", {count: issues.value.length});
 });
 </script>
 
@@ -46,14 +45,14 @@ watch(() => scope.revealCount.value, () => {
             @click="expanded = !expanded"
         >
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 8v4" /><path d="M12 16h.01" /></svg>
-            {{ messages.issueCount(issues.length) }}
+            {{ text.t('issueCount', {count: issues.length}) }}
         </button>
         <ul v-if="issues.length > 0 && expanded" :id="listId" class="nb-form-summary__list">
             <li v-for="(entry, index) in entries" :key="index">
                 <button type="button" class="nb-form-summary__item" :data-severity="entry.issue.severity" @click="emit('focus', entry.issue)">
                     <svg v-if="entry.issue.severity === 'warning'" class="nb-form-summary__mark" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg>
                     <svg v-else class="nb-form-summary__mark" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 8v4" /><path d="M12 16h.01" /></svg>
-                    <span v-if="entry.issue.severity === 'warning'" class="nb-form-sr-only">{{ messages.warning }}：</span>
+                    <span v-if="entry.issue.severity === 'warning'" class="nb-form-sr-only">{{ text.t('warning') }}：</span>
                     <span class="nb-form-summary__text">{{ entry.text }}</span>
                 </button>
             </li>

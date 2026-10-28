@@ -8,14 +8,14 @@ import {computed, onBeforeUnmount, ref, useId} from "vue";
 import {findNode} from "../model";
 import type {FormLayout} from "../model";
 import {fromPointer, toPointer} from "../path";
-import {resolveText} from "../text";
-import {messagesFor} from "./messages";
 import NodeField from "./NodeField.vue";
 import {issuesUnder, useFormScope} from "./scope";
+import {useFormText} from "./text";
 
 const props = defineProps<{layout: FormLayout}>();
 
 const scope = useFormScope();
+const text = useFormText();
 const node = computed(() => (props.layout.type === "field" ? findNode(scope.model.value.root, props.layout.path) : undefined));
 const contentId = `nb-form-group-${useId()}`;
 const expanded = ref(props.layout.type === "group" ? props.layout.collapsed !== true : true);
@@ -44,8 +44,8 @@ if (props.layout.type === "group") {
     <section v-else-if="props.layout.type === 'group'" class="nb-form-group">
         <button type="button" class="nb-form-group__title" :aria-expanded="expanded" :aria-controls="expanded ? contentId : undefined" @click="expanded = !expanded">
             <svg class="nb-form-group__chevron" :class="{'nb-form-group__chevron--open': expanded}" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
-            {{ resolveText(props.layout.label, scope.locale.value) }}
-            <span v-if="!expanded && issueCount > 0" class="nb-form-group__issues" :class="{'nb-form-group__issues--error': hasError}">{{ messagesFor(scope.locale.value).containsIssues(issueCount) }}</span>
+            {{ text.text(props.layout.label) }}
+            <span v-if="!expanded && issueCount > 0" class="nb-form-group__issues" :class="{'nb-form-group__issues--error': hasError}">{{ text.t('containsIssues', {count: issueCount}) }}</span>
         </button>
         <div v-if="expanded" :id="contentId" class="nb-form-column nb-form-group__content">
             <LayoutItem v-for="(item, index) in props.layout.items" :key="index" :layout="item" />

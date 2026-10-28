@@ -2,11 +2,12 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {textRef} from "@notnotype/nb-ui/text";
+import {NB_FORM_CATALOGS, NB_FORM_NAMESPACE} from "@notnotype/nb-form/locales";
+import {flattenCatalog, textRef} from "@notnotype/nb-ui/text";
 import type {Catalog, Text, TextProblem} from "@notnotype/nb-ui/text";
 import {createMinimalTranslator} from "@notnotype/nb-ui/text/minimal";
 
-import {createTextEngine} from "./text-engine";
+import {createHostTextEngine, createTextEngine} from "./text-engine";
 
 const own: Readonly<Record<string, Catalog>> = {
     "zh-CN": {big: "共 {{n, number}} 行", files: {count_other: "{{count}} 个文件"}, path: "路径：{{path}}", nested: "$t(other:secret)"},
@@ -108,6 +109,24 @@ describe("输出 9：最小实现与宿主引擎对同一组目录输出一致",
             host.register("own", own, "zh-CN");
             host.register("en-source", english, "en-US");
             expect(host.port.t(text)).toBe(minimal.translate(text, locale));
+        });
+    }
+});
+
+describe("输出 9：共享包 nb-form 自带的目录在宿主引擎与它的缺省（最小实现）下一致", () => {
+    const minimal = createMinimalTranslator({catalogs: {[NB_FORM_NAMESPACE]: NB_FORM_CATALOGS}, strict: true});
+    const flat = flattenCatalog(NB_FORM_CATALOGS["zh-CN"] ?? {});
+    // 每个键（复数形归到不带后缀的键）带上它的全部占位参数；带数量的取 1 与 2。
+    const refs = [...new Set(Object.keys(flat).map((key) => key.replace(/_(?:one|other)$/u, "")))].flatMap((key) => {
+        const template = flat[key] ?? flat[`${key}_other`] ?? "";
+        const names = [...template.matchAll(/\{\{(\w+)\}\}/gu)].map((match) => match[1] ?? "");
+        const params = Object.fromEntries(names.filter((name) => name !== "count").map((name) => [name, `<${name}>`]));
+        return names.includes("count") ? [1, 2].map((count) => textRef(key, {...params, count}, NB_FORM_NAMESPACE)) : [textRef(key, params, NB_FORM_NAMESPACE)];
+    });
+    for (const locale of ["zh-CN", "en-US"]) {
+        it(locale, () => {
+            const host = createHostTextEngine({locale, strict: true});
+            expect(refs.map((ref) => host.port.t(ref))).toEqual(refs.map((ref) => minimal.translate(ref, locale)));
         });
     }
 });

@@ -9,7 +9,7 @@
  */
 import {toPointer} from "@notnotype/nb-form";
 import type {FormIssue} from "@notnotype/nb-form";
-import {describeIssues, SchemaField} from "@notnotype/nb-form/vue";
+import {describeIssues, SchemaField, useFormText} from "@notnotype/nb-form/vue";
 import type {DraftState, FieldState} from "@notnotype/nb-form/vue";
 import {reactive, watch} from "vue";
 
@@ -33,6 +33,8 @@ const props = withDefaults(defineProps<{
 }>(), {highlight: () => []});
 
 const text = useSettingsText();
+/** 表单的文字（字段名、问题的写法）经同一个注入的端口取，宿主登记了 nb-form 的目录。 */
+const formText = useFormText();
 
 const locale = props.window.locale;
 
@@ -100,7 +102,7 @@ function notSavedReason(setting: WindowSetting, actual: unknown): string | null 
     const kept = heldOf(setting, actual);
     const value = kept?.value ?? actual;
     const issues = kept?.errors ?? [...unparseable.values()].filter((entry) => entry.key === setting.definition.key).flatMap((entry) => entry.issues);
-    const [first] = describeIssues(setting.definition.declaration.schema, value, issues, locale.value, formOf(setting).hints);
+    const [first] = describeIssues(setting.definition.declaration.schema, value, issues, formText, formOf(setting).hints);
     return first ?? null;
 }
 
@@ -152,7 +154,6 @@ function excludedText(titles: ReadonlyArray<string>): string {
                         :hints="formOf(setting).hints"
                         :options="window.options()"
                         :model-value="shown(setting, row.value)"
-                        :locale="locale"
                         :disabled="row.disabled"
                         :labelledby="row.labelId"
                         :describedby="row.describedby"

@@ -21,28 +21,22 @@ import type {OptionSource} from "@notnotype/nb-form";
 import type {FormOptionSources} from "@notnotype/nb-form/vue";
 import type {ContributionDescriptor, ContributionHandle, EntryState, TriggerActivationResult} from "@notnotype/nb-runtime/plugins";
 
-import {formatText} from "nbook/shared/localized-text";
-import type {LocalizedText} from "nbook/shared/localized-text";
 import type {WindowPlugins} from "nbook/shared/host";
 
 import {settingsChoicesEvent} from "../shared/sections";
 import type {SettingsChoicesDeclaration} from "../shared/sections";
+import {settingsText} from "../shared/text";
+import type {SettingsTextKey} from "../shared/text";
 import type {SettingsChoicesImplementation} from "./contracts";
-
-const TEXT = {
-    missing: {"zh-CN": "无法加载选项：没有选项提供者 {id}", "en-US": "Can't load options: there is no option provider {id}"},
-    unavailable: {"zh-CN": "无法加载选项：{reason}", "en-US": "Can't load options: {reason}"},
-    stopped: {"zh-CN": "无法加载选项：插件 {plugin} 已停止", "en-US": "Can't load options: plugin {plugin} has stopped"},
-    notActivatable: {"zh-CN": "无法加载选项：插件没有声明打开设置时提供选项：{reason}", "en-US": "Can't load options: the plugin does not provide options when settings open: {reason}"},
-} satisfies Record<string, LocalizedText>;
 
 type ChoicesHandle = ContributionHandle<SettingsChoicesDeclaration, SettingsChoicesImplementation>;
 
 /** 一次交付的 `source()` 结果；`problem` 是调用本身出的错。 */
 type Provided = {readonly source: MaybeRefOrGetter<unknown>; readonly problem: null} | {readonly source: null; readonly problem: string};
 
-function unavailable(template: LocalizedText, params: Readonly<Record<string, string>>): OptionSource {
-    return {status: "unavailable", reason: formatText(template, params)};
+/** 不可用的原因写本插件目录里的键（`choices.*`），表单显示时经翻译端口翻译。 */
+function unavailable(key: SettingsTextKey & `choices.${string}`, params: Readonly<Record<string, string>>): OptionSource {
+    return {status: "unavailable", reason: settingsText(key, params)};
 }
 
 function messageOf(error: unknown): string {
@@ -134,19 +128,19 @@ export class ChoiceSourceRegistry {
     #state(id: string): OptionSource {
         void this.#version.value;
         const known = this.#entries.get(id);
-        if (known === undefined) return unavailable(TEXT.missing, {id});
-        if (this.#stopped) return unavailable(TEXT.stopped, {plugin: known.plugin});
+        if (known === undefined) return unavailable("choices.missing", {id});
+        if (this.#stopped) return unavailable("choices.stopped", {plugin: known.plugin});
         const handle = this.#handles.get(id);
         if (handle?.published === true) return this.#evaluate(id, handle);
         // 句柄还在表里但已不 published：入口开始停止、撤回还在排队。
-        if (handle !== undefined) return unavailable(TEXT.stopped, {plugin: known.plugin});
+        if (handle !== undefined) return unavailable("choices.stopped", {plugin: known.plugin});
         const state = known.entry === null ? null : this.#plugins?.entryState({plugin: known.plugin, entry: known.entry}) ?? null;
-        if (state?.status === "blocked" || state?.status === "failed") return unavailable(TEXT.unavailable, {reason: entryReason(state)});
-        if (state?.status === "stopping" || state?.status === "closed") return unavailable(TEXT.stopped, {plugin: known.plugin});
+        if (state?.status === "blocked" || state?.status === "failed") return unavailable("choices.unavailable", {reason: entryReason(state)});
+        if (state?.status === "stopping" || state?.status === "closed") return unavailable("choices.stopped", {plugin: known.plugin});
         // “不能按需激活”只对这一次登记成立：入口离开“已登记未激活”（激活、停止、重新登记）之后重新核对。
         if (state?.status !== "registered") this.#notActivatable.delete(id);
         const unreachable = this.#notActivatable.get(id);
-        if (unreachable !== undefined && state?.status === "registered") return unavailable(TEXT.notActivatable, {reason: unreachable});
+        if (unreachable !== undefined && state?.status === "registered") return unavailable("choices.notActivatable", {reason: unreachable});
         // 不在 computed 里改状态：触发与它引起的版本号变化放到求值之后。
         if (state?.status === "registered") queueMicrotask(() => this.#activate(id));
         return {status: "loading"};
@@ -175,7 +169,7 @@ export class ChoiceSourceRegistry {
         }
         if (problem === null) return value as OptionSource;
         this.#once(`${id}\n${String(handle.generation)}\n${problem}`, `选项提供者 ${id} 出错：${problem}`);
-        return unavailable(TEXT.unavailable, {reason: problem});
+        return unavailable("choices.unavailable", {reason: problem});
     }
 
     #activate(id: string): void {

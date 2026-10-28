@@ -92,6 +92,8 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "settings.code.fontFamily.title": {"zh-CN": "字体", "en-US": "Font Family"},
     "settings.code.fontFamily.description": {"zh-CN": "CSS 的 font-family 写法；留空跟随主题的等宽字体", "en-US": "A CSS font-family list; leave empty to use the theme's monospace font"},
     "settings.code.fontSize.title": {"zh-CN": "字号", "en-US": "Font Size"},
+    // 字号的单位晚于上面的迁移：抄自提交 452ae72bf 的 `shared/settings.ts`（当时写的语言映射）。
+    "settings.code.fontSize.unit": {"zh-CN": "像素", "en-US": "px"},
     "settings.code.lineHeight.title": {"zh-CN": "行高", "en-US": "Line Height"},
     "settings.code.lineHeight.description": {"zh-CN": "0 按字号自动；小于 8 是字号的倍数，8 以上是像素", "en-US": "0 follows the font size; below 8 multiplies the font size, 8 and above is in pixels"},
     "settings.code.tabSize.title": {"zh-CN": "Tab 宽度", "en-US": "Tab Size"},

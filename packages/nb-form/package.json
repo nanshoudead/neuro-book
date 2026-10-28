@@ -15,6 +15,7 @@
     "exports": {
         ".": "./src/index.ts",
         "./vue": "./src/vue/index.ts",
+        "./locales": "./src/locales/index.ts",
         "./lab-sources": "./src/vue/lab-sources.ts"
     },
     "scripts": {

@@ -113,7 +113,8 @@
                 "description": "A CSS font-family list; leave empty to use the theme's monospace font"
             },
             "fontSize": {
-                "title": "Font Size"
+                "title": "Font Size",
+                "unit": "px"
             },
             "lineHeight": {
                 "title": "Line Height",

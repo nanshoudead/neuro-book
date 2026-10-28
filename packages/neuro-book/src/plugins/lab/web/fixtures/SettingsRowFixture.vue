@@ -82,7 +82,6 @@ async function write(value: unknown, layer: SettingLayer): Promise<void> {
             :schema="setting.declaration.schema"
             :hints="form?.hints"
             :model-value="row.value"
-            :locale="locale"
             :disabled="row.disabled"
             :labelledby="row.labelId"
             :describedby="row.describedby"

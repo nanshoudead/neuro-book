@@ -9,8 +9,7 @@
 import type {ChoiceValue, FieldNode} from "../model";
 import {optionKey} from "../options";
 import type {OptionSource} from "../options";
-import {resolveText} from "../text";
-import {messagesFor} from "./messages";
+import type {FormTextApi} from "./text";
 
 export interface ChoiceItem {
     readonly key: string;
@@ -35,12 +34,11 @@ function isChoiceValue(value: unknown): value is ChoiceValue {
  * 选择类字段在当前值下的选项；`source` 是 `options` 指向的源，字段没有动态选项时不用。`inlineStale` 时“已不存在”写进
  * 那一项的名字（控件里看得见）；`bare` 的字段由调用方经 `field-state` 的警告画“已不存在”，不在名字里再写一遍。
  */
-export function choiceState(node: FieldNode, value: unknown, source: OptionSource | undefined, locale: string, inlineStale = true): ChoiceState {
-    const messages = messagesFor(locale);
+export function choiceState(node: FieldNode, value: unknown, source: OptionSource | undefined, text: FormTextApi, inlineStale = true): ChoiceState {
     const recommended = new Set((node.hints.recommend ?? []).map(optionKey));
     /** “推荐”写在说明里：选中后控件显示的名字不带它（`recommend` 只作标记，不预选）。 */
     const described = (choice: ChoiceValue, description: string | undefined): {description?: string} => {
-        const parts = [recommended.has(optionKey(choice)) ? messages.recommended : undefined, description].filter((part) => part !== undefined && part !== "");
+        const parts = [recommended.has(optionKey(choice)) ? text.t("recommended") : undefined, description].filter((part) => part !== undefined && part !== "");
         return parts.length === 0 ? {} : {description: parts.join(" · ")};
     };
     const dynamic = node.hints.options !== undefined;
@@ -51,14 +49,14 @@ export function choiceState(node: FieldNode, value: unknown, source: OptionSourc
         items = node.choices.map((choice) => ({
             key: optionKey(choice.value),
             value: choice.value,
-            label: resolveText(choice.label, locale),
-            ...described(choice.value, choice.description === undefined ? undefined : resolveText(choice.description, locale)),
+            label: text.text(choice.label),
+            ...described(choice.value, choice.description === undefined ? undefined : text.text(choice.description)),
             disabled: choice.disabled === true,
             stale: false,
         }));
     } else if (source === undefined || source.status === "unavailable") {
         status = "unavailable";
-        reason = source === undefined ? messages.noSource : resolveText(source.reason, locale);
+        reason = source === undefined ? text.t("noSource") : text.text(source.reason);
         items = [];
     } else if (source.status === "loading") {
         status = "loading";
@@ -67,8 +65,8 @@ export function choiceState(node: FieldNode, value: unknown, source: OptionSourc
         items = source.items.map((item) => ({
             key: optionKey(item.value),
             value: item.value,
-            label: resolveText(item.label, locale),
-            ...described(item.value, item.description === undefined ? undefined : resolveText(item.description, locale)),
+            label: text.text(item.label),
+            ...described(item.value, item.description === undefined ? undefined : text.text(item.description)),
             disabled: item.disabled === true,
             stale: false,
         }));
@@ -79,7 +77,7 @@ export function choiceState(node: FieldNode, value: unknown, source: OptionSourc
         if (!isChoiceValue(entry) || known.has(optionKey(entry))) continue;
         known.add(optionKey(entry));
         // 加载中与不可用时选项还没有，当前值照常显示，不标“已不存在”。
-        const label = inlineStale && dynamic && status === "ready" ? `${String(entry)}（${messages.stale}）` : String(entry);
+        const label = inlineStale && dynamic && status === "ready" ? `${String(entry)}（${text.t("stale")}）` : String(entry);
         items.push({key: optionKey(entry), value: entry, label, disabled: true, stale: status === "ready"});
     }
     return status === "unavailable" ? {status, reason, items} : {status, items};

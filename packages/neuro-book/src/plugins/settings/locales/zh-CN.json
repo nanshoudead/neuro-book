@@ -120,6 +120,12 @@
         "notSaved": "未保存：{{reason}}",
         "separator": "、"
     },
+    "choices": {
+        "missing": "无法加载选项：没有选项提供者 {{id}}",
+        "unavailable": "无法加载选项：{{reason}}",
+        "stopped": "无法加载选项：插件 {{plugin}} 已停止",
+        "notActivatable": "无法加载选项：插件没有声明打开设置时提供选项：{{reason}}"
+    },
     "pageFrame": {
         "declared": "正在等待这个分区所属的插件启动",
         "blocked": "这个分区所属的插件无法启动：{{reason}}",

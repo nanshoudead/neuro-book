@@ -55,7 +55,7 @@ owners:
 | `recommend` | 推荐的值，只作标记（写在选项的说明里，不预选），必须在选项里 |
 | `rows` | 多行文字的初始行数 |
 
-文字取值 `FormText` 是字符串，或按语言给出的文字（例如 `{"zh-CN": "名称", "en-US": "Name"}`）；显示时取当前语言，没有就取 `en-US`，再没有取第一种。
+文字取值 `FormText` 就是[界面语言与消息目录](i18n.md)的文字值：字符串、目录里的键（文字引用，例如插件目录里的单位），或按语言给出的文字（例如 `{"zh-CN": "名称", "en-US": "Name"}`）。按语言给出的文字显示时取当前语言，没有就取 `en-US`，再没有取第一种，键不核对是不是语言标签；文字引用由渲染层经翻译端口按当前语言翻译（输出 24），核心没有目录，不翻译它。
 
 ### 布局
 
@@ -72,12 +72,13 @@ setAt(value, path, next), removeAt(value, path)
 fallbackWidget(widget: BuiltinWidget): TerminalWidget   // 终端里的退回画法（输出 25）
 
 // Vue 渲染层（@notnotype/nb-form/vue）
-<SchemaForm  :schema :layout? v-model :mode? :readonly? :disabled? :issues? :meta? :options? :widgets? :locale :commit? :revision? :summary? @draft-state @focus-issue />
+<SchemaForm  :schema :layout? v-model :mode? :readonly? :disabled? :issues? :meta? :options? :widgets? :locale? :commit? :revision? :summary? @draft-state @focus-issue />
             // expose: commit(): boolean、reset(path?)、focusIssue(path): Promise<boolean>、focusFirstIssue(): Promise<boolean>
 <SchemaField :schema :hints? v-model :id? :bare? :labelledby? :describedby? v-model:selected? （其余同上，没有 layout、summary、focus-issue） />
             // expose: commit(): boolean、reset()、focus(): Promise<boolean>；commit、reset 作用到字段里的全部成员
 widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wide" | "content"}
-describeIssues(schema, value, issues, locale, hints?): string[]   // 按看得见的先后，每条是“所在字段的名字：问题文字”，根上的没有名字
+useFormText(): FormTextApi   // 在组件的 setup 里取表单当前用的翻译端口（输出 24），交给 describeIssues
+describeIssues(schema, value, issues, text: FormTextApi, hints?): string[]   // 按看得见的先后，每条是“所在字段的名字：问题文字”，根上的没有名字
 ```
 
 `SchemaField` 的 `bare` 只画控件：标签与说明由调用方画，出错的文字只给读屏、没有问题汇总；字段自己的状态（选项源不可用的原因、“已不存在”之类的警告）也不画，经 `field-state` 事件（`{error: string | null; warnings: string[]; status: string | null}`，变化时发出）交给调用方，由调用方画在自己的标题旁（输出 14）。调用方要在自己的位置写出出错原因时用 `describeIssues`。
@@ -147,7 +148,7 @@ describeIssues(schema, value, issues, locale, hints?): string[]   // 按看得�
 
 ### 自定义控件
 
-22. **登记**：`{name, component, score(node) => number | null, fallback}`。组件收到 `{modelValue, node, readonly, disabled, invalid, id, labelledby, describedby, locale, issues, options, meta}`（`id` 写在可聚焦的元素上、外壳的 `<label for>` 指向它；由几个元素组成的控件用 `labelledby` 写 `aria-labelledby`），发出 `update:modelValue`（草稿，按输出 15 的时机提交：`change` 时在 `commit` 事件或焦点离开字段时）与 `commit`，暴露 `focus()`。显式写了 `widget` 时直接选中；写的名字没登记时按这个种类的内建控件画；没写时参与打分，返回 `null` 或不大于 0 表示不适用，得分最高的压过内建控件。与内建名或已登记名重名时登记报错（`FormWidgetError`）。
+22. **登记**：`{name, component, score(node) => number | null, fallback}`。组件收到 `{modelValue, node, readonly, disabled, invalid, id, labelledby, describedby, locale, issues, options, meta}`（`locale` 是表单当前用的语言，输出 24；`id` 写在可聚焦的元素上、外壳的 `<label for>` 指向它；由几个元素组成的控件用 `labelledby` 写 `aria-labelledby`），发出 `update:modelValue`（草稿，按输出 15 的时机提交：`change` 时在 `commit` 事件或焦点离开字段时）与 `commit`，暴露 `focus()`。显式写了 `widget` 时直接选中；写的名字没登记时按这个种类的内建控件画；没写时参与打分，返回 `null` 或不大于 0 表示不适用，得分最高的压过内建控件。与内建名或已登记名重名时登记报错（`FormWidgetError`）。
 
 ### Agent 生成的描述
 
@@ -155,7 +156,7 @@ describeIssues(schema, value, issues, locale, hints?): string[]   // 按看得�
 
 ### 文字
 
-24. **内建文案**：表单自己的文字（添加、删除、上移、下移、第 N 项、N 项、已设置、未设置、清除、替换、已不存在、推荐、默认、是、否、问题汇总）中英两份，按 `locale` 取；用到的 nb-ui 控件里写死的读屏名称（增加、减少、清空输入、展开选项）由表单按语言覆盖。
+24. **内建文案**：表单自己的文字（添加、删除、上移、下移、第 N 项、N 项、已设置、未设置、清除、替换、已不存在、推荐、默认、是、否、问题汇总，以及按码写出的问题文字）在本包自带的消息目录里（命名空间 `nb-form`，源语言 zh-CN，中英两份，经 `@notnotype/nb-form/locales` 导出），按[界面语言与消息目录](i18n.md)显示。宿主注入了翻译端口时登记这份目录，语言以端口为准，`SchemaForm`、`SchemaField` 的 `locale` 不起作用；没有注入时表单的根按 `locale`（缺省 zh-CN）用包内的缺省端口，交给其中的字段、控件与 nb-ui 控件，在表单的根之外取文字（例如调用方为 `describeIssues` 调用 `useFormText`）时用中文。缺省端口里目录没有的语言按源语言显示中文。用到的 nb-ui 控件里写死的读屏名称（增加、减少、清空输入、展开选项）由表单按当前语言覆盖。宿主注入了端口却没有登记本包目录时，本包的文字显示为键名，由宿主的翻译引擎报缺键，不悄悄换成包内的中文。
 
 ### 终端退回
 
@@ -217,7 +218,7 @@ describeIssues(schema, value, issues, locale, hints?): string[]   // 按看得�
 ## 边界与兼容
 
 - **公开接口**：`@notnotype/nb-form` 的核心与 `./vue` 入口；nb-ui 上述控件的属性与事件。`x-form` 的键只增不改。
-- **依赖**：核心只依赖 `typebox`；Vue 层只依赖 `vue`、`@notnotype/nb-ui` 与核心，不依赖应用与宿主的服务，以便以后打进生成式视图的沙箱。
+- **依赖**：核心只依赖 `typebox`，另从 `@notnotype/nb-ui/text` 只取类型（文字值的形状）；Vue 层只依赖 `vue`、`@notnotype/nb-ui` 与核心，不依赖应用与宿主的服务，以便以后打进生成式视图的沙箱。
 - **信任**：可信作者（插件、设置）写的描述按完整写法支持；模型生成的描述必须先过 Agent 策略。
 - **密钥**：应用的凭据存储暂不做，密钥输入（输出 31）与它的验收（场景 1 里的密钥项）随凭据存储一起做；在此之前没有使用方。
 - **与 nb-ui 规范**：输出 26–31 是 nb-ui 表单控件的合同，nb-ui 规范整理时并入它的“表单与无障碍”一节；`ui-development-spec.md` 4.5 的分工（表单里 3 项以内、没有说明的单选用分段控件，其余单选用单选组或下拉）在本 Spec 里照用。
@@ -232,8 +233,9 @@ describeIssues(schema, value, issues, locale, hints?): string[]   // 按看得�
 6. **可访问名称**：在真实浏览器里，每种控件的可访问名称是字段标签，说明是字段说明，出错时有错误信息；组里的复选框 id 不重复。
 7. **命令参数**：应用里每条已登记命令的 `args` 经 `checkDescription` 都是可结构化编辑。
 8. **独立运行**：在空文档里不装插件、不 `provide`，每种控件、自定义控件、分组与展示态都能挂出与编辑，没有 Vue 的警告与错误。
+9. **界面语言**：宿主注入了英文的翻译端口、表单的 `locale` 是 zh-CN 时，表单的文字（问题汇总、按码写出的问题）是英文，端口换成中文后不重新挂载就变成中文；描述里写成插件目录里的键的标签与单位跟着翻译。没有注入时 `locale` 为 en-US 显示英文，不传显示中文；在表单的根之外取文字用中文。
 
-Smoke：Component Lab 里 `SchemaForm` 的场景覆盖上面 1、3、4，Playwright 断言可访问名称与焦点；设置窗口改用本表单后 `settings.e2e.ts` 照常通过（断言按新行为改写）。
+Smoke：Component Lab 里 `SchemaForm` 的场景覆盖上面 1、3、4，Playwright 断言可访问名称与焦点；设置窗口改用本表单后 `settings.e2e.ts` 照常通过（断言按新行为改写）。第 9 条有挂载测试（`packages/nb-form` 的 `*.dom.test.ts`），自带目录的文字由包内测试逐条对照。
 
 ## 证据
 

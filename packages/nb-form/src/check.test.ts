@@ -47,6 +47,19 @@ describe("可信作者的描述", () => {
         expect(edges.problems.filter((entry) => entry.code === "bad-hint").map((entry) => `${entry.path} ${String(entry.params.key)}`)).toEqual(["/a label", "/a rows"]);
     });
 
+    it("文字可以写目录里的键（TextRef）：提示、选项与分组标题都接受；参数不是字符串或数字的引用是坏形状", () => {
+        const ref = {kind: "text", ns: "nbook.editor", key: "settings.unit", params: {size: 14}} as const;
+        const schema = Type.Object({
+            a: Type.Integer({"x-form": {label: ref, unit: {kind: "text", key: "unit"}}}),
+            c: Type.Union([Type.Literal("x"), Type.Literal("y")], {"x-form": {choices: [{value: "x", label: ref}, {value: "y", label: "Y"}]}}),
+        });
+        const layout = {type: "group", label: ref, items: [{type: "field", path: "/a"}, {type: "field", path: "/c"}]} as const;
+        expect(codesOf(checkDescription(schema, {layout}))).toEqual([]);
+        const bad = checkDescription(Type.Object({a: Type.String({"x-form": {label: {kind: "text", key: "k", params: {at: {}}}}})}));
+        expect(codesOf(bad)).toEqual(["/a bad-hint"]);
+        expect(codesOf(checkDescription(Type.Object({a: Type.String()}), {layout: {type: "group", label: {kind: "text", key: "k", params: {at: true}}, items: [{type: "field", path: "/a"}]} as unknown as FormLayout}))).toEqual([" layout-bad-label"]);
+    });
+
     it("写了却没有生效的内建控件报 widget-mismatch：文字的下拉没有 options、有 options 时写多行", () => {
         const schema = Type.Object({
             plain: Type.String({"x-form": {widget: "select"}}),

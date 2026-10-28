@@ -11,8 +11,9 @@ import type {Component} from "vue";
 import type {LabFixture} from "./index";
 import {defineSubjectFixture} from "./subject-fixture";
 
+/** 组件套一层场景的翻译端口（`nb-form-text.ts`）：场景输入的 `locale` 决定界面语言，不跟 Lab 窗口走。 */
 function nbFormSubject(name: "SchemaForm" | "SchemaField"): () => Promise<{default: Component}> {
-    return async () => ({default: (await import("@notnotype/nb-form/vue"))[name] as Component});
+    return async () => ({default: (await import("./nb-form-text")).withFormSceneText((await import("@notnotype/nb-form/vue"))[name] as Component)});
 }
 
 /** 每种标量控件各一个：布尔、确认、2 项与 4 项与 20 项的单选、多选、数字、单行、多行。 */

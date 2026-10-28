@@ -20,7 +20,7 @@ type Props = Record<string, unknown>;
 function mountShell(props: Props) {
     const wrapper = mount(FieldShell, {
         attachTo: document.body,
-        props: {id: "f", locale: "zh-CN", label: "并发数", ...props},
+        props: {id: "f", label: "并发数", ...props},
         slots: {default: '<input id="f">'},
     });
     mounted.push(wrapper);
@@ -87,8 +87,8 @@ describe("FieldShell 的状态图标", () => {
         });
 
         const Nested = defineComponent({
-            setup: () => () => h(FieldShell, {id: "outer", locale: "zh-CN", label: "对象", group: true, errorText: "外层出错"}, {
-                default: () => h(FieldShell, {id: "inner", locale: "zh-CN", label: "成员", errorText: "成员出错"}, {default: () => h("input", {id: "inner"})}),
+            setup: () => () => h(FieldShell, {id: "outer", label: "对象", group: true, errorText: "外层出错"}, {
+                default: () => h(FieldShell, {id: "inner", label: "成员", errorText: "成员出错"}, {default: () => h("input", {id: "inner"})}),
             }),
         });
         const nested = mount(Nested, {attachTo: document.body});

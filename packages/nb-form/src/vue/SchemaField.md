@@ -8,7 +8,7 @@
 
 ## 布局
 
-不加 `bare` 时与 `SchemaForm` 里的一个字段相同：标题行、控件、说明。加 `bare` 时只有控件（数字带单位），宽度随容器；对象字段的成员直接排开，不画左侧的层级线；调用方用 [`widgetLayout`](layout.ts) 决定控件排在标签右边还是另起一块、占哪一档宽度。字段自己的状态不画：不画图标，也不在控件下面写字，出错、警告（“已不存在”之类）与状态（动态选项不可用的原因）经 `field-state` 事件交给调用方，由调用方画在自己的标题旁（设置窗口的一行就这样画）。出错的文字仍给读屏，没有问题汇总；调用方要在自己的位置写出原因时，用 `describeIssues(schema, value, issues, locale, hints?)` 把问题（`draft-state` 里的、自己校验出的）写成带字段名的文字。
+不加 `bare` 时与 `SchemaForm` 里的一个字段相同：标题行、控件、说明。加 `bare` 时只有控件（数字带单位），宽度随容器；对象字段的成员直接排开，不画左侧的层级线；调用方用 [`widgetLayout`](layout.ts) 决定控件排在标签右边还是另起一块、占哪一档宽度。字段自己的状态不画：不画图标，也不在控件下面写字，出错、警告（“已不存在”之类）与状态（动态选项不可用的原因）经 `field-state` 事件交给调用方，由调用方画在自己的标题旁（设置窗口的一行就这样画）。出错的文字仍给读屏，没有问题汇总；调用方要在自己的位置写出原因时，用 `describeIssues(schema, value, issues, text, hints?)`（`text` 是在调用方组件的 `setup` 里 `useFormText()` 取的，与表单用同一个翻译端口）把问题（`draft-state` 里的、自己校验出的）写成带字段名的文字。
 
 ## 交互
 
@@ -29,7 +29,8 @@ type SchemaFieldProps = {
     hints?: FormHints;
     /** 受控的字段值。 */
     modelValue?: unknown;
-    locale: string;
+    /** 同 `SchemaForm`：只在宿主没有注入翻译端口时起作用，缺省 zh-CN。 */
+    locale?: string;
     /** 控件的 id；缺省生成。`bare` 时调用方的 `<label for>` 指向它。 */
     id?: string;
     /** 只画控件；缺省 false。 */
@@ -86,4 +87,4 @@ type SchemaFieldExpose = {
 
 ## 隐藏通道理由
 
-与 `SchemaForm` 相同：草稿与折叠在组件内（`state:local`）；给其中的外壳与 nb-ui 控件提供上下文（`state:inject`）；展示态的“复制”写剪贴板（`env:clipboard`）；下拉列表由 nb-ui 传送到 `body`（`env:portal`）。
+与 `SchemaForm` 相同：草稿与折叠在组件内（`state:local`）；给其中的外壳与 nb-ui 控件提供上下文，读宿主注入的翻译端口、没有时按 `locale` 建一个提供给子树（`state:inject`）；展示态的“复制”写剪贴板（`env:clipboard`）；下拉列表由 nb-ui 传送到 `body`（`env:portal`）。

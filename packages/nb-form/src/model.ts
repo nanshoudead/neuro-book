@@ -11,6 +11,7 @@ import {readHints} from "./hints";
 import type {ChoiceValue, FormChoice, FormHints} from "./hints";
 import {fromPointer, toPointer} from "./path";
 import type {FieldPath} from "./path";
+import {isFormTextRef} from "./text";
 import type {FormText} from "./text";
 
 export type {ChoiceValue, FormChoice, FormHints, VisibleWhen} from "./hints";
@@ -210,10 +211,12 @@ export function widgetHonored(node: FieldNode): boolean {
 
 /**
  * 一项能不能放进分段控件的一段：一段里只放得下名字，有说明或推荐标记（写在说明里）的要用单选组才画得出来；各段等宽，
- * 一项名字长了整组都跟着变宽。按所有语言里最长的那份量，同一份描述在各语言下选同一种控件。
+ * 一项名字长了整组都跟着变宽。按所有语言里最长的那份量，同一份描述在各语言下选同一种控件。目录里的键在核心量不出
+ * 长度（要经翻译端口），按长的算。
  */
 function fitsSegment(choice: FormChoice): boolean {
     if (choice.description !== undefined) return false;
+    if (isFormTextRef(choice.label)) return false;
     const names = typeof choice.label === "string" ? [choice.label] : Object.values(choice.label);
     return names.every((name) => [...name].length <= SEGMENT_LABEL_LIMIT);
 }

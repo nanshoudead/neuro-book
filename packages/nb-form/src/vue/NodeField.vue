@@ -11,7 +11,6 @@ import {computed, nextTick, onBeforeUnmount, onMounted, ref, useId, useTemplateR
 
 import type {BuiltinWidget, FieldNode} from "../model";
 import {toPointer} from "../path";
-import {resolveText} from "../text";
 import {isVisible} from "../visible";
 import {choiceLabel, choiceState} from "./choices";
 import BooleanControl from "./controls/BooleanControl.vue";
@@ -26,9 +25,9 @@ import NumberControl from "./controls/NumberControl.vue";
 import ObjectControl from "./controls/ObjectControl.vue";
 import TextControl from "./controls/TextControl.vue";
 import FieldShell from "./FieldShell.vue";
-import {issueText, messagesFor} from "./messages";
 import {CLEAR, issuesAt, stablePath, useFormScope} from "./scope";
 import type {FieldState} from "./scope";
+import {issueText, useFormText} from "./text";
 import ViewValue from "./ViewValue.vue";
 import {resolveWidget} from "./widgets";
 
@@ -78,15 +77,17 @@ const pointer = computed(() => toPointer(props.node.path));
 const resolved = computed(() => resolveWidget(props.node, scope.widgets.value));
 /** 字段根上 `data-nb-widget` 的值：内建控件名，或自定义控件的登记名。 */
 const widget = computed(() => ("builtin" in resolved.value ? resolved.value.builtin : resolved.value.custom.name));
+/** 交给控件的 `locale` 属性（自定义控件合同，输出 22）；文字经 `text` 取。 */
 const locale = computed(() => scope.locale.value);
-const messages = computed(() => messagesFor(locale.value));
+const text = useFormText();
+const label = computed(() => text.text(props.node.label));
 const value = computed(() => scope.valueAt(props.node.path));
 const visible = computed(() => isVisible(props.node, scope.rootValue()));
 
 const choices = computed(() => {
     if (!CHOICE_WIDGETS.has(widget.value)) return undefined;
     const name = props.node.hints.options;
-    return choiceState(props.node, value.value, name === undefined ? undefined : scope.source(name), locale.value, !props.bare);
+    return choiceState(props.node, value.value, name === undefined ? undefined : scope.source(name), text, !props.bare);
 });
 const readonly = computed(() => scope.readonly.value || props.node.readOnly || scope.mode.value === "view");
 const disabled = computed(() => scope.disabled.value || (choices.value !== undefined && choices.value.status !== "ready"));
@@ -94,29 +95,29 @@ const disabled = computed(() => scope.disabled.value || (choices.value !== undef
 const shown = computed(() => issuesAt(scope.shownIssues.value, props.node.path));
 const errorText = computed(() => {
     const first = shown.value.find((issue) => issue.severity === "error");
-    return first === undefined ? undefined : issueText(first, locale.value);
+    return first === undefined ? undefined : issueText(first, text);
 });
 const warnings = computed(() => [
-    ...shown.value.filter((issue) => issue.severity === "warning").map((issue) => issueText(issue, locale.value)),
-    ...(choices.value?.items.some((item) => item.stale) === true ? [messages.value.stale] : []),
+    ...shown.value.filter((issue) => issue.severity === "warning").map((issue) => issueText(issue, text)),
+    ...(choices.value?.items.some((item) => item.stale) === true ? [text.t("stale")] : []),
 ]);
 
 /** 缺值时标题旁的标记（输出 4）：选择类写“默认：X”（多选写全部默认项），开关标“默认”。 */
 const note = computed(() => {
     const fallback = props.node.schema.default;
     if (value.value !== undefined || fallback === undefined) return undefined;
-    if (widget.value === "switch") return messages.value.default;
+    if (widget.value === "switch") return text.t("default");
     if (choices.value !== undefined) {
         const state = choices.value;
         const labels = Array.isArray(fallback) ? fallback.map((entry) => choiceLabel(state, entry)) : [choiceLabel(state, fallback)];
-        return messages.value.defaultValue(labels.join(locale.value === "zh-CN" ? "、" : ", "));
+        return text.t("defaultValue", {value: labels.join(text.t("listSeparator"))});
     }
-    if (widget.value === "confirm" && typeof props.node.schema.default === "boolean") return messages.value.defaultValue(props.node.schema.default ? messages.value.yes : messages.value.no);
+    if (widget.value === "confirm" && typeof props.node.schema.default === "boolean") return text.t("defaultValue", {value: props.node.schema.default ? text.t("yes") : text.t("no")});
     return undefined;
 });
 const clearable = computed(() => scope.editable(props.node) && !disabled.value
     && (props.node.nullable ? value.value !== undefined && value.value !== null : !props.node.required && value.value !== undefined));
-const help = computed(() => resolveText(props.node.help, locale.value));
+const help = computed(() => text.text(props.node.help));
 /** 动态选项不可用的原因：不是字段的说明，`bare` 时也要显示（输出 11）。 */
 const status = computed(() => (choices.value?.status === "unavailable" ? choices.value.reason : ""));
 
@@ -139,15 +140,15 @@ watch(fieldState, (next, previous) => {
 /** 展示态的文字（输出 17）：密钥只说有没有设置，从不显示值。 */
 const viewText = computed(() => {
     const current = value.value;
-    if (props.node.writeOnly) return scope.meta.value[pointer.value]?.secret === "set" || (typeof current === "string" && current !== "") ? messages.value.set : messages.value.unset;
+    if (props.node.writeOnly) return scope.meta.value[pointer.value]?.secret === "set" || (typeof current === "string" && current !== "") ? text.t("set") : text.t("unset");
     if (current === undefined || current === null) return "";
-    if (typeof current === "boolean") return current ? messages.value.yes : messages.value.no;
+    if (typeof current === "boolean") return current ? text.t("yes") : text.t("no");
     if (choices.value !== undefined) {
         const state = choices.value;
-        return Array.isArray(current) ? current.map((entry) => choiceLabel(state, entry)).join(locale.value === "zh-CN" ? "、" : ", ") : choiceLabel(state, current);
+        return Array.isArray(current) ? current.map((entry) => choiceLabel(state, entry)).join(text.t("listSeparator")) : choiceLabel(state, current);
     }
     if (typeof current === "number") {
-        const unit = resolveText(props.node.hints.unit, locale.value);
+        const unit = text.text(props.node.hints.unit);
         return unit ? `${String(current)} ${unit}` : String(current);
     }
     return typeof current === "string" ? current : JSON.stringify(current, null, 2);
@@ -172,7 +173,7 @@ const controlProps = computed(() => ("custom" in resolved.value
         ...(choices.value === undefined ? {} : {choices: choices.value}),
         ...(props.bare && resolved.value.builtin === "object" ? {flat: true} : {}),
     }));
-const unit = computed(() => (widget.value === "number" ? resolveText(props.node.hints.unit, locale.value) : ""));
+const unit = computed(() => (widget.value === "number" ? text.text(props.node.hints.unit) : ""));
 const viewAsStructure = computed(() => STRUCTURE_WIDGETS.has(widget.value) && "builtin" in resolved.value);
 const controlRef = ref<Partial<DraftControl> & {focus?: () => void} | null>(null);
 const root = useTemplateRef<HTMLElement>("root");
@@ -227,19 +228,17 @@ function onFocusOut(event: FocusEvent): void {
         <FieldShell
             v-if="scope.mode.value === 'view' && !viewAsStructure"
             :id="id"
-            :label="resolveText(props.node.label, locale)"
+            :label="label"
             :help="help"
             :status="status"
             :bare="props.bare"
             :labelledby="props.labelledby"
             :describedby="props.describedby"
-            :locale="locale"
             group
         >
             <ViewValue
                 :text="viewText"
-                :locale="locale"
-                :label="resolveText(props.node.label, locale)"
+                :label="label"
                 :empty="viewEmpty"
                 :copyable="copyable"
             />
@@ -247,7 +246,7 @@ function onFocusOut(event: FocusEvent): void {
         <FieldShell
             v-else
             :id="id"
-            :label="resolveText(props.node.label, locale)"
+            :label="label"
             :help="help"
             :status="status"
             :required="props.node.required && props.node.path.length > 0"
@@ -255,13 +254,12 @@ function onFocusOut(event: FocusEvent): void {
             :bare="props.bare"
             :labelledby="props.labelledby"
             :describedby="props.describedby"
-            :locale="locale"
             :inline="widget === 'switch'"
             :error-text="errorText"
             :warnings="warnings"
             :note="note"
             :unit="unit"
-            :clear-label="clearable ? messages.clear : undefined"
+            :clear-label="clearable ? text.t('clear') : undefined"
             @clear="clear"
         >
             <component

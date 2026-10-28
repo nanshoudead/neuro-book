@@ -1,11 +1,25 @@
 /**
- * 表单自己的文字（docs/specs/ui/forms.md 输出 24）与 schema 问题的写法（输出 7）。中英两份；其它语言取英文，与
- * `FormText` 的回退一致。
+ * nb-form 自带的目录（docs/specs/ui/forms.md 输出 7、24，docs/specs/ui/i18n.md 的“目录与键”）。
+ *
+ * 防止迁移改错文字：`LEGACY_ZH`、`LEGACY_EN` 是迁移前（提交 452ae72bf 的 `src/vue/messages.ts`）两张表的原样，文字是
+ * 函数。每个条目用样例参数调用旧函数，与目录经严格的最小实现翻译出的文字逐字相同；带数量的取 1 与 2、问题的码取
+ * 各种参数（含缺参数）。目录里每个键（复数形归到不带后缀的键）都要被某个条目用到，旧表的每个条目都要有对照。以后有意
+ * 改文字时，同一次改动里同步改这两张表。
+ *
+ * 仓库的目录检查（`scripts/ci/message-catalogs.ts`）只查 JSON 目录，这份 `.ts` 目录的键与占位符一致性由这里核对。
  */
 
-import {FALLBACK_LOCALE, resolveText} from "../text";
-import type {FormIssue} from "../validate";
+import {describe, expect, it} from "bun:test";
 
+import {flattenCatalog} from "@notnotype/nb-ui/text";
+import type {TextRef} from "@notnotype/nb-ui/text";
+import {createMinimalTranslator} from "@notnotype/nb-ui/text/minimal";
+
+import {formRef, issueWording} from "./builtin-text";
+import {NB_FORM_CATALOGS, NB_FORM_NAMESPACE, NB_FORM_SOURCE_LOCALE} from "./locales";
+import {SCHEMA_ISSUE_CODES} from "./validate";
+
+// 以下到 LEGACY_EN 结束是迁移前 src/vue/messages.ts 的原样。
 interface Messages {
     readonly clear: string;
     readonly stale: string;
@@ -58,7 +72,7 @@ interface Messages {
     readonly fallback: (code: string) => string;
 }
 
-const ZH: Messages = {
+const LEGACY_ZH: Messages = {
     clear: "清除",
     stale: "已不存在",
     recommended: "推荐",
@@ -138,7 +152,7 @@ const ZH: Messages = {
     fallback: (code) => `不符合要求（${code}）`,
 };
 
-const EN: Messages = {
+const LEGACY_EN: Messages = {
     clear: "Clear",
     stale: "No longer available",
     recommended: "Recommended",
@@ -218,18 +232,140 @@ const EN: Messages = {
     fallback: (code) => `Invalid (${code})`,
 };
 
-const TABLE: Readonly<Record<string, Messages>> = {"zh-CN": ZH, "en-US": EN};
+const translator = createMinimalTranslator({catalogs: {[NB_FORM_NAMESPACE]: NB_FORM_CATALOGS}, strict: true});
+const LEGACY: Readonly<Record<string, Messages>> = {"zh-CN": LEGACY_ZH, "en-US": LEGACY_EN};
 
-export function messagesFor(locale: string): Messages {
-    return TABLE[locale] ?? TABLE[FALLBACK_LOCALE]!;
+type Case = readonly [field: keyof Messages, legacy: (messages: Messages) => string, ref: TextRef];
+
+/** 旧表的每个文字条目（`codes`、`fallback` 另外对照）：样例参数下的旧写法与新的引用。 */
+const CASES: ReadonlyArray<Case> = [
+    ["clear", (m) => m.clear, formRef("clear")],
+    ["stale", (m) => m.stale, formRef("stale")],
+    ["recommended", (m) => m.recommended, formRef("recommended")],
+    ["default", (m) => m.default, formRef("default")],
+    ["defaultValue", (m) => m.defaultValue("12"), formRef("defaultValue", {value: "12"})],
+    ["yes", (m) => m.yes, formRef("yes")],
+    ["no", (m) => m.no, formRef("no")],
+    ["set", (m) => m.set, formRef("set")],
+    ["unset", (m) => m.unset, formRef("unset")],
+    ["loading", (m) => m.loading, formRef("loading")],
+    ["noSource", (m) => m.noSource, formRef("noSource")],
+    ["issueCount", (m) => m.issueCount(1), formRef("issueCount", {count: 1})],
+    ["issueCount", (m) => m.issueCount(2), formRef("issueCount", {count: 2})],
+    ["expand", (m) => m.expand, formRef("expand")],
+    ["collapse", (m) => m.collapse, formRef("collapse")],
+    ["copy", (m) => m.copy, formRef("copy")],
+    ["copied", (m) => m.copied, formRef("copied")],
+    ["copyFailed", (m) => m.copyFailed, formRef("copyFailed")],
+    ["empty", (m) => m.empty, formRef("empty")],
+    ["increment", (m) => m.increment, formRef("increment")],
+    ["decrement", (m) => m.decrement, formRef("decrement")],
+    ["clearInput", (m) => m.clearInput, formRef("clearInput")],
+    ["noMatch", (m) => m.noMatch, formRef("noMatch")],
+    ["warning", (m) => m.warning, formRef("warning")],
+    ["required", (m) => m.required, formRef("required")],
+    ["unit", (m) => m.unit("px"), formRef("unit", {unit: "px"})],
+    ["fillIn", (m) => m.fillIn, formRef("fillIn")],
+    ["copyOf", (m) => m.copyOf("路径"), formRef("copyOf", {label: "路径"})],
+    ["expandOf", (m) => m.expandOf("路径"), formRef("expandOf", {label: "路径"})],
+    ["collapseOf", (m) => m.collapseOf("路径"), formRef("collapseOf", {label: "路径"})],
+    ["add", (m) => m.add, formRef("add")],
+    ["remove", (m) => m.remove, formRef("remove")],
+    ["moveUp", (m) => m.moveUp, formRef("moveUp")],
+    ["moveDown", (m) => m.moveDown, formRef("moveDown")],
+    ["item", (m) => m.item(3), formRef("item", {position: 3})],
+    ["items", (m) => m.items(1), formRef("items", {count: 1})],
+    ["items", (m) => m.items(2), formRef("items", {count: 2})],
+    ["noItems", (m) => m.noItems, formRef("noItems")],
+    ["moved", (m) => m.moved(2, 1), formRef("moved", {from: 2, to: 1})],
+    ["removed", (m) => m.removed(2), formRef("removed", {position: 2})],
+    ["added", (m) => m.added(4), formRef("added", {position: 4})],
+    ["notApplied", (m) => m.notApplied, formRef("notApplied")],
+    ["containsIssues", (m) => m.containsIssues(1), formRef("containsIssues", {count: 1})],
+    ["containsIssues", (m) => m.containsIssues(3), formRef("containsIssues", {count: 3})],
+    ["duplicate", (m) => m.duplicate, formRef("duplicate")],
+    ["previousPage", (m) => m.previousPage, formRef("previousPage")],
+    ["nextPage", (m) => m.nextPage, formRef("nextPage")],
+    ["page", (m) => m.page(2, 5), formRef("page", {current: 2, total: 5})],
+];
+
+/** 问题的参数样例：TypeBox 给的常见参数、两种比较、有无 `key`，以及缺参数（旧写法写出 `undefined`）。 */
+const PARAMS: ReadonlyArray<Readonly<Record<string, unknown>>> = [
+    {limit: 2},
+    {limit: 5, comparison: ">"},
+    {limit: 5, comparison: "<"},
+    {limit: 5, comparison: ">="},
+    {multipleOf: 3},
+    {minContains: 4},
+    {maxContains: 6},
+    {key: "extra"},
+    {},
+];
+
+const issue = (code: string, params: Readonly<Record<string, unknown>>) => ({path: [], code, params, severity: "error" as const, source: "schema" as const});
+
+/** 目录的键，复数形归到不带后缀的键。 */
+function keysOf(locale: string): Set<string> {
+    return new Set(Object.keys(flattenCatalog(NB_FORM_CATALOGS[locale]!)).map((key) => key.replace(/_(?:zero|one|two|few|many|other)$/u, "")));
 }
 
-/** 一条问题显示出来的文字：调用方的问题用它自己的文字，schema 的问题按码写。 */
-export function issueText(issue: FormIssue, locale: string): string {
-    if (issue.message !== undefined) return resolveText(issue.message, locale);
-    const messages = messagesFor(locale);
-    const text = messages.codes[issue.code]?.(issue.params) ?? messages.fallback(issue.code);
-    // JSON 字段里的问题带着值里的位置（`/a/0`），不写出来用户找不到是哪一处。
-    const at = issue.params.at;
-    return typeof at === "string" && at !== "" ? `${text}（${at}）` : text;
-}
+describe("nb-form 的目录", () => {
+    it("命名空间与源语言", () => {
+        expect(NB_FORM_NAMESPACE).toBe("nb-form");
+        expect(NB_FORM_SOURCE_LOCALE).toBe("zh-CN");
+        expect(formRef("add")).toEqual({kind: "text", ns: "nb-form", key: "add"});
+    });
+
+    it("两种语言的键相同；中文带数量的写 _other，英文写 _one 与 _other", () => {
+        expect([...keysOf("en-US")].sort()).toEqual([...keysOf("zh-CN")].sort());
+        const zh = Object.keys(flattenCatalog(NB_FORM_CATALOGS["zh-CN"]!)).filter((key) => /_(?:one|other)$/u.test(key));
+        const en = Object.keys(flattenCatalog(NB_FORM_CATALOGS["en-US"]!)).filter((key) => /_(?:one|other)$/u.test(key));
+        expect(zh.sort()).toEqual(["containsIssues_other", "issueCount_other", "items_other"]);
+        expect(en.sort()).toEqual(["containsIssues_one", "containsIssues_other", "issueCount_one", "issueCount_other", "items_one", "items_other"]);
+    });
+
+    it("每个条目在样例参数下与迁移前的文字逐字相同", () => {
+        for (const locale of ["zh-CN", "en-US"]) {
+            for (const [field, legacy, ref] of CASES) {
+                expect(translator.translate(ref, locale), `${locale} ${field} ${JSON.stringify(ref.params ?? {})}`).toBe(legacy(LEGACY[locale]!));
+            }
+        }
+    });
+
+    it("问题的每个码、每组参数与迁移前的写法逐字相同，没有写法的码用 fallback", () => {
+        const codes = [...new Set([...Object.keys(LEGACY_ZH.codes), ...Object.keys(LEGACY_EN.codes), ...SCHEMA_ISSUE_CODES, "x-custom"])];
+        for (const locale of ["zh-CN", "en-US"]) {
+            const messages = LEGACY[locale]!;
+            for (const code of codes) {
+                for (const params of PARAMS) {
+                    const expected = messages.codes[code]?.(params) ?? messages.fallback(code);
+                    expect(translator.translate(issueWording(issue(code, params)), locale), `${locale} ${code} ${JSON.stringify(params)}`).toBe(expected);
+                }
+            }
+        }
+    });
+
+    it("旧表的每个条目都有对照，目录的每个键都有条目用到", () => {
+        const legacyFields = Object.keys(LEGACY_ZH).filter((field) => field !== "codes" && field !== "fallback");
+        expect([...new Set(CASES.map(([field]): string => field))].sort()).toEqual(legacyFields.sort());
+        const used = new Set(CASES.map(([, , ref]) => ref.key));
+        for (const code of Object.keys(LEGACY_ZH.codes)) {
+            for (const params of PARAMS) {
+                const wording = issueWording(issue(code, params));
+                if (typeof wording === "object" && "key" in wording) used.add(wording.key as string);
+            }
+        }
+        used.add("fallback");
+        used.add("listSeparator");
+        expect([...keysOf("zh-CN")].filter((key) => !used.has(key))).toEqual([]);
+    });
+
+    it("连接选项名字的分隔符（迁移前写在代码里：中文“、”，其余“, ”）", () => {
+        expect(translator.translate(formRef("listSeparator"), "zh-CN")).toBe("、");
+        expect(translator.translate(formRef("listSeparator"), "en-US")).toBe(", ");
+    });
+
+    it("调用方的问题用它自己的文字", () => {
+        expect(issueWording({...issue("taken", {}), source: "caller", message: {"zh-CN": "已被占用", "en-US": "Taken"}})).toEqual({"zh-CN": "已被占用", "en-US": "Taken"});
+    });
+});

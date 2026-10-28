@@ -25,6 +25,7 @@ import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins
 import {clockKey, windowConnectionKey, windowPluginsKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import {defineSetting} from "nbook/shared/settings";
+import {testTextPort} from "nbook/shared/testing/text-port";
 import {createWindowPlugins} from "nbook/web/host/window-plugins";
 
 import {descriptor} from "../plugin";
@@ -32,6 +33,7 @@ import {SETTINGS_CHOICES_POINT, settingsChoicesEvent} from "../shared/contracts"
 import {validateChoiceContribution} from "../shared/sections";
 import type {SettingsChoicesImplementation} from "./contracts";
 import {settingsBrowserCore} from "./plugin";
+import {settingsCatalogs} from "./text";
 import {settingsWindowSourceKey} from "./window-source";
 import type {SettingsWindowSource} from "./window-source";
 
@@ -126,7 +128,10 @@ function read(source: SettingsWindowSource, id: string): OptionSource | undefine
     return entry === undefined ? undefined : toValue(entry);
 }
 
-const reasonOf = (option: OptionSource | undefined): unknown => (option?.status === "unavailable" ? option.reason : null);
+/** 窗口里的翻译端口（宿主引擎、严格模式）登记本插件目录：原因写目录里的键，按两种语言翻出来看用户读到的文字。 */
+const ports = {"zh-CN": testTextPort("zh-CN", {[descriptor.id]: settingsCatalogs}), "en-US": testTextPort("en-US", {[descriptor.id]: settingsCatalogs})};
+
+const reasonOf = (option: OptionSource | undefined): unknown => (option?.status === "unavailable" ? {"zh-CN": ports["zh-CN"].t(option.reason), "en-US": ports["en-US"].t(option.reason)} : null);
 const messages = (diagnostics: DiagnosticsStore): string[] => diagnostics.query({}).records.filter((record) => record.event === "settings.choices").map((record) => record.message);
 
 async function stopEntry(toggle: Control): Promise<void> {
