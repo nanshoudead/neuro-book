@@ -161,6 +161,19 @@
 - 已有：npm 包 `@notnotype/neuro-book`，运行时用用户自己的 Bun（`bun add -g`），依赖全部打进 bundle。
 - 待另写提案（ADR 0033 决定 6）：随发行捆绑 Bun 的目录包；原生窗口的桌面壳（Electrobun、Tauri、Electron 实测后选，都把 Bun 当独立进程）；服务器部署。
 
+## 9. 钩子（2026-10-28）
+
+### 9.1 OMP 与 omp（源码核实）
+
+- `pi-agent-core` 的循环钩子：`transformContext`（每次请求前改上下文）、`transformProviderContext`（改交给服务商的上下文）、`beforeToolCall`、`afterToolCall`、`getSteeringMessages`、`getFollowUpMessages`、`convertToLlm`（`src/types.ts`）。
+- omp 扩展（`~/.omp/agent/extensions/*.ts`）可订阅的事件（`extensibility/extensions/types.ts`、`shared-events.ts`）：会话类 `session_start`、`session_before_switch`、`session_before_branch`、`session_before_compact`、`session_compact`、`session_before_tree`、`session_shutdown`、`session_stop`；循环类 `context`（可替换本次请求的消息）、`before_agent_start`（可加一条消息、改系统提示词）、`before_provider_request`、`after_provider_response`、`turn_start`、`turn_end`、`agent_start`、`agent_end`；工具类 `tool_call`（可 `block` 并给 `reason`）、`tool_result`（可替换 `content`、`details`、`isError`）、`tool_execution_*`；另有 `input`（可改写或接管用户输入）、`before_subagent_spawn`（可换模型或拦下）、`tool_approval_requested`、`assistant_message`（可改写助手消息内容）、`auto_compaction_*`、`auto_retry_*` 等。处理函数签名 `(event, ctx) => result | void`。
+
+### 9.2 Claude Code（官方文档 [Hooks reference](https://code.claude.com/docs/en/hooks)，2026-10-28 读取前 100,000 字）
+
+- 33 种事件，常用的：`SessionStart`（加上下文）、`UserPromptSubmit`（拦下提示、加上下文，**不能改写用户的话**）、`PreToolUse`（放行、拒绝、询问或推迟；改参数 `updatedInput`；加上下文）、`PermissionRequest`、`PostToolUse`（拦下即把反馈交给模型、替换结果 `updatedToolOutput`、加上下文）、`PostToolUseFailure`、`PostToolBatch`（拦下即停止循环）、`Stop`（拦下即让对话继续，并加上下文）、`SubagentStart`、`SubagentStop`、`PreCompact`（拦下压缩）、`PostCompact`、`PreModelSwitch`、`SessionEnd` 等。只有 `PreToolUse`、`PermissionRequest`、`PreModelSwitch` 能放行，其它事件只能拦、改写或加上下文。
+- 钩子的实现形态有 command（shell 命令，JSON 进出）、http、prompt（让模型判断）、agent、mcp_tool；按匹配器（例如工具名）选中。
+- 同一事件的所有匹配钩子并行运行（prompt、agent 类最多同时 12 个）；完全相同的处理器去重。缺省时限 command、http、mcp_tool 600 秒，prompt 30 秒，agent 60 秒；`UserPromptSubmit` 等降到 30 秒，`SessionEnd` 共用 1.5 秒。`PreToolUse` 超时不拦，除非设了 `onFailure: "block"`；退出码 2 一律拦下；不表态不等于放行。多个钩子决定冲突时的优先规则在已读部分没有写明。
+
 ## 未验证边界
 
 - omp 18.12.3 与仓库锁定的 18.2.5 之间，`pi-coding-agent` 以外的包是否有与本文相关的变化，没有对照。
