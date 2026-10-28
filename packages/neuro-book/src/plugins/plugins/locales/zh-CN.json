@@ -1,0 +1,128 @@
+{
+    "settingsPages": {
+        "installed": {
+            "title": "插件",
+            "description": "安装与管理第三方插件"
+        }
+    },
+    "page": {
+        "restartNote": "安装、卸载、升级、启用与禁用在下一次启动后生效。",
+        "pendingNote": "有待生效的变化，重启 NeuroBook 后生效。",
+        "safeMode": "安全模式：第三方插件没有加载，可以在这里禁用或卸载它们。",
+        "problemsSnapshot": "服务端的状态是打开这一页时的；本窗口的随时更新。",
+        "loading": "正在读取插件…",
+        "retry": "重试"
+    },
+    "install": {
+        "pathLabel": "服务端上的插件文件夹",
+        "pathPlaceholder": "/home/me/plugins/hello",
+        "start": "安装…"
+    },
+    "groups": {
+        "thirdParty": "第三方插件",
+        "builtin": "内置插件",
+        "noThirdParty": "还没有安装第三方插件。"
+    },
+    "row": {
+        "builtin": "内置",
+        "toggle": "启用 {{id}}",
+        "uninstall": "卸载",
+        "uninstallNamed": "卸载 {{id}}",
+        "entryProblems_other": "{{count}} 个入口没有运行",
+        "rejectedProblems_other": "{{count}} 项贡献被拒",
+        "catalogProblems_other": "{{count}} 种语言的文字没有取到",
+        "pending": {
+            "install": "重启后安装",
+            "uninstall": "重启后卸载",
+            "enable": "重启后启用",
+            "disable": "重启后禁用",
+            "upgrade": "重启后升级到 {{version}}",
+            "downgrade": "重启后降级到 {{version}}"
+        },
+        "notLoaded": {
+            "manifest-invalid": "清单无效",
+            "entry-missing": "入口文件缺失",
+            "unreadable": "安装目录读不了",
+            "incompatible-engine": "不兼容",
+            "safe-mode": "安全模式未加载"
+        }
+    },
+    "problems": {
+        "entryFailed": "入口 {{entry}}（{{location}}）激活失败：{{reason}}",
+        "entryBlocked": "入口 {{entry}}（{{location}}）受阻：{{reason}}",
+        "contributionRejected": "{{capability}} 的 {{id}} 被拒：{{reason}}",
+        "catalogUnavailable": "{{locale}} 的文字没有取到：{{reason}}",
+        "withDetail": "{{reason}}（{{detail}}）",
+        "blockedReasons": {
+            "missing-service": "需要的服务 {{key}} 没有提供",
+            "location-mismatch": "需要的服务 {{key}} 不在这个位置提供",
+            "provider-blocked": "提供 {{key}} 的插件受阻",
+            "provider-failed": "提供 {{key}} 的插件激活失败",
+            "dependency-cycle": "依赖成环（{{key}}）",
+            "version-mismatch": "{{key}} 的版本不在要求的范围里"
+        },
+        "catalogReasons": {
+            "not-found": "服务端没有这份目录",
+            "invalid": "目录内容不合规则",
+            "fetch-failed": "读取失败"
+        },
+        "rejectedReasons": {
+            "invalid-declaration": "声明不合规则",
+            "implementation-required": "这个贡献点要实现，要写在入口里",
+            "implementation-not-accepted": "这个贡献点只收声明，不收实现",
+            "duplicate-contribution": "别的插件用了同一个 id"
+        }
+    },
+    "preview": {
+        "install": {
+            "title": "安装插件",
+            "confirm": "安装"
+        },
+        "upgrade": {
+            "title": "升级插件",
+            "confirm": "升级"
+        },
+        "downgrade": {
+            "title": "降级插件",
+            "confirm": "降级"
+        },
+        "downgradeWarning": "降级后插件可能读到新版本已迁移过的数据。",
+        "blockedTitle": "重启后这些插件的部分功能将不可用：",
+        "blockedReasons": {
+            "version-mismatch": "{{plugin}}（{{entries}}）：要求版本 {{range}}",
+            "missing-service": "{{plugin}}（{{entries}}）：需要的服务 {{service}} 不再提供",
+            "dependency-cycle": "{{plugin}}（{{entries}}）：依赖成环",
+            "provider-blocked": "{{plugin}}（{{entries}}）：依赖的插件不可用"
+        },
+        "unchecked": "这些已安装插件的清单读不了，没有核对：{{plugins}}",
+        "trust": "插件完全受信任：安装后它可以访问全部作品、服务器与本机资源。只安装你信任的来源。"
+    },
+    "uninstall": {
+        "title": "卸载插件",
+        "body": "卸载 {{id}}？重启后删除插件的安装目录，配置与私有数据保留。确认后到重启之前不能撤回。"
+    },
+    "dialog": {
+        "cancel": "取消"
+    },
+    "errors": {
+        "manifest-invalid": "插件的清单无效",
+        "catalog-invalid": "插件的消息目录无效",
+        "incompatible-engine": "插件与当前版本的 NeuroBook 不兼容",
+        "already-installed": "这个版本已经安装，或已在等待重启后切换",
+        "uninstall-pending": "插件正在卸载，重启后再操作",
+        "path-rejected": "这个路径不能用",
+        "entry-missing": "插件缺少入口文件",
+        "copy-failed": "复制插件文件失败",
+        "not-installed": "这个插件已经不在了",
+        "builtin-fixed": "内置插件不能这样操作",
+        "registry-failed": "读写插件登记表失败"
+    },
+    "remoteErrors": {
+        "unavailable": "连不上服务端",
+        "timeout": "服务端没有及时答复",
+        "unknown-outcome": "不知道操作有没有完成，已重新读取列表"
+    },
+    "failures": {
+        "unknown": "操作没有完成"
+    }
+}

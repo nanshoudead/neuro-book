@@ -20,6 +20,7 @@ import {markdownBrowserPlugin} from "nbook/plugins/markdown/web/plugin";
 import {explorerBrowserPlugin} from "nbook/plugins/explorer/web/plugin";
 import {filesBrowserPlugin} from "nbook/plugins/files/web/plugin";
 import {pluginsBrowserPlugin} from "nbook/plugins/plugins/web/plugin";
+import {pluginsCatalogs} from "nbook/plugins/plugins/web/text";
 import {projectsBrowserPlugin} from "nbook/plugins/projects/web/plugin";
 import {settingsBrowserPlugin} from "nbook/plugins/settings/web/plugin";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
@@ -74,7 +75,9 @@ export interface BuiltinCatalogs {
  * 挂载界面前把它们登记进翻译引擎，命名空间是插件 id。只有后端入口的内置插件也登在这里：它们的失败码同样在窗口里显示。第三方
  * 插件的目录不在构建里，经引导的目录索引与目录端点取（docs/specs/runtime/browser-host.md 输出 2）。
  */
-export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = {};
+export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = {
+    "nbook.plugins": pluginsCatalogs,
+};
 
 /** 本外壳构建进去的浏览器插件：清单中有浏览器运行位置的插件，加上只有顶层声明式贡献的插件（只登记它们的声明）。 */
 export const builtinBrowserPlugins: ReadonlyArray<PluginDescriptor> = pluginsAt("browser", productPlugins);

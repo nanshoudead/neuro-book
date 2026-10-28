@@ -39,6 +39,8 @@ export interface CatalogDirectory {
 export const CATALOG_DIRECTORIES: ReadonlyArray<CatalogDirectory> = [
     // 宿主自己的文字（命名空间 nbook.host），见 packages/neuro-book/src/web/host/text-engine.ts。
     {path: "packages/neuro-book/src/web/locales", source: "zh-CN"},
+    // 内置插件的目录（命名空间是插件 id），由 packages/neuro-book/src/web/plugins.ts 的 builtinPluginCatalogs 登记进窗口。
+    {path: "packages/neuro-book/src/plugins/plugins/locales", source: "zh-CN"},
 ];
 
 // 只读的旧应用与历史记录不检查（同 test-conventions.ts）。

@@ -5,107 +5,75 @@
  */
 import type {RemoteFailureCode} from "@notnotype/nb-runtime/remote";
 import {Badge, Button, Dialog, Input, Spinner, Switch} from "@notnotype/nb-ui/components";
+import type {TextParams} from "@notnotype/nb-ui/text";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef} from "vue";
 
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {compareVersions} from "nbook/plugin-platform/shared/versions";
 import type {WindowPlugins} from "nbook/shared/host";
 
 import type {BlockedPlugin, InstallPreview, PendingChange, PluginFailureCode, PluginListEntry, PluginListItem, PluginProblem, PluginsRegistry} from "../../shared/contracts";
+import {pluginsText} from "../text";
+import type {PluginsTextKey} from "../text";
 
 defineOptions({name: "PluginsPage"});
 
 const props = defineProps<{
     registry: PluginsRegistry;
+    /** 只用来按语言连接列表（`Intl.ListFormat`）；文字经注入的翻译端口取，由宿主从同一个语言来源传。 */
     locale: DisplayLocale;
     /** 本窗口的插件问题与变化通知；拿不到时（Lab、测试）只显示服务端给的问题。 */
     windowPlugins?: Pick<WindowPlugins, "problems" | "onChange"> | null;
 }>();
 
-const TEXT = {
-    restartNote: {"zh-CN": "安装、卸载、升级、启用与禁用在下一次启动后生效。", "en-US": "Installing, uninstalling, upgrading, enabling and disabling take effect the next time NeuroBook starts."},
-    pendingNote: {"zh-CN": "有待生效的变化，重启 NeuroBook 后生效。", "en-US": "Some changes are pending. Restart NeuroBook to apply them."},
-    safeMode: {"zh-CN": "安全模式：第三方插件没有加载，可以在这里禁用或卸载它们。", "en-US": "Safe mode: third-party plugins are not loaded. You can disable or uninstall them here."},
-    loading: {"zh-CN": "正在读取插件…", "en-US": "Loading plugins…"},
-    retry: {"zh-CN": "重试", "en-US": "Retry"},
-    pathLabel: {"zh-CN": "服务端上的插件文件夹", "en-US": "Plugin folder on the server"},
-    pathPlaceholder: {"zh-CN": "/home/me/plugins/hello", "en-US": "/home/me/plugins/hello"},
-    install: {"zh-CN": "安装…", "en-US": "Install…"},
-    thirdPartyHeading: {"zh-CN": "第三方插件", "en-US": "Third-party plugins"},
-    builtinHeading: {"zh-CN": "内置插件", "en-US": "Built-in plugins"},
-    noThirdParty: {"zh-CN": "还没有安装第三方插件。", "en-US": "No third-party plugins installed."},
-    builtin: {"zh-CN": "内置", "en-US": "Built-in"},
-    toggle: {"zh-CN": "启用 {id}", "en-US": "Enable {id}"},
-    uninstall: {"zh-CN": "卸载", "en-US": "Uninstall"},
-    uninstallNamed: {"zh-CN": "卸载 {id}", "en-US": "Uninstall {id}"},
-    uninstallTitle: {"zh-CN": "卸载插件", "en-US": "Uninstall plugin"},
-    uninstallBody: {"zh-CN": "卸载 {id}？重启后删除插件的安装目录，配置与私有数据保留。确认后到重启之前不能撤回。", "en-US": "Uninstall {id}? Its install folder is removed after restart; its settings and private data are kept. This cannot be undone before the restart."},
-    cancel: {"zh-CN": "取消", "en-US": "Cancel"},
-    trust: {"zh-CN": "插件完全受信任：安装后它可以访问全部作品、服务器与本机资源。只安装你信任的来源。", "en-US": "Plugins are fully trusted: once installed, a plugin can access all books, the server and local resources. Only install plugins you trust."},
-    downgrade: {"zh-CN": "降级后插件可能读到新版本已迁移过的数据。", "en-US": "After a downgrade the plugin may read data already migrated by the newer version."},
-    blocked: {"zh-CN": "重启后这些插件的部分功能将不可用：", "en-US": "After the restart, parts of these plugins will be unavailable:"},
-    blockedVersion: {"zh-CN": "{plugin}（{entries}）：要求版本 {range}", "en-US": "{plugin} ({entries}): requires version {range}"},
-    blockedProvider: {"zh-CN": "{plugin}（{entries}）：依赖的插件不可用", "en-US": "{plugin} ({entries}): a plugin it depends on will be unavailable"},
-    blockedService: {"zh-CN": "{plugin}（{entries}）：需要的服务 {service} 不再提供", "en-US": "{plugin} ({entries}): the service {service} it needs will no longer be provided"},
-    blockedCycle: {"zh-CN": "{plugin}（{entries}）：依赖成环", "en-US": "{plugin} ({entries}): its dependencies form a cycle"},
-    unchecked: {"zh-CN": "这些已安装插件的清单读不了，没有核对：{plugins}", "en-US": "These installed plugins could not be checked: {plugins}"},
-    unknownFailure: {"zh-CN": "操作没有完成", "en-US": "The operation did not complete"},
-    entryProblems: {"zh-CN": "{count} 个入口没有运行", "en-US": "{count} entry point(s) not running"},
-    rejectedProblems: {"zh-CN": "{count} 项贡献被拒", "en-US": "{count} contribution(s) rejected"},
-    catalogProblems: {"zh-CN": "{count} 种语言的文字没有取到", "en-US": "Text missing for {count} language(s)"},
-    catalogUnavailable: {"zh-CN": "{locale} 的文字没有取到：{reason}", "en-US": "Text for {locale} could not be loaded: {reason}"},
-    entryFailed: {"zh-CN": "入口 {entry}（{location}）激活失败：{reason}", "en-US": "Entry {entry} ({location}) failed to activate: {reason}"},
-    entryBlocked: {"zh-CN": "入口 {entry}（{location}）受阻：{reason}", "en-US": "Entry {entry} ({location}) is blocked: {reason}"},
-    contributionRejected: {"zh-CN": "{capability} 的 {id} 被拒：{reason}", "en-US": "{id} for {capability} was rejected: {reason}"},
-    withDetail: {"zh-CN": "{reason}（{detail}）", "en-US": "{reason} ({detail})"},
-    pendingDowngrade: {"zh-CN": "重启后降级到 {version}", "en-US": "Downgrade to {version} on restart"},
-    problemsSnapshot: {"zh-CN": "服务端的状态是打开这一页时的；本窗口的随时更新。", "en-US": "Server status is as of opening this page; this window's status updates live."},
-} satisfies Record<string, LocalizedText>;
-
-const PREVIEW_TEXT: Record<InstallPreview["relation"], {readonly title: LocalizedText; readonly confirm: LocalizedText}> = {
-    install: {title: {"zh-CN": "安装插件", "en-US": "Install plugin"}, confirm: {"zh-CN": "安装", "en-US": "Install"}},
-    upgrade: {title: {"zh-CN": "升级插件", "en-US": "Upgrade plugin"}, confirm: {"zh-CN": "升级", "en-US": "Upgrade"}},
-    downgrade: {title: {"zh-CN": "降级插件", "en-US": "Downgrade plugin"}, confirm: {"zh-CN": "降级", "en-US": "Downgrade"}},
+/** 预览关系对应的确认框标题与确认按钮。 */
+const PREVIEW_KEYS: Readonly<Record<InstallPreview["relation"], {readonly title: PluginsTextKey; readonly confirm: PluginsTextKey}>> = {
+    install: {title: "preview.install.title", confirm: "preview.install.confirm"},
+    upgrade: {title: "preview.upgrade.title", confirm: "preview.upgrade.confirm"},
+    downgrade: {title: "preview.downgrade.title", confirm: "preview.downgrade.confirm"},
 };
 
-const PENDING_TEXT: Record<PendingChange["kind"], LocalizedText> = {
-    install: {"zh-CN": "重启后安装", "en-US": "Installs on restart"},
-    uninstall: {"zh-CN": "重启后卸载", "en-US": "Uninstalls on restart"},
-    enable: {"zh-CN": "重启后启用", "en-US": "Enabled on restart"},
-    disable: {"zh-CN": "重启后禁用", "en-US": "Disabled on restart"},
-    upgrade: {"zh-CN": "重启后升级到 {version}", "en-US": "Upgrade to {version} on restart"},
+const PENDING_KEYS: Readonly<Record<PendingChange["kind"], PluginsTextKey>> = {
+    install: "row.pending.install",
+    uninstall: "row.pending.uninstall",
+    enable: "row.pending.enable",
+    disable: "row.pending.disable",
+    upgrade: "row.pending.upgrade",
 };
 
 type NotLoadedCode = NonNullable<PluginListItem["notLoaded"]>["code"];
 
-const NOT_LOADED: Record<NotLoadedCode, {readonly text: LocalizedText; readonly tone: "danger" | "neutral"; readonly showDetail: boolean}> = {
-    "manifest-invalid": {text: {"zh-CN": "清单无效", "en-US": "Invalid manifest"}, tone: "danger", showDetail: true},
-    "entry-missing": {text: {"zh-CN": "入口文件缺失", "en-US": "Entry file missing"}, tone: "danger", showDetail: true},
-    "unreadable": {text: {"zh-CN": "安装目录读不了", "en-US": "Install directory unreadable"}, tone: "danger", showDetail: true},
-    "incompatible-engine": {text: {"zh-CN": "不兼容", "en-US": "Incompatible"}, tone: "danger", showDetail: true},
-    "safe-mode": {text: {"zh-CN": "安全模式未加载", "en-US": "Not loaded in safe mode"}, tone: "neutral", showDetail: false},
+const NOT_LOADED: Record<NotLoadedCode, {readonly text: PluginsTextKey; readonly tone: "danger" | "neutral"; readonly showDetail: boolean}> = {
+    "manifest-invalid": {text: "row.notLoaded.manifest-invalid", tone: "danger", showDetail: true},
+    "entry-missing": {text: "row.notLoaded.entry-missing", tone: "danger", showDetail: true},
+    "unreadable": {text: "row.notLoaded.unreadable", tone: "danger", showDetail: true},
+    "incompatible-engine": {text: "row.notLoaded.incompatible-engine", tone: "danger", showDetail: true},
+    "safe-mode": {text: "row.notLoaded.safe-mode", tone: "neutral", showDetail: false},
 };
 
 type FailureCode = PluginFailureCode | RemoteFailureCode;
 
-/** 业务失败码（plugin-install 的失败码表）都有文字；路由层失败码只写常见的三个，其余显示“操作没有完成”与详情。 */
-const FAILURE_TEXT: Readonly<Record<PluginFailureCode, LocalizedText> & Partial<Record<RemoteFailureCode, LocalizedText>>> = {
-    "manifest-invalid": {"zh-CN": "插件的清单无效", "en-US": "The plugin manifest is invalid"},
-    "catalog-invalid": {"zh-CN": "插件的消息目录无效", "en-US": "The plugin's message catalogs are invalid"},
-    "incompatible-engine": {"zh-CN": "插件与当前版本的 NeuroBook 不兼容", "en-US": "The plugin is not compatible with this version of NeuroBook"},
-    "already-installed": {"zh-CN": "这个版本已经安装，或已在等待重启后切换", "en-US": "This version is already installed or waiting for the restart"},
-    "uninstall-pending": {"zh-CN": "插件正在卸载，重启后再操作", "en-US": "The plugin is being uninstalled; restart first"},
-    "path-rejected": {"zh-CN": "这个路径不能用", "en-US": "This path cannot be used"},
-    "entry-missing": {"zh-CN": "插件缺少入口文件", "en-US": "The plugin is missing entry files"},
-    "copy-failed": {"zh-CN": "复制插件文件失败", "en-US": "Copying the plugin files failed"},
-    "not-installed": {"zh-CN": "这个插件已经不在了", "en-US": "This plugin is no longer installed"},
-    "builtin-fixed": {"zh-CN": "内置插件不能这样操作", "en-US": "Built-in plugins cannot be changed"},
-    "registry-failed": {"zh-CN": "读写插件登记表失败", "en-US": "Reading or writing the plugin registry failed"},
-    unavailable: {"zh-CN": "连不上服务端", "en-US": "The server is unreachable"},
-    timeout: {"zh-CN": "服务端没有及时答复", "en-US": "The server did not answer in time"},
-    "unknown-outcome": {"zh-CN": "不知道操作有没有完成，已重新读取列表", "en-US": "It is unknown whether the operation completed; the list was reloaded"},
+/**
+ * 业务失败码（plugin-install 的失败码表）都有文字，键是 `errors.<码>`；路由层失败码只写常见的三个，其余显示“操作没有完成”
+ * 与详情。路由层的码按提案归宿主的远程文案，宿主目录还没有这一组之前先放在本插件的 `remoteErrors` 下。
+ */
+const FAILURE_KEYS: Readonly<Record<PluginFailureCode, PluginsTextKey> & Partial<Record<RemoteFailureCode, PluginsTextKey>>> = {
+    "manifest-invalid": "errors.manifest-invalid",
+    "catalog-invalid": "errors.catalog-invalid",
+    "incompatible-engine": "errors.incompatible-engine",
+    "already-installed": "errors.already-installed",
+    "uninstall-pending": "errors.uninstall-pending",
+    "path-rejected": "errors.path-rejected",
+    "entry-missing": "errors.entry-missing",
+    "copy-failed": "errors.copy-failed",
+    "not-installed": "errors.not-installed",
+    "builtin-fixed": "errors.builtin-fixed",
+    "registry-failed": "errors.registry-failed",
+    unavailable: "remoteErrors.unavailable",
+    timeout: "remoteErrors.timeout",
+    "unknown-outcome": "remoteErrors.unknown-outcome",
 };
 
 /** 服务端详情能补充信息的码；其余的码固定文字已经说全，详情只会重复。 */
@@ -116,19 +84,19 @@ const STALE_CODES: ReadonlySet<FailureCode> = new Set<FailureCode>(["unknown-out
 type Failure = {readonly ok: false; readonly code: FailureCode; readonly detail?: unknown};
 type Problem = {readonly serial: number; readonly code: string; readonly reason: string; readonly lines: ReadonlyArray<string>};
 
-const text = (value: LocalizedText): string => localize(value, props.locale);
-
-const format = (value: LocalizedText, values: Record<string, string>): string => localize(formatText(value, values), props.locale);
+const port = useText();
+/** 本插件目录里的一段文字，按窗口的当前语言。 */
+const text = (key: PluginsTextKey, params?: TextParams): string => port.t(pluginsText(key, params));
 /** 列表按界面语言连接（“a、b和c”“a, b, and c”）。 */
 const list = (items: ReadonlyArray<string>): string => new Intl.ListFormat(props.locale, {type: "conjunction"}).format(items);
-const BLOCKED_TEXT: Readonly<Record<BlockedPlugin["reason"], LocalizedText>> = {
-    "version-mismatch": TEXT.blockedVersion,
-    "missing-service": TEXT.blockedService,
-    "dependency-cycle": TEXT.blockedCycle,
-    "provider-blocked": TEXT.blockedProvider,
+const BLOCKED_KEYS: Readonly<Record<BlockedPlugin["reason"], PluginsTextKey>> = {
+    "version-mismatch": "preview.blockedReasons.version-mismatch",
+    "missing-service": "preview.blockedReasons.missing-service",
+    "dependency-cycle": "preview.blockedReasons.dependency-cycle",
+    "provider-blocked": "preview.blockedReasons.provider-blocked",
 };
 /** 升级确认框里一条受阻的插件：版本不符时写出它要求的范围。 */
-const blockedLine = (item: BlockedPlugin): string => format(BLOCKED_TEXT[item.reason], {plugin: item.plugin, entries: list(item.entries), range: item.range ?? "", service: item.service ?? ""});
+const blockedLine = (item: BlockedPlugin): string => text(BLOCKED_KEYS[item.reason], {plugin: item.plugin, entries: list(item.entries), range: item.range ?? "", service: item.service ?? ""});
 
 const state = ref<"loading" | "failed" | "ready">("loading");
 const loadFailure = ref<string>("");
@@ -180,43 +148,43 @@ const entryProblemCount = (item: PluginListEntry): number => problemsOf(item).fi
 const rejectedCount = (item: PluginListEntry): number => problemsOf(item).filter((problem) => problem.kind === "contribution-rejected").length;
 const catalogCount = (item: PluginListEntry): number => problemsOf(item).filter((problem) => problem.kind === "catalog-unavailable").length;
 
-const BLOCKED_REASON: Readonly<Record<Extract<PluginProblem, {kind: "entry-blocked"}>["reason"], LocalizedText>> = {
-    "missing-service": {"zh-CN": "需要的服务 {key} 没有提供", "en-US": "the service {key} it needs is not provided"},
-    "location-mismatch": {"zh-CN": "需要的服务 {key} 不在这个位置提供", "en-US": "the service {key} it needs is not provided at this location"},
-    "provider-blocked": {"zh-CN": "提供 {key} 的插件受阻", "en-US": "the plugin providing {key} is blocked"},
-    "provider-failed": {"zh-CN": "提供 {key} 的插件激活失败", "en-US": "the plugin providing {key} failed to activate"},
-    "dependency-cycle": {"zh-CN": "依赖成环（{key}）", "en-US": "its dependencies form a cycle ({key})"},
-    "version-mismatch": {"zh-CN": "{key} 的版本不在要求的范围里", "en-US": "the version of {key} is outside the required range"},
+const BLOCKED_REASON_KEYS: Readonly<Record<Extract<PluginProblem, {kind: "entry-blocked"}>["reason"], PluginsTextKey>> = {
+    "missing-service": "problems.blockedReasons.missing-service",
+    "location-mismatch": "problems.blockedReasons.location-mismatch",
+    "provider-blocked": "problems.blockedReasons.provider-blocked",
+    "provider-failed": "problems.blockedReasons.provider-failed",
+    "dependency-cycle": "problems.blockedReasons.dependency-cycle",
+    "version-mismatch": "problems.blockedReasons.version-mismatch",
 };
 
-const CATALOG_REASON: Readonly<Record<Extract<PluginProblem, {kind: "catalog-unavailable"}>["reason"], LocalizedText>> = {
-    "not-found": {"zh-CN": "服务端没有这份目录", "en-US": "the server does not have this catalog"},
-    "invalid": {"zh-CN": "目录内容不合规则", "en-US": "the catalog content is invalid"},
-    "fetch-failed": {"zh-CN": "读取失败", "en-US": "loading failed"},
+const CATALOG_REASON_KEYS: Readonly<Record<Extract<PluginProblem, {kind: "catalog-unavailable"}>["reason"], PluginsTextKey>> = {
+    "not-found": "problems.catalogReasons.not-found",
+    "invalid": "problems.catalogReasons.invalid",
+    "fetch-failed": "problems.catalogReasons.fetch-failed",
 };
 
-const REJECTED_REASON: Readonly<Record<Extract<PluginProblem, {kind: "contribution-rejected"}>["reason"], LocalizedText>> = {
-    "invalid-declaration": {"zh-CN": "声明不合规则", "en-US": "the declaration is invalid"},
-    "implementation-required": {"zh-CN": "这个贡献点要实现，要写在入口里", "en-US": "this contribution point needs an implementation; declare it in an entry"},
-    "implementation-not-accepted": {"zh-CN": "这个贡献点只收声明，不收实现", "en-US": "this contribution point takes declarations only"},
-    "duplicate-contribution": {"zh-CN": "别的插件用了同一个 id", "en-US": "another plugin uses the same id"},
+const REJECTED_REASON_KEYS: Readonly<Record<Extract<PluginProblem, {kind: "contribution-rejected"}>["reason"], PluginsTextKey>> = {
+    "invalid-declaration": "problems.rejectedReasons.invalid-declaration",
+    "implementation-required": "problems.rejectedReasons.implementation-required",
+    "implementation-not-accepted": "problems.rejectedReasons.implementation-not-accepted",
+    "duplicate-contribution": "problems.rejectedReasons.duplicate-contribution",
 };
 
 /** 一条问题写成一句话：固定的部分按界面语言，激活错误的消息与拒绝的详情原样接上。 */
 function problemLine(problem: PluginProblem): string {
-    if (problem.kind === "entry-failed") return format(TEXT.entryFailed, {entry: problem.entry, location: problem.location, reason: problem.message ?? `${problem.stage}/${problem.reason}`});
-    if (problem.kind === "entry-blocked") return format(TEXT.entryBlocked, {entry: problem.entry, location: problem.location, reason: format(BLOCKED_REASON[problem.reason], {key: problem.key})});
+    if (problem.kind === "entry-failed") return text("problems.entryFailed", {entry: problem.entry, location: problem.location, reason: problem.message ?? `${problem.stage}/${problem.reason}`});
+    if (problem.kind === "entry-blocked") return text("problems.entryBlocked", {entry: problem.entry, location: problem.location, reason: text(BLOCKED_REASON_KEYS[problem.reason], {key: problem.key})});
     if (problem.kind === "catalog-unavailable") {
-        const reason = text(CATALOG_REASON[problem.reason]);
-        return format(TEXT.catalogUnavailable, {locale: problem.locale, reason: problem.detail === null ? reason : format(TEXT.withDetail, {reason, detail: problem.detail})});
+        const reason = text(CATALOG_REASON_KEYS[problem.reason]);
+        return text("problems.catalogUnavailable", {locale: problem.locale, reason: problem.detail === null ? reason : text("problems.withDetail", {reason, detail: problem.detail})});
     }
-    const reason = text(REJECTED_REASON[problem.reason]);
-    return format(TEXT.contributionRejected, {capability: problem.capability, id: problem.id, reason: problem.detail === null ? reason : format(TEXT.withDetail, {reason, detail: problem.detail})});
+    const reason = text(REJECTED_REASON_KEYS[problem.reason]);
+    return text("problems.contributionRejected", {capability: problem.capability, id: problem.id, reason: problem.detail === null ? reason : text("problems.withDetail", {reason, detail: problem.detail})});
 }
 /** 第三方插件在前：它们才有操作；内置插件随产品，放在后面。 */
 const groups = computed(() => [
-    {key: "third-party", heading: TEXT.thirdPartyHeading, items: items.value.filter((item) => item.source === "third-party")},
-    {key: "builtin", heading: TEXT.builtinHeading, items: items.value.filter((item) => item.source === "builtin")},
+    {key: "third-party", heading: "groups.thirdParty" as const, items: items.value.filter((item) => item.source === "third-party")},
+    {key: "builtin", heading: "groups.builtin" as const, items: items.value.filter((item) => item.source === "builtin")},
 ]);
 
 function detailOf(failure: Failure): {readonly detail: string; readonly problems: ReadonlyArray<string>} {
@@ -231,12 +199,12 @@ function detailOf(failure: Failure): {readonly detail: string; readonly problems
 
 /** 写出失败说明并让它进入视野（行内操作的失败可能发生在滚下去的位置）；列表可能已过时时等重新读完。 */
 async function report(failure: Failure): Promise<void> {
-    const known: LocalizedText | undefined = FAILURE_TEXT[failure.code];
+    const known: PluginsTextKey | undefined = FAILURE_KEYS[failure.code];
     const {detail, problems} = detailOf(failure);
     // 出错字段（清单无效）本身就是原因；没有时才用服务端的一句话。
     const lines = problems.length > 0 ? problems : [detail].filter((line) => line !== "");
     serial += 1;
-    problem.value = {serial, code: failure.code, reason: text(known ?? TEXT.unknownFailure), lines: known === undefined || DETAIL_CODES.has(failure.code) ? lines : []};
+    problem.value = {serial, code: failure.code, reason: text(known ?? "failures.unknown"), lines: known === undefined || DETAIL_CODES.has(failure.code) ? lines : []};
     await nextTick();
     problemRegion.value?.scrollIntoView({block: "nearest"});
     if (STALE_CODES.has(failure.code)) await refresh();
@@ -255,9 +223,9 @@ async function refresh(): Promise<"failed" | "ready" | null> {
     if (mine !== generation) return null;
     reading = false;
     if (!result.ok) {
-        const known = FAILURE_TEXT[result.code];
+        const known = FAILURE_KEYS[result.code];
         const {detail} = detailOf(result);
-        loadFailure.value = [text(known ?? TEXT.unknownFailure), detail].filter((line) => line !== "").join(" · ");
+        loadFailure.value = [text(known ?? "failures.unknown"), detail].filter((line) => line !== "").join(" · ");
         state.value = "failed";
         return "failed";
     }
@@ -368,8 +336,8 @@ function blockedFor(key: string): boolean {
 
 /** 换到更低的版本写“降级”，与安装确认框的说法一致。 */
 function pendingText(change: PendingChange, current: string): string {
-    if (change.kind !== "upgrade") return text(PENDING_TEXT[change.kind]);
-    return format(compareVersions(change.version, current) < 0 ? TEXT.pendingDowngrade : PENDING_TEXT.upgrade, {version: change.version});
+    if (change.kind !== "upgrade") return text(PENDING_KEYS[change.kind]);
+    return text(compareVersions(change.version, current) < 0 ? "row.pending.downgrade" : PENDING_KEYS.upgrade, {version: change.version});
 }
 
 function openUninstall(item: PluginListItem): void {
@@ -395,22 +363,22 @@ onMounted(() => {
         <!-- 与设置窗口画在分区顶部的层状态说明同一种写法：一行图标加文字，不画框。 -->
         <p class="plugins-page__note" :class="{'plugins-page__note--warning': hasPending}" role="status" data-plugins-restart>
             <span :class="hasPending ? 'i-lucide-triangle-alert' : 'i-lucide-info'" class="plugins-page__note-icon" aria-hidden="true"></span>
-            <span>{{ text(hasPending ? TEXT.pendingNote : TEXT.restartNote) }}</span>
+            <span>{{ text(hasPending ? 'page.pendingNote' : 'page.restartNote') }}</span>
         </p>
         <p v-if="safeMode" class="plugins-page__note plugins-page__note--warning" data-plugins-safe-mode>
             <span class="i-lucide-shield-alert plugins-page__note-icon" aria-hidden="true"></span>
-            <span>{{ text(TEXT.safeMode) }}</span>
+            <span>{{ text('page.safeMode') }}</span>
         </p>
         <p v-if="hasProblems" class="plugins-page__note" data-plugins-snapshot>
             <span class="i-lucide-info plugins-page__note-icon" aria-hidden="true"></span>
-            <span>{{ text(TEXT.problemsSnapshot) }}</span>
+            <span>{{ text('page.problemsSnapshot') }}</span>
         </p>
 
         <form class="plugins-page__install" @submit.prevent="startInstall">
-            <label class="plugins-page__label" for="nbook-plugins-path">{{ text(TEXT.pathLabel) }}</label>
+            <label class="plugins-page__label" for="nbook-plugins-path">{{ text('install.pathLabel') }}</label>
             <div class="plugins-page__install-row">
-                <Input id="nbook-plugins-path" ref="pathInput" v-model="path" :placeholder="text(TEXT.pathPlaceholder)" spellcheck="false" data-plugin-path />
-                <Button type="submit" :disabled="blockedFor('preview')" :aria-busy="busy === 'preview' ? 'true' : undefined" data-plugin-install>{{ text(TEXT.install) }}</Button>
+                <Input id="nbook-plugins-path" ref="pathInput" v-model="path" :placeholder="text('install.pathPlaceholder')" spellcheck="false" data-plugin-path />
+                <Button type="submit" :disabled="blockedFor('preview')" :aria-busy="busy === 'preview' ? 'true' : undefined" data-plugin-install>{{ text('install.start') }}</Button>
             </div>
         </form>
 
@@ -423,16 +391,16 @@ onMounted(() => {
 
         <!-- Spinner 自己是带名称的 status；aria-busy 标出正在加载的区域。 -->
         <div v-if="state === 'loading'" class="plugins-page__notice plugins-page__notice--delayed" aria-busy="true">
-            <Spinner size="sm" :label="text(TEXT.loading)" show-label />
+            <Spinner size="sm" :label="text('page.loading')" show-label />
         </div>
         <div v-else-if="state === 'failed'" class="plugins-page__notice" role="alert" data-plugins-load-failure>
             <span>{{ loadFailure }}</span>
-            <Button ref="retryButton" size="sm" variant="secondary" data-plugins-retry @click="retry">{{ text(TEXT.retry) }}</Button>
+            <Button ref="retryButton" size="sm" variant="secondary" data-plugins-retry @click="retry">{{ text('page.retry') }}</Button>
         </div>
         <div v-else class="plugins-page__groups">
             <section v-for="group in groups" :key="group.key" class="plugins-page__group" :data-plugin-group="group.key">
                 <h3 :ref="(element) => rememberTitle(group.key, element)" class="plugins-page__group-title" tabindex="-1">{{ text(group.heading) }}</h3>
-                <p v-if="group.items.length === 0" class="plugins-page__muted" data-plugins-empty>{{ text(TEXT.noThirdParty) }}</p>
+                <p v-if="group.items.length === 0" class="plugins-page__muted" data-plugins-empty>{{ text('groups.noThirdParty') }}</p>
                 <ul v-else class="plugins-page__list">
                     <li v-for="item in group.items" :key="item.id" class="plugins-page__item" :data-plugin-row="item.id" :data-plugin-source="item.source">
                         <div class="plugins-page__meta">
@@ -440,12 +408,12 @@ onMounted(() => {
                                 <span class="plugins-page__id">{{ item.id }}</span>
                                 <span v-if="item.displayName !== null" class="plugins-page__display-name" data-plugin-display-name>{{ item.displayName }}</span>
                                 <span class="plugins-page__version">{{ item.version }}</span>
-                                <Badge v-if="item.source === 'builtin'" size="sm" variant="soft">{{ text(TEXT.builtin) }}</Badge>
+                                <Badge v-if="item.source === 'builtin'" size="sm" variant="soft">{{ text('row.builtin') }}</Badge>
                                 <Badge v-for="change in item.pending" :key="change.kind" class="plugins-page__badge" size="sm" variant="soft" tone="warning" :data-plugin-pending="change.kind">{{ pendingText(change, item.version) }}</Badge>
                                 <Badge v-if="item.notLoaded !== null" class="plugins-page__badge" size="sm" variant="soft" :tone="NOT_LOADED[item.notLoaded.code].tone" :data-plugin-not-loaded="item.notLoaded.code">{{ text(NOT_LOADED[item.notLoaded.code].text) }}</Badge>
-                                <Badge v-if="entryProblemCount(item) > 0" class="plugins-page__badge" size="sm" variant="soft" tone="danger" data-plugin-problems="entries">{{ format(TEXT.entryProblems, {count: String(entryProblemCount(item))}) }}</Badge>
-                                <Badge v-if="rejectedCount(item) > 0" class="plugins-page__badge" size="sm" variant="soft" tone="danger" data-plugin-problems="contributions">{{ format(TEXT.rejectedProblems, {count: String(rejectedCount(item))}) }}</Badge>
-                                <Badge v-if="catalogCount(item) > 0" class="plugins-page__badge" size="sm" variant="soft" tone="warning" data-plugin-problems="catalogs">{{ format(TEXT.catalogProblems, {count: String(catalogCount(item))}) }}</Badge>
+                                <Badge v-if="entryProblemCount(item) > 0" class="plugins-page__badge" size="sm" variant="soft" tone="danger" data-plugin-problems="entries">{{ text('row.entryProblems', {count: entryProblemCount(item)}) }}</Badge>
+                                <Badge v-if="rejectedCount(item) > 0" class="plugins-page__badge" size="sm" variant="soft" tone="danger" data-plugin-problems="contributions">{{ text('row.rejectedProblems', {count: rejectedCount(item)}) }}</Badge>
+                                <Badge v-if="catalogCount(item) > 0" class="plugins-page__badge" size="sm" variant="soft" tone="warning" data-plugin-problems="catalogs">{{ text('row.catalogProblems', {count: catalogCount(item)}) }}</Badge>
                             </div>
                             <p v-if="item.notLoaded !== null && NOT_LOADED[item.notLoaded.code].showDetail" class="plugins-page__reason">{{ item.notLoaded.detail }}</p>
                             <p v-if="item.description !== null" class="plugins-page__description" :title="item.description" data-plugin-description>{{ item.description }}</p>
@@ -455,7 +423,7 @@ onMounted(() => {
                             <Switch
                                 :model-value="item.state === 'enabled'"
                                 :disabled="blockedFor(`toggle:${item.id}`)"
-                                :aria-label="format(TEXT.toggle, {id: item.id})"
+                                :aria-label="text('row.toggle', {id: item.id})"
                                 data-plugin-toggle
                                 @update:model-value="(value: boolean) => toggle(item, value)"
                             />
@@ -463,11 +431,11 @@ onMounted(() => {
                                 variant="secondary"
                                 size="sm"
                                 :disabled="busy !== null"
-                                :aria-label="format(TEXT.uninstallNamed, {id: item.id})"
+                                :aria-label="text('row.uninstallNamed', {id: item.id})"
                                 data-plugin-uninstall
                                 @click="openUninstall(item)"
                             >
-                                {{ text(TEXT.uninstall) }}
+                                {{ text('row.uninstall') }}
                             </Button>
                         </div>
                     </li>
@@ -478,40 +446,40 @@ onMounted(() => {
         <Dialog
             :model-value="previewOpen"
             size="sm"
-            :title="preview === null ? '' : text(PREVIEW_TEXT[preview.relation].title)"
+            :title="preview === null ? '' : text(PREVIEW_KEYS[preview.relation].title)"
             :busy="busy === 'install'"
             @update:model-value="closePreview"
         >
             <template v-if="preview !== null">
                 <p class="plugins-page__dialog-subject">{{ preview.installed === null ? `${preview.id} ${preview.version}` : `${preview.id} ${preview.installed} → ${preview.version}` }}</p>
-                <p v-if="preview.relation === 'downgrade'" class="plugins-page__dialog-warning">{{ text(TEXT.downgrade) }}</p>
+                <p v-if="preview.relation === 'downgrade'" class="plugins-page__dialog-warning">{{ text('preview.downgradeWarning') }}</p>
                 <div v-if="preview.blocked.length > 0" class="plugins-page__dialog-warning" data-plugin-preview-blocked>
-                    <p class="plugins-page__dialog-list-title">{{ text(TEXT.blocked) }}</p>
+                    <p class="plugins-page__dialog-list-title">{{ text('preview.blockedTitle') }}</p>
                     <ul class="plugins-page__dialog-list">
                         <li v-for="item in preview.blocked" :key="`${item.plugin} ${item.reason} ${item.range ?? item.service ?? ''}`" :data-plugin-preview-blocked-item="item.plugin">{{ blockedLine(item) }}</li>
                     </ul>
                 </div>
-                <p v-if="preview.unchecked.length > 0" class="plugins-page__dialog-text" data-plugin-preview-unchecked>{{ format(TEXT.unchecked, {plugins: list(preview.unchecked)}) }}</p>
-                <p class="plugins-page__dialog-text">{{ text(TEXT.trust) }}</p>
+                <p v-if="preview.unchecked.length > 0" class="plugins-page__dialog-text" data-plugin-preview-unchecked>{{ text('preview.unchecked', {plugins: list(preview.unchecked)}) }}</p>
+                <p class="plugins-page__dialog-text">{{ text('preview.trust') }}</p>
                 <p class="plugins-page__path">{{ previewPath }}</p>
             </template>
             <template #footer="{cancel}">
-                <Button class="flex-1" variant="secondary" :disabled="busy === 'install'" @click="cancel">{{ text(TEXT.cancel) }}</Button>
-                <Button class="flex-1" :loading="busy === 'install'" data-plugin-install-confirm @click="confirmInstall">{{ preview === null ? "" : text(PREVIEW_TEXT[preview.relation].confirm) }}</Button>
+                <Button class="flex-1" variant="secondary" :disabled="busy === 'install'" @click="cancel">{{ text('dialog.cancel') }}</Button>
+                <Button class="flex-1" :loading="busy === 'install'" data-plugin-install-confirm @click="confirmInstall">{{ preview === null ? "" : text(PREVIEW_KEYS[preview.relation].confirm) }}</Button>
             </template>
         </Dialog>
 
         <Dialog
             :model-value="uninstallOpen"
             size="sm"
-            :title="text(TEXT.uninstallTitle)"
+            :title="text('uninstall.title')"
             :busy="busy !== null && busy.startsWith('uninstall:')"
             @update:model-value="closeUninstall"
         >
-            <p class="plugins-page__dialog-text">{{ uninstalling === null ? "" : format(TEXT.uninstallBody, {id: uninstalling.id}) }}</p>
+            <p class="plugins-page__dialog-text">{{ uninstalling === null ? "" : text('uninstall.body', {id: uninstalling.id}) }}</p>
             <template #footer="{cancel}">
-                <Button class="flex-1" variant="secondary" :disabled="busy !== null" @click="cancel">{{ text(TEXT.cancel) }}</Button>
-                <Button class="flex-1" variant="danger" :loading="busy !== null && busy.startsWith('uninstall:')" data-plugin-uninstall-confirm @click="confirmUninstall">{{ text(TEXT.uninstall) }}</Button>
+                <Button class="flex-1" variant="secondary" :disabled="busy !== null" @click="cancel">{{ text('dialog.cancel') }}</Button>
+                <Button class="flex-1" variant="danger" :loading="busy !== null && busy.startsWith('uninstall:')" data-plugin-uninstall-confirm @click="confirmUninstall">{{ text('row.uninstall') }}</Button>
             </template>
         </Dialog>
     </div>

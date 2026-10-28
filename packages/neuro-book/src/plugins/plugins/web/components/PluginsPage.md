@@ -1,5 +1,5 @@
 ---
-标签: [state:local, env:portal]
+标签: [state:local, state:inject, env:portal]
 别名: ["插件页", "插件管理", "Plugins"]
 ---
 
@@ -43,7 +43,7 @@ import type {PluginsRegistry} from "../../shared/contracts";
 type Props = {
     /** `nbook.plugins/registry` 合同的六个方法（浏览器入口经 `context.remote.use` 取得的客户端）。必填。 */
     registry: PluginsRegistry;
-    /** 显示语言。必填。 */
+    /** 显示语言，只用来按语言连接列表（`Intl.ListFormat`）；文字经注入的翻译端口取，两者由宿主从同一个语言来源给。必填。 */
     locale: DisplayLocale;
     /** 本窗口的插件问题与变化通知（宿主能力 `window.plugins` 的那两项）；不给时只显示 `list` 带来的服务端问题。 */
     windowPlugins?: Pick<WindowPlugins, "problems" | "onChange"> | null;
@@ -64,6 +64,7 @@ type Props = {
 ## 隐藏通道理由
 
 - `state:local`：列表、读取状态、输入框、两个对话框的开合与预览、进行中的操作与最近一次失败。
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，页面的文字都在本插件的目录（命名空间 `nbook.plugins`，`../../locales/`）；语言随端口切换，不重新挂载。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。
 - `env:portal`：来自 `Dialog`。
 
 ## 注意事项

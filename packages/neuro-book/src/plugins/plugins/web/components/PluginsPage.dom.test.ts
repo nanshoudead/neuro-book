@@ -8,7 +8,10 @@ import {flushPromises, mount} from "@vue/test-utils";
 import type {VueWrapper} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
+
 import type {InstallPreview, PluginListEntry, PluginListItem, PluginProblem, PluginsRegistry} from "../../shared/contracts";
+import {pluginsCatalogs} from "../text";
 import PluginsPage from "./PluginsPage.vue";
 
 const mounted: VueWrapper[] = [];
@@ -109,7 +112,9 @@ function registry(initial: PluginListEntry[], options: {readonly safeMode?: bool
 }
 
 async function open(client: Registry, locale: "zh-CN" | "en-US" = "zh-CN", windowPlugins: {problems(): ReadonlyArray<PluginProblem>; onChange(listener: () => void): () => void} | null = null) {
-    const wrapper = mount(PluginsPage, {props: {registry: client, locale, windowPlugins}, attachTo: document.body});
+    // 页面的文字来自窗口的翻译端口：用宿主引擎登记本插件的目录，语言与 `locale` 属性同一个来源。
+    const port = testTextPort(locale, {"nbook.plugins": pluginsCatalogs});
+    const wrapper = mount(PluginsPage, {props: {registry: client, locale, windowPlugins}, attachTo: document.body, global: {provide: provideText(port)}});
     mounted.push(wrapper);
     await flushPromises();
     return wrapper;
@@ -308,6 +313,25 @@ describe("PluginsPage", () => {
         expect(items).toEqual(["example.panel（main）：依赖的插件不可用", "example.reader（main和ui）：要求版本 ^1.0.0"]);
         expect(document.querySelector("[data-plugin-preview-unchecked]")?.textContent).toContain("example.broken");
         expect((document.querySelector("[data-plugin-install-confirm]") as HTMLButtonElement | null)?.disabled).toBe(false);
+    });
+
+    it("英文界面：文字取英文目录，数量徽标按英文的复数形取，列表按英文连接", async () => {
+        const failed: PluginProblem = {kind: "entry-failed", plugin: "example.hello", entry: "server", location: "server", stage: "activate", reason: "activation-threw", message: "boom"};
+        const fake = registry([BUILTIN, {...HELLO, problems: [failed]}], {preview: {
+            id: "example.hello",
+            version: "2.0.0",
+            installed: "1.0.0",
+            relation: "upgrade",
+            blocked: [{plugin: "example.reader", entries: ["main", "ui"], reason: "version-mismatch", range: "^1.0.0"}],
+            unchecked: [],
+        }});
+        const wrapper = await open(fake.client, "en-US");
+        expect(row("nbook.settings").textContent).toContain("Built-in");
+        expect(row("example.hello").querySelector("[data-plugin-problems=entries]")?.textContent).toContain("1 entry point(s) not running");
+        expect([...row("example.hello").querySelectorAll("[data-plugin-problem-line]")].map((line) => line.textContent)).toEqual(["Entry server (server) failed to activate: boom"]);
+        await submitPath(wrapper, "/plugins/new");
+        expect(document.querySelector("[role=dialog]")?.textContent).toContain("Upgrade plugin");
+        expect([...document.querySelectorAll("[data-plugin-preview-blocked-item]")].map((item) => item.textContent)).toEqual(["example.reader (main and ui): requires version ^1.0.0"]);
     });
 
     it("失败按码显示：清单无效带出错字段；只说原因的码不重复详情；不认识的码给通用文字与路由层的说明", async () => {
