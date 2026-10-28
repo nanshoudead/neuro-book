@@ -1,0 +1,74 @@
+第 7 片 editor 插件（nbook.editor）迁移交付报告
+
+结论：src/plugins/editor/ 的双语内联文字、messages 表与取文字函数、.vue 里写死的文字已迁到插件目录；验证全过。未提交。
+范围外的共享代码（src/ui、src/shared）未改。
+
+== 验证（工作区 .worktree/w00028-i18n，packages/neuro-book；仓库根）==
+- bun run typecheck：通过（tsc、vue-tsc 两个 tsconfig 全部 exit 0）
+- bun run test:bun：1593 pass / 0 fail（178 个文件）
+- bunx vitest run --testTimeout=30000：65 个文件 380 个用例全过。注意：中途有一次整轮 1 个失败是 index.dom.test.ts 的“每个场景登记 input”
+  （已修，见决定点 5）；之后又有一次整轮 1 个失败我没看清是哪一个，再连续跑两次整轮全过（日志 /tmp/w00028-t03/7e/vitest.log、vitest2.log），未追查。
+- 仓库根 bun scripts/ci/message-catalogs.ts：exit 0；bun run docs:check：failures 为空；bun run governance:check：failures 为空
+- 未跑：e2e（lab-editor.e2e.ts、editor-area.e2e.ts 等断言中文，文字未变，没有对 EditorArea 场景输入 locale 的引用）；没拍 Lab 截图。
+
+== 改动 ==
+目录：src/plugins/editor/locales/{zh-CN,en-US}.json，153 个键（复数键 3 个：status.unsaved、status.more、status.words；
+中文只有 _other，英文 _one 与 _other 同文）。
+新增：shared/text.ts（editorText、EditorTextKey）、web/text.ts（editorCatalogs）、locales.test.ts、
+  lab/web/fixtures/editor-scene/editor-text.ts（provideEditorText：Lab 夹具自己的宿主引擎端口）。
+删除：web/messages.ts（旧双语表与 editorText 取文字函数）；其中的 nameOf 搬到 web/documents/address.ts（它是地址处理，不是文字）。
+声明：命令、状态栏条目、编辑器声明（Markdown 与源码）、设置分区/设置项/选项、公开状态的 reason、语言 plaintext 的显示名
+  全部按约定键；必填 title 省略（用 Written 类型），category、description、reason 与 quickPick 等显式写 editorText 引用。
+  web/editors.ts 新增 completedBuiltinEditors()（按登记补全规则补出内置两个编辑器的 title），BUILTIN_CATALOG 与测试用它，不再手写标题。
+运行期：empty-tips.ts、tab-label.ts、tab-menu.ts、title-actions.ts、status-items.ts、commands.ts、state.ts、pages.ts 改收 TextResolver
+  或经 useText()；status-items 去掉 locale 参数；EditorPageRegistry 去掉 locale 参数，页面加载中/失败两个小组件改用 useText()。
+.vue：EditorArea、EditorGroup、EditorBreadcrumbs 删掉仅用于取文字的 locale 属性，改用 useText()；EditorGroup 交给控件的 locale
+  属性取自 port.locale.value（控件合同 EditorControlProps.locale 保留，别的插件的控件在用）。MonacoControl 未改。
+.md：三个组件加 state:inject 并写“隐藏通道理由”，删掉 Props 里的 locale。
+登记：src/web/plugins.ts 的 builtinPluginCatalogs 加 "nbook.editor"；scripts/ci/message-catalogs.ts 的 CATALOG_DIRECTORIES 加 editor/locales。
+测试：locales.test.ts（LEGACY 表取自 git HEAD 660293339 的字面量，双向键集、逐字值、复数键、数字参数经引擎格式化、命名空间；
+  变异自检做过：改一个英文值后测试失败，已还原）。area.test、editors.test 用 completedBuiltinEditors；empty-tips.test、tab-menu.test、
+  title-actions.test、status-items.test 改经 testTextPort（status-items 的语言切换用宿主引擎的 setLocale，验证 5 字 -> 5 words）；
+  EditorBreadcrumbs.dom.test、pages.dom.test 经 provideText 注入端口，断言文字从目录取。
+Lab：EditorAreaFixture 用 provideEditorText(props.scene)（场景 id 为 english 用英文，其余中文），空态三行提示也走目录；
+  fixtures/index.ts 的 EditorArea 场景去掉 locale 输入。
+
+== 没迁移的（列给主会话）==
+1. 单语中文的运行期文字（不是双语表，也没有取文字函数，原来就只有中文）：
+   - web/area.ts：area.notice 文字（上次编辑的片段已不在原处、有未裁决的输入、写不回 Markdown 的两句，显示在编辑器区顶部提示条）、
+     refusal() 与各动作返回的 CommandResult.reason（约 40 处，如“编辑器已关闭”“标签已关闭”）；
+   - web/commands.ts：各命令的 unavailable/reason（约 25 处）；web/editors.ts 的 editorRefusal；web/plugin.ts 的 area.notify
+     （继续写作只能打开项目里的文件）；web/documents/store.ts 的 LOST_FORMAT（格式丢了的提示）；MonacoControl.vue 的两条 reason。
+   这些要让 area（纯 TS、被很多测试直接创建）和命令工厂收 TextResolver，范围和风险都大于“按键迁字面量”，且原文无英文版，
+   需要开发者决定要不要做、英文怎么写。notice 是用户能看到的文字，建议优先。
+2. 诊断与校验文字（diagnostics.record 的 message、shared/contracts.ts 的 validate 返回的拒绝原因、languages.ts 的 throw Error）：开发者向的诊断，不是界面文字。
+3. shared/settings.ts 的 ui.unit {"zh-CN": "像素", "en-US": "px"}：设置窗口把 ui 提示原样交给 nb-form，FormText 装不下 TextRef，保持双语字面量
+   （试点 settings 的 choices.ts 同样处理）；已在代码旁写了原因。
+4. 旧表中的死条目未迁移：messages.close（关闭）、messages.preview（预览）从未被引用，没有迁。
+5. src/ui、src/shared 里没有属于 editor 的文字，未动。
+
+== 给主会话的决定点 / 没把握的 ==
+1. 数字格式：旧代码用 Intl.NumberFormat(locale) 先格式化再填（1,234）。迁移后目录里写 {{count, number}}、{{line, number}}，宿主引擎（i18next）
+   按语言格式化，locales.test.ts 验证 1,234,567 字 / 1,234,567 words。但 nb-ui 的 createMinimalTranslator（无宿主时的缺省端口）只认
+   {{name}}，不认 {{name, number}}，会原样显示占位符；与 Spec i18n 输出 9“宿主引擎与最小翻译器对同一目录结果相同”有出入。生产窗口总有宿主引擎，
+   只有没引擎的测试场地会碰到（那里本来就没有目录，只显示键名）。是否让 nb-ui 的最小翻译器也支持 number，或目录改用普通 {{count}}
+   放弃千分位，需开发者决定（动 nb-ui 属共享代码，我没改）。
+2. 控件合同的 locale：docs/specs/workbench/editor.md 第 89 行写控件属性为 {binding, host, readonly, visible, label, locale}，“locale 是界面语言，
+   控件自己显示的说明按它取”。我保留了这个属性（别的插件的控件在用），Spec 没有过时，所以没有改 docs/specs。
+3. 约定键强制命令、状态栏条目、编辑器各一份键；同一个旧字面量在多处出现时共用一键或各一键，键数为 153，和旧字面量表一一对应。
+   tab 菜单的“关闭/复制路径”等与命令标题是两份键（同 explorer 的做法）。
+4. banner.unrepresentable 与 banner.unrepresentableExcerpt 的 {excerpt} 是把后者翻译结果当参数传入（与旧实现一致）。
+5. Lab 的 EditorArea 场景：去掉 locale 后组件在注册表里没有可登记的 JSON 输入，index.dom.test 的“每个场景登记 input”会报“input 不能是空对象”。
+   我让夹具把多行标签 wrapTabs（EditorArea 本来就有的属性，缺省 true）从输入转给 EditorArea，场景输入写 {props: {wrapTabs: true}}，行为不变。
+   另一种做法是给 EditorArea 声明 noInput，但类型上要求组件没有 JSON 数据属性，EditorArea 有 wrapTabs/breadcrumbs/workTitle，通不过。
+6. tab-menu.test.ts 里“（禁用）”后缀是测试自己的 labels() 辅助写的，不是产品文字。title-actions.test.ts 里的命令标题（向右拆分等）是测试里自建命令的
+   声明，不是产品文字，保持字面量。
+7. 没发现旧文字的错字。
+8. 区别于 explorer：这里 plugin.ts 只建一个端口（windowTextPort）分给命令、状态栏、标签菜单与标题动作，没有为组件另建。
+
+== 禁止清单自查 ==
+- 没按错误文案分支；没有静默 catch（本次没新增 catch）。
+- 没跳过/放宽测试：中文断言改经目录取，断言的结构不变；没有测试专用分支；没用 mock/spy/假计时器/固定等待（语言切换用 setLocale）。
+- 没删改任务外代码、配置、注释；web/messages.ts 里的 nameOf 搬走而不是删掉。
+- 没有第二条路径：旧表与 getter 全部删除，grep 确认无残留引用。
+- 没跨包深导入；没有 rm -rf；没 commit/push/stash。
