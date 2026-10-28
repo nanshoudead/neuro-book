@@ -70,6 +70,16 @@ describe("请求与回复", () => {
         expect(user).toContain("e1-1｜person");
     });
 
+    test("本章才成立的称呼不拿去找前文：同样的字碰巧出现在前面的章里，不算它此前的出场", async () => {
+        const sample = upTo(await sampleDataset(), 3);
+        const coincidence = sample.sources[0]!.paragraphs[1]!.slice(0, 6);
+        const target = sample.entities.find(entity => entity.id === "e3-2")!;
+        const renamed = {...target, names: [...target.names, {text: coincidence, at: {chapter: 3, paragraph: 1}, primary: false}]} as Entity;
+        const user = personaRequest({...sample, entities: sample.entities.map(entity => (entity.id === "e3-2" ? renamed : entity))}, renamed, 3);
+        const history = user.slice(user.indexOf("【第 3 章之前提到它的段落】"), user.indexOf("【第 3 章原文】"));
+        expect(history).not.toContain(coincidence);
+    });
+
     test("不成形：不是对象、verdict 不是三者之一；其余字段缺了按空处理", () => {
         expect(parseVerdict("same")).toBeNull();
         expect(parseVerdict({verdict: "maybe"})).toBeNull();

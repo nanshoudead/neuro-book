@@ -241,6 +241,7 @@ function chapterRun(options: JobOptions, chapter: number, checkStop: () => void,
             checkStop();
             options.onEvent({type: "step", chapter, step});
         },
+        beforeRequest: () => checkStop(),
         onRetry: (step, info) => options.onEvent({type: "retry", chapter, step, attempt: info.attempt, waitMs: info.waitMs, message: info.error.message}),
         // 坏回复只是诊断：留不下来（只读目录、磁盘满）时写一行到标准错误，不让抽取失败，也不让错误信息指向不存在的文件。
         onBadReply: async record => {

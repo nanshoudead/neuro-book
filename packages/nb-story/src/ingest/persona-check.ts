@@ -82,10 +82,11 @@ const entityLine = (entity: Entity, chapter: number) => `${entity.id}｜${entity
 /** 问一个马甲的用户消息。`dataset` 是加上本章草稿编出的书（原文只到本章），材料都截至本章。 */
 export function personaRequest(dataset: Dataset, persona: Entity, chapter: number): string {
     const statements = dataset.statements.filter(statement => statement.about.includes(persona.id) || statement.source.by === persona.id);
-    const names = visibleNames(persona, chapter).filter(name => name.length >= 2 && !isGenericName(name));
     const keys = new Set<string>();
     for (const source of dataset.sources) {
         if (source.chapter >= chapter) continue;
+        // 只用在这一章或之前就成立的称呼去找：本章才登记的称呼碰巧在前文出现过（例如章标题），不是它此前的出场。
+        const names = visibleNames(persona, source.chapter).filter(name => name.length >= 2 && !isGenericName(name));
         source.paragraphs.forEach((text, index) => {
             if (!names.some(name => text.includes(name))) return;
             for (let paragraph = index; paragraph <= index + 2; paragraph++) if (paragraph >= 1 && paragraph <= source.paragraphs.length) keys.add(`${source.chapter}.${paragraph}`);

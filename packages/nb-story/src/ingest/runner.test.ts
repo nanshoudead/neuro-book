@@ -663,6 +663,15 @@ describe("用量与用时（输出 13）", () => {
 });
 
 describe("马甲核对（输出 20）", () => {
+    test("核对请求一直 503：重试用完以 model_failed 停下，这一章不提交，已提交的章保留", async () => {
+        const env = await setup("persona-503", key => (key.step === "persona" ? {kind: "status", status: 503} : undefined));
+        const run = await env.start({text: await sampleSourceText(5), personaCheck: true, autoResume: 0, timing: {delaysMs: {network: [1, 1, 1, 1, 1]}}});
+        const outcome = await run.runner!.done;
+        expect(outcome.kind === "failed" && outcome.code).toBe("model_failed");
+        expect(env.played.seen.filter(key => key.step === "persona" && key.chapter === 3).length).toBe(6);
+        expect((await ingestStatus(env.library, run.plan.id))?.committed).toBe(2);
+    }, 120_000);
+
     test("第 3 章核对风信子时停下：这一章不提交；接着抽时重新问，候选身份说法只写一次，之后的章不再问它；用量记在核对这一步", async () => {
         const sample = await sampleDataset();
         const last = sample.sources[2]!.paragraphs.length;

@@ -63,6 +63,11 @@ export interface ChapterRun {
     delaysMs?: CallOptions["delaysMs"];
     /** 每一步开始时调用。 */
     onStep?: (step: Step) => void;
+    /**
+     * 每个逻辑请求发出之前调用（含不成形后的重发），抛出就不发：停止检查挂在这里。`onStep` 只在一步开始时调用一次，
+     * 马甲核对一章问几个马甲只报一次步骤，所以停止不能只靠它（实现审查第 1 条）。
+     */
+    beforeRequest?: (step: Step) => void;
     /** 每次 HTTP 尝试发出之前调用（用来记“发出过”）。 */
     onAttemptStart?: (step: Step, attempt: number) => void | Promise<void>;
     /** 每次 HTTP 尝试结束时调用（成功或失败），用来记用量。 */
@@ -134,6 +139,7 @@ function asker(run: ChapterRun, chapter: number): Ask {
         if (extra.announce !== false) run.onStep?.(step);
         const replies: BadReplyRecord["replies"] = [];
         for (let round = 1; ; round++) {
+            run.beforeRequest?.(step);
             const reply = await callModel(endpoint, {
                 system: systemPrompt, user, effort, signal: run.signal, sleep: run.sleep, fetch: run.fetch, delaysMs: run.delaysMs,
                 // 请求头里的身份：章、步骤、这一步的第几次（不成形时重发算下一次；渠道重发不变）。
@@ -257,7 +263,8 @@ export async function extractChapter(input: ChapterInput, run: ChapterRun): Prom
         }
         await patchWith("repair", state.problems.map((problem, index) => `C${index + 1} [结构] ${problem.message}`));
     }
-    const personas = run.personaCheck ? await checkPersonas() : null;
+    const checked = run.personaCheck ? await checkPersonas() : null;
+    const personas = checked?.outcome ?? null;
     const removedNote = [
         removed.ledger ? `${removed.ledger} 条数值记录` : "",
         removed.secrets ? `${removed.secrets} 个秘密` : "",
@@ -265,7 +272,8 @@ export async function extractChapter(input: ChapterInput, run: ChapterRun): Prom
         removed.secretRefs ? `${removed.secretRefs} 条说法上的秘密` : "",
     ].filter(Boolean);
     if (removedNote.length) notes.push(`按书的设置去掉了 ${removedNote.join("、")}`);
-    const final = input.compileWith(draft);
+    // 马甲核对最后编出的就是这份草稿（没写下时是它开头编的那份）：直接用，不再编一遍。
+    const final = checked?.compiled ?? input.compileWith(draft);
     const errors = chapterIssues(final.issues, chapter).filter(issue => issue.level === "error");
     if (errors.length) throw new IngestBadReply("repair", `第 ${chapter} 章仍有错误：${errors.map(issue => issue.message).join("；")}`);
     return {draft, recall, notes, rounds, dropped, remaining: final.issues.filter(issue => issue.chapter === chapter), dataset: final.dataset, issues: final.issues, personas};
@@ -274,9 +282,10 @@ export async function extractChapter(input: ChapterInput, run: ChapterRun): Prom
      * 马甲核对（输出 20）：用丢弃之后的草稿编出的书选马甲、逐个问；写下的说法加进 `draft`，加进去后编译出错或称呼剧透就去掉。
      * 一个马甲的回复两次不成形只跳过它，不让这一章失败；渠道失败与停止照常往外抛（输出 9、11）。
      */
-    async function checkPersonas(): Promise<PersonaOutcome> {
+    async function checkPersonas(): Promise<{outcome: PersonaOutcome; compiled: CompileResult}> {
         const outcome: PersonaOutcome = {asked: [], linked: [], notPersona: []};
-        const view = input.compileWith(draft).dataset;
+        let current = input.compileWith(draft);
+        const view = current.dataset;
         const picked = pickPersonas(view, chapter, paragraphs, run.personaCheck!);
         const end = {chapter, paragraph: paragraphs.length};
         for (const [index, persona] of picked.entries()) {
@@ -309,9 +318,10 @@ export async function extractChapter(input: ChapterInput, run: ChapterRun): Prom
                 continue;
             }
             draft = candidate;
+            current = compiled;
             outcome.linked.push(persona.id);
         }
-        return outcome;
+        return {outcome, compiled: current};
     }
 }
 

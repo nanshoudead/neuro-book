@@ -677,6 +677,19 @@ describe("马甲核对（输出 20）", () => {
         expect(broken.results[2]!.personas?.linked).toEqual([]);
     }, 60_000);
 
+    test("每个核对请求发出前都检查停止：检查抛出就不发，错误照常往外抛", async () => {
+        const sample = await sampleDataset();
+        const played = replay(await loadReplay(), key => (key.step === "persona" ? json({verdict: "unknown"}) : undefined));
+        const served = serve(played.responder, () => played.seen.at(-1));
+        class Halt extends Error {}
+        const run: ChapterRun = {...served.run, personaCheck: EMPTY_HISTORY, beforeRequest: step => {
+            if (step === "persona") throw new Halt("停止");
+        }};
+        const outcome = await extractBook(sample, 3, run).then(() => null, (error: unknown) => error);
+        expect(outcome instanceof Halt).toBe(true);
+        expect(played.seen.filter(key => key.step === "persona")).toEqual([]);
+    }, 60_000);
+
     test("关着：不发这一步的请求", async () => {
         const run = await throughThree(null);
         expect(run.asked).toEqual([]);
