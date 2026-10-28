@@ -241,7 +241,7 @@
     },
     "packages/nb-harness": {
       "name": "@notnotype/nb-harness",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@notnotype/nb-profile": "workspace:^",
         "@notnotype/nb-session": "workspace:^",
@@ -335,7 +335,7 @@
     },
     "packages/nb-runtime": {
       "name": "@notnotype/nb-runtime",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "typebox": "^1.3.6",
       },
@@ -358,7 +358,7 @@
     },
     "packages/nb-story": {
       "name": "@notnotype/nb-story",
-      "version": "0.1.1",
+      "version": "0.2.1",
       "bin": {
         "nbstory": "./src/cli.ts",
       },
@@ -458,7 +458,7 @@
     },
     "packages/neuro-book": {
       "name": "@notnotype/neuro-book",
-      "version": "0.1.0",
+      "version": "0.11.1",
       "dependencies": {
         "@notnotype/nb-form": "workspace:*",
         "@notnotype/nb-markdown": "workspace:*",
