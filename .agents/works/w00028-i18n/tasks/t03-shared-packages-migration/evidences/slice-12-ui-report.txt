@@ -1,0 +1,71 @@
+# w00028 t03 共享包片：nb-ui 组件写死的中文默认文案迁入 nb-ui 目录 —— 交付报告
+
+工作区：/home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n（分支 feat/w00028-i18n，HEAD e1cc7b22b），未提交、未切分支、未 stash。
+
+## 改动
+
+目录与端口
+- packages/nb-ui/src/locales/zh-CN.ts、en-US.ts：从空目录填成 33 个键（zh、en 各 33 叶，没有复数键）。分组：alertDialog、banner、breadcrumb、codeBlock、colorPicker、colorSwatches、dialog、emptyState、floatingWindow、infoTip、input、notification、numberInput、searchSelect、slider、spinner、splitter、table、tabs、toolbar。
+- src/locales/index.ts：新增 `NbUiTextKey`（从中文目录推出的键类型，复数形归到不带后缀的键，写法同 nb-form 的 FormTextKey）与 `uiRef(key, params)`。
+- src/text-port/index.ts：新增 `useUiText()`，返回 `(key, params?) => string`，每次调用读端口当前语言（放进 computed 或模板里换语言会更新）。
+- src/composables/useFloatingWindow.ts：缩放手柄的 `label: string` 改为 `labelKey: NbUiTextKey`（该常量只有 Dialog 用，没有别的引用）；Dialog 渲染时 `text(handle.labelKey)`。
+
+组件（20 个 .vue，把 `withDefaults` 里写死的中文缺省去掉，改成 `computed(() => props.x ?? text("键"))`；显式传属性（含空串）以属性为准，行为不变）
+- display：EmptyState、Table、Spinner、CodeBlock
+- feedback：Banner、Dialog、AlertDialog、InfoTip、Notification、NotificationStack（只去掉缺省，把 undefined 传给 Notification，由它取）
+- form：Input、NumberInput、Slider、SearchSelect、ColorSwatches、ColorPickerPanel（内部部件，两个读屏名）
+- controls：Tabs（“更多”的文字换了要重新量，所以把 moreText 加进 adapt 的重新测量监听）、Toolbar
+- navigation：Breadcrumb
+- layout：Splitter（分隔线 aria-label 与 aria-valuetext）
+- composables/useFloatingWindow.ts（见上）
+
+文档
+- 19 个组件 `.md`：frontmatter 补 `state:inject`（已有的不重复），“隐藏通道理由”新增（或追加）一条“翻译端口”的理由；数据段里“默认 "关闭"”这类行改为“缺省按界面语言取（中文 "关闭"）”。Slider.md、Splitter.md 同步。ColorPickerPanel 无自己的 .md，理由写在 ColorSwatches.md。
+- docs/specs/ui/i18n.md 输出 8：补“共享包的缺省端口只含自己的目录（以及它依赖的 nb-ui 目录）……组件缺省文案取自本包目录，显式传属性以属性为准”。
+- packages/nb-ui/README.md “Interface text”一节：写明组件默认文案走端口、宿主可覆盖（传属性）、`useUiText()`。
+
+测试
+- src/locales/locales.test.ts（新）：“文字没变”——33 条 LEGACY 对照表（旧字面量逐字抄自 HEAD e1cc7b22b 的对应文件，行末注明出处与旧写法），严格模式最小翻译器翻 zh-CN 与之逐字比较；目录键集与对照表互查；en-US 与 zh-CN 键集、占位符一致且非空。
+- src/components/default-text.test.ts（新）：23 个用例 × （没有宿主是中文、注入 en-US 端口是英文、显式传属性以属性为准）共 65 条，加一条“端口换语言后文案更新、同一个 DOM 元素不重挂”。覆盖 Banner、Spinner、EmptyState、Table、CodeBlock×2、Toolbar、Breadcrumb、Input、NumberInput、Slider、InfoTip、Notification×2、NotificationStack、Dialog×4（页脚按钮、关闭按钮、无标题、浮动窗口缩放手柄）、AlertDialog、Splitter、ColorSwatches、SearchSelect。没有 mock/spy/假计时器/固定等待。
+
+## 键数
+nb-ui 目录：33 个键（zh-CN 33 叶、en-US 33 叶）。
+
+## 新写的英文（原来不存在，请审阅）
+alertDialog.title "Confirm action"；alertDialog.confirm "OK"；alertDialog.cancel "Cancel"
+banner.close "Close"；breadcrumb.label "Breadcrumb"
+codeBlock.empty "No content"；codeBlock.truncated "Only part of the content is shown"
+colorPicker.value "Color value"；colorPicker.presets "Preset colors"；colorSwatches.label "Color"
+dialog.untitled "Dialog"；dialog.cancel "Cancel"；dialog.confirm "Confirm"；dialog.close "Close"
+emptyState.title "No data"
+floatingWindow.resizeWidth "Resize window width"；resizeHeight "Resize window height"；resize "Resize window"
+infoTip.label "Info"；input.clear "Clear input"
+notification.close "Dismiss notification"；notification.inProgress "In progress"
+numberInput.increase "Increase"；numberInput.decrease "Decrease"
+searchSelect.empty "No matching options"
+slider.thumb "Slider {{index}}"；spinner.loading "Loading"
+splitter.resizeWidth "Resize width between {{before}} and {{after}}"；splitter.resizeHeight "Resize height between {{before}} and {{after}}"；splitter.collapsed "Collapsed"；splitter.pixels "{{size}} pixels"
+table.empty "No data"；tabs.more "More"；toolbar.label "Toolbar"
+
+## 没把握的与待决定
+1. 未迁移、认定为开发者诊断而非界面文案（按简报留在原处）：layout/grid.ts、grid-geometry.ts、grid-snapshot.ts、sash-drag.ts 里 `{ok:false, reason:"…"}` 和 `issues.push(…)` 的中文原因；composables/useGridLayout.ts 的“工作面已切换…”原因、useSashGesture.ts 的两条；components/layout/NestedGrid.vue 向 `issues` 事件发的两句中文（“宿主没有提供 onGestureCommit…”“宿主接纳了这次调整…”）；DropdownMenu.vue 的 console.warn；theme/theme-loader.ts、semver-range.ts 的 throw 文字。其中 grid/NestedGrid 的 issues 会被宿主当作“布局提示”显示给用户吗？从代码推断它们是交给宿主诊断用的（NestedGrid.md 说明为 issues 事件），拿不准；若宿主会直接显示给用户，则需要另做一片。
+2. 简报提到的“Pagination/Tree 的读屏名”：nb-ui 里没有 Pagination；Tree.vue 没有写死的中文文案（只有注释）。
+3. 简报“21 个文件”：实际发现 20 个 .vue + 1 个 .ts（useFloatingWindow）。
+4. 无属性可覆盖的读屏名：Breadcrumb 等原本无属性可覆盖的读屏名（Breadcrumb、Splitter、缩放手柄、进度条取值文字、ColorPickerPanel 两个名称），宿主仍不能“传属性”覆盖（与迁移前相同），只能换目录；.md 里已写明这几处“没有对应的属性，固定走端口”。是否要补属性，由开发者决定（这一片没补）。
+5. 宿主引擎与最小实现对 nb-ui 目录的一致性（输出 9）：应用的 text-engine.test.ts 现有测试只覆盖 nb-form 与 nb-agent-ui 等，没有逐键比对 nb-ui 目录（nb-ui 目录此前是空的）；这一片没有改应用的文件（范围外），建议下一步在 text-engine.test.ts 里补一条同 nb-form 的“输出 9”用例。
+6. `scripts/ci/message-catalogs.ts` 只查 JSON 目录，nb-ui 的 .ts 目录由 locales.test.ts 自查；同上一片的待定事项。
+7. SearchSelect 的缺省“没有匹配的选项”、Tabs 的“更多”现在读端口，应用里传了自己文案属性的地方不受影响（未改应用）。
+8. 未单独断言：Tabs 的“更多”按钮（happy-dom 不排版，adapt 的收起档位无法出现）、ColorPickerPanel 的两个读屏名（需要打开取色面板）；这两处只由目录的“文字没变”测试与 typecheck 覆盖。
+9. Lab（Component Lab）与 e2e 没有跑（简报的验证不含）；Lab 场景不受影响（缺省端口中文）。nb-ui 自己的 playground/e2e 同样没跑。
+10. Dialog 的 `FloatingWindowResizeHandle.label` 改名为 `labelKey` 是类型层面的变化（只有 Dialog.vue 用，没有别的引用，已 grep 确认）；该常量不在包入口导出。
+
+## 验证结果（日志在 /tmp/w00028-t03/12-*.log）
+- packages/nb-ui：`bun run typecheck` 通过（nuxt prepare + vue-tsc 两遍）；`bun run test`（vitest）41 个文件 649 个测试全部通过（新增 locales.test.ts 3 条、default-text.test.ts 66 条）。nb-ui 没有 bun test 文件。
+- packages/neuro-book：`bun run typecheck` 通过；`bun run test:bun` 1615 pass、0 fail；`bunx vitest run --testTimeout=30000` 68 个文件 396 个测试全部通过。
+- nb-form：typecheck 通过；bun test 112 pass，vitest 92 通过。
+- nb-agent-ui：typecheck 通过；bun test 189 pass，vitest 55 通过（日志里的 “error: 回调坏了 / diff 坏了” 是用例故意制造的输出，不是失败）。
+- nb-markdown：typecheck 通过；bun test 264 pass，vitest 120 通过。
+- nb-story：bun test 545 pass、0 fail；typecheck 只有已知的 StoryNetwork.vue TS2307（relations-view.ts，出现在 tsc --noEmit 与 tsconfig.web-test.json 两步）；因为 && 串联，我把其余几步单独跑了：core、web（vue-tsc）、e2e 都是 0 错误。
+- dev-panel：typecheck 通过；`bun test --isolate` 461 pass、0 fail。
+- 仓库根：`bun run docs:check`、`bun run governance:check`、`bun scripts/ci/message-catalogs.ts` 退出码均为 0；governance 本次改动范围内警告为空，另有 296 条存量警告不在范围内。
+- git：没有暂存任何文件。改动：nb-ui 的 20 个 .vue、19 个 .md、useFloatingWindow.ts、locales 三个文件、text-port/index.ts、README.md，加 docs/specs/ui/i18n.md；新增 2 个测试文件。
