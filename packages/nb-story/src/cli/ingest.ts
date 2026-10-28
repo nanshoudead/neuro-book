@@ -19,7 +19,7 @@ import {STEP_NAMES} from "../ingest/chapter";
 import {decodeUtf8, MAX_SOURCE_BYTES} from "../ingest/text";
 import type {BookFeatures} from "../core/dataset";
 import type {Library} from "../core/library";
-import {ingestModel, loadQaConfig, recallModel} from "../qa/config";
+import {ingestModel, loadQaConfig, personaCheckEnabled, recallModel} from "../qa/config";
 import {QaError} from "../qa/errors";
 import {NEXT_STEP, type CliIo} from "./main";
 
@@ -242,6 +242,7 @@ async function run(
         ...(input.features === undefined ? {} : {features: input.features}),
         ...modelChoice(model),
         recall: recall === null ? null : modelChoice(recall),
+        personaCheck: personaCheckEnabled(config),
         runner: "cli",
         ...(input.autoResume === undefined ? {} : {autoResume: input.autoResume}),
         onEvent: event => {

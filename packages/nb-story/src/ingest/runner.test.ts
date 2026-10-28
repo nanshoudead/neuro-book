@@ -48,14 +48,18 @@ async function setup(name: string, override?: (key: ReplayKey, nth: number) => E
     });
     cleanups.push(() => endpoint.stop());
     const api = createStoryApi({library});
-    /** `recall` 给了就开挑相关说法：用同一个端点、另一个模型名与币种，记账看得出是哪一步。 */
-    const start = async (input: {text?: string; title?: string; id?: string; currency?: string; recall?: boolean; autoResume?: number; timing?: StartInput["timing"]; onEvent?: StartInput["onEvent"]}) => {
-        const {currency, recall, ...rest} = input;
+    /**
+     * `recall` 给了就开挑相关说法：用同一个端点、另一个模型名与币种，记账看得出是哪一步。`personaCheck` 给了才开马甲核对
+     * （录下的回放里没有这一步；开着的场景要用 override 给出回复）。
+     */
+    const start = async (input: {text?: string; title?: string; id?: string; currency?: string; recall?: boolean; personaCheck?: boolean; autoResume?: number; timing?: StartInput["timing"]; onEvent?: StartInput["onEvent"]}) => {
+        const {currency, recall, personaCheck, ...rest} = input;
         const result = await startIngest({
             library, ...rest, title: input.title ?? "转生反派萝莉，找茬魔法少女",
             endpoint: {baseUrl: endpoint.url, model: "gpt-6-luna", apiKeyEnv: KEY_ENV, maxTokens: 32_000},
             price: {input: 1, output: 4, cacheRead: 0.02, currency: currency ?? "CNY"},
             recall: recall ? {endpoint: {baseUrl: endpoint.url, model: "recall-model", apiKeyEnv: KEY_ENV, maxTokens: 4_000}, price: {input: 0.5, output: 1, currency: "USD"}} : null,
+            personaCheck: personaCheck ?? false,
             runner: "serve",
         });
         if (result.runner) {
@@ -656,4 +660,39 @@ describe("用量与用时（输出 13）", () => {
         expect(status.allRuns.ms).toBeGreaterThanOrEqual(chapterSum);
         expect(status.average!.ms).toBeCloseTo(chapterSum / 5, 6);
     }, 120_000);
+});
+
+describe("马甲核对（输出 20）", () => {
+    test("第 3 章核对风信子时停下：这一章不提交；接着抽时重新问，候选身份说法只写一次，之后的章不再问它；用量记在核对这一步", async () => {
+        const sample = await sampleDataset();
+        const last = sample.sources[2]!.paragraphs.length;
+        let hold = true;
+        const env = await setup("persona", key => {
+            if (key.step !== "persona") return undefined;
+            if (key.subject === "e3-2" && hold) return hang;
+            const answer = key.subject === "e3-2" ? {verdict: "same", entity: "e1-1", certainty: "candidate", evidence: [`3.${last}`], current: [`3.${last}`], reason: "测试"} : {verdict: "unknown"};
+            return {kind: "text", text: JSON.stringify(answer)};
+        });
+        const text = await sampleSourceText(5);
+        const first = await env.start({text, personaCheck: true});
+        await waitUntil("第 3 章核对风信子", () => env.played.seen.some(key => key.chapter === 3 && key.step === "persona" && key.subject === "e3-2"), {timeoutMs: 60_000});
+        first.runner!.stop();
+        expect(await first.runner!.done).toEqual({kind: "stopped"});
+        expect((await ingestStatus(env.library, first.plan.id))?.committed).toBe(2);
+
+        hold = false;
+        const second = await env.start({text, personaCheck: true});
+        expect(await second.runner!.done).toEqual({kind: "done"});
+        expect(env.played.unknown).toEqual([]);
+        const asked = env.played.seen.filter(key => key.step === "persona" && key.subject === "e3-2").map(key => key.chapter);
+        expect(asked).toEqual([3, 3]);
+
+        const {data} = await readCommitted(env.library, first.plan.id);
+        expect(data.chapters[2]!.personas?.linked).toEqual(["e3-2"]);
+        const written = data.drafts.flatMap(draft => (draft.statements ?? []) as {family: string; about: string[]; certainty?: string}[]).filter(item => item.family === "identity" && item.about.includes("e3-2") && item.about.includes("e1-1"));
+        expect(written.map(item => item.certainty)).toEqual(["candidate"]);
+        // 每次核对请求都记了一行结算，步骤是 persona（第 3 章作废的那一次中止，也记了）。
+        const usage = await new IngestStore(env.library, first.plan.id).readUsage();
+        expect(usage.filter(line => line.kind === "end" && line.step === "persona" && line.chapter === 3).length).toBeGreaterThanOrEqual(2);
+    }, 180_000);
 });

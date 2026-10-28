@@ -8,7 +8,7 @@
 
 import {access} from "node:fs/promises";
 
-import {defaultConfigPath, defaultIngestFallback, LEGACY_PROVIDER_ID, digestBeforeWrite, ingestModel, loadQaConfig, parseModelRef, qaLimits, readQaConfigShape, recallModel, saveQaConfig, type ConfigCatalog, type Effort, type QaConfig} from "../qa/config";
+import {defaultConfigPath, defaultIngestFallback, LEGACY_PROVIDER_ID, digestBeforeWrite, ingestModel, loadQaConfig, parseModelRef, qaLimits, readQaConfigShape, personaCheckEnabled, recallModel, saveQaConfig, type ConfigCatalog, type Effort, type QaConfig} from "../qa/config";
 import {EFFORTS} from "../contract/config-schema";
 import {applyInitAnswers, ConfigEditError, echoable, envNameProblem, setConfigField, unsetConfigField, type InitAnswers} from "../qa/config-edit";
 import {QaError} from "../qa/errors";
@@ -89,6 +89,7 @@ function describe(path: string, config: QaConfig, tools: CatalogTools, env: Node
         `图当目录最多读 ${limits.maxChapters} 章；全读上限 ${limits.fullReadMaxChars} 字`,
         ingestLine(config, env),
         recallLine(config, env),
+        `核对马甲：${personaCheckEnabled(config) ? "开，用抽取模型" : "关"}（ingest.personaCheck.enabled）`,
     ].join("\n");
 }
 

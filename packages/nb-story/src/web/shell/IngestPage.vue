@@ -92,13 +92,13 @@ const tokenText = computed(() => {
 });
 const currentStep = computed(() => status.value?.current?.step ?? null);
 /**
- * 四步（整理时加第五步）与各自的状态：当前一步之前的已做完，之后的还没开始。挑相关说法开着时它在最前，进度里看不出
- * 开没开，所以只在正挑的时候列出来。
+ * 四步（整理时加第五步）与各自的状态：当前一步之前的已做完，之后的还没开始。挑相关说法（在最前）与核对马甲（在四步之后）
+ * 开没开，进度里看不出来，所以只在正做的时候列出来；整理时也不补列核对马甲。
  */
 const stepStates = computed(() => {
     const step = currentStep.value;
     if (step === null) return [];
-    const steps = step === "consolidation" ? [...STEPS, "consolidation" as const] : step === "recall" ? ["recall" as const, ...STEPS] : STEPS;
+    const steps = step === "consolidation" ? [...STEPS, "consolidation" as const] : step === "recall" ? ["recall" as const, ...STEPS] : step === "persona" ? [...STEPS, "persona" as const] : STEPS;
     const index = steps.indexOf(step);
     return steps.map((item, position) => ({step: item, state: position < index ? "done" : position === index ? "current" : "todo"}));
 });

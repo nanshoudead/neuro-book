@@ -18,6 +18,8 @@ const {runner} = await startIngest({
     title,
     endpoint: {baseUrl: url, model: "m", apiKeyEnv: "INGEST_CHILD_KEY", maxTokens: 32_000},
     price: null,
+    // 测试子进程只验提交与锁，不验马甲核对（录下的回放里没有这一步）。
+    personaCheck: false,
     recall: null,
     runner: "cli",
     onEvent: event => {

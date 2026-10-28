@@ -46,7 +46,8 @@ async function setup(override?: (key: ReplayKey, nth: number) => EndpointReply |
     const endpoint: Endpoint = startEndpoint(played.responder);
     cleanups.push(() => endpoint.stop());
     const config = join(dir, "config.json");
-    await writeFile(config, JSON.stringify({model: {baseUrl: endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV, thinking: "high", price: {input: 1, output: 4, currency: "USD"}}}));
+    // 录下的回放里没有马甲核对这一步：公共配置显式关掉，开着的场景单独测（输出 20）。
+    await writeFile(config, JSON.stringify({model: {baseUrl: endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV, thinking: "high", price: {input: 1, output: 4, currency: "USD"}}, ingest: {personaCheck: {enabled: false}}}));
     const library = join(dir, "library");
     const common = ["--library", library, "--config", config];
     return {dir, library, config, played, endpoint, common};
@@ -309,9 +310,30 @@ describe("抽取模型的配置（验收 9，qa 输出 23）", () => {
         expect(await readFile(env.config, "utf8")).toBe(before);
 
         expect((await run(["config", "unset", "ingest.model", ...config])).code).toBe(0);
-        expect(JSON.parse(await readFile(env.config, "utf8")).ingest).toBeUndefined();
+        // 只剩公共配置里关掉马甲核对的那一项。
+        expect(JSON.parse(await readFile(env.config, "utf8")).ingest).toEqual({personaCheck: {enabled: false}});
         expect(await modelOfNextRun(["ingest", "--book", "sample"])).toBe("qa-model");
         expect((await run(["config", "show", ...config])).stdout).toContain("抽取模型：没有单独配置");
+    }, 180_000);
+
+    test("马甲核对默认开（不写这一节时每章核对没连上的马甲）；config set ingest.personaCheck.enabled false 后不再发这一步（输出 20）", async () => {
+        const env = await setup(key => (key.step === "persona" ? {kind: "text", text: JSON.stringify({verdict: "unknown"})} : undefined));
+        const config = ["--config", env.config];
+        const file = join(env.dir, "sample.txt");
+        // 5 章：末章要整理，录下的整理在第 5 章。
+        await writeFile(file, await sampleSourceText(5));
+        expect((await run(["config", "unset", "ingest.personaCheck.enabled", ...config])).code).toBe(0);
+        expect((await run(["config", "show", ...config])).stdout).toContain("核对马甲：开");
+        const on = await run(["ingest", file, "--id", "on", ...env.common]);
+        expect({code: on.code, stderr: on.code === 0 ? "" : on.stderr.slice(-600)}).toEqual({code: 0, stderr: ""});
+        const asked = env.played.seen.filter(key => key.step === "persona").length;
+        expect(asked).toBeGreaterThan(0);
+
+        expect((await run(["config", "set", "ingest.personaCheck.enabled", "false", ...config])).code).toBe(0);
+        expect((await run(["config", "show", ...config])).stdout).toContain("核对马甲：关");
+        expect((await run(["ingest", file, "--id", "off", ...env.common])).code).toBe(0);
+        expect(env.played.seen.filter(key => key.step === "persona").length).toBe(asked);
+        expect(env.played.unknown).toEqual([]);
     }, 180_000);
 
     test("挑相关说法默认关；set ingest.recall.enabled true 后每章先用抽取模型挑（minimal）；整节写 ingest.recall.model 后用它；都去掉后整节消失", async () => {
@@ -347,7 +369,8 @@ describe("抽取模型的配置（验收 9，qa 输出 23）", () => {
         expect((await run(["config", "set", "ingest.recall.enabled", "yes", ...config])).code).toBe(2);
         expect((await run(["config", "unset", "ingest.recall.model", ...config])).code).toBe(0);
         expect((await run(["config", "unset", "ingest.recall.enabled", ...config])).code).toBe(0);
-        expect(JSON.parse(await readFile(env.config, "utf8")).ingest).toBeUndefined();
+        // 只剩公共配置里关掉马甲核对的那一项。
+        expect(JSON.parse(await readFile(env.config, "utf8")).ingest).toEqual({personaCheck: {enabled: false}});
         expect(await chapterTwoFirst(["ingest", "--book", "sample"])).toEqual({step: "beats", model: "qa-model", effort: "minimal"});
     }, 180_000);
 

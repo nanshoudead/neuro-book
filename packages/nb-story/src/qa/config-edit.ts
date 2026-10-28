@@ -50,6 +50,7 @@ export const CONFIG_FIELDS: Readonly<Record<string, FieldSpec>> = {
     "ingest.model.maxTokens": {kind: "integer", required: false},
     "ingest.model.price": {kind: "json", required: false, example: PRICE_EXAMPLE},
     "ingest.recall.enabled": {kind: "boolean", required: false},
+    "ingest.personaCheck.enabled": {kind: "boolean", required: false},
     "ingest.recall.model": {kind: "json", required: false, example: INGEST_MODEL_EXAMPLE},
     "ingest.recall.model.baseUrl": {kind: "text", required: true},
     "ingest.recall.model.id": {kind: "text", required: true},

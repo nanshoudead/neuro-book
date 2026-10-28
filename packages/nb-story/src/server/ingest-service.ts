@@ -24,7 +24,7 @@ import {modelChoice, startIngest} from "../ingest/runner";
 import {planFromText, type IngestPlan} from "../ingest/start";
 import {ingestStatus, ingestStatuses} from "../ingest/status";
 import {decodeUtf8, MAX_SOURCE_BYTES} from "../ingest/text";
-import {ingestModel, loadQaConfig, recallModel, type QaConfig} from "../qa/config";
+import {ingestModel, loadQaConfig, personaCheckEnabled, recallModel, type QaConfig} from "../qa/config";
 import {QaError, type QaErrorCode} from "../qa/errors";
 import {AGENT_SKILL_DIRS, installSkill, SKILL_SOURCE, SkillInstallError, skillTarget, type SkillErrorCode} from "../cli/skill";
 
@@ -114,6 +114,7 @@ export function createIngestService(options: {library: Library; configPath?: str
                 ...(params.features === undefined ? {} : {features: params.features}),
                 ...modelChoice(ingestModel(config)),
                 recall: recall === null ? null : modelChoice(recall),
+                personaCheck: personaCheckEnabled(config),
                 runner: "serve",
             });
         })();

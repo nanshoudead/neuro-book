@@ -317,6 +317,11 @@ export function defaultIngestFallback(config: QaConfig): Omit<IngestModel, "sour
     return {baseUrl: provider.baseUrl, id: modelId, apiKeyEnv: provider.apiKeyEnv, maxTokens: model?.maxTokens ?? DEFAULT_INGEST_MAX_TOKENS, price: model?.price ?? null};
 }
 
+/** 马甲核对（docs/specs/story/ingest.md 输出 20）开不开：默认开，只有写明 `ingest.personaCheck.enabled: false` 才关。 */
+export function personaCheckEnabled(config: QaConfig): boolean {
+    return config.ingest?.personaCheck?.enabled !== false;
+}
+
 /** 挑选相关说法用的模型；没开（默认）时为 null。整节继承：`ingest.recall.model`，没有时用抽取的模型。 */
 export function recallModel(config: QaConfig): RecallModel | null {
     const recall = config.ingest?.recall;
