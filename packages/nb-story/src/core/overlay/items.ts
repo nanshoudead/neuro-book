@@ -11,7 +11,8 @@ import {comparePosition, formatPosition, formatSpan, visibleAt} from "../positio
 import type {Applied} from "./apply";
 import type {OverlayFile, Revision, RevisionOp, RevisionSource} from "./schema";
 
-export type ItemState = "pending" | "adopted" | "rejected" | "closed" | "stale";
+/** `withdrawn` 只出现在写入方法的结果里（刚撤销的修订）；列表不列撤销了的。 */
+export type ItemState = "pending" | "adopted" | "rejected" | "closed" | "stale" | "withdrawn";
 
 export interface RevisionItem {
     /** 待确认与自动关闭的候选是 `st:<说法编号>`，有决定或用户自己的修订是 `r<n>`。 */
@@ -28,7 +29,7 @@ export interface RevisionItem {
     undoable: boolean;
 }
 
-export type ItemCounts = Record<ItemState, number>;
+export type ItemCounts = Record<Exclude<ItemState, "withdrawn">, number>;
 
 export interface ItemList {
     items: RevisionItem[];
@@ -96,7 +97,7 @@ export function listItems(dataset: Dataset, file: OverlayFile | null, resolved: 
 
     items.sort((x, y) => compareRef(x.evidence, y.evidence) || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
     const counts: ItemCounts = {pending: 0, adopted: 0, rejected: 0, closed: 0, stale: 0};
-    for (const item of items) counts[item.state] += 1;
+    for (const item of items) if (item.state !== "withdrawn") counts[item.state] += 1;
     return {items, counts};
 }
 
@@ -108,7 +109,7 @@ function compareRef(a: string, b: string): number {
     return ac - bc || ap - bp;
 }
 
-function summaryOf(revision: Revision, nameAt: (id: string, at: Position, fallback?: string) => string): string {
+export function summaryOf(revision: Revision, nameAt: (id: string, at: Position, fallback?: string) => string): string {
     const at = revision.evidence;
     const anchorName = (index: number): string | undefined => {
         const anchor = revision.anchors[index];

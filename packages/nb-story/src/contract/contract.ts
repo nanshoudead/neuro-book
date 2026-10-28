@@ -76,6 +76,8 @@ const BookInfo = Type.Object({
     /** 这次查询实际用的阅读位置。 */
     at: PositionSchema,
     features: Features,
+    /** 待确认的修订数（按阅读位置算）与对不上、已不套用的数（docs/specs/story/revisions.md）。 */
+    revisions: Type.Object({pending: Type.Integer(), stale: Type.Integer()}),
 });
 
 const BookStats = Type.Object({
@@ -397,6 +399,39 @@ const Storyline = Type.Object({
     dots: Type.Array(Type.Object({episode: Type.String(), title: Type.String(), chapter: Type.Integer(), lane: Type.String()})),
 });
 
+// ---- 图的修订 ----
+
+const RevisionState = oneOf(["pending", "adopted", "rejected", "closed", "stale", "withdrawn"] as const);
+const RevisionSource = oneOf(["persona-check", "extraction", "user", "scan"] as const);
+export const RevisionItemSchema = Type.Object({
+    /** 待确认与自动关闭的候选是 `st:<说法编号>`，有决定或用户自己的修订是 `r<n>`。 */
+    id: Type.String(),
+    op: oneOf(["identity.candidate", "identity.confirm", "identity.reject", "identity.link", "kind.set", "name.move"] as const),
+    state: RevisionState,
+    source: RevisionSource,
+    by: Type.Union([Type.Literal("user"), Type.Literal("auto"), Type.Null()]),
+    summary: Type.String(),
+    evidence: RefSchema,
+    refs: Type.Array(RefSchema),
+    decidedAt: Type.Union([Type.String(), Type.Null()]),
+    undoable: Type.Boolean(),
+});
+const RevisionCounts = Type.Object({pending: Type.Integer(), adopted: Type.Integer(), rejected: Type.Integer(), closed: Type.Integer(), stale: Type.Integer()});
+const RevisionWritten = Type.Object({revision: RevisionItemSchema, version: Type.Integer()});
+const RevisionWriteErrors = {
+    book_not_found: Type.Object({}),
+    book_ambiguous: Type.Object({}),
+    unsupported_format: Type.Object({}),
+    invalid_params: Type.Object({}),
+    revision_target_not_found: Type.Object({}),
+    revision_not_candidate: Type.Object({}),
+    revision_conflict: Type.Object({}),
+    revision_not_found: Type.Object({}),
+    evidence_invalid: Type.Object({}),
+    entity_ambiguous: Type.Object({candidates: Type.Array(Type.Object({id: Type.String(), label: Type.String(), note: Type.String()}))}),
+};
+const WriteBook = {book: BookParams.book};
+
 // ---- 方法清单 ----
 
 const BookErrors = {book_not_found: Type.Object({}), book_ambiguous: Type.Object({}), position_out_of_range: Type.Object({}), invalid_params: Type.Object({})};
@@ -519,6 +554,34 @@ export const STORY_METHODS = {
         errors: BookErrors,
     },
     "graph.storyline": {input: Type.Object({...BookParams}, strict), output: Storyline, effect: "read", errors: BookErrors},
+    "revisions.list": {
+        input: Type.Object({...BookParams, ...PageParams, state: Type.Optional(oneOf(["pending", "adopted", "rejected", "closed", "stale"] as const)), source: Type.Optional(RevisionSource)}, strict),
+        output: Type.Object({items: Type.Array(RevisionItemSchema), total: Type.Integer(), next: Type.Union([Type.String(), Type.Null()]), counts: RevisionCounts}),
+        effect: "read",
+        errors: {...BookErrors, ...PageErrors},
+    },
+    "revisions.evidence": {
+        input: Type.Object({...BookParams, ...PageParams, entity: Type.String({minLength: 1}), text: Type.Optional(Type.String({minLength: 1}))}, strict),
+        output: page(Type.Object({ref: RefSchema, text: Type.String(), names: Type.Array(Type.String())})),
+        effect: "read",
+        errors: {...EntityErrors, ...PageErrors},
+    },
+    "revisions.confirm": {input: Type.Object({...WriteBook, statement: Type.String({minLength: 1})}, strict), output: RevisionWritten, effect: "write", errors: RevisionWriteErrors},
+    "revisions.reject": {input: Type.Object({...WriteBook, statement: Type.String({minLength: 1}), reason: Type.Optional(Type.String({minLength: 1}))}, strict), output: RevisionWritten, effect: "write", errors: RevisionWriteErrors},
+    "revisions.link": {
+        input: Type.Object({...WriteBook, a: Type.String({minLength: 1}), b: Type.String({minLength: 1}), evidence: Type.String({minLength: 1}), certainty: oneOf(["candidate", "certain"] as const)}, strict),
+        output: RevisionWritten,
+        effect: "write",
+        errors: RevisionWriteErrors,
+    },
+    "revisions.kind": {input: Type.Object({...WriteBook, entity: Type.String({minLength: 1}), kind: EntityKindSchema, evidence: Type.String({minLength: 1})}, strict), output: RevisionWritten, effect: "write", errors: RevisionWriteErrors},
+    "revisions.moveName": {
+        input: Type.Object({...WriteBook, text: Type.String({minLength: 1}), from: Type.String({minLength: 1}), to: Type.String({minLength: 1}), evidence: Type.String({minLength: 1})}, strict),
+        output: RevisionWritten,
+        effect: "write",
+        errors: RevisionWriteErrors,
+    },
+    "revisions.undo": {input: Type.Object({...WriteBook, revision: Type.String({minLength: 1})}, strict), output: RevisionWritten, effect: "write", errors: RevisionWriteErrors},
 } as const;
 
 // ---- 抽取（docs/specs/story/ingest.md 的“网页”） ----

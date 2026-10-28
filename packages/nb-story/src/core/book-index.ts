@@ -13,6 +13,7 @@
 
 import type {Arc, Beat, Dataset, Entity, Episode, Knowledge, LedgerEntry, Mention, Position, Question, Secret, SourceChapter, Span, Statement, Summary, TimeAnchor} from "./dataset";
 import type {BookMeta, Library} from "./library";
+import {readOverlay} from "./overlay/store";
 import {applyOverlay} from "./overlay/apply";
 import type {Applied} from "./overlay/apply";
 import type {OverlayFile} from "./overlay/schema";
@@ -231,14 +232,16 @@ const cache = new Map<string, BookIndex>();
 export async function openBookIndex(library: Library, bookId: string): Promise<BookIndex> {
     const pinned = await library.pinBook(bookId);
     try {
-        const key = `${library.root}\u0000${bookId}\u0000${pinned.meta.generation}\u0000${pinned.meta.revision}`;
+        // 修订文件在固定一代之后读，只认这一代的文件（overlay/store.ts）；它的版本进缓存键。
+        const overlay = await readOverlay(library.bookDir(bookId), pinned.meta.generation);
+        const key = `${library.root}\u0000${bookId}\u0000${pinned.meta.generation}\u0000${pinned.meta.revision}\u0000${overlay?.version ?? 0}`;
         const cached = cache.get(key);
         if (cached) {
             cache.delete(key);
             cache.set(key, cached);
             return cached;
         }
-        const index = buildBookIndex(pinned.meta, await pinned.readDataset());
+        const index = buildBookIndex(pinned.meta, await pinned.readDataset(), overlay);
         cache.set(key, index);
         while (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value!);
         return index;
