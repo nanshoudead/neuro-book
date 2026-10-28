@@ -12,6 +12,7 @@
  */
 
 import type {Arc, Beat, Dataset, Entity, Episode, Knowledge, LedgerEntry, Mention, Position, Question, Secret, SourceChapter, Span, Statement, Summary, TimeAnchor} from "./dataset";
+import {StoryError} from "./errors";
 import type {BookMeta, Library} from "./library";
 import {readOverlay} from "./overlay/store";
 import {applyOverlay} from "./overlay/apply";
@@ -233,7 +234,11 @@ export async function openBookIndex(library: Library, bookId: string): Promise<B
     const pinned = await library.pinBook(bookId);
     try {
         // 修订文件在固定一代之后读，只认这一代的文件（overlay/store.ts）；它的版本进缓存键。
-        const overlay = await readOverlay(library.bookDir(bookId), pinned.meta.generation);
+        // 修订文件的格式版本不认识时只读：按没有修订打开原来的图（写入类方法在 store 里得到 unsupported_format）。
+        const overlay = await readOverlay(library.bookDir(bookId), pinned.meta.generation).catch((error: unknown) => {
+            if (error instanceof StoryError && error.code === "unsupported_format") return null;
+            throw error;
+        });
         const key = `${library.root}\u0000${bookId}\u0000${pinned.meta.generation}\u0000${pinned.meta.revision}\u0000${overlay?.version ?? 0}`;
         const cached = cache.get(key);
         if (cached) {

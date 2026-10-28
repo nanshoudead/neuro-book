@@ -3,7 +3,7 @@
  */
 
 import type {StoryParams, StoryResult} from "../../contract/contract";
-import type {Facet} from "../dataset";
+import type {Facet, Statement} from "../dataset";
 import {formatPosition, formatSpan} from "../position";
 import type {VisibleEntity} from "../projection";
 import {compareText, episodeBrief, matches, nodeRef, participantNodes, perspectiveStatements, refs, tags, type QueryContext} from "./context";
@@ -93,6 +93,7 @@ export function entityCard(ctx: QueryContext, params: StoryParams<"entity.card">
                     id: member.id,
                     label: member.names.filter(name => name.primary).at(-1)?.text ?? member.names[0]?.text ?? member.label,
                     ref: evidence ? formatSpan(evidence) : link ? formatPosition(link.statement.at) : formatPosition(member.at),
+                    mark: link && link.statement.certainty === "certain" && link.statement.revision !== undefined ? (revisionMark(link.statement) === "added" ? "added" : "confirmed") : null,
                 };
             }),
         facets: [...latest.entries()].map(([facet, value]) => ({facet, ...value})),
@@ -134,6 +135,12 @@ export function entityKnowledge(ctx: QueryContext, params: StoryParams<"entity.k
     return ctx.page(items);
 }
 
+/** 修订留在说法上的标记：手动连接写的说法（编号 `u…`）是“你加的”，确认过的候选是“你确认的”，还是候选的写“候选”。 */
+function revisionMark(statement: Statement): "candidate" | "confirmed" | "added" | null {
+    if (statement.revision !== undefined) return /^u\d+$/u.test(statement.id) ? "added" : "confirmed";
+    return statement.family === "identity" && statement.certainty === "candidate" ? "candidate" : null;
+}
+
 export function entityStatements(ctx: QueryContext, params: StoryParams<"entity.statements">): StoryResult<"entity.statements"> {
     const ids = new Set(ctx.grouping.members.get(nodeFor(ctx, params.entity)) ?? []);
     const table = tiersAt(ctx.index, ctx.view.at);
@@ -151,6 +158,7 @@ export function entityStatements(ctx: QueryContext, params: StoryParams<"entity.
                 chapter: statement.at.chapter,
                 tier: tier.tier,
                 tierFlag: tier.flag,
+                mark: revisionMark(statement),
             };
         });
     // 各级条数在按等级过滤之前数，折叠时也能写出“展开次要（N）”；过滤不改原有顺序。

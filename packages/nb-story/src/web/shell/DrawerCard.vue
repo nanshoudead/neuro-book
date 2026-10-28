@@ -20,6 +20,7 @@ import StateBadge from "../parts/StateBadge.vue";
 import TierBadge from "../parts/TierBadge.vue";
 import {FLAG_WORDS} from "../parts/tier-words";
 import {useMinorCount, useShowMinorRecords} from "../host/show-minor";
+import {MARK_WORDS} from "../host/revise";
 import CardRelations from "./CardRelations.vue";
 import ReviseDialog from "./ReviseDialog.vue";
 
@@ -45,15 +46,17 @@ const allNames = ref(false);
 /** “⋯”菜单与它打开的修订对话框（输出 60）。 */
 const reviseMode = ref<"link" | "kind" | "name" | null>(null);
 const reviseOpen = computed({get: () => reviseMode.value !== null, set: open => (open ? undefined : (reviseMode.value = null))});
-const reviseItems: DropdownMenuItemData[] = [
+/** 与这个对象有关的修订条数（菜单第四项写出来；按阅读位置算）。 */
+const revisionTotal = useStoryQuery("revisions.list", () => ({entity: props.entity, limit: 1}));
+const reviseItems = computed<DropdownMenuItemData[]>(() => [
     {value: "link", label: "连到另一个对象……", iconClass: "i-lucide-link-2"},
     {value: "kind", label: "改对象种类……", iconClass: "i-lucide-user-round"},
     {value: "name", label: "某个称呼属于别的对象……", iconClass: "i-lucide-tag"},
     {value: "sep-1", label: "", separator: true},
-    {value: "list", label: "这个对象的修订", iconClass: "i-lucide-history"},
-];
+    {value: "list", label: `这个对象的修订（${revisionTotal.data.value?.total ?? 0}）`, iconClass: "i-lucide-history"},
+]);
 function onRevise(value: string): void {
-    if (value === "list") book.goPage("revisions");
+    if (value === "list") book.jump("revisions", {kind: "entity", id: props.entity});
     else reviseMode.value = value as "link" | "kind" | "name";
 }
 const recordKind = ref<"knowledge" | "statements">("knowledge");
@@ -115,7 +118,7 @@ const FAMILY_WORD: Record<string, string> = {
                 </p>
                 <CandidateBlock :entity="props.entity" />
                 <p v-if="card.data.value.identities.length" class="text-[length:var(--text-sm)]" data-testid="card-identities">
-                    同一身份：<span v-for="item in card.data.value.identities" :key="item.id" class="mr-2">{{ item.label }} <RefLink :ref-text="item.ref" /></span>
+                    同一身份：<span v-for="item in card.data.value.identities" :key="item.id" class="mr-2">{{ item.label }} <RefLink :ref-text="item.ref" /><Badge v-if="item.mark" size="sm" variant="soft" tone="success" class="ml-1" data-testid="identity-mark">{{ MARK_WORDS[item.mark] }}</Badge></span>
                 </p>
             </header>
             <ReviseDialog v-if="reviseMode" v-model:open="reviseOpen" :mode="reviseMode" :entity="card.data.value.id" :label="card.data.value.label" :kind="card.data.value.kind" :names="card.data.value.names.map(item => item.text)" />
@@ -176,6 +179,7 @@ const FAMILY_WORD: Record<string, string> = {
                                     <span class="state">{{ FAMILY_WORD[item.family] ?? item.family }}</span>
                                     <span class="min-w-0">
                                         <TierBadge :tier="item.tier" :flag="item.tierFlag" :explain="item.id" :family="item.family" />{{ item.text }}
+                                        <Badge v-if="item.mark" size="sm" variant="soft" :tone="item.mark === 'candidate' ? 'warning' : 'success'" class="ml-1" data-testid="statement-mark">{{ MARK_WORDS[item.mark] }}</Badge>
                                         <RecordTags :tags="item.tags" />
                                         <Badge v-if="item.tierFlag" size="sm" variant="soft" tone="neutral" class="ml-1" data-testid="tier-flag">{{ FLAG_WORDS[item.tierFlag] }}</Badge>
                                         <span v-if="showIds" class="ml-1 text-[length:var(--text-2xs)] text-[var(--text-muted)]" data-testid="record-id">{{ item.id }}</span>

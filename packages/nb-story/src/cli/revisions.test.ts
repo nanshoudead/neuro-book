@@ -52,6 +52,16 @@ describe("列表与确认", () => {
         expect(bad.stderr).toContain("revision_not_candidate");
     });
 
+    test("evidence 可按称呼筛；写入的命令带 --at 是用法错误（不悄悄丢掉）", async () => {
+        const run = await cli(["revisions", "evidence", "e1-1", "--text", "狐狐", "--at", "10", "--json"]);
+        expect(run.code).toBe(0);
+        const items = JSON.parse(run.stdout).data.items as {names: string[]}[];
+        expect(items.length).toBeGreaterThan(0);
+        expect(items.every(item => item.names.includes("狐狐"))).toBe(true);
+        expect((await cli(["revisions", "confirm", "s30-13", "--at", "30.61"])).code).toBe(2);
+        expect((await cli(["revisions", "undo", "r1", "--at", "30.61"])).code).toBe(2);
+    });
+
     test("evidence 列出对象出现的段", async () => {
         const run = await cli(["revisions", "evidence", "e3-2", "--at", "10", "--json"]);
         expect(run.code).toBe(0);

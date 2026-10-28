@@ -15,6 +15,7 @@ import FoldedBar from "../parts/FoldedBar.vue";
 import TierBadge from "../parts/TierBadge.vue";
 import {FLAG_WORDS} from "../parts/tier-words";
 import {useMinorCount, useShowMinorRecords} from "../host/show-minor";
+import {MARK_WORDS} from "../host/revise";
 
 const props = defineProps<{entity: string}>();
 const book = useBook();
@@ -57,7 +58,7 @@ const minor = useMinorCount(statements.extra, () => JSON.stringify([props.entity
                 <tbody v-else>
                     <tr v-for="item in statements.items.value" :key="item.id" data-testid="wide-record" :data-tier="item.tier" :class="item.tier === 3 ? 'text-[var(--text-secondary)]' : ''">
                         <td>{{ item.chapter }}</td><td><TierBadge :tier="item.tier" :flag="item.tierFlag" :explain="item.id" :family="item.family" />{{ item.text }}</td>
-                        <td><RecordTags :tags="item.tags" /><Badge v-if="item.tierFlag" size="sm" variant="soft" tone="neutral" class="ml-1">{{ FLAG_WORDS[item.tierFlag] }}</Badge></td><td><RefLink v-for="ref in item.refs" :key="ref" :ref-text="ref" class="mr-1" /></td>
+                        <td><RecordTags :tags="item.tags" /><Badge v-if="item.tierFlag" size="sm" variant="soft" tone="neutral" class="ml-1">{{ FLAG_WORDS[item.tierFlag] }}</Badge><Badge v-if="item.mark" size="sm" variant="soft" :tone="item.mark === 'candidate' ? 'warning' : 'success'" class="ml-1">{{ MARK_WORDS[item.mark] }}</Badge></td><td><RefLink v-for="ref in item.refs" :key="ref" :ref-text="ref" class="mr-1" /></td>
                     </tr>
                 </tbody>
             </table>

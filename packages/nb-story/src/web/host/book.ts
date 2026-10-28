@@ -56,7 +56,7 @@ export type DrawerContent =
  * 从别的页点进来时要定位的东西（总览点主线、秘密、悬念、情节，输出 8）。只在这次跳转里有效，不进地址：
  * 目标页挂载时用 `takeJump` 取走并清空。
  */
-export type JumpTarget = {kind: "arc"; id: string} | {kind: "secret"; id: string} | {kind: "question"; id: string} | {kind: "episode"; id: string};
+export type JumpTarget = {kind: "arc"; id: string} | {kind: "secret"; id: string} | {kind: "question"; id: string} | {kind: "episode"; id: string} | {kind: "entity"; id: string};
 
 /** 存进书库的界面状态（`reading.set` 的 view）。 */
 interface SavedView {

@@ -125,7 +125,7 @@ const EntityCard = Type.Object({
     entities: Type.Array(Type.String()),
     names: Type.Array(Type.Object({text: Type.String(), ref: RefSchema})),
     /** 读者此时知道的同一身份：组成这个点的其它对象，各带连接成立的出处。 */
-    identities: Type.Array(Type.Object({id: Type.String(), label: Type.String(), ref: RefSchema})),
+    identities: Type.Array(Type.Object({id: Type.String(), label: Type.String(), ref: RefSchema, mark: Type.Union([oneOf(["confirmed", "added"] as const), Type.Null()])})),
     facets: Type.Array(Type.Object({facet: oneOf(FACETS), through: Type.Integer(), items: Type.Array(Type.String())})),
     secrets: Type.Array(Type.Object({id: Type.String(), title: Type.String(), state: AwarenessSchema, ref: Type.Union([RefSchema, Type.Null()])})),
     counts: Type.Object({relations: Type.Integer(), knowledge: Type.Integer(), statements: Type.Integer(), episodes: Type.Integer()}),
@@ -179,6 +179,8 @@ const StatementItem = Type.Object({
     chapter: Type.Integer(),
     tier: TierSchema,
     tierFlag: Type.Union([TierFlagSchema, Type.Null()]),
+    /** 修订相关的标记（docs/specs/story/revisions.md）：`candidate` 还是候选，`confirmed` 你确认的，`added` 你加的；没有为 null。 */
+    mark: Type.Union([oneOf(["candidate", "confirmed", "added"] as const), Type.Null()]),
 });
 
 /** `tier` 是情节的先验等级，没有为 null。 */
@@ -411,8 +413,8 @@ export const RevisionItemSchema = Type.Object({
     source: RevisionSource,
     by: Type.Union([Type.Literal("user"), Type.Literal("auto"), Type.Null()]),
     summary: Type.String(),
-    /** 涉及的对象编号：候选与连接是两个，改种类是一个，挪称呼是 from 与 to。 */
-    entities: Type.Array(Type.String()),
+    /** 涉及的对象与它们在依据位置的显示名：候选与连接是两个，改种类是一个，挪称呼是 from 与 to。 */
+    entities: Type.Array(Type.Object({id: Type.String(), label: Type.String()})),
     evidence: RefSchema,
     /** 依据那一段原文（截到 120 字）。 */
     quote: Type.String(),
@@ -559,7 +561,7 @@ export const STORY_METHODS = {
     },
     "graph.storyline": {input: Type.Object({...BookParams}, strict), output: Storyline, effect: "read", errors: BookErrors},
     "revisions.list": {
-        input: Type.Object({...BookParams, ...PageParams, state: Type.Optional(oneOf(["pending", "adopted", "rejected", "closed", "stale"] as const)), source: Type.Optional(RevisionSource), entity: Type.Optional(Type.String({minLength: 1}))}, strict),
+        input: Type.Object({...BookParams, ...PageParams, state: Type.Optional(oneOf(["pending", "adopted", "rejected", "closed", "stale", "processed"] as const)), source: Type.Optional(RevisionSource), entity: Type.Optional(Type.String({minLength: 1}))}, strict),
         output: Type.Object({items: Type.Array(RevisionItemSchema), total: Type.Integer(), next: Type.Union([Type.String(), Type.Null()]), counts: RevisionCounts}),
         effect: "read",
         errors: {...BookErrors, ...PageErrors},

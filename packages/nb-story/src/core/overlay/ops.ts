@@ -14,7 +14,8 @@ import type {Library} from "../library";
 import {formatPosition, parsePositionText} from "../position";
 import {entityAnchor, resolveStatementAnchor, statementAnchor} from "./anchor";
 import {applyOverlay} from "./apply";
-import {isCandidateIdentity, listItems} from "./items";
+import type {Applied} from "./apply";
+import {isCandidateIdentity, itemFactory, listItems} from "./items";
 import type {RevisionItem} from "./items";
 import type {OverlayFile, Revision, RevisionSource} from "./schema";
 import {writeOverlay} from "./store";
@@ -74,9 +75,9 @@ function currentDecision(dataset: Dataset, file: OverlayFile, statement: Stateme
     return file.items.find(item => (item.op === "identity.confirm" || item.op === "identity.reject") && item.state !== "withdrawn" && resolveStatementAnchor(dataset, item.anchors[0]!)?.id === statement.id);
 }
 
-/** 指定位置生效的种类：抽取给的，加上已采纳的改种类修订。 */
-function kindAt(entity: Entity, file: OverlayFile, at: Position): EntityKind {
-    const changes = file.items.filter((item): item is Extract<Rev, {op: "kind.set"}> => item.op === "kind.set" && item.state === "adopted" && item.params.entity === entity.id && comparePosition(item.evidence, at) <= 0).sort((a, b) => comparePosition(a.evidence, b.evidence));
+/** 指定位置生效的种类：抽取给的，加上已采纳且锚还对得上的改种类修订（对不上的不套用，也不算数）。 */
+function kindAt(entity: Entity, file: OverlayFile, resolved: ReadonlyMap<string, Applied>, at: Position): EntityKind {
+    const changes = file.items.filter((item): item is Extract<Rev, {op: "kind.set"}> => item.op === "kind.set" && item.state === "adopted" && resolved.get(item.id) !== "stale" && item.params.entity === entity.id && comparePosition(item.evidence, at) <= 0).sort((a, b) => comparePosition(a.evidence, b.evidence));
     return changes.at(-1)?.params.kind ?? entity.kind;
 }
 
@@ -92,8 +93,8 @@ export async function reviseBook(library: Library, bookId: string, params: Revis
     const index = await openBookIndex(library, bookId);
     const dir = await library.writableBook(bookId, index.meta.generation);
     const original = index.overlay.original;
-    const {file} = await writeOverlay(dir, index.meta.generation, current => build(index, original, current, params));
-    return {revision: await describe(index, original, file, params), version: file.version};
+    const {file, result} = await writeOverlay(dir, index.meta.generation, current => build(index, original, current, params));
+    return {revision: describe(index, original, file, result, params), version: file.version};
 }
 
 function build(index: BookIndex, original: Dataset, current: OverlayFile, params: ReviseParams): OverlayWrite<string> {
@@ -124,7 +125,7 @@ function build(index: BookIndex, original: Dataset, current: OverlayFile, params
         case "revisions.kind": {
             const evidence = parseEvidence(index, params.evidence);
             const entity = findEntity(original, params.entity, evidence);
-            if (kindAt(entity, current, evidence) === params.kind) throw new StoryError("revision_conflict", `${displayName(entity, evidence)}在 ${formatPosition(evidence)} 已经是这个种类`);
+            if (kindAt(entity, current, applyOverlay(original, current).resolved, evidence) === params.kind) throw new StoryError("revision_conflict", `${displayName(entity, evidence)}在 ${formatPosition(evidence)} 已经是这个种类`);
             const revision = {...base("user", evidence, [entityAnchor(entity)], {state: "adopted"}), op: "kind.set", params: {entity: entity.id, kind: params.kind}} as Rev;
             return {items: [...current.items, revision], result: revision.id};
         }
@@ -134,6 +135,15 @@ function build(index: BookIndex, original: Dataset, current: OverlayFile, params
             const to = findEntity(original, params.to, evidence);
             if (from.id === to.id) throw new StoryError("revision_conflict", "称呼要挪给另一个对象");
             if (!from.names.some(name => name.text === params.text)) throw new StoryError("revision_target_not_found", `${displayName(from, evidence)}名下没有称呼“${params.text}”`);
+            // 套上已有修订之后什么都不会变（称呼早已属于目标、from 在依据位置之后也没有它）：不写一条空的修订。
+            const effective = applyOverlay(original, current).dataset;
+            const fromNow = effective.entities.find(entity => entity.id === from.id);
+            const toNow = effective.entities.find(entity => entity.id === to.id);
+            const changes =
+                !toNow?.names.some(name => name.text === params.text && comparePosition(name.at, evidence) <= 0) ||
+                fromNow?.names.some(name => name.text === params.text && comparePosition(name.at, evidence) >= 0) ||
+                effective.mentions.some(mention => mention.entity === from.id && mention.text === params.text && comparePosition(mention.at, evidence) >= 0);
+            if (!changes) throw new StoryError("revision_conflict", `称呼“${params.text}”从 ${formatPosition(evidence)} 起已经属于${displayName(to, evidence)}`);
             const revision = {...base("user", evidence, [entityAnchor(from), entityAnchor(to)], {state: "adopted"}), op: "name.move", params: {text: params.text, from: from.id, to: to.id}} as Rev;
             return {items: [...current.items, revision], result: revision.id};
         }
@@ -150,21 +160,15 @@ function build(index: BookIndex, original: Dataset, current: OverlayFile, params
     }
 }
 
-/** 写入后的这条修订按列表的样子给出（全书位置）；撤销了的合成一项。 */
-async function describe(index: BookIndex, original: Dataset, file: OverlayFile, params: ReviseParams): Promise<RevisionItem> {
+/** 写入后的这条修订（`resultId`）按列表的样子给出；撤销了的给出原来的内容、状态是 withdrawn；撤销决定时给回待确认的候选。 */
+function describe(index: BookIndex, original: Dataset, file: OverlayFile, resultId: string, params: ReviseParams): RevisionItem {
     const {resolved} = applyOverlay(original, file);
     const listed = listItems(original, file, resolved, index.meta.extractedThrough);
-    const touched = [...file.items].reverse().find(item => (params.method === "revisions.undo" ? item.id === params.revision : item.state !== "withdrawn"));
+    const target = file.items.find(item => item.id === resultId);
+    if (!target) throw new Error(`写入的修订 ${resultId} 不在修订文件里`);
     if (params.method === "revisions.undo") {
-        const target = file.items.find(item => item.id === params.revision)!;
-        const statementId = target.op === "identity.confirm" || target.op === "identity.reject" ? target.params.statement : null;
-        const back = statementId === null ? undefined : listed.items.find(item => item.id === `st:${statementId}`);
-        if (back) return back;
-        const fallback = listed.items.find(item => item.id === target.id);
-        if (fallback) return {...fallback, state: "withdrawn", undoable: false};
-        return {id: target.id, op: target.op, state: "withdrawn", source: target.source, by: target.by, summary: "", entities: [], evidence: formatPosition(target.evidence), quote: "", refs: [formatPosition(target.evidence)], decidedAt: target.decidedAt, undoable: false};
+        const back = target.op === "identity.confirm" || target.op === "identity.reject" ? listed.items.find(item => item.id === `st:${target.params.statement}`) : undefined;
+        return back ?? itemFactory(original).itemOf(target, "withdrawn");
     }
-    const mine = listed.items.find(item => item.id === touched?.id) ?? listed.items.find(item => item.id === `st:${(touched?.params as {statement?: string} | undefined)?.statement ?? ""}`);
-    if (!mine) throw new Error(`写入的修订 ${touched?.id ?? "?"} 没有出现在列表里`);
-    return mine;
+    return listed.items.find(item => item.id === resultId) ?? itemFactory(original).itemOf(target, target.state === "rejected" ? "rejected" : "adopted");
 }

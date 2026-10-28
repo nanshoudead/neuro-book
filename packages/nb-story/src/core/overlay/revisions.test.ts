@@ -4,7 +4,7 @@
  */
 
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
-import {readdir, writeFile} from "node:fs/promises";
+import {readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {openTestBook, type TestBook} from "../../../testing/api";
@@ -40,7 +40,8 @@ describe("待确认列表与计数", () => {
     test("按对象筛（人物卡用）：只留涉及它的项，项带依据原文与涉及的对象；计数仍是全书的", async () => {
         const mine = await book.ok("revisions.list", {at: AT, entity: "e30-1"});
         expect(mine.items.map(item => item.id)).toEqual(["st:s30-13"]);
-        expect(mine.items[0]).toMatchObject({entities: ["e30-1", "e10-1"], evidence: "30.61"});
+        expect(mine.items[0]).toMatchObject({entities: [{id: "e30-1"}, {id: "e10-1"}], evidence: "30.61"});
+        expect(mine.items[0]!.entities.every(entity => entity.label.length > 0)).toBe(true);
         expect(mine.items[0]!.quote.length).toBeGreaterThan(0);
         expect(mine.counts.closed).toBe(2);
         expect((await book.ok("revisions.list", {at: AT, entity: "e3-2"})).items).toEqual([]);
@@ -81,11 +82,46 @@ describe("确认、驳回与撤销", () => {
         await reset();
     });
 
+    test("已处理（state=processed）是已采纳、已驳回、后文已确认三类；记录与同一身份里带“候选”“你确认的”标记", async () => {
+        const markOf = async () => (await book.ok("entity.statements", {at: AT, entity: "e30-1", limit: 500})).items.find(item => item.id === "s30-13")?.mark;
+        expect(await markOf()).toBe("candidate");
+        await book.ok("revisions.confirm", {statement: "s30-13"});
+        expect(await markOf()).toBe("confirmed");
+        const processed = await book.ok("revisions.list", {at: AT, state: "processed"});
+        expect(processed.items.map(item => item.state).sort()).toEqual(["adopted", "closed", "closed"]);
+        const card = await book.ok("entity.card", {at: AT, entity: "e30-1"});
+        expect(card.identities.map(item => item.mark).filter(Boolean)).toEqual(["confirmed"]);
+        await reset();
+        const link = await book.ok("revisions.link", {a: "e3-2", b: "e1-1", evidence: "10.1", certainty: "certain"});
+        const added = await book.ok("entity.statements", {at: {chapter: 10, paragraph: 1}, entity: "e3-2", limit: 500});
+        expect(added.items.find(item => item.text === link.revision.summary)?.mark).toBe("added");
+        await reset();
+    });
+
     test("同一个决定再做一次是空操作：版本不变", async () => {
         const first = await book.ok("revisions.confirm", {statement: "s30-13"});
         const again = await book.ok("revisions.confirm", {statement: "s30-13"});
         expect(again.revision.id).toBe(first.revision.id);
         expect(again.version).toBe(first.version);
+        await reset();
+    });
+
+    test("同一个决定再做一次，返回的是原来那条决定，不是文件里最后一条修订；撤销用户自己的修订，返回的仍是完整的那一项", async () => {
+        const first = await book.ok("revisions.confirm", {statement: "s30-13"});
+        const link = await book.ok("revisions.link", {a: "e3-2", b: "e1-1", evidence: "10.1", certainty: "certain"});
+        const again = await book.ok("revisions.confirm", {statement: "s30-13"});
+        expect(again.revision.id).toBe(first.revision.id);
+        expect(again.revision.summary).toBe(first.revision.summary);
+        const undone = await book.ok("revisions.undo", {revision: link.revision.id});
+        expect(undone.revision).toMatchObject({id: link.revision.id, state: "withdrawn", op: "identity.link", summary: link.revision.summary, undoable: false});
+        expect(undone.revision.entities.map(entity => entity.id)).toEqual(["e3-2", "e1-1"]);
+        expect(undone.revision.quote.length).toBeGreaterThan(0);
+        await reset();
+    });
+
+    test("挪称呼：同一个称呼挪给同一个对象第二次是 revision_conflict（什么都不会变）", async () => {
+        await book.ok("revisions.moveName", {text: "狐狐", from: "e1-1", to: "e3-2", evidence: "30.1"});
+        expect(await book.fail("revisions.moveName", {text: "狐狐", from: "e1-1", to: "e3-2", evidence: "30.1"})).toBe("revision_conflict");
         await reset();
     });
 
@@ -176,6 +212,16 @@ describe("版本、游标、持久", () => {
         const written = await book.ok("revisions.undo", {revision: (await book.ok("revisions.list", {at: AT, state: "adopted"})).items[0]!.id});
         expect(written.version).toBe(version + 1);
         await reset();
+    });
+
+    test("修订文件的格式版本不认识：读照常（按没有修订），写得到 unsupported_format，文件不动", async () => {
+        const dir = join(book.library, "fox");
+        const unknown = join(dir, "revisions-900.json");
+        await writeFile(unknown, JSON.stringify({format: 2, generation: "x", version: 900, items: []}));
+        expect((await book.ok("book.info", {})).revisions).toEqual({pending: 1, stale: 0});
+        expect(await book.fail("revisions.confirm", {statement: "s30-13"})).toBe("unsupported_format");
+        expect(JSON.parse(await readFile(unknown, "utf8")).format).toBe(2);
+        await rm(unknown);
     });
 
     test("删书后同 id 重新导入：没有旧修订", async () => {

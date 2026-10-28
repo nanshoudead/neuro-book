@@ -19,7 +19,7 @@ const USAGE = [
     "  nbstory revisions kind <对象> <种类> --evidence 章.段",
     "  nbstory revisions move-name <称呼> <从> <到> --evidence 章.段",
     "  nbstory revisions undo <修订编号>",
-    "  nbstory revisions evidence <对象> [--text 称呼]     列出可作依据的段",
+    "  nbstory revisions evidence <对象> [--text 称呼] [--at 章.段]    列出可作依据的段（list 与 evidence 才有 --at；写入的修订用 --evidence）",
 ].join("\n");
 
 interface Call {
@@ -34,6 +34,8 @@ function callOf(params: Record<string, unknown>): Call | null {
     for (const key of ["book", "at", "limit", "cursor", "state", "source"] as const) if (params[key] !== undefined) base[key] = params[key];
     const evidence = params.evidence as string | undefined;
     const writeBase = params.book === undefined ? {} : {book: params.book};
+    // 写入的修订按依据位置生效、不带阅读位置：--at 不会被悄悄丢掉，直接算用法错误。
+    if (params.at !== undefined && !["list", "evidence"].includes(action)) return null;
     const needEvidence = (text: string | undefined): string | null => (text !== undefined && /^\d+\.\d+$/u.test(text) && parsePositionText(text) !== null ? text : null);
     switch (action) {
         case "list":

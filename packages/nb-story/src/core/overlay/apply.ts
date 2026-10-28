@@ -88,7 +88,8 @@ export function applyOverlay(dataset: Dataset, file: OverlayFile | null): ApplyR
                 const b = resolveEntityAnchor(dataset, revision.anchors[1]!);
                 if (!a || !b) return "stale";
                 if (statements.some(statement => statement.id === revision.params.statement)) return "inactive";
-                statements = [...statements, linkStatement(a, b, revision)];
+                // 文字里的显示名取前面修订改过的称呼表（先挪称呼、再连接时两处要一致）。
+                statements = [...statements, linkStatement(current(a), current(b), revision)];
                 return "applied";
             }
             case "kind.set": {

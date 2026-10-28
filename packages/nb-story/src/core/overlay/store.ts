@@ -55,7 +55,7 @@ async function readVersion(dir: string, version: number, generation: string): Pr
     return file.generation === generation && file.version === version ? file : null;
 }
 
-/** 这一代当前的修订文件；没有时为 null（没有文件等于没有修订）。 */
+/** 这一代当前的修订文件；没有时为 null（没有文件等于没有修订）。目录里的版本一直在变、重试到上限还读不稳时报错，不当作没有。 */
 export async function readOverlay(dir: string, generation: string): Promise<OverlayFile | null> {
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
         const versions = await versionsIn(dir);
@@ -66,7 +66,19 @@ export async function readOverlay(dir: string, generation: string): Promise<Over
         // 列目录之后文件被别的进程回收时，列出的版本都读不到：再列一次；确实一个都没有就是没有。
         if (versions.length === 0 || (await versionsIn(dir))[0] === versions[0]) return null;
     }
-    return null;
+    throw new StoryError("revision_conflict", "修订文件一直在被别的进程更新，这次没读稳，请再试一次");
+}
+
+/** 书目录现在还是 `generation` 这一代：写入前后各核对一次，书被删除并用同 id 换了一代时不碰新一代的目录。 */
+async function assertGeneration(dir: string, generation: string): Promise<void> {
+    let meta: unknown;
+    try {
+        meta = JSON.parse(await readFile(join(dir, "book.json"), "utf8"));
+    } catch (error) {
+        if (systemErrorCode(error) === "ENOENT" || systemErrorCode(error) === "ENOTDIR") throw new StoryError("book_not_found", "书已被删除");
+        throw error;
+    }
+    if (typeof meta !== "object" || meta === null || !("generation" in meta) || meta.generation !== generation) throw new StoryError("book_not_found", "书已换了一代");
 }
 
 export interface OverlayWrite<T> {
@@ -79,9 +91,13 @@ export interface OverlayWrite<T> {
 /**
  * 在当前修订文件上做一次改动：`mutate` 拿到最新的文件，返回新的 `items` 与要交给调用方的结果；它可以抛 StoryError
  * 放弃这次写入。发布撞上别人的写入时用最新的文件重新调用 `mutate`，所以 `mutate` 要是纯的、可以重复调用。
+ *
+ * 核对一代与发布之间书仍可能被删除并换代（窗口很小）：发布之后再核对一次，换了代就把自己刚发布的文件撤掉并报
+ * `book_not_found`；撞上别的一代遗留的同名文件时，只有书目录确实还是这一代才删它。
  */
 export async function writeOverlay<T>(dir: string, generation: string, mutate: (current: OverlayFile) => OverlayWrite<T>): Promise<{file: OverlayFile; result: T}> {
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+        await assertGeneration(dir, generation);
         const current = (await readOverlay(dir, generation)) ?? {format: OVERLAY_FORMAT, generation, version: 0, items: []};
         const written = mutate(current);
         if (written.unchanged) return {file: current, result: written.result};
@@ -94,14 +110,34 @@ export async function writeOverlay<T>(dir: string, generation: string, mutate: (
         } catch (error) {
             if (systemErrorCode(error) === "ENOENT") throw new StoryError("book_not_found", "书已被删除");
             if (systemErrorCode(error) !== "EEXIST") throw error;
-            // 目标已存在：要么别的进程刚发布了同一个版本（重读再算），要么是别的一代遗留的同名文件（删掉它再写）。
-            if ((await readVersion(dir, next.version, generation).catch(() => null)) === null) await unlink(target).catch(() => undefined);
+            // 目标已存在：别的进程刚发布了同一个版本（重读再算），或是别的一代遗留的同名文件、写坏的文件（核对书目录仍是这一代再删）。
+            // 读不了的原因不是“内容坏了”时（权限、格式版本不认识）原样抛出，不删别人的文件。
+            const existing = await readVersion(dir, next.version, generation);
+            if (existing === null) {
+                await assertGeneration(dir, generation);
+                await unlinkIfThere(target);
+            }
             continue;
         } finally {
-            await unlink(temp).catch(() => undefined);
+            await unlinkIfThere(temp);
         }
-        for (const version of await versionsIn(dir)) if (version <= next.version - KEEP_VERSIONS) await unlink(join(dir, fileName(version))).catch(() => undefined);
+        try {
+            await assertGeneration(dir, generation);
+        } catch (error) {
+            await unlinkIfThere(target);
+            throw error;
+        }
+        for (const version of await versionsIn(dir)) if (version <= next.version - KEEP_VERSIONS) await unlinkIfThere(join(dir, fileName(version)));
         return {file: next, result: written.result};
     }
     throw new StoryError("revision_conflict", "修订文件一直被别的进程更新，这次没写成，请再试一次");
+}
+
+/** 删一个文件；已经不在了（别的进程回收了）不算错，其它失败照常抛。 */
+async function unlinkIfThere(path: string): Promise<void> {
+    try {
+        await unlink(path);
+    } catch (error) {
+        if (systemErrorCode(error) !== "ENOENT") throw error;
+    }
 }

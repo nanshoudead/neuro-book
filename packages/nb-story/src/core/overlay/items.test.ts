@@ -80,6 +80,8 @@ describe("待确认列表", () => {
         const {resolved} = applyOverlay(changed, file);
         const result = listItems(changed, file, resolved, at(30, 61));
         expect(result.items.find(item => item.id === revision.id)).toMatchObject({state: "stale", undoable: true, summary: statement("s30-13").text});
+        // 对不上的决定仍带着原说法挂靠的对象，按对象筛（人物卡）才找得到它。
+        expect(result.items.find(item => item.id === revision.id)!.entities.map(entity => entity.id)).toEqual(["e30-1", "e10-1"]);
         expect(result.counts.stale).toBe(1);
     });
 

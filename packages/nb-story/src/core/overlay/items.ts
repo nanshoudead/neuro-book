@@ -22,8 +22,8 @@ export interface RevisionItem {
     source: RevisionSource;
     by: "user" | "auto" | null;
     summary: string;
-    /** 这一项涉及的对象编号（候选与连接是两个，改种类是一个，挪称呼是 from 与 to），给人物卡按对象找自己的项。 */
-    entities: string[];
+    /** 这一项涉及的对象（候选与连接是两个，改种类是一个，挪称呼是 from 与 to）与它们在依据位置的显示名：人物卡按对象找自己的项，卡片上的名字可点。 */
+    entities: {id: string; label: string}[];
     evidence: string;
     /** 依据那一段原文（截到 120 字）：列表直接显示，不用再取原文。 */
     quote: string;
@@ -63,17 +63,52 @@ const QUOTE_LIMIT = 120;
 
 const KIND_WORD: Record<Entity["kind"], string> = {person: "人物", persona: "马甲", group: "组织", place: "地点", item: "物品", concept: "概念", task: "任务", other: "其他"};
 
-export function listItems(dataset: Dataset, file: OverlayFile | null, resolved: ReadonlyMap<string, Applied>, at: Position): ItemList {
+/** 一份数据集上给修订造列表项的工具：显示名、依据原文与一项修订的 `RevisionItem`。写入方法的结果与列表用同一份。 */
+export function itemFactory(dataset: Dataset) {
     const entities = new Map(dataset.entities.map(entity => [entity.id, entity]));
     const paragraphs = new Map(dataset.sources.map(source => [source.chapter, source.paragraphs]));
-    const quoteAt = (position: Position): string => {
-        const text = paragraphs.get(position.chapter)?.[position.paragraph - 1] ?? "";
-        return text.length > QUOTE_LIMIT ? `${text.slice(0, QUOTE_LIMIT)}…` : text;
-    };
     const nameAt = (id: string, position: Position, fallback = id): string => {
         const entity = entities.get(id);
         return entity ? displayName(entity, position) : fallback;
     };
+    const quoteAt = (position: Position): string => {
+        const text = paragraphs.get(position.chapter)?.[position.paragraph - 1] ?? "";
+        return text.length > QUOTE_LIMIT ? `${text.slice(0, QUOTE_LIMIT)}…` : text;
+    };
+    /** 涉及的对象编号：确认与驳回取原说法挂靠的对象（说法还在时；已不在时没有）。 */
+    const involved = (revision: Revision): string[] => {
+        switch (revision.op) {
+            case "identity.confirm":
+            case "identity.reject":
+                return dataset.statements.find(statement => statement.id === revision.params.statement)?.about ?? [];
+            case "identity.link":
+                return [revision.params.a, revision.params.b];
+            case "kind.set":
+                return [revision.params.entity];
+            case "name.move":
+                return [revision.params.from, revision.params.to];
+        }
+    };
+    /** 一条存下来的修订按列表项的样子给出；`state` 由调用方按套用结果定。 */
+    const itemOf = (revision: Revision, state: ItemState): RevisionItem => ({
+        id: revision.id,
+        op: revision.op,
+        state,
+        source: revision.source,
+        by: revision.by,
+        summary: summaryOf(revision, nameAt),
+        entities: involved(revision).map(id => ({id, label: nameAt(id, revision.evidence)})),
+        evidence: formatPosition(revision.evidence),
+        quote: quoteAt(revision.evidence),
+        refs: [formatPosition(revision.evidence)],
+        decidedAt: revision.decidedAt,
+        undoable: state !== "withdrawn",
+    });
+    return {nameAt, quoteAt, itemOf};
+}
+
+export function listItems(dataset: Dataset, file: OverlayFile | null, resolved: ReadonlyMap<string, Applied>, at: Position): ItemList {
+    const {nameAt, quoteAt, itemOf} = itemFactory(dataset);
     const items: RevisionItem[] = [];
     const decided = new Map<string, Revision>();
     const stored = (file?.items ?? []).filter(revision => revision.state !== "withdrawn" && revision.state !== "pending");
@@ -84,12 +119,10 @@ export function listItems(dataset: Dataset, file: OverlayFile | null, resolved: 
     // 候选身份说法：有决定的、被后文确认的、还待确认的
     const certainPairs = new Set(dataset.statements.filter(isCertainIdentity).filter(statement => visibleAt(settledAt(statement), at)).map(pairKey));
     const sourceOf = (statement: Statement): RevisionSource => (statement.origin === "persona-check" ? "persona-check" : "extraction");
-    const candidateIds = new Set<string>();
     for (const statement of dataset.statements) {
         if (!isCandidateIdentity(statement) || !visibleAt(settledAt(statement), at)) continue;
-        candidateIds.add(statement.id);
         const decision = decided.get(statement.id);
-        const base = {source: sourceOf(statement), summary: statement.text, entities: [...statement.about], evidence: formatPosition(settledAt(statement)), quote: quoteAt(settledAt(statement)), refs: statement.source.evidence.map(formatSpan)};
+        const base = {source: sourceOf(statement), summary: statement.text, entities: statement.about.map(id => ({id, label: nameAt(id, settledAt(statement))})), evidence: formatPosition(settledAt(statement)), quote: quoteAt(settledAt(statement)), refs: statement.source.evidence.map(formatSpan)};
         if (decision) items.push({...base, id: decision.id, op: decision.op, state: decision.op === "identity.confirm" ? "adopted" : "rejected", by: decision.by, decidedAt: decision.decidedAt, undoable: true});
         else if (certainPairs.has(pairKey(statement))) items.push({...base, id: `st:${statement.id}`, op: "identity.candidate", state: "closed", by: null, decidedAt: null, undoable: false});
         else items.push({...base, id: `st:${statement.id}`, op: "identity.candidate", state: "pending", by: null, decidedAt: null, undoable: false});
@@ -101,9 +134,7 @@ export function listItems(dataset: Dataset, file: OverlayFile | null, resolved: 
         if (!visibleAt(revision.evidence, at)) continue;
         const isDecision = revision.op === "identity.confirm" || revision.op === "identity.reject";
         if (isDecision && outcome !== "stale") continue; // 已在候选循环里列出（所指候选不可见时它的证据位置也不可见）
-        const base = {id: revision.id, op: revision.op, source: revision.source, by: revision.by, entities: entitiesOf(revision), evidence: formatPosition(revision.evidence), quote: quoteAt(revision.evidence), refs: [formatPosition(revision.evidence)], decidedAt: revision.decidedAt, undoable: true};
-        const state: ItemState = outcome === "stale" ? "stale" : revision.state === "rejected" ? "rejected" : "adopted";
-        items.push({...base, state, summary: summaryOf(revision, nameAt)});
+        items.push(itemOf(revision, outcome === "stale" ? "stale" : revision.state === "rejected" ? "rejected" : "adopted"));
     }
 
     items.sort((x, y) => compareRef(x.evidence, y.evidence) || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
@@ -118,20 +149,6 @@ function compareRef(a: string, b: string): number {
     const [ac = 0, ap = 0] = a.split(".").map(Number);
     const [bc = 0, bp = 0] = b.split(".").map(Number);
     return ac - bc || ap - bp;
-}
-
-function entitiesOf(revision: Revision): string[] {
-    switch (revision.op) {
-        case "identity.confirm":
-        case "identity.reject":
-            return [];
-        case "identity.link":
-            return [revision.params.a, revision.params.b];
-        case "kind.set":
-            return [revision.params.entity];
-        case "name.move":
-            return [revision.params.from, revision.params.to];
-    }
 }
 
 export function summaryOf(revision: Revision, nameAt: (id: string, at: Position, fallback?: string) => string): string {

@@ -4,7 +4,7 @@
  * 明暗、抽屉开关）、左侧导航、主区、右侧抽屉。宽度三档按外壳自己的宽度算：宽屏三栏可拖；平板导航收成图标条、
  * 抽屉浮在主区右侧；手机顶栏两行、底部常用页签、抽屉从底部拉起。
  */
-import {Badge, DropdownMenu, IconButton, Splitter} from "@notnotype/nb-ui/components";
+import {DropdownMenu, IconButton, Splitter} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import type {SplitterPanelConfig} from "@notnotype/nb-ui/components";
 import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, readonly, ref, watch} from "vue";
@@ -16,6 +16,7 @@ import {StoryCallError, useStoryClient} from "../host/client";
 import {readDrawerWidth, readNavCollapsed, writeDrawerWidth, writeNavCollapsed} from "../host/prefs";
 import {LAYOUT_MOTION} from "../host/motion";
 import ReadingControl from "../parts/ReadingControl.vue";
+import RevisionBadge from "../parts/RevisionBadge.vue";
 import ThemeMenu from "../parts/ThemeMenu.vue";
 import DrawerCard from "./DrawerCard.vue";
 import DrawerNode from "./DrawerNode.vue";
@@ -45,8 +46,6 @@ const NAV: ReadonlyArray<{id: Page; label: string; icon: string}> = [
 ];
 /** 导航只列这本书开着的页（输出 2）：关掉数值或秘密的书没有那一页。 */
 const nav = computed(() => NAV.filter(item => book.pages.value.includes(item.id)));
-/** 导航“待确认”的角标：待确认的加对不上的（`book.info.revisions`，按全书算；0 不显示，viewer 输出 58）。 */
-const revisionBadge = computed(() => book.info.revisions.pending + book.info.revisions.stale);
 const PHONE_TABS: ReadonlyArray<{id: Page; label: string; icon: string}> = [
     {id: "overview", label: "总览", icon: "i-lucide-layout-dashboard"},
     {id: "roster", label: "人物", icon: "i-lucide-users"},
@@ -261,8 +260,7 @@ watch(notice, value => {
                         >
                             <span :class="item.icon" class="shrink-0" />
                             <span v-if="!navIsCollapsed" class="truncate">{{ item.label }}</span>
-                            <Badge v-if="item.id === 'revisions' && revisionBadge > 0 && !navIsCollapsed" size="sm" tone="accent" class="ml-auto" data-testid="revisions-badge">{{ revisionBadge }}</Badge>
-                            <span v-else-if="item.id === 'revisions' && revisionBadge > 0" class="revisions-dot" aria-hidden="true" />
+                            <RevisionBadge v-if="item.id === 'revisions'" :variant="navIsCollapsed ? 'dot' : 'badge'" :class="navIsCollapsed ? '' : 'ml-auto'" />
                         </button>
                         <div class="flex-1" />
                         <!-- 设置入口（t27）：收起导航时叠在收起按钮上方，展开时与它并排。 -->
@@ -322,13 +320,13 @@ watch(notice, value => {
                 <button v-for="item in PHONE_TABS" :key="item.id" type="button" class="flex flex-1 flex-col items-center py-1 text-[length:var(--text-2xs)]" :class="book.page.value === item.id ? 'text-[var(--accent-text)]' : ''" @click="goPage(item.id)">
                     <span :class="item.icon" />{{ item.label }}
                 </button>
-                <button type="button" class="flex flex-1 flex-col items-center py-1 text-[length:var(--text-2xs)]" @click="navSheet = true"><span class="relative"><span class="i-lucide-menu" /><span v-if="revisionBadge > 0" class="revisions-dot" aria-hidden="true" /></span>更多</button>
+                <button type="button" class="flex flex-1 flex-col items-center py-1 text-[length:var(--text-2xs)]" @click="navSheet = true"><span class="relative"><span class="i-lucide-menu" /><RevisionBadge variant="dot" /></span>更多</button>
             </nav>
             <template v-if="tier === 'phone' && navSheet">
                 <div class="absolute inset-0 z-20 bg-[var(--overlay-bg)]" @click="navSheet = false" />
                 <nav class="absolute inset-y-0 left-0 z-30 flex w-[220px] flex-col gap-0.5 bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-panel)]" aria-label="页面">
                     <button v-for="item in nav" :key="item.id" type="button" class="nav-item flex items-center gap-2 rounded-[var(--radius-control)] px-2 py-2 text-[length:var(--text-sm)]" :class="book.page.value === item.id ? 'is-active' : ''" @click="goPage(item.id)">
-                        <span :class="item.icon" />{{ item.label }}<Badge v-if="item.id === 'revisions' && revisionBadge > 0" size="sm" tone="accent" class="ml-auto">{{ revisionBadge }}</Badge>
+                        <span :class="item.icon" />{{ item.label }}<RevisionBadge v-if="item.id === 'revisions'" class="ml-auto" />
                     </button>
                     <div class="flex-1" />
                     <button type="button" class="nav-item flex items-center gap-2 rounded-[var(--radius-control)] px-2 py-2 text-[length:var(--text-sm)]" data-testid="nav-settings-sheet" @click="router.push('/settings')"><span class="i-lucide-settings" />设置</button>
@@ -374,15 +372,6 @@ watch(notice, value => {
 }
 .nav-item {
     color: var(--text-secondary);
-}
-.revisions-dot {
-    position: absolute;
-    top: -2px;
-    right: -4px;
-    width: 0.375rem;
-    height: 0.375rem;
-    border-radius: 999px;
-    background: var(--accent-text);
 }
 .nav-item:hover {
     background: var(--bg-hover);

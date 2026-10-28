@@ -223,7 +223,7 @@ export const COMMANDS: readonly CommandSpec[] = [
             {name: "参数 2", decode: value => ({second: value}), optional: true},
             {name: "参数 3", decode: value => ({third: value}), optional: true},
         ],
-        options: {state: {decode: text}, source: {decode: text}, evidence: {decode: text}, certainty: {decode: text}, reason: {decode: text}},
+        options: {state: {decode: text}, source: {decode: text}, evidence: {decode: text}, certainty: {decode: text}, reason: {decode: text}, text: {decode: text}},
     }),
     command({
         name: "ingest",
@@ -304,6 +304,7 @@ export const OPTION_HELP: Record<string, string> = {
     evidence: "依据位置：章.段，修订从这一段起生效，读到它之前看不到（link、kind、move-name 必给）",
     certainty: "link 写成 candidate（可能是，默认）或 certain（就是）",
     reason: "reject 的理由（可不写）",
+    text: "evidence 只列含这个称呼的段",
     query: "只看含这些字的",
     sort: "排序方式",
     order: "story（故事时间）或 source（出现顺序）",

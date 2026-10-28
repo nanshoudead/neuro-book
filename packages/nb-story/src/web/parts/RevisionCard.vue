@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import {Badge, Button} from "@notnotype/nb-ui/components";
 
-import {OP_WORDS, SOURCE_WORDS, type RevisionItem} from "../host/revise";
-import RefLink from "./RefLink.vue";
+import {decidedText, OP_WORDS, SOURCE_WORDS, type RevisionItem} from "../host/revise";
+import EvidenceQuote from "./EvidenceQuote.vue";
+import NameLink from "./NameLink.vue";
 
 defineProps<{item: RevisionItem; busy?: boolean; highlighted?: boolean}>();
 defineEmits<{confirm: [item: RevisionItem]; reject: [item: RevisionItem]; undo: [item: RevisionItem]; open: [item: RevisionItem]}>();
@@ -17,10 +18,15 @@ const STATE_TONE = {pending: "accent", adopted: "success", rejected: "neutral", 
             <div class="flex flex-wrap items-center gap-2">
                 <Badge size="sm" variant="soft" :tone="item.source === 'persona-check' ? 'accent' : item.source === 'user' ? 'success' : 'warning'">{{ SOURCE_WORDS[item.source] }}</Badge>
                 <Badge v-if="item.state !== 'pending'" size="sm" variant="soft" :tone="STATE_TONE[item.state]" data-testid="revision-state">{{ STATE_WORDS[item.state] }}</Badge>
-                <b class="min-w-0 text-[length:var(--text-sm)]" data-testid="revision-summary">{{ item.summary }}</b>
+                <!-- 整张卡点一下打开人物卡是给鼠标的便利；键盘与读屏用这个按钮 -->
+                <button type="button" class="summary" data-testid="revision-summary" @click.stop="$emit('open', item)">{{ item.summary }}</button>
             </div>
-            <p class="mt-0.5 text-[length:var(--text-xs)] text-[var(--accent-text)]">{{ OP_WORDS[item.op] }}</p>
-            <blockquote v-if="item.quote" class="quote"><RefLink :ref-text="item.evidence" class="mr-1.5" />{{ item.quote }}</blockquote>
+            <p class="mt-0.5 flex flex-wrap items-center gap-x-2 text-[length:var(--text-xs)]">
+                <span class="text-[var(--accent-text)]">{{ OP_WORDS[item.op] }}</span>
+                <span v-if="item.entities.length" class="text-[var(--text-secondary)]">涉及：<NameLink v-for="entity in item.entities" :id="entity.id" :key="entity.id" :label="entity.label" class="mr-1" /></span>
+                <span v-if="item.decidedAt && item.state !== 'pending' && item.state !== 'stale'" class="text-[var(--text-secondary)]" data-testid="revision-time">{{ decidedText(item.decidedAt) }}</span>
+            </p>
+            <EvidenceQuote class="mt-1" :ref-text="item.evidence" :text="item.quote" />
         </div>
         <div class="flex shrink-0 flex-col items-stretch gap-1" @click.stop>
             <template v-if="item.state === 'pending'">
@@ -39,7 +45,7 @@ const STATE_TONE = {pending: "accent", adopted: "success", rejected: "neutral", 
     gap: 12px;
     padding: 10px 12px;
     border: var(--border-w, 1px) solid var(--border-color);
-    border-radius: var(--radius-card, 12px);
+    border-radius: var(--radius-panel);
     background: var(--bg-panel);
     cursor: pointer;
 }
@@ -50,12 +56,13 @@ const STATE_TONE = {pending: "accent", adopted: "success", rejected: "neutral", 
     border-color: var(--border-accent);
     background: var(--accent-bg);
 }
-.quote {
-    margin: 4px 0 0;
-    padding: 2px 10px;
-    border-left: 3px solid var(--border-accent);
-    color: var(--text-secondary);
-    font-size: var(--text-xs);
-    line-height: 1.6;
+.summary {
+    min-width: 0;
+    text-align: left;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-strong);
+}
+.summary:hover {
+    text-decoration: underline;
 }
 </style>
