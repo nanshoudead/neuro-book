@@ -29,6 +29,8 @@ updated: 2026-10-28
 - [外部参照](../../../../../docs/research/agent-runtime-references.md)第 3、5 节子代理
 - 分支上的 `docs/proposals/agent-harness-kernel.md` 非目标里的子代理设想
 
+后台调用子代理与 shell 后台命令统一放进 [t22](../t22-background-work/README.md)（2026-10-28），本 Task 只讨论前台调用、创建 Profile、审批转父会话与关系。
+
 ## 前置
 
 t05、t06、t07。

@@ -29,6 +29,8 @@ updated: 2026-10-28
 - [`ui/agent-conversation-view.md`](../../../../../docs/specs/ui/agent-conversation-view.md)、[`ui/prompt-editor.md`](../../../../../docs/specs/ui/prompt-editor.md)
 - [调研](../../research/2026-10-28-repo-survey.md)第 5 节 Composer
 
+全局“活动”面板（运行中的会话、子代理、后台任务）随 [t22](../t22-background-work/README.md) 搁置（2026-10-28）。
+
 ## 前置
 
 t06、t07、t09、t10；w00028 t03 合入。
