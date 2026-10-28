@@ -24,6 +24,7 @@ import {filesBrowserPlugin} from "nbook/plugins/files/web/plugin";
 import {pluginsBrowserPlugin} from "nbook/plugins/plugins/web/plugin";
 import {pluginsCatalogs} from "nbook/plugins/plugins/web/text";
 import {projectsBrowserPlugin} from "nbook/plugins/projects/web/plugin";
+import {projectsCatalogs} from "nbook/plugins/projects/web/text";
 import {settingsBrowserPlugin} from "nbook/plugins/settings/web/plugin";
 import {settingsCatalogs} from "nbook/plugins/settings/web/text";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
@@ -83,6 +84,7 @@ export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = 
     "nbook.editor": editorCatalogs,
     "nbook.explorer": explorerCatalogs,
     "nbook.plugins": pluginsCatalogs,
+    "nbook.projects": projectsCatalogs,
     "nbook.settings": settingsCatalogs,
     "nbook.workbench": workbenchCatalogs,
 };

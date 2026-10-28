@@ -13,14 +13,15 @@
  */
 import {Button, ColorSwatches, Dialog, Field, Input, Textarea, InfoTip} from "@notnotype/nb-ui/components";
 import type {DialogCloseReason} from "@notnotype/nb-ui/components";
+import type {TextParams} from "@notnotype/nb-ui/text";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, ref, useId, watch} from "vue";
-
-import {localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
 import {PROJECT_COLOR_PATTERN, PROJECT_DESCRIPTION_MAX_LENGTH, PROJECT_TITLE_MAX_LENGTH} from "../../shared/contracts";
 import {PROJECT_COVER_MAX_BYTES} from "../../shared/cover";
 import {projectDirectoryName} from "../../shared/directory-name";
+import {projectsText} from "../../shared/text";
+import type {ProjectsTextKey} from "../../shared/text";
 import type {ProjectCoverChange, ProjectInfoField, ProjectInfoValues} from "../shelf-page";
 import {autoBookColor, BOOK_PALETTE} from "../shelf-format";
 import BookCover from "./BookCover.vue";
@@ -34,7 +35,6 @@ export interface ProjectInfoSubmit extends ProjectInfoValues {
 }
 
 const props = withDefaults(defineProps<{
-    locale: DisplayLocale;
     open: boolean;
     mode: "create" | "edit";
     /** 打开时的初值；每次打开重新取。 */
@@ -54,38 +54,12 @@ const emit = defineEmits<{
     (event: "browse-location"): void;
 }>();
 
-const TEXT = {
-    createTitle: {"zh-CN": "新建作品", "en-US": "New Book"},
-    editTitle: {"zh-CN": "编辑作品信息", "en-US": "Edit Book Info"},
-    title: {"zh-CN": "书名", "en-US": "Title"},
-    description: {"zh-CN": "简介", "en-US": "Description"},
-    descriptionPlaceholder: {"zh-CN": "一两句话，显示在卡片与列表里", "en-US": "A sentence or two, shown on the shelf"},
-    color: {"zh-CN": "主题色", "en-US": "Color"},
-    colorHint: {"zh-CN": "没有封面时用它排一张封面；有封面时用于列表里的小标记。", "en-US": "Used for the typeset cover when there is no image, and as the color mark in lists."},
-    auto: {"zh-CN": "自动", "en-US": "Auto"},
-    custom: {"zh-CN": "自定义", "en-US": "Custom"},
-    location: {"zh-CN": "保存位置", "en-US": "Save to"},
-    locationHint: {"zh-CN": "作品是一个文件夹，建在这个目录下，文件夹名由书名生成；目录不存在会一并创建。", "en-US": "A book is a folder created inside this directory and named after the title; the directory is created if missing."},
-    browse: {"zh-CN": "浏览…", "en-US": "Browse…"},
-    uploadCover: {"zh-CN": "上传封面…", "en-US": "Upload cover…"},
-    replaceCover: {"zh-CN": "换封面…", "en-US": "Replace cover…"},
-    removeCover: {"zh-CN": "移除封面", "en-US": "Remove cover"},
-    coverHint: {"zh-CN": "PNG、JPEG 或 WebP，至多 5 MB；没有封面时用书名和主题色排一张，以后随时能换。", "en-US": "PNG, JPEG or WebP up to 5 MB; without one, a cover is typeset from the title and color."},
-    coverTooLarge: {"zh-CN": "封面至多 5 MB", "en-US": "The cover must be at most 5 MB"},
-    coverType: {"zh-CN": "只收 PNG、JPEG 或 WebP", "en-US": "Only PNG, JPEG or WebP"},
-    create: {"zh-CN": "新建", "en-US": "Create"},
-    save: {"zh-CN": "保存", "en-US": "Save"},
-    cancel: {"zh-CN": "取消", "en-US": "Cancel"},
-    coverInfo: {"zh-CN": "封面说明", "en-US": "About covers"},
-    colorInfo: {"zh-CN": "主题色说明", "en-US": "About the color"},
-    locationInfo: {"zh-CN": "保存位置说明", "en-US": "About the location"},
-} satisfies Record<string, LocalizedText>;
-
 /** 色板就是作品色板的八色，“自动”也从这八色里取（见 shelf-format.ts）。 */
 const SWATCHES = BOOK_PALETTE;
 const COVER_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
-const text = (value: LocalizedText): string => localize(value, props.locale);
+const port = useText();
+const text = (key: ProjectsTextKey, params?: TextParams): string => port.t(projectsText(key, params));
 const length = (value: string): number => Array.from(value).length;
 
 const uid = useId();
@@ -129,9 +103,9 @@ function revokePreview(): void {
     coverPreview.value = null;
 }
 
-const windowTitle = computed(() => text(props.mode === "create" ? TEXT.createTitle : TEXT.editTitle));
-const confirmLabel = computed(() => text(props.mode === "create" ? TEXT.create : TEXT.save));
-const previewTitle = computed(() => (title.value.trim() === "" ? text(TEXT.title) : title.value.trim()));
+const windowTitle = computed(() => text(props.mode === "create" ? "projectInfo.createTitle" : "projectInfo.editTitle"));
+const confirmLabel = computed(() => text(props.mode === "create" ? "projectInfo.create" : "projectInfo.save"));
+const previewTitle = computed(() => (title.value.trim() === "" ? text("projectInfo.title") : title.value.trim()));
 const coverSrc = computed(() => (coverChange.value.kind === "remove" ? null : coverPreview.value ?? props.initial.coverSrc ?? null));
 const hasCover = computed(() => coverSrc.value !== null);
 /** 由书名生成的文件夹名，作路径框的后缀实时变化。 */
@@ -170,11 +144,11 @@ function onCoverFile(event: Event): void {
     input.value = "";
     if (file === undefined) return;
     if (!COVER_TYPES.has(file.type)) {
-        coverProblem.value = text(TEXT.coverType);
+        coverProblem.value = text("projectInfo.coverType");
         return;
     }
     if (file.size > PROJECT_COVER_MAX_BYTES) {
-        coverProblem.value = text(TEXT.coverTooLarge);
+        coverProblem.value = text("projectInfo.coverTooLarge");
         return;
     }
     coverProblem.value = "";
@@ -226,24 +200,24 @@ function onConfirm(): void {
                     <BookCover :id="initial.id ?? 'new'" :title="previewTitle" :color="color" :src="coverSrc" :width="150" />
                     <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden data-project-cover-input @change="onCoverFile">
                     <div class="project-info__cover-actions">
-                        <Button variant="ghost" size="sm" :disabled="busy" data-project-cover-pick @click="chooseCover">{{ text(hasCover ? TEXT.replaceCover : TEXT.uploadCover) }}</Button>
-                        <InfoTip :text="text(TEXT.coverHint)" :label="text(TEXT.coverInfo)" placement="bottom" />
+                        <Button variant="ghost" size="sm" :disabled="busy" data-project-cover-pick @click="chooseCover">{{ text(hasCover ? 'projectInfo.replaceCover' : 'projectInfo.uploadCover') }}</Button>
+                        <InfoTip :text="text('projectInfo.coverHint')" :label="text('projectInfo.coverInfo')" placement="bottom" />
                     </div>
-                    <Button v-if="hasCover" variant="ghost" size="sm" :disabled="busy" data-project-cover-remove @click="removeCover">{{ text(TEXT.removeCover) }}</Button>
+                    <Button v-if="hasCover" variant="ghost" size="sm" :disabled="busy" data-project-cover-remove @click="removeCover">{{ text('projectInfo.removeCover') }}</Button>
                 </div>
                 <div class="project-info__field project-info__field--plain">
                     <span :id="`${uid}-color`" class="project-info__label">
-                        <span>{{ text(TEXT.color) }}</span>
-                        <InfoTip :text="text(TEXT.colorHint)" :label="text(TEXT.colorInfo)" />
+                        <span>{{ text('projectInfo.color') }}</span>
+                        <InfoTip :text="text('projectInfo.colorHint')" :label="text('projectInfo.colorInfo')" />
                     </span>
                     <ColorSwatches
                         :model-value="color"
                         :colors="SWATCHES"
-                        :auto-label="text(TEXT.auto)"
+                        :auto-label="text('projectInfo.auto')"
                         :auto-color="autoColor"
-                        :custom-label="text(TEXT.custom)"
+                        :custom-label="text('projectInfo.custom')"
                         :columns="5"
-                        :label="text(TEXT.color)"
+                        :label="text('projectInfo.color')"
                         :disabled="busy"
                         data-project-color
                         @update:model-value="(value: string | null) => { color = value; }"
@@ -252,21 +226,21 @@ function onConfirm(): void {
             </div>
             <div class="project-info__fields">
                 <div class="project-info__field">
-                    <Field :for="`${uid}-title`" :label="text(TEXT.title)" required :error="errorOf('title')">
+                    <Field :for="`${uid}-title`" :label="text('projectInfo.title')" required :error="errorOf('title')">
                         <Input v-model="title" :maxlength="PROJECT_TITLE_MAX_LENGTH" :disabled="busy" data-project-title />
                     </Field>
                     <span v-if="titleCount !== ''" class="project-info__count">{{ titleCount }}</span>
                 </div>
                 <div class="project-info__field project-info__field--grow">
-                    <Field :label="text(TEXT.description)" :error="errorOf('description')">
-                        <Textarea v-model="description" :rows="3" :maxlength="PROJECT_DESCRIPTION_MAX_LENGTH" :placeholder="text(TEXT.descriptionPlaceholder)" :disabled="busy" class="project-info__description" data-project-description />
+                    <Field :label="text('projectInfo.description')" :error="errorOf('description')">
+                        <Textarea v-model="description" :rows="3" :maxlength="PROJECT_DESCRIPTION_MAX_LENGTH" :placeholder="text('projectInfo.descriptionPlaceholder')" :disabled="busy" class="project-info__description" data-project-description />
                     </Field>
                     <span v-if="descriptionCount !== ''" class="project-info__count">{{ descriptionCount }}</span>
                 </div>
                 <div v-if="mode === 'create'" class="project-info__field project-info__field--plain">
                     <label :for="`${uid}-location`" class="project-info__label">
-                        <span>{{ text(TEXT.location) }}</span>
-                        <InfoTip :text="text(TEXT.locationHint)" :label="text(TEXT.locationInfo)" />
+                        <span>{{ text('projectInfo.location') }}</span>
+                        <InfoTip :text="text('projectInfo.locationHint')" :label="text('projectInfo.locationInfo')" />
                     </label>
                     <!-- 没有标题的 Field：只为让路径框随服务端的拒绝标红；标签行在上面自己画（要放说明图标）。 -->
                     <Field :for="`${uid}-location`" :error="errorOf('location')">
@@ -276,7 +250,7 @@ function onConfirm(): void {
                                     <span v-if="folderName !== ''" class="project-info__folder" data-project-folder>/{{ folderName }}</span>
                                 </template>
                             </Input>
-                            <Button variant="secondary" :disabled="busy" data-project-browse @click="emit('browse-location')">{{ text(TEXT.browse) }}</Button>
+                            <Button variant="secondary" :disabled="busy" data-project-browse @click="emit('browse-location')">{{ text('projectInfo.browse') }}</Button>
                         </div>
                     </Field>
                 </div>
@@ -285,7 +259,7 @@ function onConfirm(): void {
             <button type="submit" hidden tabindex="-1" aria-hidden="true" />
         </form>
         <template #footer>
-            <Button variant="secondary" :disabled="busy" data-project-cancel @click="emit('cancel')">{{ text(TEXT.cancel) }}</Button>
+            <Button variant="secondary" :disabled="busy" data-project-cancel @click="emit('cancel')">{{ text('projectInfo.cancel') }}</Button>
             <Button variant="primary" :loading="busy" :disabled="submittable === null" data-project-confirm @click="onConfirm">{{ confirmLabel }}</Button>
         </template>
     </Dialog>

@@ -3,11 +3,13 @@
  * 纯函数，组件与测试共用。
  */
 
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import type {TextPort} from "@notnotype/nb-ui/text-port";
+
+import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {projectDisplayName} from "../shared/shelf";
 import type {ShelfItem, ShelfLastEdit} from "../shared/shelf";
+import {projectsText} from "../shared/text";
 
 export type ShelfSort = "recent" | "title" | "words";
 
@@ -18,39 +20,38 @@ export type ShelfSort = "recent" | "title" | "words";
  */
 export const BOOK_PALETTE: readonly string[] = ["#2f63a8", "#2e7d55", "#b8423a", "#c8692a", "#7351a8", "#1d8a8c", "#b08328", "#4a4f57"];
 
-const TEXT = {
-    words: {"zh-CN": "{count} 字", "en-US": "{count} words"},
-    wordsTenThousand: {"zh-CN": "{count} 万字", "en-US": "{count}k words"},
-    files: {"zh-CN": "{count} 篇", "en-US": "{count} files"},
-    books: {"zh-CN": "{count} 部作品", "en-US": "{count} books"},
-    today: {"zh-CN": "今天 {count} 字", "en-US": "{count} today"},
-    todayAt: {"zh-CN": "今天 {time}", "en-US": "Today {time}"},
-    yesterdayAt: {"zh-CN": "昨天 {time}", "en-US": "Yesterday {time}"},
-} satisfies Record<string, LocalizedText>;
+/**
+ * 显示规则要的翻译端口：文字经 `t`，千分位与日期格式用 `locale`。是端口的子集，纯函数不依赖窗口，测试直接给
+ * `testTextPort` 的端口。
+ */
+export type ShelfFormatPort = Pick<TextPort, "locale" | "t">;
 
 function grouped(count: number, locale: DisplayLocale): string {
     return new Intl.NumberFormat(locale).format(count);
 }
 
-/** 字数：中文一万以上写“万字”，英文一千以上写“k”，都留一位小数并去掉 `.0`。 */
-export function formatWords(count: number, locale: DisplayLocale): string {
-    const unit = locale === "zh-CN" ? 10_000 : 1_000;
-    if (count < unit) return localize(formatText(TEXT.words, {count: grouped(count, locale)}), locale);
+/**
+ * 字数：中文一万以上写“万字”，英文一千以上写“k”，都留一位小数并去掉 `.0`。不到一万（一千）的数交给目录里的
+ * `{{count, number}}` 加千分位并取复数形，所以 `count` 必须传数字。
+ */
+export function formatWords(count: number, port: ShelfFormatPort): string {
+    const unit = port.locale.value === "zh-CN" ? 10_000 : 1_000;
+    if (count < unit) return port.t(projectsText("format.words", {count}));
     const scaled = (Math.round((count / unit) * 10) / 10).toString();
-    return localize(formatText(TEXT.wordsTenThousand, {count: scaled}), locale);
+    return port.t(projectsText("format.wordsTenThousand", {amount: scaled}));
 }
 
-export function formatFiles(count: number, locale: DisplayLocale): string {
-    return localize(formatText(TEXT.files, {count: grouped(count, locale)}), locale);
+export function formatFiles(count: number, port: ShelfFormatPort): string {
+    return port.t(projectsText("format.files", {count}));
 }
 
-export function formatBooks(count: number, locale: DisplayLocale): string {
-    return localize(formatText(TEXT.books, {count: grouped(count, locale)}), locale);
+export function formatBooks(count: number, port: ShelfFormatPort): string {
+    return port.t(projectsText("format.books", {count}));
 }
 
 /** 今天净增的字数；减少时带负号（U+2212），不显示为 0。 */
-export function formatToday(count: number, locale: DisplayLocale): string {
-    return localize(formatText(TEXT.today, {count: formatSigned(count, locale)}), locale);
+export function formatToday(count: number, port: ShelfFormatPort): string {
+    return port.t(projectsText("format.today", {amount: formatSigned(count, port.locale.value)}));
 }
 
 /** 带符号的整数：负数用 U+2212。 */
@@ -63,14 +64,15 @@ function sameDay(a: Date, b: Date): boolean {
 }
 
 /** 某个时刻相对 `now` 的写法：今天、昨天带时分，今年只写月日，更早带年份。按浏览器的本地时区。 */
-export function formatWhen(at: string, now: string, locale: DisplayLocale): string {
+export function formatWhen(at: string, now: string, port: ShelfFormatPort): string {
+    const locale = port.locale.value;
     const date = new Date(at);
     const today = new Date(now);
     const time = new Intl.DateTimeFormat(locale, {hour: "2-digit", minute: "2-digit", hour12: false}).format(date);
-    if (sameDay(date, today)) return localize(formatText(TEXT.todayAt, {time}), locale);
+    if (sameDay(date, today)) return port.t(projectsText("format.todayAt", {time}));
     const yesterday = new Date(today);
     yesterday.setDate(today.getDate() - 1);
-    if (sameDay(date, yesterday)) return localize(formatText(TEXT.yesterdayAt, {time}), locale);
+    if (sameDay(date, yesterday)) return port.t(projectsText("format.yesterdayAt", {time}));
     const options: Intl.DateTimeFormatOptions = date.getFullYear() === today.getFullYear()
         ? {month: "long", day: "numeric"}
         : {year: "numeric", month: "long", day: "numeric"};

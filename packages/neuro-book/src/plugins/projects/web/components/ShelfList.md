@@ -1,5 +1,5 @@
 ---
-标签: []
+标签: [state:inject]
 别名: ["列表视图"]
 ---
 
@@ -15,7 +15,6 @@
 
 ```ts
 type Props = {
-    locale: DisplayLocale;
     items: ReadonlyArray<ShelfItem>;
     now: string;
     /** 一部作品的封面图地址；没有封面为 null。 */
@@ -31,3 +30,7 @@ type Emits = {
 ```
 
 根节点带 `data-shelf-list`，每部作品的行 `data-shelf-row`；“新建作品”行的按钮带 `data-shelf-create-row`，不算作品行。没有插槽与 expose。
+
+## 隐藏通道理由
+
+`state:inject`：经 `useText()` 取宿主注入的翻译端口，界面文字都在本插件的目录（命名空间 `nbook.projects`，`../../locales/`）；语言随端口切换，不重新挂载。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。

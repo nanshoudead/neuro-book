@@ -12,20 +12,15 @@ import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import type {EditorPageContext} from "nbook/plugins/editor/web/pages";
 import type {FilesService} from "nbook/plugins/files/shared/contracts";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import type {TextResolver} from "nbook/shared/localized-text";
 
 import type {projectsRemoteContract, ShelfStats} from "../shared/contracts";
+import {projectsText} from "../shared/text";
 
 export const WELCOME_PAGE_ID = "nbook.projects.welcome";
 
 /** 快捷入口：项目根下名字以这些词开头的文件与文件夹。 */
 const QUICK_PREFIXES = ["大纲", "设定"];
-
-const CHAPTER_NAME: Readonly<Record<DisplayLocale, string>> = {"zh-CN": "新章节", "en-US": "New Chapter"};
-
-const PROBLEM: Readonly<Record<DisplayLocale, string>> = {"zh-CN": "新建章节失败：{reason}", "en-US": "Could not create a chapter: {reason}"};
-
-const OPEN_PROBLEM: Readonly<Record<DisplayLocale, string>> = {"zh-CN": "建好了 {name}，但打不开：{reason}", "en-US": "Created {name}, but could not open it: {reason}"};
 
 const NO_FILES = "files-unavailable";
 
@@ -38,7 +33,8 @@ export interface WelcomeHostOptions {
     readonly files: Pick<FilesService, "list" | "create"> | null;
     readonly commands: Pick<CommandService, "execute">;
     readonly navigateDocument: (href: string) => void;
-    readonly locale: () => DisplayLocale;
+    /** 新章节的文件名与失败原因按它给出（当前显示语言）。 */
+    readonly text: TextResolver;
     readonly now: () => number;
     /** 命令面板的快捷键（已按平台写好）；没有时为 null。 */
     readonly shortcut: () => string | null;
@@ -66,15 +62,15 @@ export function quickEntries(entries: ReadonlyArray<{readonly name: string; read
  * 新建章节：在项目根按已有名字避让建一个空的 Markdown 文件，再以正式标签打开。返回要写在按钮下的原因，成功为 null；
  * 文件建好了但打不开（编辑器不在或拒绝）也要说，文件已经在资源管理器里了。
  */
-export async function createChapter(files: Pick<FilesService, "list" | "create">, commands: Pick<CommandService, "execute">, locale: DisplayLocale): Promise<string | null> {
+export async function createChapter(files: Pick<FilesService, "list" | "create">, commands: Pick<CommandService, "execute">, text: TextResolver): Promise<string | null> {
     const listing = await files.list("project://");
     const taken = new Set(listing.ok ? listing.value.entries.map((entry) => entry.name) : []);
-    const name = freeChapterName(CHAPTER_NAME[locale], taken);
+    const name = freeChapterName(text.t(projectsText("welcome.chapterName")), taken);
     const address = `project://${name}`;
     const created = await files.create(address, "file");
-    if (!created.ok) return PROBLEM[locale].replace("{reason}", created.code);
+    if (!created.ok) return text.t(projectsText("welcome.createFailed", {reason: created.code}));
     const opened = await commands.execute("nbook.editor.open", {address, mode: "permanent"}, {source: "user"});
-    return opened.ok ? null : OPEN_PROBLEM[locale].replace("{name}", name).replace("{reason}", opened.reason);
+    return opened.ok ? null : text.t(projectsText("welcome.openFailed", {name, reason: opened.reason}));
 }
 
 export function createWelcomeHost(options: WelcomeHostOptions): Component {
@@ -124,13 +120,13 @@ export function createWelcomeHost(options: WelcomeHostOptions): Component {
                 if (creating.value) return;
                 const files = options.files;
                 if (files === null) {
-                    problem.value = PROBLEM[options.locale()].replace("{reason}", NO_FILES);
+                    problem.value = options.text.t(projectsText("welcome.createFailed", {reason: NO_FILES}));
                     return;
                 }
                 creating.value = true;
                 problem.value = null;
                 try {
-                    problem.value = await createChapter(files, options.commands, options.locale());
+                    problem.value = await createChapter(files, options.commands, options.text);
                     if (problem.value !== null) options.report(problem.value);
                 } finally {
                     creating.value = false;
@@ -138,7 +134,6 @@ export function createWelcomeHost(options: WelcomeHostOptions): Component {
             };
 
             return () => h(options.component, {
-                locale: options.locale(),
                 title: options.project?.title ?? null,
                 description: description.value,
                 stats: stats.value,

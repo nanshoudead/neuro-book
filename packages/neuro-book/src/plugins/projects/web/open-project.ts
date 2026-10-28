@@ -6,21 +6,20 @@
 
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 
-import type {CommandDeclaration, CommandResult} from "nbook/plugins/commands/shared/contracts";
+import type {CommandResult, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import type {QuickPick, QuickPickRequest} from "nbook/plugins/workbench/shared/contracts";
-import {localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/localized-text";
+import type {DisplayText, TextResolver} from "nbook/shared/localized-text";
 
 import {OPEN_PROJECT_COMMAND, projectsRemoteContract} from "../shared/contracts";
 import type {ProjectView} from "../shared/contracts";
 import {projectUrl} from "../shared/project-url";
-import {projectsText, retryTitle} from "./messages";
+import {projectsText} from "../shared/text";
+import {retryTitle} from "./failure-text";
 
 export {OPEN_PROJECT_COMMAND};
 
-export const OPEN_PROJECT_DECLARATION: Omit<CommandDeclaration, "args"> = {
-    title: {"zh-CN": "打开项目", "en-US": "Open Project"},
-    category: {"zh-CN": "项目", "en-US": "Project"},
+export const OPEN_PROJECT_DECLARATION: Omit<WrittenCommandDeclaration, "args"> = {
+    category: projectsText("commands.nbook.project.open.category"),
     description: "Open a registered project in this window, or register a directory as a project and open it. The page reloads.",
     effect: "write",
     // 整页重新加载会打断 Agent 自己所在的窗口；先只给人用。
@@ -32,10 +31,10 @@ const ACTIVE_STATES: ReadonlySet<ProjectView["state"]> = new Set(["starting", "r
 function request(projects: ReadonlyArray<ProjectView>, title: DisplayText): QuickPickRequest {
     return {
         title,
-        placeholder: projectsText("placeholder"),
-        items: projects.map((project) => ({id: project.name, label: project.name, detail: ACTIVE_STATES.has(project.state) ? projectsText("running", {path: project.path}) : project.path})),
-        text: {label: (path) => projectsText("registerAndOpen", {path})},
-        empty: projectsText("empty"),
+        placeholder: projectsText("open.placeholder"),
+        items: projects.map((project) => ({id: project.name, label: project.name, detail: ACTIVE_STATES.has(project.state) ? projectsText("open.running", {path: project.path}) : project.path})),
+        text: {label: (path) => projectsText("open.registerAndOpen", {path})},
+        empty: projectsText("open.empty"),
     };
 }
 
@@ -43,18 +42,18 @@ export interface OpenProjectHost {
     readonly remote: RemoteClient<typeof projectsRemoteContract>;
     readonly quickPick: QuickPick;
     navigateDocument(url: string): void;
-    /** 当前显示语言：命令失败的原因按它给出。 */
-    locale(): DisplayLocale;
+    /** 命令失败的原因按它给出（当前显示语言）。 */
+    readonly text: TextResolver;
     /** 登记失败时服务端给的说明原文（中文）记到诊断，不进界面。 */
     recordFailure(reason: string, detail: string): void;
 }
 
 export async function openProject(host: OpenProjectHost): Promise<CommandResult<null>> {
     const {remote, quickPick, navigateDocument} = host;
-    const fail = (text: LocalizedText): CommandResult<null> => ({ok: false, code: "unavailable", reason: localize(text, host.locale())});
+    const fail = (reason: string): CommandResult<null> => ({ok: false, code: "unavailable", reason});
     const listed = await remote.list({});
-    if (!listed.ok) return fail(projectsText("listFailed", {code: listed.code}));
-    let title: DisplayText = projectsText("title");
+    if (!listed.ok) return fail(host.text.t(projectsText("open.listFailed", {code: listed.code})));
+    let title: DisplayText = projectsText("open.title");
     for (;;) {
         const picked = await quickPick.pick(request(listed.value, title));
         if (picked.kind === "cancelled") return {ok: true, value: null};
@@ -70,8 +69,8 @@ export async function openProject(host: OpenProjectHost): Promise<CommandResult<
         }
         // 登记按目录幂等：同一目录再登记得到同一个项目。所以写请求结果未知（unknown-outcome）也折成命令的
         // unavailable、让用户再试是安全的，命令失败码不必另加一个；原因如实写明结果未知。
-        if (registered.code === "unknown-outcome") return fail(projectsText("unknownOutcome", {cause: registered.cause ?? registered.code}));
-        if (registered.code !== "register-failed") return fail(projectsText("notCompleted", {code: registered.code}));
+        if (registered.code === "unknown-outcome") return fail(host.text.t(projectsText("open.unknownOutcome", {cause: registered.cause ?? registered.code})));
+        if (registered.code !== "register-failed") return fail(host.text.t(projectsText("open.notCompleted", {code: registered.code})));
         const failure = registered.detail as {readonly reason: string; readonly detail: string};
         host.recordFailure(failure.reason, failure.detail);
         title = retryTitle(failure.reason);

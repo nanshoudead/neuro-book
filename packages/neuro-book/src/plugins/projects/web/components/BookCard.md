@@ -1,5 +1,5 @@
 ---
-标签: []
+标签: [state:inject]
 别名: ["书卡"]
 ---
 
@@ -19,7 +19,6 @@
 
 ```ts
 type Props = {
-    locale: DisplayLocale;
     item: ShelfItem;
     /** 相对时间按它算（ISO）。 */
     now: string;
@@ -42,3 +41,7 @@ type Emits = {
 ```
 
 没有插槽与 expose；attrs 落在根 `article` 上（带 `data-book-card="<id>"`）。
+
+## 隐藏通道理由
+
+`state:inject`：经 `useText()` 取宿主注入的翻译端口，界面文字都在本插件的目录（命名空间 `nbook.projects`，`../../locales/`）；语言随端口切换，不重新挂载。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。

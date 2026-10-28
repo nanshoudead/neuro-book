@@ -7,14 +7,11 @@
 import {defineComponent, h, onBeforeUnmount} from "vue";
 import type {Component, Ref} from "vue";
 
-import type {DisplayLocale} from "nbook/shared/localized-text";
-
 import type {ShelfPage} from "./shelf-page";
 
 export interface BookshelfHomeOptions {
     /** `components/BookshelfHost.vue`。 */
     readonly component: Component;
-    readonly locale: Readonly<Ref<DisplayLocale>>;
     /** 本页的设置窗口开着（公开状态 `nbook.settings/windowOpen`）：齿轮画成按下。 */
     readonly settingsOpen: Readonly<Ref<boolean>>;
     readonly createPage: () => ShelfPage;
@@ -26,7 +23,7 @@ export function createBookshelfHome(options: BookshelfHomeOptions): Component {
         setup() {
             const page = options.createPage();
             onBeforeUnmount(() => page.dispose());
-            return () => h(options.component, {page, locale: options.locale.value, settingsOpen: options.settingsOpen.value});
+            return () => h(options.component, {page, settingsOpen: options.settingsOpen.value});
         },
     });
 }

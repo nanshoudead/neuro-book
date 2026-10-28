@@ -28,8 +28,8 @@ import {createNotifications} from "nbook/plugins/workbench/web/notifications";
 import type {WindowNotifications} from "nbook/plugins/workbench/web/notifications";
 import {projectHarness} from "nbook/server/testing/projects";
 import type {ProjectHarness} from "nbook/server/testing/projects";
-import type {DisplayLocale} from "nbook/shared/localized-text";
 import type {SettingsService} from "nbook/shared/settings";
+import {testTextPort} from "nbook/shared/testing/text-port";
 import {browserHostPlugins} from "nbook/web/plugins";
 
 import {descriptor as projectsDescriptor} from "./plugin";
@@ -39,6 +39,7 @@ import type {ShelfItem} from "./shared/shelf";
 import {continueUrl, createShelfPage, SHELF_REFRESH_MS} from "./web/shelf-page";
 import type {ShelfPage} from "./web/shelf-page";
 import type {ShelfSort} from "./web/shelf-format";
+import {projectsCatalogs} from "./web/text";
 import type {ShelfView} from "./web/shelf-preferences";
 
 const silentConsole = {error: () => undefined};
@@ -227,7 +228,7 @@ async function world(initial: ShelfItem[], options: {readonly failShelf?: Script
         await h.parent.stop();
     });
 
-    const locale = ref<DisplayLocale>("zh-CN");
+    const text = testTextPort("zh-CN", {"nbook.projects": projectsCatalogs});
     const reports: string[] = [];
     const notifications = createNotifications((message) => reports.push(message));
     closers.push(async () => notifications.dispose());
@@ -252,7 +253,7 @@ async function world(initial: ShelfItem[], options: {readonly failShelf?: Script
             const page = createShelfPage({
                 remote: timed,
                 clock,
-                locale: () => locale.value,
+                text,
                 preferences: {view, sort, setView: (next) => {
                     view.value = next;
                 }, setSort: (next) => {

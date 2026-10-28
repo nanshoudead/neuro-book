@@ -43,6 +43,7 @@ export const CATALOG_DIRECTORIES: ReadonlyArray<CatalogDirectory> = [
     {path: "packages/neuro-book/src/plugins/editor/locales", source: "zh-CN"},
     {path: "packages/neuro-book/src/plugins/explorer/locales", source: "zh-CN"},
     {path: "packages/neuro-book/src/plugins/plugins/locales", source: "zh-CN"},
+    {path: "packages/neuro-book/src/plugins/projects/locales", source: "zh-CN"},
     {path: "packages/neuro-book/src/plugins/settings/locales", source: "zh-CN"},
     {path: "packages/neuro-book/src/plugins/workbench/locales", source: "zh-CN"},
 ];

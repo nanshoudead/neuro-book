@@ -5,23 +5,21 @@
  */
 
 import {defineComponent, h} from "vue";
-import type {Component, PropType, Ref} from "vue";
+import type {Component, PropType} from "vue";
 
-import type {SettingsPageDeclaration} from "nbook/plugins/settings/shared/contracts";
+import type {WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 import type {Notifications} from "nbook/plugins/workbench/shared/contracts";
-import {localize} from "nbook/shared/localized-text";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import type {TextResolver} from "nbook/shared/localized-text";
 import type {SettingsFailure, SettingsService} from "nbook/shared/settings";
 
+import {projectsText} from "../shared/text";
 import type {BrowseOutcome} from "./browse";
-import {shelfText} from "./messages";
 import type {LibraryInfo} from "./shelf-page";
 
 export const WORKS_SECTION = "nbook.works";
 
-export const WORKS_SECTION_DECLARATION: SettingsPageDeclaration = {
-    title: {"zh-CN": "作品", "en-US": "Books"},
+export const WORKS_SECTION_DECLARATION: WrittenSettingsPageDeclaration = {
     icon: "i-lucide-library",
     category: "app",
     order: 30,
@@ -38,7 +36,8 @@ export interface WorksPageOptions {
     readonly source: {list(path: string | null): Promise<BrowseOutcome>};
     /** 当前有效的作品目录（远程 `library()`）；取不到为 null，诊断由提供方记。没设时页面据此显示缺省目录。 */
     readonly library: () => Promise<LibraryInfo | null>;
-    readonly locale: Readonly<Ref<DisplayLocale>>;
+    /** 写不进去的通知文字经它给出（当前显示语言）。 */
+    readonly text: TextResolver;
     readonly notifications: Notifications;
     /** 记诊断：作品目录没写进设置（用户已经看到通知）。 */
     readonly report: (message: string) => void;
@@ -46,13 +45,12 @@ export interface WorksPageOptions {
 
 export function createWorksPage(options: WorksPageOptions): Component {
     const failed = (failure: {readonly code: SettingsFailure; readonly detail: string}): void => {
-        const locale = options.locale.value;
         options.report(`作品目录没有写进设置：${failure.code}：${failure.detail}`);
         // 与书架“作品目录没写进设置”同一种去处（bookshelf.md“失败与恢复”）：通知。
         options.notifications.notify({
             tone: "warning",
-            title: localize(shelfText("libraryNotSavedTitle"), locale),
-            message: localize(shelfText("libraryChangeNotSaved", {reason: `${failure.code}：${failure.detail}`}), locale),
+            title: options.text.t(projectsText("shelf.libraryNotSavedTitle")),
+            message: options.text.t(projectsText("shelf.libraryChangeNotSaved", {reason: `${failure.code}：${failure.detail}`})),
         });
     };
     return defineComponent({
@@ -64,7 +62,6 @@ export function createWorksPage(options: WorksPageOptions): Component {
             settings: options.settings,
             source: options.source,
             readLibrary: options.library,
-            locale: options.locale.value,
             onWriteFailed: failed,
         }),
     });

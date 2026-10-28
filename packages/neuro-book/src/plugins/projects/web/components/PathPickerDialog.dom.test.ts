@@ -6,9 +6,15 @@
 import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
+
 import type {BrowseEntry} from "../../shared/contracts";
+import {projectsCatalogs} from "../text";
 import PathPickerDialog from "./PathPickerDialog.vue";
 import type {PathPickerSource} from "./PathPickerDialog.vue";
+
+/** 注入窗口同款的翻译端口（严格模式，缺键或缺参数直接抛错）。 */
+const global = {provide: provideText(testTextPort("zh-CN", {"nbook.projects": projectsCatalogs}))};
 
 const mounted: Array<{unmount(): void}> = [];
 afterEach(() => {
@@ -38,7 +44,7 @@ function source(listed: string[] = []): PathPickerSource {
 }
 
 function open(mode: "project" | "directory", listed: string[] = [], extra: Record<string, unknown> = {}) {
-    const wrapper = mount(PathPickerDialog, {props: {locale: "zh-CN" as const, open: true, mode, source: source(listed), ...extra}, attachTo: document.body});
+    const wrapper = mount(PathPickerDialog, {global, props: {open: true, mode, source: source(listed), ...extra}, attachTo: document.body});
     mounted.push(wrapper);
     return wrapper;
 }

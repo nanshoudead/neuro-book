@@ -15,6 +15,8 @@ import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {RESOURCE_PATH_PATTERN} from "nbook/plugins/files/shared/contracts";
 import {defineSetting} from "nbook/shared/settings";
 
+import {projectsText} from "./text";
+
 export const OPEN_PROJECT_COMMAND = "nbook.project.open";
 
 /** 作品目录：新建作品的缺省父目录（服务端上的路径），只在用户层；空串为没设。首次新建成功后由书架页写入。 */
@@ -23,8 +25,8 @@ export const librarySetting = defineSetting({
     name: "library",
     schema: Type.String(),
     default: "",
-    title: {"zh-CN": "作品目录", "en-US": "Library Folder"},
-    description: {"zh-CN": "新建作品时默认放在这里", "en-US": "New works are created here by default"},
+    // 标题省略，登记时补成约定键 `settings.library.title`；说明是可选字段，不补键，要自己写引用。
+    description: projectsText("settings.library.description"),
     layers: ["user"],
     section: "nbook.works",
 });

@@ -14,14 +14,20 @@ import type {Ref} from "vue";
 import {createSettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
 import type {HostLayer} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
+import {settingsCatalogs} from "nbook/plugins/settings/web/text";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import type {SettingLayer} from "nbook/shared/settings";
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
 import type {BrowseEntry} from "../../shared/contracts";
 import {librarySetting} from "../../shared/contracts";
 import type {LibraryInfo} from "../shelf-page";
+import {projectsCatalogs} from "../text";
 import {createWorksPage} from "../works-section";
 import WorksSettingsPage from "./WorksSettingsPage.vue";
+
+/** 窗口同款的翻译端口（严格模式）：页面经 `useText()` 取文字，`createWorksPage` 的通知文字也经它；页面里的设置行（`SettingsRow`）用 `nbook.settings` 的文字。 */
+const port = testTextPort("zh-CN", {"nbook.projects": projectsCatalogs, "nbook.settings": settingsCatalogs});
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -59,7 +65,7 @@ function open(user: HostLayer, library = true) {
             const node = TREE[key];
             return node === undefined ? {ok: false, message: `列不出目录：${key}`} : {ok: true, value: {path: key, ...node}};
         }},
-        locale: ref("zh-CN" as const),
+        text: port,
         notifications: {notify: (input) => {
             notices.push(input);
             return {id: String(notices.length), update: () => undefined, dismiss: () => undefined};
@@ -67,7 +73,7 @@ function open(user: HostLayer, library = true) {
         report: () => undefined,
     });
     const context: SettingsPageContext = {id: "nbook.works", layer: readonly(ref<SettingLayer>("user")) as Readonly<Ref<SettingLayer>>, projectTitle: readonly(ref(null)), writable: readonly(ref(true)), options: {}, dirty: () => undefined};
-    const wrapper = mount(page, {props: {context}, attachTo: document.body});
+    const wrapper = mount(page, {global: {provide: provideText(port)}, props: {context}, attachTo: document.body});
     cleanup.push(() => wrapper.unmount());
     return {host, notices, listed, wrapper};
 }

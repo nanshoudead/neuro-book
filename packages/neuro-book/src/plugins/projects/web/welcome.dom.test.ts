@@ -6,10 +6,16 @@
 import {flushPromises, mount} from "@vue/test-utils";
 import {describe, expect, it} from "vitest";
 
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
+
 import type {ShelfItem} from "../shared/shelf";
 import WelcomePage from "./components/WelcomePage.vue";
+import {projectsCatalogs} from "./text";
 import {createWelcomeHost} from "./welcome";
 import type {WelcomeHostOptions} from "./welcome";
+
+/** 窗口同款的翻译端口（严格模式）：宿主的失败文字与页面都经它。 */
+const port = testTextPort("zh-CN", {"nbook.projects": projectsCatalogs});
 
 type ShelfResult = Awaited<ReturnType<WelcomeHostOptions["remote"]["shelf"]>>;
 type ListResult = Awaited<ReturnType<NonNullable<WelcomeHostOptions["files"]>["list"]>>;
@@ -35,12 +41,12 @@ function mountHost(shelf: Promise<ShelfResult>, list: Promise<ListResult> | null
         files: list === null ? null : {list: () => list, create: () => Promise.reject(new Error("这条测试不新建章节"))},
         commands: {execute: () => Promise.reject(new Error("这条测试不执行命令"))},
         navigateDocument: () => undefined,
-        locale: () => "zh-CN",
+        text: port,
         now: () => Date.parse("2026-10-12T16:30:00+01:00"),
         shortcut: () => null,
         report: (message) => reports.push(message),
     });
-    return {wrapper: mount(Host, {props: {context: {recent: []}}}), reports};
+    return {wrapper: mount(Host, {global: {provide: provideText(port)}, props: {context: {recent: []}}}), reports};
 }
 
 describe("欢迎页宿主的取数标记", () => {

@@ -6,15 +6,20 @@
 import {mount} from "@vue/test-utils";
 import {describe, expect, it} from "vitest";
 
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
+
 import type {ShelfStats} from "../../shared/contracts";
+import {projectsCatalogs} from "../text";
 import WelcomePage from "./WelcomePage.vue";
+
+/** 注入窗口同款的翻译端口（严格模式，缺键或缺参数直接抛错）。 */
+const global = {provide: provideText(testTextPort("zh-CN", {"nbook.projects": projectsCatalogs}))};
 
 const NOW = "2026-10-12T16:30:00+01:00";
 const STALE: ShelfStats = {freshness: "stale", computedAt: "2026-10-12T09:05:00+01:00", words: 174, files: 5, unreadable: 0, today: null, last: null};
 
 function page(props: Record<string, unknown> = {}) {
-    return mount(WelcomePage, {props: {
-        locale: "zh-CN",
+    return mount(WelcomePage, {global, props: {
         title: "雾港",
         description: null,
         stats: STALE,

@@ -3,8 +3,14 @@
 import {mount} from "@vue/test-utils";
 import {describe, expect, it} from "vitest";
 
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
+
 import type {ShelfItem, ShelfStats} from "../../shared/shelf";
+import {projectsCatalogs} from "../text";
 import ShelfDesk from "./ShelfDesk.vue";
+
+/** 注入窗口同款的翻译端口（严格模式，缺键或缺参数直接抛错）。 */
+const global = {provide: provideText(testTextPort("zh-CN", {"nbook.projects": projectsCatalogs}))};
 
 const NOW = "2026-10-11T12:00:00.000Z";
 
@@ -19,7 +25,7 @@ const last = (at: string, label: string) => ({address: `project://${label}.md`, 
 
 describe("ShelfDesk", () => {
     it("今天写了字时大字是今天的净增，否则是总字数；最近写到按时间从近到远；点一条发 continue", async () => {
-        const wrapper = mount(ShelfDesk, {props: {locale: "zh-CN" as const, now: NOW, items: [
+        const wrapper = mount(ShelfDesk, {global, props: {now: NOW, items: [
             item("a", "长夜行", {words: 286_400, files: 41, today: 1240, last: last("2026-10-11T08:27:00.000Z", "第十七章")}),
             item("b", "北方以北", {words: 123_000, files: 23, last: last("2026-10-10T21:04:00.000Z", "第九章")}),
             item("c", "雾中城", {words: 41_000, files: 9}),
@@ -41,7 +47,7 @@ describe("ShelfDesk", () => {
     });
 
     it("空书架：问候与看板娘，没有统计与最近写到", () => {
-        const wrapper = mount(ShelfDesk, {props: {locale: "zh-CN" as const, now: NOW, items: []}});
+        const wrapper = mount(ShelfDesk, {global, props: {now: NOW, items: []}});
         expect(wrapper.get("[data-shelf-desk]").text()).toContain("书架还是空的");
         expect(wrapper.find("[data-shelf-stats]").exists()).toBe(false);
         expect(wrapper.find("[data-shelf-recent]").exists()).toBe(false);
