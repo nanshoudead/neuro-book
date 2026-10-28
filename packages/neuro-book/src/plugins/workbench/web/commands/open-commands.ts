@@ -7,15 +7,14 @@
 
 import {Type} from "typebox";
 
-import type {CommandDeclaration, CommandImplementation, Release} from "nbook/plugins/commands/shared/contracts";
+import type {CommandImplementation, Release, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 
 import type {QuickPick} from "../../shared/contracts";
 import type {PaletteHost} from "./palette-host";
 
 export const OPEN_COMMANDS_ID = "nbook.quick-open.open-commands";
 
-export const OPEN_COMMANDS_DECLARATION: CommandDeclaration = {
-    title: {"zh-CN": "命令面板", "en-US": "Command Palette"},
+export const OPEN_COMMANDS_DECLARATION: WrittenCommandDeclaration = {
     description: "Open the command palette.",
     args: Type.Object({}, {additionalProperties: false}),
     effect: "read",

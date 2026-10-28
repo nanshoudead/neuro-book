@@ -16,6 +16,7 @@ import type {TitleActionCandidate, TitleActionsModel} from "nbook/ui/menus/title
 
 import {TITLEBAR_MENU_GROUPS} from "../../shared/menus";
 import type {TitlebarMenuItemDeclaration, ViewTitleItemDeclaration} from "../../shared/menus";
+import {workbenchText} from "../../shared/text";
 import {VIEW_ACTIONS_MAX} from "../../shared/views";
 import type {ViewAction} from "../../shared/views";
 
@@ -55,7 +56,6 @@ export interface ViewInstanceRef {
     readonly generation: number;
 }
 
-const INSTANCE_LOADING = {"zh-CN": "视图还没加载好", "en-US": "The view has not loaded yet"};
 
 /** 标题栏菜单没有位置参数。 */
 const NO_CONTEXTS: ReadonlySet<string> = new Set();
@@ -139,7 +139,7 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
         },
         viewActions: (viewId, actions, text, instance) => {
             void version.value;
-            const loading = text.t(INSTANCE_LOADING);
+            const loading = text.t(workbenchText("viewActions.instanceLoading"));
             const own = actions.map((action, index): TitleActionCandidate => {
                 const title = text.t(action.title);
                 const enabled = commands.isEnabled(action.command);

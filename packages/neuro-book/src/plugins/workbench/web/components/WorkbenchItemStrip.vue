@@ -2,12 +2,11 @@
 /** 条目条（同名 .md）：排一行，放不下时按优先级收进“更多”；只发 run 事件。 */
 import {Button, DropdownMenu} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {useElementSize} from "@vueuse/core";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
-import {localize} from "nbook/shared/localized-text";
-import type {DisplayLocale} from "nbook/shared/localized-text";
-
+import {workbenchText} from "../../shared/text";
 import {layoutStrip} from "../items/item-strip";
 import type {StripEntry} from "../items/registry";
 
@@ -16,7 +15,6 @@ export type {StripEntry};
 defineOptions({name: "WorkbenchItemStrip"});
 
 const props = defineProps<{
-    locale: DisplayLocale;
     entries: StripEntry[];
     itemHeight: number;
     align: "start" | "end";
@@ -26,7 +24,7 @@ const emit = defineEmits<{
     (event: "run", itemId: string): void;
 }>();
 
-const MORE = {"zh-CN": "更多", "en-US": "More"};
+const port = useText();
 /** 条目之间的间距，与样式里的 gap 一致；测量的宽度要把它算进去。 */
 const GAP = 4;
 
@@ -47,7 +45,7 @@ function remeasure(): void {
 }
 
 // 文字、语言或条目集合变了：等测量层渲染完再量。
-watch(() => [props.entries.map((entry) => `${entry.id}\u0000${entry.text}`).join("\u0001"), props.locale, props.itemHeight], () => {
+watch(() => [props.entries.map((entry) => `${entry.id}\u0000${entry.text}`).join("\u0001"), port.locale.value, props.itemHeight], () => {
     void nextTick(remeasure);
 }, {immediate: true});
 
@@ -120,7 +118,7 @@ function tooltipOf(entry: StripEntry): string | undefined {
             >{{ entry.text }}</span>
         </template>
         <DropdownMenu v-if="hidden.length > 0" :items="moreItems" align="end" side="top" wrap @select="emit('run', $event)">
-            <Button variant="ghost" size="sm" focus-ring="inset" class="workbench-item-strip__item" :aria-label="localize(MORE, locale)" data-workbench-item-more>
+            <Button variant="ghost" size="sm" focus-ring="inset" class="workbench-item-strip__item" :aria-label="port.t(workbenchText('common.more'))" data-workbench-item-more>
                 <span class="i-lucide-ellipsis h-3.5 w-3.5" aria-hidden="true"></span>
             </Button>
         </DropdownMenu>

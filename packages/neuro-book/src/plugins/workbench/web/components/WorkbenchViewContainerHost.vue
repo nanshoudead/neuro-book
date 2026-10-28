@@ -4,12 +4,10 @@
  */
 import {NestedGrid} from "@notnotype/nb-ui/layout";
 import {useGridLayout, useLayoutExtent} from "@notnotype/nb-ui/composables";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, defineComponent, h, onBeforeUnmount, onMounted, ref} from "vue";
 
-import {resolverFor} from "nbook/shared/localized-text";
-import {useText} from "@notnotype/nb-ui/text-port";
-import type {DisplayLocale} from "nbook/shared/localized-text";
-
+import {workbenchText} from "../../shared/text";
 import {containerSizePatch, createContainerGrid} from "../views/container-grid";
 import type {ContainerPresentation} from "../views/presentation";
 import WorkbenchViewSection from "./WorkbenchViewSection.vue";
@@ -20,11 +18,6 @@ const props = withDefaults(defineProps<{
     container: ContainerPresentation;
     contextKey: string;
     disabled?: boolean;
-    collapseLabel: string;
-    expandLabel: string;
-    /** 分节标题把手的可访问名称模板，`{title}` 换成视图标题。 */
-    dragLabel: string;
-    locale: DisplayLocale;
 }>(), {disabled: false});
 
 const emit = defineEmits<{
@@ -33,7 +26,7 @@ const emit = defineEmits<{
     (event: "target", viewId: string, element: HTMLElement | null): void;
 }>();
 
-const resolver = resolverFor(() => props.locale, useText());
+const resolver = useText();
 
 defineSlots<{
     "view-actions"?(props: {viewId: string}): unknown;
@@ -128,9 +121,9 @@ const ViewTarget = defineComponent({
                     :axis="container.axis"
                     :chrome="container.mode === 'multiple'"
                     :collapsed="views.get(node.id)!.collapsed"
-                    :collapse-label="collapseLabel"
-                    :expand-label="expandLabel"
-                    :drag-label="dragLabel.replace('{title}', resolver.t(views.get(node.id)!.title))"
+                    :collapse-label="resolver.t(workbenchText('views.collapse'))"
+                    :expand-label="resolver.t(workbenchText('views.expand'))"
+                    :drag-label="resolver.t(workbenchText('shell.drag.label', {title: resolver.t(views.get(node.id)!.title)}))"
                     @toggle-collapsed="(collapsed: boolean) => emit('toggle-collapsed', node.id, collapsed)"
                 >
                     <template #actions>

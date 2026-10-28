@@ -18,6 +18,7 @@ import {modelsSettings} from "nbook/plugins/lab/web/fixtures/settings-scene/scen
 import type {SettingsWindowSceneId} from "nbook/plugins/lab/web/fixtures/settings-scene/scene-settings";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import {appearanceSetting, themeSetting} from "nbook/plugins/workbench/shared/contracts";
+import {workbenchCatalogs} from "nbook/plugins/workbench/web/text";
 import {defineSetting} from "nbook/shared/settings";
 import type {SettingDefinition} from "nbook/shared/settings";
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
@@ -31,7 +32,7 @@ import {settingsCatalogs} from "../text";
 import SettingsWindow from "./SettingsWindow.vue";
 
 /** 窗口里固定的文字取自 `nbook.settings` 的目录（经测试端口）；断言也经目录解析，不在测试里重复写一份文案。 */
-const textPort = (locale: "zh-CN" | "en-US" = "zh-CN") => testTextPort(locale, {"nbook.settings": settingsCatalogs});
+const textPort = (locale: "zh-CN" | "en-US" = "zh-CN") => testTextPort(locale, {"nbook.settings": settingsCatalogs, "nbook.workbench": workbenchCatalogs});
 const {t} = settingsTestText("zh-CN");
 
 const cleanup: Array<() => void> = [];

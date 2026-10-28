@@ -100,7 +100,7 @@ owners:
 
 - 原语：`packages/nb-ui/src/components/popup/QuickPick.vue`（受控 props/emits、S4 层级 `NB_Z_INDEX.commandPalette`、modal 键盘、`closed` 交接）。
 - 面板：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.vue`（同名 `.md`；查询与匹配、行号模式、等 `closed` 后执行、MRU 回写），只依赖面板宿主与命令服务接口，不知道命令表是哪一份。
-- 面板宿主：`src/plugins/workbench/web/commands/palette-host.ts`（开合、查询、捕获的行号目标、会话 MRU、活动编辑器的接入口；选择模式的 `openPick`、`choosePick` 与关闭完成时结算的 `closed`）；文案中英表 `commands/palette-messages.ts`。
+- 面板宿主：`src/plugins/workbench/web/commands/palette-host.ts`（开合、查询、捕获的行号目标、会话 MRU、活动编辑器的接入口；选择模式的 `openPick`、`choosePick` 与关闭完成时结算的 `closed`）；面板自己的文字在插件目录 `src/plugins/workbench/locales/`（键 `palette.*`），由组件经翻译端口取，宿主不管语言。
 - 选择服务：合同与服务键 `quickPickKey` 在 `src/plugins/workbench/shared/contracts.ts`，由工作台浏览器入口经页面槽位（`commands/open-commands.ts` 的 `PaletteSlot.quickPick`）提供；候选匹配 `command-query.ts` 的 `searchPickItems`。
 - 查询：`src/plugins/workbench/web/commands/command-query.ts`（前缀解析、子序列匹配与排序）。
 - 界面宿主：产品 `/` 页上是 `src/plugins/workbench/web/commands/WorkbenchCommandHost.vue`；Component Lab 中由命令场景的局部宿主 `src/plugins/lab/web/fixtures/command-scene/lab-command-scene.ts` 挂载（与场景同寿，负责确认与错误呈现），Lab 外壳不持有面板。

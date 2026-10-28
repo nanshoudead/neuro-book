@@ -7,6 +7,10 @@ import {mount} from "@vue/test-utils";
 import {describe, expect, it} from "vitest";
 import {nextTick} from "vue";
 
+import {provideText} from "nbook/shared/testing/text-port";
+
+import {workbenchTestText} from "../../testing/text";
+
 import type {MenuGroup} from "../titlebar/menu-model";
 import WorkbenchTitleBar from "./WorkbenchTitleBar.vue";
 
@@ -20,7 +24,7 @@ const menus: MenuGroup[] = [
 const layout = {sidebar: {pressed: true, disabled: false}, panel: {pressed: false, disabled: false}, auxiliarybar: {pressed: false, disabled: true}};
 
 function mountBar(project: string | null = "雾港") {
-    return mount(WorkbenchTitleBar, {props: {locale: "zh-CN", project, menus, searchShortcut: "Ctrl+Shift+P", layout, items: []}, attachTo: document.body});
+    return mount(WorkbenchTitleBar, {props: {project, menus, searchShortcut: "Ctrl+Shift+P", layout, items: []}, global: {provide: provideText(workbenchTestText("zh-CN"))}, attachTo: document.body});
 }
 
 describe("WorkbenchTitleBar", () => {

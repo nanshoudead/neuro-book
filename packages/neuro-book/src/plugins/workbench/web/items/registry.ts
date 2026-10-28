@@ -14,10 +14,10 @@ import {shallowRef} from "@vue/reactivity";
 import type {ContributionDescriptor, ContributionHandle, ContributionReceiver} from "@notnotype/nb-runtime/plugins";
 
 import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
-import {formatText} from "nbook/shared/localized-text";
-import type {LocalizedText, TextResolver} from "nbook/shared/localized-text";
+import type {TextResolver} from "nbook/shared/localized-text";
 
 import type {ItemDeclaration} from "../../shared/items";
+import {workbenchText} from "../../shared/text";
 import type {ItemImplementation} from "../contracts";
 
 export type ItemState = "normal" | "warning" | "error";
@@ -40,7 +40,6 @@ export type StripEntry = ShownItem & {readonly disabledReason: string | null};
 
 type ItemHandle = ContributionHandle<ItemDeclaration, ItemImplementation>;
 
-const BROKEN: LocalizedText = {"zh-CN": "这个条目出错了：{message}", "en-US": "This item failed: {message}"};
 
 export class ItemRegistry {
     readonly #catalog: ReadonlyMap<string, ItemDeclaration>;
@@ -117,7 +116,7 @@ export class ItemRegistry {
                 this.#reported.add(handle);
                 this.#report(`条目 ${id} 的实现出错：${message}`);
             }
-            return {...base, text: base.title, tooltip: text.t(formatText(BROKEN, {message})), state: "error", command: null};
+            return {...base, text: base.title, tooltip: text.t(workbenchText("items.broken", {message})), state: "error", command: null};
         }
     }
 }

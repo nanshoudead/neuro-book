@@ -1,5 +1,5 @@
 ---
-标签: [state:local]
+标签: [state:local, state:inject]
 别名: ["视图框", "View Frame"]
 ---
 
@@ -24,13 +24,11 @@
 import type {Component} from "vue";
 import type {ViewContext} from "../contracts";
 import type {ViewDelivery} from "../views/registry";
-import type {DisplayLocale} from "nbook/shared/localized-text";
 
 type ViewFrameStatus = "waiting" | "loading" | "ready" | "load-failed" | "render-failed";
 
 type Props = {
     viewId: string;
-    locale: DisplayLocale;
     /** 视图声明的内容布局。 */
     layout: "scroll" | "fill";
     /** 交付状态；不是 available 时只显示它，不看 status。 */
@@ -61,6 +59,10 @@ type Emits = {
 ## 状态
 
 见上：七种形态由 `delivery` 与 `status` 决定。内部状态只有错误边界。
+
+## 隐藏通道理由
+
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，等待、加载、失败与重试等界面文字都在本插件的目录（命名空间 `nbook.workbench`，`../../locales/`）；语言随端口响应式切换，组件没有语言属性。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。
 
 ## 不支持
 

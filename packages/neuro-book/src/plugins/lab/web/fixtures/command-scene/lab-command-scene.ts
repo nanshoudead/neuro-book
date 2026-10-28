@@ -91,7 +91,7 @@ export function useLabCommandScene(): LabCommandScene {
         confirm: requestConfirmation,
         report: reportError,
     });
-    const palette = createPaletteHost({commands: registry, locale: ref(LAB_LOCALE), onVisibleChange: (open) => patchContext({"quick-open-visible": open})});
+    const palette = createPaletteHost({commands: registry, onVisibleChange: (open) => patchContext({"quick-open-visible": open})});
 
     // 同步派生：命令可用性马上要读到这几个键，不能等下一轮渲染。
     watch(activeEditor, (binding) => {

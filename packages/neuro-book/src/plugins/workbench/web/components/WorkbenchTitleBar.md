@@ -1,5 +1,5 @@
 ---
-标签: [env:global, env:portal]
+标签: [state:inject, env:global, env:portal]
 别名: ["标题栏", "Title Bar"]
 ---
 
@@ -26,7 +26,6 @@
 ```ts
 type LayoutButton = {pressed: boolean; disabled: boolean};
 type Props = {
-    locale: DisplayLocale;
     /** 当前项目的显示名；没有绑定项目为 null。 */
     project: string | null;
     menus: MenuGroup[];
@@ -48,3 +47,4 @@ type Emits = {
 
 - `env:global`：Alt 与 F10 在窗口上监听：快捷键要在焦点在编辑器、侧栏等任何地方时都生效；`focusin` 在文档上监听：菜单用指针点开时，打开前的焦点已经不在 `activeElement` 上，只能事先记下。组件卸载时都摘下。
 - `env:portal`：菜单与下拉经 nb-ui 的 Portal 渲染。
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，搜索、布局按钮、菜单入口、项目切换等界面文字都在本插件的目录（命名空间 `nbook.workbench`，`../../locales/`）；语言随端口响应式切换，组件没有语言属性。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。

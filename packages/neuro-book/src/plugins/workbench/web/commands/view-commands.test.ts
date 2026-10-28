@@ -25,7 +25,8 @@ import type {LayoutStore} from "../state/layout-store";
 import {workbenchStateBindings} from "../state/public-state";
 import {openLayout} from "../testing/layout";
 import {MOVE_VIEW_COMMAND, OPEN_VIEW_COMMAND, VIEW_COMMAND_DECLARATIONS, viewCommands} from "./view-commands";
-import {textIn} from "nbook/shared/testing/text";
+import {completedCommand} from "../../testing/declarations";
+import {workbenchTestText} from "../../testing/text";
 
 let tmp = "";
 let counter = 0;
@@ -64,7 +65,7 @@ function picker(answer: (request: QuickPickRequest, index: number) => QuickPickR
     }};
 }
 
-const labels = (request: QuickPickRequest | undefined): string[] => (request?.items ?? []).map((item) => `${item.id}:${textIn("zh-CN").t(item.label)}${item.detail === undefined ? "" : `/${textIn("zh-CN").t(item.detail)}`}`);
+const labels = (request: QuickPickRequest | undefined): string[] => (request?.items ?? []).map((item) => `${item.id}:${workbenchTestText("zh-CN").t(item.label)}${item.detail === undefined ? "" : `/${workbenchTestText("zh-CN").t(item.detail)}`}`);
 
 const run = (store: LayoutStore, quickPick: QuickPick, args: Record<string, unknown>) => viewCommands(() => store, quickPick)[MOVE_VIEW_COMMAND].run(args);
 
@@ -83,7 +84,7 @@ describe("移动视图", () => {
         }});
         const implementations = viewCommands(() => current.value, picker(() => ({kind: "cancelled"})));
         for (const id of [MOVE_VIEW_COMMAND, OPEN_VIEW_COMMAND] as const) {
-            expect(registry.register({id, source: "nbook.workbench", declaration: VIEW_COMMAND_DECLARATIONS[id], run: implementations[id].run}).ok).toBe(true);
+            expect(registry.register({id, source: "nbook.workbench", declaration: completedCommand(id, VIEW_COMMAND_DECLARATIONS[id]), run: implementations[id].run}).ok).toBe(true);
             expect(registry.isEnabled(id)).toMatchObject({ok: false, code: "unavailable"});
         }
         current.value = store;

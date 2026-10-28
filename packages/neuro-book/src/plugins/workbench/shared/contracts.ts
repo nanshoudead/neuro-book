@@ -6,6 +6,8 @@ import {Type} from "typebox";
 import type {DisplayText} from "nbook/shared/localized-text";
 import {defineSetting} from "nbook/shared/settings";
 
+import {workbenchText} from "./text";
+
 /**
  * `nbook.workbench` 对其它插件公开的合同：页面贡献点 `workbench.pages` 与它的声明、视图贡献点 `workbench.views` 与它的
  * 声明（定义在 `views.ts`）、编辑器槽贡献点 `workbench.editor-area` 与它的声明、命令面板的选择服务、通知服务。
@@ -126,14 +128,13 @@ export const themeSetting = defineSetting({
     name: "theme",
     schema: Type.Union([Type.Literal("nbook"), Type.Literal("macos")]),
     default: "nbook",
-    title: {"zh-CN": "主题", "en-US": "Theme"},
-    description: {"zh-CN": "界面的形状、字体与配色", "en-US": "Shape, typography and colors of the interface"},
+    description: workbenchText("settings.theme.description"),
     section: "nbook.appearance",
     group: "ui",
     order: 10,
     choices: [
-        {value: "nbook", title: {"zh-CN": "NeuroBook", "en-US": "NeuroBook"}},
-        {value: "macos", title: {"zh-CN": "macOS", "en-US": "macOS"}},
+        {value: "nbook"},
+        {value: "macos"},
     ],
 });
 
@@ -143,13 +144,12 @@ export const appearanceSetting = defineSetting({
     name: "appearance",
     schema: Type.Union([Type.Literal("light"), Type.Literal("dark"), Type.Literal("system")]),
     default: "light",
-    title: {"zh-CN": "明暗", "en-US": "Appearance"},
     section: "nbook.appearance",
     group: "ui",
     order: 20,
     choices: [
-        {value: "light", title: {"zh-CN": "浅色", "en-US": "Light"}},
-        {value: "dark", title: {"zh-CN": "深色", "en-US": "Dark"}},
-        {value: "system", title: {"zh-CN": "跟随系统", "en-US": "System"}},
+        {value: "light"},
+        {value: "dark"},
+        {value: "system"},
     ],
 });

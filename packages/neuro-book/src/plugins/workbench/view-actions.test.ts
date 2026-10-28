@@ -31,7 +31,7 @@ import {ActivityItemRegistry} from "./web/items/activity-items";
 import {ItemRegistry} from "./web/items/registry";
 import {createShellChrome} from "./web/titlebar/titlebar-source";
 import type {ShellChrome} from "./web/titlebar/titlebar-source";
-import {textIn} from "nbook/shared/testing/text";
+import {workbenchTestText} from "./testing/text";
 
 const silent = {error: () => undefined};
 let tmp = "";
@@ -147,7 +147,7 @@ describe("视图标题动作（views.md 输出 10）", () => {
         const chrome = await start([example(enabled, on, calls)]);
 
         const instance = {viewId: VIEW, generation: 3};
-        const buttons = (locale: "zh-CN" | "en-US", at: typeof instance | null) => chrome.viewActions(VIEW, [ACT, TOGGLE], textIn(locale), at).buttons;
+        const buttons = (locale: "zh-CN" | "en-US", at: typeof instance | null) => chrome.viewActions(VIEW, [ACT, TOGGLE], workbenchTestText(locale), at).buttons;
         expect(buttons("zh-CN", instance).map((entry) => [entry.title, entry.disabledReason, entry.pressed])).toEqual([["动作", "现在不能做", undefined], ["开关", null, false]]);
         enabled.value = true;
         on.value = true;
@@ -170,7 +170,7 @@ describe("视图标题动作（views.md 输出 10）", () => {
         const calls: unknown[] = [];
         const chrome = await start([example(ref(true), ref(false), calls)]);
         const actions: ViewAction[] = [{...TOGGLE, placement: "menu"}, ACT];
-        const model = chrome.viewActions(VIEW, actions, textIn("zh-CN"), {viewId: VIEW, generation: 1});
+        const model = chrome.viewActions(VIEW, actions, workbenchTestText("zh-CN"), {viewId: VIEW, generation: 1});
         expect(keys(model.buttons)).toEqual(["own:1"]);
         expect(model.menu.map(keys)).toEqual([["own:0"]]);
         chrome.runViewAction(VIEW, actions, "own:0", {viewId: VIEW, generation: 1});
@@ -188,7 +188,7 @@ describe("别的插件贡献的标题动作（views.md 输出 11）", () => {
             {id: "example.more.other-view", declaration: {view: "example.elsewhere", section: "1", command: ACT.command, icon: "i-x"}},
         ])]);
         const actions: ViewAction[] = [ACT, {...TOGGLE, placement: "menu"}];
-        const model = chrome.viewActions(VIEW, actions, textIn("zh-CN"), {viewId: VIEW, generation: 2});
+        const model = chrome.viewActions(VIEW, actions, workbenchTestText("zh-CN"), {viewId: VIEW, generation: 2});
         expect(keys(model.buttons)).toEqual(["own:0", "example.more.button"]);
         expect(model.buttons[1]).toMatchObject({title: "贡献的按钮", icon: "i-more", command: TOGGLE.command});
         expect(model.menu.map(keys)).toEqual([["own:1"], ["example.more.menu"]]);
@@ -200,13 +200,13 @@ describe("别的插件贡献的标题动作（views.md 输出 11）", () => {
         await Promise.resolve();
         expect(calls).toEqual([{viewId: VIEW, generation: 2}, {}]);
         // 实例还没建立：要实例的贡献项禁用，点了不执行。
-        expect(chrome.viewActions(VIEW, actions, textIn("zh-CN"), null).menu[1]![0]!.disabledReason).toBe("视图还没加载好");
+        expect(chrome.viewActions(VIEW, actions, workbenchTestText("zh-CN"), null).menu[1]![0]!.disabledReason).toBe("视图还没加载好");
     });
 
     it("按钮（自己的加贡献来的）至多 8 个，放不下的贡献按钮回到它所在的节、收进“⋯”", async () => {
         const chrome = await start([example(ref(true), ref(false), []), more(Array.from({length: 4}, (_, index) => ({id: `example.more.b${String(index)}`, declaration: {view: VIEW, section: "1", order: index, command: TOGGLE.command, icon: "i-more"}})))]);
         const own: ViewAction[] = Array.from({length: 6}, () => ACT);
-        const model = chrome.viewActions(VIEW, own, textIn("zh-CN"), {viewId: VIEW, generation: 1});
+        const model = chrome.viewActions(VIEW, own, workbenchTestText("zh-CN"), {viewId: VIEW, generation: 1});
         expect(keys(model.buttons)).toEqual(["own:0", "own:1", "own:2", "own:3", "own:4", "own:5", "example.more.b0", "example.more.b1"]);
         expect(model.menu.map(keys)).toEqual([["example.more.b2", "example.more.b3"]]);
     });

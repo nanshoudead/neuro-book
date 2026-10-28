@@ -11,10 +11,11 @@
 
 import {Type} from "typebox";
 
-import type {CommandDeclaration, CommandImplementation, CommandResult} from "nbook/plugins/commands/shared/contracts";
-import type {DisplayText, LocalizedText} from "nbook/shared/localized-text";
+import type {CommandImplementation, CommandResult, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
+import type {DisplayText} from "nbook/shared/localized-text";
 
 import type {QuickPick} from "../../shared/contracts";
+import {workbenchText} from "../../shared/text";
 import {OPEN_VIEW_COMMAND, VIEW_LOCATIONS} from "../../shared/views";
 import type {ViewLocation} from "../../shared/views";
 import type {LayoutStore} from "../state/layout-store";
@@ -30,8 +31,7 @@ const Id = Type.String({minLength: 1, maxLength: 160});
 
 export const VIEW_COMMAND_DECLARATIONS = {
     [OPEN_VIEW_COMMAND]: {
-        title: {"zh-CN": "打开视图", "en-US": "Open View"},
-        category: {"zh-CN": "视图", "en-US": "View"},
+        category: workbenchText("categories.view"),
         description: "Show a view: select the container it is in, show that part of the window and expand the view. Give viewId, or nothing to pick one.",
         args: Type.Object({viewId: Type.Optional(Id)}, {additionalProperties: false}),
         // 会改写布局记录（选中的容器、区域显隐、视图展开），所以是写入；与别的布局命令一样不给 Agent。
@@ -40,8 +40,7 @@ export const VIEW_COMMAND_DECLARATIONS = {
         when: {requires: [workbenchState.key("layoutReady")]},
     },
     [MOVE_VIEW_COMMAND]: {
-        title: {"zh-CN": "移动视图", "en-US": "Move View"},
-        category: {"zh-CN": "视图", "en-US": "View"},
+        category: workbenchText("categories.view"),
         description: "Move a view into another existing view container (targetContainerId), or into a new container at the end of a part (newContainerIn). Give viewId, sourceContainerId and one target, or nothing to pick the view and the target.",
         args: Type.Object({
             viewId: Type.Optional(Id),
@@ -53,24 +52,30 @@ export const VIEW_COMMAND_DECLARATIONS = {
         expose: {agent: "never"},
         when: {requires: [workbenchState.key("layoutReady")]},
     },
-} as const satisfies Readonly<Record<string, CommandDeclaration>>;
+} as const satisfies Readonly<Record<string, WrittenCommandDeclaration>>;
 
-export const PART_LABELS: Readonly<Record<ViewLocation, LocalizedText>> = {
-    sidebar: {"zh-CN": "侧栏", "en-US": "Sidebar"},
-    auxiliarybar: {"zh-CN": "右栏", "en-US": "Secondary Side Bar"},
-    panel: {"zh-CN": "面板", "en-US": "Panel"},
+export const PART_LABELS: Readonly<Record<ViewLocation, DisplayText>> = {
+    sidebar: workbenchText("viewCommands.parts.sidebar"),
+    auxiliarybar: workbenchText("viewCommands.parts.auxiliarybar"),
+    panel: workbenchText("viewCommands.parts.panel"),
+};
+
+/** “新建容器（在 X）”的标题，按区域各一条（区域名是目录里完整的一句，不在代码里拼接）。 */
+const NEW_CONTAINER_LABELS: Readonly<Record<ViewLocation, DisplayText>> = {
+    sidebar: workbenchText("viewCommands.newContainer.sidebar"),
+    auxiliarybar: workbenchText("viewCommands.newContainer.auxiliarybar"),
+    panel: workbenchText("viewCommands.newContainer.panel"),
 };
 
 const TEXT = {
-    pickView: {"zh-CN": "选择要移动的视图", "en-US": "Pick a view to move"},
-    pickOpen: {"zh-CN": "选择要打开的视图", "en-US": "Pick a view to open"},
-    noOpenable: {"zh-CN": "没有可以打开的视图", "en-US": "No view to open"},
+    pickView: workbenchText("viewCommands.pickView"),
+    pickOpen: workbenchText("viewCommands.pickOpen"),
+    noOpenable: workbenchText("viewCommands.noOpenable"),
     unknownView: "没有这个视图（没有已接受的声明）：",
     unplaced: "视图不在布局里：",
-    pickTarget: {"zh-CN": "移动到", "en-US": "Move to"},
-    noViews: {"zh-CN": "没有可以移动的视图", "en-US": "No view can be moved"},
-    reset: {"zh-CN": "重置位置", "en-US": "Reset Location"},
-    newContainer: {"zh-CN": "新建容器（在{part}）", "en-US": "New Container in {part}"},
+    pickTarget: workbenchText("viewCommands.pickTarget"),
+    noViews: workbenchText("viewCommands.noViews"),
+    reset: workbenchText("views.resetLocation"),
     noLayout: "工作台布局没有打开（这个窗口没有显示外壳）",
     partial: "要么都不给，要么给 viewId、sourceContainerId 和 targetContainerId、newContainerIn 中的一个",
     stale: "视图已经不在发起时的容器里，没有移动",
@@ -83,11 +88,8 @@ const NEW_ITEM = "new:";
 const DONE: CommandResult<null> = {ok: true, value: null};
 
 /** “新建容器（在 X）”的标题，菜单与选择共用。 */
-export function newContainerLabel(part: ViewLocation): LocalizedText {
-    return {
-        "zh-CN": TEXT.newContainer["zh-CN"].replace("{part}", PART_LABELS[part]["zh-CN"]),
-        "en-US": TEXT.newContainer["en-US"].replace("{part}", PART_LABELS[part]["en-US"]),
-    };
+export function newContainerLabel(part: ViewLocation): DisplayText {
+    return NEW_CONTAINER_LABELS[part];
 }
 
 type MoveTarget = {readonly targetContainerId: string} | {readonly newContainerIn: ViewLocation};

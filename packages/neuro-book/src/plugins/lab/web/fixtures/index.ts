@@ -67,6 +67,7 @@ import type {LabInputOf, LabJsonPropOf, LabSlotOf, LabSubjectProps} from "../lab
 import {EXPLORER_ROWS, manyRows, UNBOUND_ROWS} from "./explorer-rows";
 import {withExplorerText} from "./explorer-scene/explorer-text";
 import {withSettingsText} from "./settings-scene/settings-text";
+import {withWorkbenchText} from "./workbench-scene/workbench-text";
 import {withNbookMarkdownHost} from "./markdown-host";
 import {nbAgentUiFixtures} from "./nb-agent-ui";
 import {nbFormFixtures} from "./nb-form";
@@ -333,7 +334,7 @@ export const labFixtures: LabFixture[] = [
                 scene("views-merged", "视图：大纲并进资源管理器（multiple）", {}),
             ];
         })(),
-        load: async () => (await import("./WorkbenchShellLayoutFixture.vue")).default,
+        load: async () => withWorkbenchText((await import("./WorkbenchShellLayoutFixture.vue")).default),
     }),
     defineSubjectFixture<typeof WorkbenchPanelSurface>({
         component: "WorkbenchPanelSurface",
@@ -357,23 +358,20 @@ export const labFixtures: LabFixture[] = [
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchPanelSurface.vue"),
     }),
-    defineSubjectFixture<typeof WorkbenchStatusBar>({
+    defineLabFixture<typeof WorkbenchStatusBar>({
         component: "WorkbenchStatusBar",
-        events: ["toggle-panel", "retry", "discard"],
-        class: "w-full",
         scenes: [
-            {id: "no-project", label: "未打开项目", input: {props: {locale: "zh-CN", project: null, panelHidden: false, panelToggleDisabled: false, problems: []}}},
-            {id: "project", label: "项目名", input: {props: {locale: "zh-CN", project: "长篇小说《雾港》第二部", panelHidden: false, panelToggleDisabled: false, problems: []}}},
-            {id: "unsaved", label: "布局未保存", input: {props: {locale: "zh-CN", project: "雾港", panelHidden: false, panelToggleDisabled: false, problems: [{record: "customizations", kind: "unsaved", code: "unavailable"}]}}},
-            {id: "unread", label: "布局未读取", input: {props: {locale: "zh-CN", project: "雾港", panelHidden: false, panelToggleDisabled: false, problems: [{record: "side", kind: "unread", code: "corrupt"}]}}},
-            {id: "hidden", label: "面板已隐藏、按钮不可用", input: {props: {locale: "en-US", project: null, panelHidden: true, panelToggleDisabled: true, problems: []}}},
+            {id: "no-project", label: "未打开项目", input: {props: {project: null, panelHidden: false, panelToggleDisabled: false, problems: []}}},
+            {id: "project", label: "项目名", input: {props: {project: "长篇小说《雾港》第二部", panelHidden: false, panelToggleDisabled: false, problems: []}}},
+            {id: "unsaved", label: "布局未保存", input: {props: {project: "雾港", panelHidden: false, panelToggleDisabled: false, problems: [{record: "customizations", kind: "unsaved", code: "unavailable"}]}}},
+            {id: "unread", label: "布局未读取", input: {props: {project: "雾港", panelHidden: false, panelToggleDisabled: false, problems: [{record: "side", kind: "unread", code: "corrupt"}]}}},
+            {id: "hidden", label: "面板已隐藏、按钮不可用", input: {props: {project: null, panelHidden: true, panelToggleDisabled: true, problems: []}}},
         ],
-        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchStatusBar.vue"),
+        // 场景 `hidden` 一直是英文界面，id 被引用，所以点名。
+        load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchStatusBar>((await import("nbook/plugins/workbench/web/components/WorkbenchStatusBar.vue")).default, {events: ["toggle-panel", "retry", "discard"], class: "w-full"}), ["hidden"]),
     }),
-    defineSubjectFixture<typeof WorkbenchTitleBar>({
+    defineLabFixture<typeof WorkbenchTitleBar>({
         component: "WorkbenchTitleBar",
-        events: ["run", "search", "toggle-part", "open-project", "run-item"],
-        class: "w-full",
         scenes: (() => {
             const entry = (command: string, label: string, extra: {args?: Record<string, unknown>; reason?: string; shortcut?: string; checked?: boolean} = {}) => ({
                 id: extra.args === undefined ? command : `${command} ${JSON.stringify(extra.args)}`, command, args: extra.args ?? {}, label,
@@ -387,20 +385,19 @@ export const labFixtures: LabFixture[] = [
                 {id: "help", label: "帮助", sections: [[entry("nbook.help.documentation", "文档")]]},
             ];
             const layout = {sidebar: {pressed: true, disabled: false}, panel: {pressed: true, disabled: false}, auxiliarybar: {pressed: false, disabled: false}};
-            const base = {locale: "zh-CN" as const, menus, searchShortcut: "Ctrl+Shift+P", layout, items: []};
+            const base = {menus, searchShortcut: "Ctrl+Shift+P", layout, items: []};
             return [
                 {id: "project", label: "打开了项目", input: {props: {...base, project: "长篇小说《雾港》第二部"}}},
                 {id: "no-project", label: "没有项目", input: {props: {...base, project: null}}},
                 {id: "items", label: "带条目", input: {props: {...base, project: "雾港", items: [{id: "test.items.sync", text: "已同步", title: "同步状态", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null}]}}},
-                {id: "long", label: "长英文项目名、英文界面与条目（窄宽度验收 35）", input: {props: {...base, locale: "en-US" as const, project: "The Lighthouse Keeper's Chronicle, Volume Two", items: [{id: "test.items.sync", text: "Synced", title: "Sync status", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null}]}}},
+                {id: "long", label: "长英文项目名、英文界面与条目（窄宽度验收 35）", input: {props: {...base, project: "The Lighthouse Keeper's Chronicle, Volume Two", items: [{id: "test.items.sync", text: "Synced", title: "Sync status", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null}]}}},
             ];
         })(),
-        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchTitleBar.vue"),
+        // 场景 `long` 一直是英文界面，id 被 e2e 引用，所以点名。
+        load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchTitleBar>((await import("nbook/plugins/workbench/web/components/WorkbenchTitleBar.vue")).default, {events: ["run", "search", "toggle-part", "open-project", "run-item"], class: "w-full"}), ["long"]),
     }),
-    defineSubjectFixture<typeof WorkbenchItemStrip>({
+    defineLabFixture<typeof WorkbenchItemStrip>({
         component: "WorkbenchItemStrip",
-        events: ["run"],
-        class: "w-full",
         scenes: (() => {
             const entry = (id: string, text: string, extra: {title?: string; order?: number; priority?: number; command?: boolean; state?: "normal" | "warning" | "error"; disabledReason?: string; tooltip?: string} = {}) => ({
                 id, text, title: extra.title ?? text, alignment: "right" as const, order: extra.order ?? 0, priority: extra.priority ?? 0,
@@ -413,21 +410,19 @@ export const labFixtures: LabFixture[] = [
                 entry("nbook.editor.cursor", "第 18 行，第 4 列", {title: "光标位置", order: 30, priority: 10}),
             ];
             return [
-                {id: "editor", label: "编辑器的三个条目", input: {props: {locale: "zh-CN", entries: editor, itemHeight: 20, align: "end"}}},
-                {id: "states", label: "出错、禁用与长文字", input: {props: {locale: "zh-CN", itemHeight: 20, align: "end", entries: [
+                {id: "editor", label: "编辑器的三个条目", input: {props: {entries: editor, itemHeight: 20, align: "end"}}},
+                {id: "states", label: "出错、禁用与长文字", input: {props: {itemHeight: 20, align: "end", entries: [
                     entry("test.items.failed", "保存失败 1 个", {order: 1, priority: 5, command: true, state: "error", tooltip: "第一章.md：磁盘已满"}),
                     entry("test.items.disabled", "全部保存", {order: 2, priority: 5, command: true, disabledReason: "没有需要保存的文档"}),
                     entry("test.items.long", "一段相当长的条目文字，用来看看三百二十像素的上限与省略号在状态栏里是什么样子", {order: 3, priority: 1}),
                 ]}}},
-                {id: "many", label: "放不下时收进“更多”", input: {props: {locale: "zh-CN", itemHeight: 20, align: "end", entries: Array.from({length: 14}, (_, index) => entry(`test.items.n${String(index)}`, `条目 ${String(index + 1)} · 一些文字`, {order: index, priority: index % 4, command: index % 3 === 0}))}}},
+                {id: "many", label: "放不下时收进“更多”", input: {props: {itemHeight: 20, align: "end", entries: Array.from({length: 14}, (_, index) => entry(`test.items.n${String(index)}`, `条目 ${String(index + 1)} · 一些文字`, {order: index, priority: index % 4, command: index % 3 === 0}))}}},
             ];
         })(),
-        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchItemStrip.vue"),
+        load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchItemStrip>((await import("nbook/plugins/workbench/web/components/WorkbenchItemStrip.vue")).default, {events: ["run"], class: "w-full"})),
     }),
-    defineSubjectFixture<typeof WorkbenchActivityBar>({
+    defineLabFixture<typeof WorkbenchActivityBar>({
         component: "WorkbenchActivityBar",
-        events: ["select", "run-item"],
-        class: "h-full w-[48px]",
         scenes: (() => {
             const containers = [
                 {id: "view:nbook.files", label: "资源管理器", icon: "i-lucide-files"},
@@ -439,15 +434,15 @@ export const labFixtures: LabFixture[] = [
             const profile = {id: "nbook.workbench.profile", title: "个人资料尚未开放", icon: "i-lucide-user-round", command: null, pressed: null, disabledReason: null};
             const gear = (pressed: boolean, disabledReason: string | null = null) => ({id: "nbook.settings", title: "设置", icon: "i-lucide-settings", command: {id: "nbook.settings.open", args: {}}, pressed, disabledReason});
             return [
-                {id: "default", label: "三个容器、Sidebar 可见", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true, dragHint: "按空格拿起并拖动", items: [profile, gear(false)]}}},
-                {id: "settings-open", label: "设置窗口开着：齿轮按下", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true, dragHint: "按空格拿起并拖动", items: [profile, gear(true)]}}},
-                {id: "item-disabled", label: "底段条目的命令不可用", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true, dragHint: "按空格拿起并拖动", items: [profile, gear(false, "命令 nbook.settings.open 不存在")]}}},
-                {id: "sidebar-hidden", label: "Sidebar 隐藏：没有选中标记", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: false, dragHint: "按空格拿起并拖动", items: [profile, gear(false)]}}},
-                {id: "empty", label: "没有容器、没有底段条目", input: {props: {label: "活动栏", containers: [], selected: null, sidebarVisible: true, dragHint: "按空格拿起并拖动"}}},
-                {id: "many", label: "放不下时卡片内滚动", input: {props: {label: "活动栏", containers: many, selected: "view:test.v3", sidebarVisible: true, dragHint: "按空格拿起并拖动", items: [profile, gear(false)]}}},
+                {id: "default", label: "三个容器、Sidebar 可见", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true, items: [profile, gear(false)]}}},
+                {id: "settings-open", label: "设置窗口开着：齿轮按下", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true, items: [profile, gear(true)]}}},
+                {id: "item-disabled", label: "底段条目的命令不可用", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true, items: [profile, gear(false, "命令 nbook.settings.open 不存在")]}}},
+                {id: "sidebar-hidden", label: "Sidebar 隐藏：没有选中标记", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: false, items: [profile, gear(false)]}}},
+                {id: "empty", label: "没有容器、没有底段条目", input: {props: {label: "活动栏", containers: [], selected: null, sidebarVisible: true}}},
+                {id: "many", label: "放不下时卡片内滚动", input: {props: {label: "活动栏", containers: many, selected: "view:test.v3", sidebarVisible: true, items: [profile, gear(false)]}}},
             ];
         })(),
-        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue"),
+        load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchActivityBar>((await import("nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue")).default, {events: ["select", "run-item"], class: "h-full w-[48px]"})),
     }),
     defineSubjectFixture<typeof WorkbenchMoveViewMenu>({
         component: "WorkbenchMoveViewMenu",
@@ -518,7 +513,7 @@ export const labFixtures: LabFixture[] = [
                 mode: views.length === 0 ? ("empty" as const) : views.length === 1 ? ("single" as const) : ("multiple" as const), members: views.map((view) => view.id), views, showContainerTitle: part === "sidebar" && views.length === 1,
             });
             const scene = (id: string, label: string, part: "sidebar" | "panel", views: ReturnType<typeof slot>[]) => ({
-                id, label, input: {props: {container: container(part, views), contextKey: `lab:${id}`, disabled: false, collapseLabel: "收起视图", expandLabel: "展开视图", dragLabel: "拖动 {title}", locale: "zh-CN" as const}},
+                id, label, input: {props: {container: container(part, views), contextKey: `lab:${id}`, disabled: false}},
             });
             return [
                 scene("vertical", "侧栏纵向三个视图", "sidebar", [slot("test.a", "资源管理器"), slot("test.b", "大纲", {size: 160}), slot("test.c", "时间线")]),
@@ -527,14 +522,12 @@ export const labFixtures: LabFixture[] = [
                 scene("single", "single：一个视图、没有标题行", "sidebar", [slot("test.a", "资源管理器")]),
             ];
         })(),
-        load: async () => (await import("./WorkbenchViewContainerHostFixture.vue")).default,
+        load: async () => withWorkbenchText((await import("./WorkbenchViewContainerHostFixture.vue")).default),
     }),
-    defineSubjectFixture<typeof WorkbenchViewFrame>({
+    defineLabFixture<typeof WorkbenchViewFrame>({
         component: "WorkbenchViewFrame",
-        events: ["retry-entry", "reload", "retry-render", "render-error"],
-        class: "h-full w-full",
         scenes: (() => {
-            const base = {viewId: "test.files", locale: "zh-CN" as const, layout: "scroll" as const, error: null, component: null, context: null, generation: 1, busy: false};
+            const base = {viewId: "test.files", layout: "scroll" as const, error: null, component: null, context: null, generation: 1, busy: false};
             return [
                 {id: "declared", label: "等待入口启动", input: {props: {...base, delivery: {kind: "declared" as const}, status: "waiting" as const}}},
                 {id: "blocked", label: "入口受阻", input: {props: {...base, delivery: {kind: "entry-blocked" as const, reason: "missing-dependency：nbook/storage"}, status: "waiting" as const}}},
@@ -545,7 +538,7 @@ export const labFixtures: LabFixture[] = [
                 {id: "render-failed", label: "渲染出错（重试）", input: {props: {...base, delivery: {kind: "available" as const}, status: "render-failed" as const, error: "Cannot read properties of undefined"}}},
             ];
         })(),
-        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchViewFrame.vue"),
+        load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchViewFrame>((await import("nbook/plugins/workbench/web/components/WorkbenchViewFrame.vue")).default, {events: ["retry-entry", "reload", "retry-render", "render-error"], class: "h-full w-full"})),
     }),
     defineLabFixture<typeof WorkbenchViewSection>({
         component: "WorkbenchViewSection", slots: ["default", "actions"],

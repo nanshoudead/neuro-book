@@ -11,6 +11,7 @@ import {Type} from "typebox";
 
 import {settingsTestText} from "nbook/plugins/settings/testing/text";
 import {settingsCatalogs} from "nbook/plugins/settings/web/text";
+import {workbenchCatalogs} from "nbook/plugins/workbench/web/text";
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
 import {createSettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
@@ -23,7 +24,7 @@ import type {SettingDefinition, SettingLayer} from "nbook/shared/settings";
 import SettingsRow from "./SettingsRow.vue";
 
 /** 界面文字取自 `nbook.settings` 的目录（经测试端口），断言也经目录解析，不在测试里重复写一份中文。 */
-const port = testTextPort("zh-CN", {"nbook.settings": settingsCatalogs});
+const port = testTextPort("zh-CN", {"nbook.settings": settingsCatalogs, "nbook.workbench": workbenchCatalogs});
 const {t} = settingsTestText("zh-CN");
 
 const cleanup: Array<() => void> = [];

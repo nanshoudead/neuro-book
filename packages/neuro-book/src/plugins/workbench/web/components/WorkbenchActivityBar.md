@@ -1,5 +1,5 @@
 ---
-标签: []
+标签: [state:inject]
 别名: ["活动栏", "Activity Bar"]
 ---
 
@@ -19,7 +19,7 @@
 ## 交互
 
 - 点任何一个按钮都发 `select(id)`，包括已选中的那个（宿主据此收起看得见的 Sidebar、打开被隐藏或拖到零的 Sidebar）。
-- 每个按钮也是整容器的拖动源，上段是 Sidebar 的 Switcher 条目带（外壳三输出 19–23）：组件只写标记，拖动由外壳的拖放会话处理。按住移动或聚焦后按空格拿起；按钮带 `aria-description`（`dragHint`）说明这一点。
+- 每个按钮也是整容器的拖动源，上段是 Sidebar 的 Switcher 条目带（外壳三输出 19–23）：组件只写标记，拖动由外壳的拖放会话处理。按住移动或聚焦后按空格拿起；按钮带 `aria-description`，文字取端口里的拖动提示。
 - 每个按钮是普通按钮，各自是一个 Tab 停靠点；`aria-pressed` 表示它是 Sidebar 当前显示的容器；悬停提示与可访问名称是容器标题。
 - 底段有命令的条目点了发 `run-item(id)`；命令不可用时按钮停用，悬停提示是原因（原生 `title`：停用的按钮不触发悬停提示组件）。声明了切换状态的条目带 `aria-pressed`。
 - 底段的占位不可聚焦、不可点，悬停提示是条目标题（例如“个人资料尚未开放”），读屏读作一张带这个名字的图（`role="img"`）。
@@ -61,12 +61,8 @@ type Props = {
     selected: string | null;
     /** Sidebar 此刻看得见（未隐藏、未拖到零）；受控。 */
     sidebarVisible: boolean;
-    /** 按钮作为拖动源的说明，写到 `aria-description`，例如“按空格拿起并拖动”。 */
-    dragHint: string;
     /** 底段的全局项，已按顺序排好；缺省没有。受控。 */
     items?: ReadonlyArray<ActivityItem>;
-    /** 收起其余条目的“更多”按钮的可访问名称；默认 "更多"。 */
-    moreLabel?: string;
 };
 
 type Emits = {
@@ -77,6 +73,10 @@ type Emits = {
 ```
 
 没有 slot、没有 expose；attrs 落在根 `<nav>` 上。上段带 `data-switcher-band="sidebar"`，每个按钮带 `data-switcher-entry` 与 `data-drag-container`（容器 id）。底段带 `data-activity-items`，每个条目带 `data-activity-item`（条目 id），占位另带 `data-activity-item-placeholder`。
+
+## 隐藏通道理由
+
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，拖动提示与“更多”按钮的名称都在本插件的目录（命名空间 `nbook.workbench`，`../../locales/`）；语言随端口响应式切换，组件没有语言属性。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。
 
 ## 不支持
 

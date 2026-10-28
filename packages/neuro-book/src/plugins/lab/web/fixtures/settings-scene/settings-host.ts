@@ -23,6 +23,7 @@ import {acceptedSettingOf} from "nbook/plugins/settings/shared/point";
 import type {SettingsInstance} from "nbook/plugins/settings/shared/instance";
 import type {AcceptedSetting} from "nbook/plugins/settings/shared/layers";
 import {settingsCatalogs} from "nbook/plugins/settings/web/text";
+import {workbenchCatalogs} from "nbook/plugins/workbench/web/text";
 import {ChoiceSourceRegistry} from "nbook/plugins/settings/web/choices";
 import type {SettingsChoicesImplementation, SettingsPageImplementation} from "nbook/plugins/settings/web/contracts";
 import {SettingsSectionRegistry} from "nbook/plugins/settings/web/sections";
@@ -185,6 +186,8 @@ export function createSettingsHost(options: SettingsHostOptions): SettingsHost {
     const locale = ref(options.locale ?? "zh-CN");
     const engine = createHostTextEngine({locale: locale.value, ...(options.strict === true ? {strict: true} : {})});
     engine.register("nbook.settings", settingsCatalogs.catalogs, settingsCatalogs.source);
+    // 场景里的主题、明暗两项是 nbook.workbench 的配置项，标题与选项的文字在它的目录里。
+    engine.register("nbook.workbench", workbenchCatalogs.catalogs, workbenchCatalogs.source);
     const settingsWindow = createSettingsWindow({
         source,
         settings: service("nbook.settings"),

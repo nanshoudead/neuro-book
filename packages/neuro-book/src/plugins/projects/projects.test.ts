@@ -226,7 +226,7 @@ describe("Spec projects 场景 11：打开项目", () => {
     const locale = ref<DisplayLocale>("zh-CN");
     /** 真实的命令面板宿主作为选择服务；`opened` 等它进入选择模式（流程里先要经远程服务读登记表），返回这次的请求。 */
     async function picker(): Promise<{readonly host: PaletteHost; readonly opened: (match?: (title: string) => boolean) => Promise<NonNullable<PaletteHost["pick"]["value"]>>}> {
-        const host = createPaletteHost({locale, commands: createCommandRegistry({contextKeys: contextTable({}), report: (error) => {
+        const host = createPaletteHost({commands: createCommandRegistry({contextKeys: contextTable({}), report: (error) => {
             throw error;
         }})});
         return {host, opened: (match = () => true) => waitUntil("进入选择模式", () => (host.pick.value !== null && match(textIn(locale.value).t(host.pick.value.title)) ? host.pick.value : null))};

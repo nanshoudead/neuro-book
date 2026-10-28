@@ -31,7 +31,6 @@ import type {ViewIntent} from "../views/intents";
 import type {ContainerPresentation, Presentation} from "../views/presentation";
 import type {ViewSource} from "../views/registry";
 import type {TeleportMemory} from "../shell/teleport-memory";
-import type {DisplayLocale} from "nbook/shared/localized-text";
 
 type Props = {
     /** 呈现模型；受控。 */
@@ -45,7 +44,6 @@ type Props = {
     memory: TeleportMemory;
     /** 外壳根：记忆的范围，也是焦点被停放时的去处（应可编程聚焦）。 */
     root: HTMLElement | null;
-    locale: DisplayLocale;
     /** 布局未就绪时禁用容器网格的手势；默认 false。 */
     disabled?: boolean;
 };

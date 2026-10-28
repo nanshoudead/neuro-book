@@ -7,9 +7,14 @@ import {AlertDialog} from "@notnotype/nb-ui/components";
 
 import WorkbenchCommandPalette from "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue";
 
+import {LAB_LOCALE} from "../../lab-locale";
+import {provideWorkbenchText} from "../workbench-scene/workbench-text";
 import type {LabCommandScene} from "./lab-command-scene";
 
 const props = defineProps<{scene: LabCommandScene}>();
+
+// 面板的文字来自 `nbook.workbench` 的目录，Lab 窗口的端口没有登记它：场景自己建一个，语言固定为 Lab 的显示语言。
+provideWorkbenchText(LAB_LOCALE);
 
 const confirmation = props.scene.confirmation;
 </script>

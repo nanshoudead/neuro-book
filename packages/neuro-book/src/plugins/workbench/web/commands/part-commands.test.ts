@@ -27,7 +27,8 @@ import {workbenchState, workbenchStateBindings} from "../state/public-state";
 import {openLayout} from "../testing/layout";
 import {APP_COMMAND_DECLARATIONS, appCommands, DOCUMENTATION_COMMAND, DOCUMENTATION_URL, RELOAD_COMMAND} from "./app-commands";
 import {PART_COMMAND_DECLARATIONS, partCommands, SET_PART_HIDDEN_COMMAND} from "./part-commands";
-import {textIn} from "nbook/shared/testing/text";
+import {completedCommand} from "../../testing/declarations";
+import {workbenchTestText} from "../../testing/text";
 
 let tmp = "";
 let counter = 0;
@@ -76,7 +77,7 @@ describe("声明", () => {
     it("区域显隐与两条应用命令的声明通过命令系统的校验；when 只引用工作台声明的公开键", () => {
         const declared = new Set((Object.keys(workbenchState.declarations) as (keyof typeof workbenchState.declarations)[]).map((name) => workbenchState.key(name)));
         for (const [id, declaration] of Object.entries({...PART_COMMAND_DECLARATIONS, ...APP_COMMAND_DECLARATIONS})) {
-            expect(commandDeclarationProblems(id, "nbook.workbench", declaration), id).toEqual([]);
+            expect(commandDeclarationProblems(id, "nbook.workbench", completedCommand(id, declaration)), id).toEqual([]);
             for (const key of ("when" in declaration ? declaration.when.requires : [])) expect(declared.has(key), key).toBe(true);
         }
     });
@@ -113,7 +114,7 @@ describe("区域显隐", () => {
         const choose = picker(() => ({kind: "item", id: "activitybar"}));
         const commands = partCommands(() => store, choose);
         expect(await commands[SET_PART_HIDDEN_COMMAND].run({})).toEqual({ok: true, value: null});
-        expect(choose.requests[0]!.items.map((item) => [item.id, item.detail === undefined ? null : textIn("zh-CN").t(item.detail)])).toEqual([["sidebar", "显示中"], ["auxiliarybar", "显示中"], ["activitybar", "已隐藏"]]);
+        expect(choose.requests[0]!.items.map((item) => [item.id, item.detail === undefined ? null : workbenchTestText("zh-CN").t(item.detail)])).toEqual([["sidebar", "显示中"], ["auxiliarybar", "显示中"], ["activitybar", "已隐藏"]]);
         expect(store.actions.partVisible("activitybar")).toBe(true);
 
         expect(await partCommands(() => store, picker(() => ({kind: "cancelled"})))[SET_PART_HIDDEN_COMMAND].run({})).toEqual({ok: true, value: null});
@@ -134,12 +135,12 @@ describe("应用命令", () => {
 
     it("重新载入只请求宿主重新载入当前文档；文档在新标签打开文档站，被拦截时 unavailable 并说明", async () => {
         const host = navigation("opened");
-        const commands = appCommands(host, () => "zh-CN");
+        const commands = appCommands(host, workbenchTestText("zh-CN"));
         expect(await commands[RELOAD_COMMAND].run({})).toEqual({ok: true, value: null});
         expect(await commands[DOCUMENTATION_COMMAND].run({})).toEqual({ok: true, value: null});
         expect(host.requests).toEqual(["reload", `open ${DOCUMENTATION_URL}`]);
 
-        const blocked = appCommands(navigation("blocked"), () => "en-US");
+        const blocked = appCommands(navigation("blocked"), workbenchTestText("en-US"));
         expect(await blocked[DOCUMENTATION_COMMAND].run({})).toEqual({ok: false, code: "unavailable", reason: "The browser blocked the new tab; allow pop-ups for this site and try again"});
     });
 });

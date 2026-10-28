@@ -6,13 +6,14 @@
 
 import {Type} from "typebox";
 
-import type {CommandDeclaration, CommandImplementation} from "nbook/plugins/commands/shared/contracts";
+import type {CommandImplementation, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {switchSetting} from "nbook/plugins/settings/shared/contracts";
 import type {TextResolver} from "nbook/shared/localized-text";
 import type {SettingsService} from "nbook/shared/settings";
 
 import {appearanceSetting, themeSetting} from "../../shared/contracts";
 import type {QuickPick} from "../../shared/contracts";
+import {workbenchText} from "../../shared/text";
 
 export const SWITCH_THEME_COMMAND = "nbook.settings.switch-theme";
 export const SWITCH_APPEARANCE_COMMAND = "nbook.settings.switch-appearance";
@@ -20,18 +21,16 @@ export const SWITCH_APPEARANCE_COMMAND = "nbook.settings.switch-appearance";
 const THEMES = ["nbook", "macos"] as const;
 const APPEARANCES = ["light", "dark", "system"] as const;
 
-export const SWITCH_THEME_DECLARATION: CommandDeclaration = {
-    title: {"zh-CN": "切换主题", "en-US": "Change Theme"},
-    category: {"zh-CN": "设置", "en-US": "Settings"},
+export const SWITCH_THEME_DECLARATION: WrittenCommandDeclaration = {
+    category: workbenchText("categories.settings"),
     description: "Change the theme pack (nbook or macos). Without arguments, the user picks one; with { theme }, it is set directly.",
     args: Type.Object({theme: Type.Optional(Type.Union(THEMES.map((id) => Type.Literal(id))))}, {additionalProperties: false}),
     effect: "write",
     expose: {agent: "auto"},
 };
 
-export const SWITCH_APPEARANCE_DECLARATION: CommandDeclaration = {
-    title: {"zh-CN": "切换明暗", "en-US": "Change Appearance"},
-    category: {"zh-CN": "设置", "en-US": "Settings"},
+export const SWITCH_APPEARANCE_DECLARATION: WrittenCommandDeclaration = {
+    category: workbenchText("categories.settings"),
     description: "Change between light, dark and following the system. Without arguments, the user picks one; with { appearance }, it is set directly.",
     args: Type.Object({appearance: Type.Optional(Type.Union(APPEARANCES.map((id) => Type.Literal(id))))}, {additionalProperties: false}),
     effect: "write",
@@ -48,8 +47,11 @@ export function themeCommands(settings: SettingsService, quickPick: QuickPick, t
                 text,
                 setting: themeSetting,
                 value: (args as {readonly theme?: (typeof THEMES)[number]}).theme,
-                choices: [{id: "nbook", label: "NeuroBook"}, {id: "macos", label: "macOS"}],
-                title: SWITCH_THEME_DECLARATION.title,
+                choices: [
+                    {id: "nbook", label: workbenchText("settings.theme.choices.nbook.title")},
+                    {id: "macos", label: workbenchText("settings.theme.choices.macos.title")},
+                ],
+                title: workbenchText("commands.nbook.settings.switch-theme.title"),
             }),
         },
         [SWITCH_APPEARANCE_COMMAND]: {
@@ -60,11 +62,11 @@ export function themeCommands(settings: SettingsService, quickPick: QuickPick, t
                 setting: appearanceSetting,
                 value: (args as {readonly appearance?: (typeof APPEARANCES)[number]}).appearance,
                 choices: [
-                    {id: "light", label: {"zh-CN": "浅色", "en-US": "Light"}},
-                    {id: "dark", label: {"zh-CN": "深色", "en-US": "Dark"}},
-                    {id: "system", label: {"zh-CN": "跟随系统", "en-US": "Follow System"}},
+                    {id: "light", label: workbenchText("themeCommands.appearances.light")},
+                    {id: "dark", label: workbenchText("themeCommands.appearances.dark")},
+                    {id: "system", label: workbenchText("themeCommands.appearances.system")},
                 ],
-                title: SWITCH_APPEARANCE_DECLARATION.title,
+                title: workbenchText("commands.nbook.settings.switch-appearance.title"),
             }),
         },
     };

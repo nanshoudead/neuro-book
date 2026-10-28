@@ -12,19 +12,20 @@ import type {ShallowRef} from "@vue/reactivity";
 import {definePublicState} from "nbook/shared/store/public";
 import type {PublicBindings} from "nbook/shared/store/public";
 
+import {workbenchText} from "../../shared/text";
 import {isHorizontalPanelPosition, panelMaximizable} from "../shell/panel-state";
 import type {LayoutStore} from "./layout-store";
 
 export const workbenchState = definePublicState("nbook.workbench", {
-    layoutReady: {type: "boolean", unready: false, reason: {"zh-CN": "布局还在读取", "en-US": "The layout is still loading"}},
-    nonCompact: {type: "boolean", unready: false, reason: {"zh-CN": "窗口太窄，正在用紧凑布局", "en-US": "The window is too narrow (compact layout)"}},
-    panelHorizontal: {type: "boolean", unready: false, reason: {"zh-CN": "面板不在底部或顶部", "en-US": "The panel is not at the bottom or top"}},
-    panelMaximizable: {type: "boolean", unready: false, reason: {"zh-CN": "面板要显示着，并在左右两侧或底部、顶部居中", "en-US": "The panel must be shown, on a side, or centered at the bottom or top"}},
-    panelVisible: {type: "boolean", unready: false, reason: {"zh-CN": "面板已隐藏或拖到零", "en-US": "The panel is hidden or dragged closed"}},
-    sidebarVisible: {type: "boolean", unready: false, reason: {"zh-CN": "侧栏已隐藏或拖到零", "en-US": "The sidebar is hidden or dragged closed"}},
-    auxiliaryBarVisible: {type: "boolean", unready: false, reason: {"zh-CN": "右栏已隐藏或拖到零", "en-US": "The auxiliary bar is hidden or dragged closed"}},
-    activityBarVisible: {type: "boolean", unready: false, reason: {"zh-CN": "活动栏已隐藏", "en-US": "The activity bar is hidden"}},
-    panelMaximized: {type: "boolean", unready: false, reason: {"zh-CN": "面板没有最大化", "en-US": "The panel is not maximized"}},
+    layoutReady: {type: "boolean", unready: false, reason: workbenchText("state.layoutReady.reason")},
+    nonCompact: {type: "boolean", unready: false, reason: workbenchText("state.nonCompact.reason")},
+    panelHorizontal: {type: "boolean", unready: false, reason: workbenchText("state.panelHorizontal.reason")},
+    panelMaximizable: {type: "boolean", unready: false, reason: workbenchText("state.panelMaximizable.reason")},
+    panelVisible: {type: "boolean", unready: false, reason: workbenchText("state.panelVisible.reason")},
+    sidebarVisible: {type: "boolean", unready: false, reason: workbenchText("state.sidebarVisible.reason")},
+    auxiliaryBarVisible: {type: "boolean", unready: false, reason: workbenchText("state.auxiliaryBarVisible.reason")},
+    activityBarVisible: {type: "boolean", unready: false, reason: workbenchText("state.activityBarVisible.reason")},
+    panelMaximized: {type: "boolean", unready: false, reason: workbenchText("state.panelMaximized.reason")},
     panelPosition: {type: "string", unready: "bottom"},
     panelAlignment: {type: "string", unready: "center"},
     focusedPart: {type: "string", unready: "editor"},

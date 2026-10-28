@@ -29,6 +29,7 @@ import {settingsCatalogs} from "nbook/plugins/settings/web/text";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
 import {storageBrowserPlugin} from "nbook/plugins/storage/web/plugin";
 import {workbenchBrowserPlugin} from "nbook/plugins/workbench/web/plugin";
+import {workbenchCatalogs} from "nbook/plugins/workbench/web/text";
 
 export interface BrowserPluginContext {
     /** 本窗口运行实例的诊断存储。 */
@@ -83,6 +84,7 @@ export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = 
     "nbook.explorer": explorerCatalogs,
     "nbook.plugins": pluginsCatalogs,
     "nbook.settings": settingsCatalogs,
+    "nbook.workbench": workbenchCatalogs,
 };
 
 /** 本外壳构建进去的浏览器插件：清单中有浏览器运行位置的插件，加上只有顶层声明式贡献的插件（只登记它们的声明）。 */

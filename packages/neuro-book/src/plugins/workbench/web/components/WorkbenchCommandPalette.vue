@@ -11,16 +11,16 @@ import {computed, onBeforeUnmount, ref, watch} from "vue";
 
 import {currentKeyPlatform, formatKeybinding, runsWithoutArgs} from "nbook/plugins/commands/shared/contracts";
 import type {CommandMetadata} from "nbook/plugins/commands/shared/contracts";
-import {resolverFor} from "nbook/shared/localized-text";
 import {useText} from "@notnotype/nb-ui/text-port";
+import type {TextParams} from "@notnotype/nb-ui/text";
 
 import {otherTexts, parseCommandQuery, parseLineNumber, searchCommands, searchPickItems} from "../commands/command-query";
 import type {PaletteItem} from "../commands/command-query";
 
 import {sameDocument} from "../commands/palette-host";
 import type {DocumentTarget, PaletteHost} from "../commands/palette-host";
-import {paletteText as messageOf} from "../commands/palette-messages";
-import type {PaletteMessage} from "../commands/palette-messages";
+import {workbenchText} from "../../shared/text";
+import type {WorkbenchTextKey} from "../../shared/text";
 
 /** 快捷键的写法按平台；一次页面里不会变。 */
 const KEY_PLATFORM = currentKeyPlatform();
@@ -36,12 +36,12 @@ const OPEN_COMMANDS_ID = "nbook.quick-open.open-commands";
 const PICK_TEXT_ID = "quick-pick:text";
 
 const host = props.host;
-const resolver = resolverFor(() => host.locale.value, useText());
+const resolver = useText();
 const activeId = ref<string | null>(null);
 
-/** 面板文案按宿主给的显示语言取：语言变化时打开中的面板随之换文字，输入与选中项不变。 */
-function paletteText(key: PaletteMessage, params: Readonly<Record<string, string | number>> = {}): string {
-    return messageOf(host.locale.value, key, params);
+/** 面板文案经窗口的翻译端口取：语言变化时打开中的面板随之换文字，输入与选中项不变。 */
+function paletteText(key: WorkbenchTextKey, params?: TextParams): string {
+    return resolver.t(workbenchText(key, params));
 }
 
 interface PendingSelection {
@@ -71,17 +71,17 @@ interface LineState {
 const lineState = computed<LineState>(() => {
     void host.editorRevision.value;
     const captured = host.target.value;
-    if (captured === null) return {target: null, line: null, message: paletteText("noEditor")};
+    if (captured === null) return {target: null, line: null, message: paletteText("palette.noEditor")};
     const editor = host.editor.value;
-    if (editor === null || !sameDocument(captured, editor.target)) return {target: captured, line: null, message: paletteText("editorGone")};
-    if (editor.lineCount === null) return {target: captured, line: null, message: paletteText("lineUnsupported")};
+    if (editor === null || !sameDocument(captured, editor.target)) return {target: captured, line: null, message: paletteText("palette.editorGone")};
+    if (editor.lineCount === null) return {target: captured, line: null, message: paletteText("palette.lineUnsupported")};
     const total = editor.lineCount();
-    if (total === null) return {target: captured, line: null, message: paletteText("editorNotReady")};
+    if (total === null) return {target: captured, line: null, message: paletteText("palette.editorNotReady")};
     const input = parsedQuery.value.text;
-    if (input === "") return {target: captured, line: null, message: paletteText("linePrompt", {max: total})};
+    if (input === "") return {target: captured, line: null, message: paletteText("palette.linePrompt", {max: total})};
     const line = parseLineNumber(input);
-    if (line === null) return {target: captured, line: null, message: paletteText("lineInvalid", {text: input})};
-    if (line > total) return {target: captured, line: null, message: paletteText("lineOutOfRange", {line, total})};
+    if (line === null) return {target: captured, line: null, message: paletteText("palette.lineInvalid", {text: input})};
+    if (line > total) return {target: captured, line: null, message: paletteText("palette.lineOutOfRange", {line, total})};
     return {target: captured, line, message: ""};
 });
 
@@ -102,7 +102,7 @@ const items = computed<readonly PaletteItem[]>(() => {
     }
     if (parsedQuery.value.mode === "line") {
         const state = lineState.value;
-        return state.line === null ? [] : [{id: LINE_ITEM_ID, label: paletteText("goToLine", {line: state.line})}];
+        return state.line === null ? [] : [{id: LINE_ITEM_ID, label: paletteText("palette.goToLine", {line: state.line})}];
     }
     return searchCommands(visibleCommands.value, parsedQuery.value.text, host.recent.value, resolver)
         .map((item) => (item.shortcut === undefined ? item : {...item, shortcut: formatKeybinding(item.shortcut, KEY_PLATFORM)}));
@@ -110,8 +110,8 @@ const items = computed<readonly PaletteItem[]>(() => {
 
 const emptyText = computed(() => {
     const picking = host.pick.value;
-    if (picking !== null) return picking.empty === undefined ? paletteText("pickEmpty") : resolver.t(picking.empty);
-    return parsedQuery.value.mode === "line" ? lineState.value.message : paletteText("empty");
+    if (picking !== null) return picking.empty === undefined ? paletteText("palette.pickEmpty") : resolver.t(picking.empty);
+    return parsedQuery.value.mode === "line" ? lineState.value.message : paletteText("palette.empty");
 });
 
 // 列表变化时保留仍然有效的选中项，失效就选第一项，空列表给 null。
@@ -177,8 +177,8 @@ onBeforeUnmount(() => {
         :query="host.query.value"
         :items="items"
         :active-id="activeId"
-        :title="host.pick.value === null ? paletteText('title') : resolver.t(host.pick.value.title)"
-        :placeholder="host.pick.value === null ? paletteText('placeholder') : resolver.t(host.pick.value.placeholder)"
+        :title="host.pick.value === null ? paletteText('palette.title') : resolver.t(host.pick.value.title)"
+        :placeholder="host.pick.value === null ? paletteText('palette.placeholder') : resolver.t(host.pick.value.placeholder)"
         :empty-text="emptyText"
         :focus-request="host.focusRequest.value"
         :restore-focus="true"

@@ -114,7 +114,7 @@ export function buildPresentation(input: PresentationInput): Presentation {
             id: container.id,
             part: container.part,
             axis,
-            title: source?.title ?? {"zh-CN": container.id, "en-US": container.id},
+            title: source?.title ?? container.id,
             icon: source?.icon ?? "i-lucide-square",
             mode,
             members: container.members,

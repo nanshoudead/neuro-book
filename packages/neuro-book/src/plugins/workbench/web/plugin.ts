@@ -18,7 +18,6 @@ import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform, menuImplementatio
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {bindingsOf} from "nbook/shared/store/public";
-import {resolverFor} from "nbook/shared/localized-text";
 import {windowLocale, windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {windowNavigationKey, windowPluginsKey} from "nbook/shared/host";
@@ -67,8 +66,7 @@ const Notifications = defineAsyncComponent(() => import("./components/WorkbenchN
  * 贡献真正的头像，这一条随之删去。排在设置齿轮（1000）之上。
  */
 const PROFILE_ITEM = "nbook.workbench.profile";
-const PROFILE_DECLARATION: ActivityBarItemDeclaration = {
-    title: {"zh-CN": "个人资料尚未开放", "en-US": "Profile is not available yet"},
+const PROFILE_DECLARATION: Omit<ActivityBarItemDeclaration, "title"> = {
     icon: "i-lucide-user-round",
     order: 900,
 };
@@ -148,7 +146,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const publicState = bindingsOf(workbenchState, workbenchStateBindings(layout.current));
             const settings = context.services.require(settingsKey);
             const locale = await windowLocale(context.services, () => displayLocale(settings));
-            const text = resolverFor(() => displayLocale(settings), await windowTextPort(context.services, () => displayLocale(settings)));
+            const text = await windowTextPort(context.services, () => displayLocale(settings));
             const theme = computed(() => settings.get(themeSetting));
             const appearance = computed(() => settings.get(appearanceSetting));
             const homeSlot = new HomeSlot(context.declarations, (message) => diagnostics.record({level: "warn", event: "workbench.home", message, source: {plugin: descriptor.id}}));
@@ -167,8 +165,8 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 shell: {load: async () => {
                     layout.acquire();
                     return (await import("./components/WorkbenchShell.vue")).default;
-                }, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, locale: locale.value})},
-                renderCommandHost: () => h(CommandHost, {commands, report, locale, notify: (input: NotificationInput) => void notifications.notify(input), attach: (host: PaletteHost) => palettes.attach(host)}),
+                }, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle})},
+                renderCommandHost: () => h(CommandHost, {commands, report, notify: (input: NotificationInput) => void notifications.notify(input), attach: (host: PaletteHost) => palettes.attach(host)}),
                 renderNotifications: () => h(Notifications, {queue: notifications.queue}),
                 renderOverlays: () => h(OverlayHost),
                 projectName,
@@ -186,7 +184,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 contributions: {
                     [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: {[PROFILE_ITEM]: NO_IMPLEMENTATION},
                     [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(WORKBENCH_TITLEBAR_MENU_ITEMS),
-                    [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick, text), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey), () => locale.value)},
+                    [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick, text), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey), text)},
                     [PUBLIC_STATE_POINT]: Object.fromEntries(publicState.bindings),
                 },
             };

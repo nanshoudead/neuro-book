@@ -9,6 +9,7 @@ import {describe, expect, it} from "vitest";
 import {defineComponent, h} from "vue";
 import type {Component} from "vue";
 
+import {workbenchTestText} from "../testing/text";
 import {editorAreaComponent} from "./editor-area";
 import type {EditorAreaProvider} from "./editor-area";
 
@@ -28,7 +29,7 @@ const Editor = defineComponent({
 /** 像外壳那样挂进槽里：带 `context` 与槽的标记；加载失败经应用的错误处理报上来。 */
 function mountSlot(provider: EditorAreaProvider) {
     const errors: unknown[] = [];
-    const slot = editorAreaComponent(provider, () => "zh-CN");
+    const slot = editorAreaComponent(provider, workbenchTestText("zh-CN"));
     const wrapper = mount(defineComponent({setup: () => () => h(slot, {"context": {visible: true}, "data-workbench-editor-area": ""})}), {
         global: {config: {errorHandler: (error) => errors.push(error)}},
     });

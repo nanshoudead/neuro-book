@@ -1,10 +1,12 @@
 /**
  * 设置测试里取 `nbook.settings` 目录文字的写法：断言用目录解析出来的字符串，不在测试里重复写一份中文。
- * 与窗口引擎同一套规则（见 `nbook/shared/testing/text`），登记的是本插件的目录，所以 `TextRef` 能解析。
+ * 与窗口引擎同一套规则（见 `nbook/shared/testing/text`），登记的是本插件的目录，所以 `TextRef` 能解析。设置测试里用的主题、明暗两项是
+ * `nbook.workbench` 的配置项，标题的文字在它的目录里，所以也登记它。
  */
 
 import type {TextParams} from "@notnotype/nb-ui/text";
 
+import {workbenchCatalogs} from "nbook/plugins/workbench/web/text";
 import type {DisplayLocale, TextResolver} from "nbook/shared/localized-text";
 import {textIn} from "nbook/shared/testing/text";
 
@@ -20,6 +22,6 @@ export interface SettingsTestText {
 }
 
 export function settingsTestText(locale: DisplayLocale = "zh-CN"): SettingsTestText {
-    const resolver = textIn(locale, {"nbook.settings": settingsCatalogs.catalogs});
+    const resolver = textIn(locale, {"nbook.settings": settingsCatalogs.catalogs, "nbook.workbench": workbenchCatalogs.catalogs});
     return {resolver, t: (key, params) => resolver.t(settingsText(key, params))};
 }

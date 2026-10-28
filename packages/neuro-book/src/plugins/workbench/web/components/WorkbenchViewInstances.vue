@@ -9,9 +9,6 @@
 import {computed, markRaw, nextTick, reactive, ref, watch, watchEffect} from "vue";
 import type {Component, Ref} from "vue";
 
-import {localize} from "nbook/shared/localized-text";
-import type {DisplayLocale} from "nbook/shared/localized-text";
-
 import type {ViewLocation} from "../../shared/views";
 import type {ViewContext} from "../contracts";
 import type {TeleportMemory} from "../shell/teleport-memory";
@@ -31,7 +28,6 @@ const props = withDefaults(defineProps<{
     shownParts: ReadonlyArray<ViewLocation>;
     memory: TeleportMemory;
     root: HTMLElement | null;
-    locale: DisplayLocale;
     disabled?: boolean;
 }>(), {disabled: false});
 
@@ -45,12 +41,6 @@ defineSlots<{
     "view-actions"?(props: {viewId: string; container: ContainerPresentation}): unknown;
     empty?(props: {container: ContainerPresentation}): unknown;
 }>();
-
-const TEXT = {
-    collapse: {"zh-CN": "收起视图", "en-US": "Collapse View"},
-    expand: {"zh-CN": "展开视图", "en-US": "Expand View"},
-    drag: {"zh-CN": "拖动 {title}", "en-US": "Drag {title}"},
-};
 
 // ── 容器层 ──────────────────────────────────────────────────────────────────
 
@@ -244,10 +234,6 @@ watch([containerTargets, () => [...viewTargets.entries()]], () => {
                         :container="container"
                         :context-key="`${container.id}|${container.part}`"
                         :disabled="disabled"
-                        :collapse-label="localize(TEXT.collapse, locale)"
-                        :expand-label="localize(TEXT.expand, locale)"
-                        :drag-label="localize(TEXT.drag, locale)"
-                        :locale="locale"
                         @target="onTarget"
                         @resize="(payload) => emit('intent', {kind: 'set-view-sizes', containerId: payload.containerId, axis: payload.axis, sizes: payload.sizes})"
                         @toggle-collapsed="(viewId, collapsed) => emit('intent', {kind: 'set-view-collapsed', viewId, collapsed})"
@@ -266,7 +252,6 @@ watch([containerTargets, () => [...viewTargets.entries()]], () => {
             <Teleport v-for="[viewId, instance] in instances" :key="viewId" :to="viewTargets.get(viewId) ?? undefined" :disabled="!viewTargets.has(viewId)">
                 <WorkbenchViewFrame
                     :view-id="viewId"
-                    :locale="locale"
                     :layout="layoutOfView.get(viewId) ?? 'scroll'"
                     :delivery="source.delivery(viewId)"
                     :status="instance.status"

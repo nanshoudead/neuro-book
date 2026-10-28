@@ -1,11 +1,12 @@
 <script setup lang="ts">
 /** 状态栏（同名 .md）：项目名、布局记录的问题与面板显隐按钮；只发事件，不执行命令。 */
 import {Button} from "@notnotype/nb-ui/components";
+import type {TextParams} from "@notnotype/nb-ui/text";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed} from "vue";
 
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
-
+import {workbenchText} from "../../shared/text";
+import type {WorkbenchTextKey} from "../../shared/text";
 import type {StripEntry} from "../items/registry";
 import WorkbenchItemStrip from "./WorkbenchItemStrip.vue";
 
@@ -18,7 +19,6 @@ export interface StatusBarProblem {
 defineOptions({name: "WorkbenchStatusBar"});
 
 const props = withDefaults(defineProps<{
-    locale: DisplayLocale;
     project: string | null;
     panelHidden: boolean;
     panelToggleDisabled?: boolean;
@@ -37,54 +37,45 @@ const emit = defineEmits<{
 const leftItems = computed(() => props.items.filter((item) => item.alignment === "left"));
 const rightItems = computed(() => props.items.filter((item) => item.alignment === "right"));
 
-const TEXT = {
-    label: {"zh-CN": "状态栏", "en-US": "Status bar"},
-    noProject: {"zh-CN": "未打开项目", "en-US": "No project open"},
-    showPanel: {"zh-CN": "显示面板", "en-US": "Show Panel"},
-    hidePanel: {"zh-CN": "隐藏面板", "en-US": "Hide Panel"},
-    unsaved: {"zh-CN": "布局未保存：{reason}", "en-US": "Layout not saved: {reason}"},
-    unread: {"zh-CN": "布局未读取，正在用默认布局（{reason}）", "en-US": "Layout not loaded; using the default ({reason})"},
-    retry: {"zh-CN": "重试", "en-US": "Retry"},
-    discard: {"zh-CN": "放弃", "en-US": "Discard"},
-} satisfies Record<string, LocalizedText>;
+const port = useText();
+const text = (key: WorkbenchTextKey, params?: TextParams): string => port.t(workbenchText(key, params));
 
-/** 常见失败码的可读原因；不认识的码原样显示。 */
-const REASONS: Readonly<Record<string, LocalizedText>> = {
-    "unavailable": {"zh-CN": "存储暂时不可用", "en-US": "storage is unavailable"},
-    "conflict": {"zh-CN": "与别的窗口的修改冲突", "en-US": "conflicts with another window"},
-    "unknown-outcome": {"zh-CN": "不确定是否已保存", "en-US": "unknown whether it was saved"},
-    "io-error": {"zh-CN": "读写出错", "en-US": "read or write error"},
-    "corrupt": {"zh-CN": "记录已损坏", "en-US": "the record is corrupt"},
-    "unsupported-version": {"zh-CN": "记录的版本不支持", "en-US": "unsupported record version"},
-    "provider-stopped": {"zh-CN": "存储服务已停止", "en-US": "storage has stopped"},
+/** 常见失败码的可读原因（目录里 `statusBar.reasons` 下的键）；不认识的码原样显示。 */
+const REASON_KEYS: Readonly<Record<string, WorkbenchTextKey>> = {
+    "unavailable": "statusBar.reasons.unavailable",
+    "conflict": "statusBar.reasons.conflict",
+    "unknown-outcome": "statusBar.reasons.unknown-outcome",
+    "io-error": "statusBar.reasons.io-error",
+    "corrupt": "statusBar.reasons.corrupt",
+    "unsupported-version": "statusBar.reasons.unsupported-version",
+    "provider-stopped": "statusBar.reasons.provider-stopped",
 };
 
-const text = (value: LocalizedText): string => localize(value, props.locale);
-const reason = (code: string): string => (REASONS[code] === undefined ? code : text(REASONS[code]));
+const reason = (code: string): string => (Object.hasOwn(REASON_KEYS, code) ? text(REASON_KEYS[code]!) : code);
 
 /** 有修改没保存上的优先：用户刚做的修改可能丢，比“正在用默认布局”更要紧。 */
 const shown = computed(() => props.problems.find((problem) => problem.kind === "unsaved") ?? props.problems[0] ?? null);
 const problemText = computed(() => {
     const problem = shown.value;
     if (problem === null) return "";
-    return text(formatText(problem.kind === "unsaved" ? TEXT.unsaved : TEXT.unread, {reason: reason(problem.code)}));
+    return text(problem.kind === "unsaved" ? "statusBar.unsaved" : "statusBar.unread", {reason: reason(problem.code)});
 });
 </script>
 
 <template>
-    <footer class="workbench-status-bar" :aria-label="text(TEXT.label)" data-workbench-status-bar>
+    <footer class="workbench-status-bar" :aria-label="text('statusBar.label')" data-workbench-status-bar>
         <div class="workbench-status-bar__left">
-            <span class="workbench-status-bar__project" data-status-project>{{ project ?? text(TEXT.noProject) }}</span>
+            <span class="workbench-status-bar__project" data-status-project>{{ project ?? text('statusBar.noProject') }}</span>
             <template v-if="shown !== null">
                 <span class="workbench-status-bar__problem" role="status" :title="problemText" data-status-problem>{{ problemText }}</span>
                 <template v-if="shown.kind === 'unsaved'">
-                    <Button size="sm" variant="ghost" focus-ring="inset" class="workbench-status-bar__button" @click="emit('retry', shown.record)">{{ text(TEXT.retry) }}</Button>
-                    <Button size="sm" variant="ghost" focus-ring="inset" class="workbench-status-bar__button" @click="emit('discard', shown.record)">{{ text(TEXT.discard) }}</Button>
+                    <Button size="sm" variant="ghost" focus-ring="inset" class="workbench-status-bar__button" @click="emit('retry', shown.record)">{{ text('common.retry') }}</Button>
+                    <Button size="sm" variant="ghost" focus-ring="inset" class="workbench-status-bar__button" @click="emit('discard', shown.record)">{{ text('statusBar.discard') }}</Button>
                 </template>
             </template>
-            <WorkbenchItemStrip :locale="locale" :entries="leftItems" :item-height="20" align="start" @run="(id) => emit('run-item', id)" />
+            <WorkbenchItemStrip :entries="leftItems" :item-height="20" align="start" @run="(id) => emit('run-item', id)" />
         </div>
-        <WorkbenchItemStrip :locale="locale" :entries="rightItems" :item-height="20" align="end" @run="(id) => emit('run-item', id)" />
+        <WorkbenchItemStrip :entries="rightItems" :item-height="20" align="end" @run="(id) => emit('run-item', id)" />
         <div class="workbench-status-bar__right">
             <Button
                 size="sm"
@@ -94,7 +85,7 @@ const problemText = computed(() => {
                 :disabled="panelToggleDisabled"
                 data-shell-focus-target="panel-toggle"
                 @click="emit('toggle-panel')"
-            >{{ panelHidden ? text(TEXT.showPanel) : text(TEXT.hidePanel) }}</Button>
+            >{{ panelHidden ? text('statusBar.showPanel') : text('statusBar.hidePanel') }}</Button>
         </div>
     </footer>
 </template>

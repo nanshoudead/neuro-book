@@ -5,15 +5,17 @@
 
 import {mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {nextTick, ref} from "vue";
+import {nextTick} from "vue";
 
 import {Type} from "typebox";
 
 import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import {provideText} from "nbook/shared/testing/text-port";
 
 import type {NotificationInput} from "../../shared/contracts";
+import {completedCommand} from "../../testing/declarations";
+import {workbenchTestText} from "../../testing/text";
 import {OPEN_COMMANDS_DECLARATION, OPEN_COMMANDS_ID, PaletteSlot} from "./open-commands";
 import WorkbenchCommandHost from "./WorkbenchCommandHost.vue";
 
@@ -32,12 +34,13 @@ describe("WorkbenchCommandHost", () => {
         const reported: string[] = [];
         const registry = createCommandRegistry({contextKeys: contextTable({}), report: (error) => reported.push(error.message)});
         const slot = new PaletteSlot();
-        const registered = registry.register({id: OPEN_COMMANDS_ID, source: "nbook.workbench", declaration: OPEN_COMMANDS_DECLARATION, run: () => slot.command.run({})});
+        const registered = registry.register({id: OPEN_COMMANDS_ID, source: "nbook.workbench", declaration: completedCommand(OPEN_COMMANDS_ID, OPEN_COMMANDS_DECLARATION), run: () => slot.command.run({})});
         expect(registered.ok).toBe(true);
 
         const wrapper = mount(WorkbenchCommandHost, {
-            props: {commands: registry, attach: (host) => slot.attach(host), report: (error: Error) => reported.push(error.message), locale: ref<DisplayLocale>("zh-CN")},
+            props: {commands: registry, attach: (host) => slot.attach(host), report: (error: Error) => reported.push(error.message)},
             attachTo: document.body,
+            global: {provide: provideText(workbenchTestText("zh-CN"))},
         });
         await nextTick();
         expect(shortcut().defaultPrevented).toBe(true);
@@ -60,8 +63,9 @@ describe("WorkbenchCommandHost", () => {
         const reported: string[] = [];
         const slot = new PaletteSlot();
         const wrapper = mount(WorkbenchCommandHost, {
-            props: {commands: registry, attach: (host) => slot.attach(host), report: (error: Error) => reported.push(error.message), locale: ref<DisplayLocale>("zh-CN"), notify: (input: NotificationInput) => notices.push(input)},
+            props: {commands: registry, attach: (host) => slot.attach(host), report: (error: Error) => reported.push(error.message), notify: (input: NotificationInput) => notices.push(input)},
             attachTo: document.body,
+            global: {provide: provideText(workbenchTestText("zh-CN"))},
         });
         await nextTick();
         document.body.dispatchEvent(new KeyboardEvent("keydown", {key: "J", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true}));
@@ -75,7 +79,7 @@ describe("WorkbenchCommandHost", () => {
     it("面板执行的命令失败：同样记诊断并弹警告；invalid-args 照原因写（命令自己返回的不一定是缺参数）", async () => {
         const registry = createCommandRegistry({contextKeys: contextTable({}), report: () => undefined});
         const slot = new PaletteSlot();
-        registry.register({id: OPEN_COMMANDS_ID, source: "nbook.workbench", declaration: OPEN_COMMANDS_DECLARATION, run: () => slot.command.run({})});
+        registry.register({id: OPEN_COMMANDS_ID, source: "nbook.workbench", declaration: completedCommand(OPEN_COMMANDS_ID, OPEN_COMMANDS_DECLARATION), run: () => slot.command.run({})});
         registry.register({
             id: "nbook.app.count",
             source: "nbook.test",
@@ -85,8 +89,9 @@ describe("WorkbenchCommandHost", () => {
         const notices: NotificationInput[] = [];
         const reported: string[] = [];
         const wrapper = mount(WorkbenchCommandHost, {
-            props: {commands: registry, attach: (host) => slot.attach(host), report: (error: Error) => reported.push(error.message), locale: ref<DisplayLocale>("zh-CN"), notify: (input: NotificationInput) => notices.push(input)},
+            props: {commands: registry, attach: (host) => slot.attach(host), report: (error: Error) => reported.push(error.message), notify: (input: NotificationInput) => notices.push(input)},
             attachTo: document.body,
+            global: {provide: provideText(workbenchTestText("zh-CN"))},
         });
         await nextTick();
         shortcut();
@@ -94,6 +99,30 @@ describe("WorkbenchCommandHost", () => {
         document.body.querySelector('[role="combobox"]')?.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
         await vi.waitFor(() => expect(notices).toEqual([{tone: "warning", title: "统计没有完成", message: "选区里没有文字"}]));
         expect(reported).toEqual(["命令 nbook.app.count 执行失败：选区里没有文字"]);
+        wrapper.unmount();
+    });
+
+    it("面板的失败通知随界面语言：英文界面写 “did not complete”", async () => {
+        const registry = createCommandRegistry({contextKeys: contextTable({}), report: () => undefined});
+        const slot = new PaletteSlot();
+        registry.register({id: OPEN_COMMANDS_ID, source: "nbook.workbench", declaration: completedCommand(OPEN_COMMANDS_ID, OPEN_COMMANDS_DECLARATION), run: () => slot.command.run({})});
+        registry.register({
+            id: "nbook.app.count",
+            source: "nbook.test",
+            declaration: {title: {"zh-CN": "统计", "en-US": "Count"}, description: "count", args: Type.Object({}, {additionalProperties: false}), effect: "read"},
+            run: () => ({ok: false, code: "invalid-args", reason: "no text selected"}),
+        });
+        const notices: NotificationInput[] = [];
+        const wrapper = mount(WorkbenchCommandHost, {
+            props: {commands: registry, attach: (host) => slot.attach(host), report: () => undefined, notify: (input: NotificationInput) => notices.push(input)},
+            attachTo: document.body,
+            global: {provide: provideText(workbenchTestText("en-US"))},
+        });
+        await nextTick();
+        shortcut();
+        await vi.waitFor(() => expect(document.body.querySelector('[role="option"][id$="-option-nbook.app.count"]')).not.toBeNull());
+        document.body.querySelector('[role="combobox"]')?.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
+        await vi.waitFor(() => expect(notices).toEqual([{tone: "warning", title: "Count did not complete", message: "no text selected"}]));
         wrapper.unmount();
     });
 });

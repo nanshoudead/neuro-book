@@ -1,5 +1,5 @@
 ---
-标签: [state:local]
+标签: [state:local, state:inject]
 别名: ["容器宿主", "View Container Host"]
 ---
 
@@ -24,7 +24,6 @@
 
 ```ts
 import type {ContainerPresentation} from "../views/presentation";
-import type {DisplayLocale} from "nbook/shared/localized-text";
 
 type Props = {
     /** 呈现模型里这个容器的一份；受控。 */
@@ -33,13 +32,6 @@ type Props = {
     contextKey: string;
     /** 布局未就绪时禁用手势；默认 false。 */
     disabled?: boolean;
-    /** 收起开关的可访问名称（已按当前语言取好）。 */
-    collapseLabel: string;
-    expandLabel: string;
-    /** 分节标题把手的可访问名称模板，`{title}` 换成视图标题。 */
-    dragLabel: string;
-    /** 视图标题按它取语言。 */
-    locale: DisplayLocale;
 };
 
 type Emits = {
@@ -62,6 +54,10 @@ type Slots = {
 ## 状态
 
 内部只有网格手势的预览与诊断（nb-ui 持有），组件销毁即丢。
+
+## 隐藏通道理由
+
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，收起与展开开关、分节标题把手的名称等界面文字，视图标题也按端口的语言取都在本插件的目录（命名空间 `nbook.workbench`，`../../locales/`）；语言随端口响应式切换，组件没有语言属性。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。
 
 ## 不支持
 
