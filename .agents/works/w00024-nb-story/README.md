@@ -39,3 +39,4 @@ autonomous-delivery 推进时照推荐做了、本该由开发者决定的点，
 - 2026-10-27 [t29](tasks/t29-web-import-skill/README.md)：网页导入 V9 记忆图文件、删除书、安装 Skill（只允许 claude/codex 固定路径）；已合入本地 master。
 - 2026-10-27 [t30](tasks/t30-qa-unextracted-books/README.md)：问答读未抽取章的原文（位置可选到尾部章，图只到抽取进度）。
 - 2026-10-27 [t28](tasks/t28-graph-tiering/README.md)：图分级的小实验，脚本与计划已备好、干跑通过，卡在模型密钥（环境里没有）。
+- 2026-10-28 [t32](tasks/t32-record-tiers/README.md) 完成并合入：记录分级（模型先验加程序后验），查看器默认折叠 3 级，命令行 `--tiers`、`--max-tier`、`why`；待确认的几条默认追认。
