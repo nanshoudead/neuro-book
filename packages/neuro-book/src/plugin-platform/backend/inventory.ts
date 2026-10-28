@@ -23,6 +23,7 @@ import type {InstallFailureCode, InstallPreview, ManageFailureCode, PendingChang
 import type {PlatformProfile} from "nbook/plugin-platform/shared/profile";
 import {compareVersions, engineAccepts} from "nbook/plugin-platform/shared/versions";
 
+import {catalogProblemsIn} from "./catalogs";
 import {collectCopyRange, copyRange} from "./copy";
 import {isInside} from "./paths";
 import {assertHeld, brief, byId, isLink, LockLost, ownedPath, readRecord, STAGING_DIR, withRecordLock, writeRecord} from "./record";
@@ -70,6 +71,12 @@ interface Prepared {
     readonly files: ReadonlyArray<string> | null;
     /** 已安装的当前版本；没有安装为 null。 */
     readonly installed: string | null;
+}
+
+/** 目录有问题时的失败：说明写第一处问题，逐条问题另给（与清单无效同一种写法）。 */
+function catalogFailure(problems: ReadonlyArray<string>): InventoryFailure<"catalog-invalid"> {
+    const more = problems.length > 1 ? `，另有 ${String(problems.length - 1)} 处` : "";
+    return failure("catalog-invalid", `消息目录有错误：${problems[0] ?? ""}${more}`, problems);
 }
 
 function failure<Code extends PluginFailureCode>(code: Code, detail: string, problems?: ReadonlyArray<string>): InventoryFailure<Code> {
@@ -159,7 +166,7 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
         return locked.ok ? locked.value : failure("registry-failed", locked.detail);
     }
 
-    /** 安装前的核对，`inspect` 与 `install` 共用：源路径、清单、兼容、`files` 写法与登记表里的冲突。 */
+    /** 安装前的核对，`inspect` 与 `install` 共用：源路径、清单、兼容、`files` 写法、安装源里的消息目录与登记表里的冲突。 */
     async function prepare(sourcePath: string): Promise<InventoryResult<Prepared, InstallFailureCode>> {
         let source: string;
         try {
@@ -189,6 +196,8 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
         }
         const files = filesOf(raw);
         if (files === undefined) return failure("manifest-invalid", "package.json 的 files 必须是字符串数组", ["files：必须是字符串数组"]);
+        const catalogs = await catalogProblemsIn(source, manifest);
+        if (catalogs.length > 0) return catalogFailure(catalogs);
 
         // 不持锁的核对：免得白复制，也让确认界面先知道结果；提交时持锁再核对。
         const record = await readRecord(root, options.profile);
@@ -229,6 +238,9 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
             if (!copied.ok) return failure(copied.code, copied.detail);
             const missing = await missingEntries(staging, manifest);
             if (missing.length > 0) return failure("entry-missing", `复制范围里缺少入口文件：${missing.join("、")}`, missing);
+            // 安装源里的目录 prepare 已查过；这里查复制范围（`files` 漏了目录文件时只有这里发现）。
+            const catalogs = await catalogProblemsIn(staging, manifest);
+            if (catalogs.length > 0) return catalogFailure(catalogs);
             return await commit(manifest.id, manifest.version, staging);
         } catch (error) {
             options.record({level: "error", event: "plugins.install.failed", message: `安装 ${manifest.id}@${manifest.version} 失败`, error});

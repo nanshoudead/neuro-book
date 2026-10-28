@@ -14,7 +14,7 @@
 1. 说明行：与设置窗口画在分区顶部的层状态说明同一种写法，一行图标加文字、不画框（`Banner` 是贴容器顶边的满宽一节，放在内容列里像没画完的卡片）。平时是次要文字色的“安装、卸载、升级、启用与禁用在下一次启动后生效”；有待生效变化时换成警告色的“有待生效的变化，重启 NeuroBook 后生效”。安全模式下另有一行警告色的“安全模式：第三方插件没有加载，可以在这里禁用或卸载它们”。有插件有问题时另有一行次要文字色的“服务端的状态是打开这一页时的；本窗口的随时更新。”
 2. 安装：标签“服务端上的插件文件夹”，一行输入框（伸缩，占位文字是示例路径）加“安装…”按钮。窄屏时两者仍在同一行，输入框收窄。
 3. 失败说明区：`role="alert"`，平时空着、不占高度（这时不在无障碍树里，第一次失败时靠 alert 角色出现时的播报）；操作失败时显示一行原因（危险色），需要时下面接出错字段或服务端给的一句详情（每条一行，次要文字色），可在任意处折行。行内操作失败时，失败说明区滚进视野。
-4. 插件列表，分两组，组间距与安装区到第一组的距离同设置列表的分组间距；各有一行小标题（下有分割线）、组内按 `list` 给的顺序（按 id）：先“第三方插件”（没有时写“还没有安装第三方插件。”），后“内置插件”。每个插件一行，行与行之间是分割线、不画框：左边是 id、显示名（有清单的第三方插件才有，跟在 id 后面、次要文字色）、版本与徽标（“内置”；待生效变化，例如“重启后安装”“重启后升级到 1.1.0”，换到更低的版本写“重启后降级到 0.9.0”；没有登记的原因，例如“清单无效”“入口文件缺失”“安装目录读不了”“不兼容”，这四种下面另起一行写原因；有问题时的危险色徽标“N 个入口没有运行”“N 项贡献被拒”），下面依次是说明（一行，放不下截断，悬停看全文）与每条问题的原因（次要文字色，一条一行：入口激活失败带错误消息，受阻写原因与服务，被拒的贡献写贡献点、id 与原因）；没有的不占位；右边是第三方插件的启用开关与“卸载”按钮。左边的文字与徽标放不下时换行，徽标自己的文字也可折行、高度随之撑开；整行放不下左边约 240px 加右边的控件时，开关与“卸载”换到左边内容的下面、靠右。
+4. 插件列表，分两组，组间距与安装区到第一组的距离同设置列表的分组间距；各有一行小标题（下有分割线）、组内按 `list` 给的顺序（按 id）：先“第三方插件”（没有时写“还没有安装第三方插件。”），后“内置插件”。每个插件一行，行与行之间是分割线、不画框：左边是 id、显示名（有清单的第三方插件才有，跟在 id 后面、次要文字色）、版本与徽标（“内置”；待生效变化，例如“重启后安装”“重启后升级到 1.1.0”，换到更低的版本写“重启后降级到 0.9.0”；没有登记的原因，例如“清单无效”“入口文件缺失”“安装目录读不了”“不兼容”，这四种下面另起一行写原因；有问题时的危险色徽标“N 个入口没有运行”“N 项贡献被拒”，本窗口没有取到消息目录时的警告色徽标“N 种语言的文字没有取到”），下面依次是说明（一行，放不下截断，悬停看全文）与每条问题的原因（次要文字色，一条一行：入口激活失败带错误消息，受阻写原因与服务，被拒的贡献写贡献点、id 与原因，没取到的目录写语言与原因）；没有的不占位；右边是第三方插件的启用开关与“卸载”按钮。左边的文字与徽标放不下时换行，徽标自己的文字也可折行、高度随之撑开；整行放不下左边约 240px 加右边的控件时，开关与“卸载”换到左边内容的下面、靠右。
 
 列表自己不滚动，由设置窗口的内容列滚动；宽窗口下内容列的宽度由设置窗口封顶。
 
@@ -50,7 +50,7 @@ type Props = {
 };
 ```
 
-没有 emits、slots、expose；attrs 落在根上。根带 `data-plugins-page` 与 `data-plugins-state`（`loading`、`failed` 或 `ready`）；说明行带 `data-plugins-restart`，安全模式说明行带 `data-plugins-safe-mode`；路径输入框带 `data-plugin-path`，“安装…”带 `data-plugin-install`；读取失败的说明带 `data-plugins-load-failure`，其中的“重试”带 `data-plugins-retry`；两组各带 `data-plugin-group`（`third-party` 或 `builtin`），第三方插件为空时的说明带 `data-plugins-empty`；每个插件一行带 `data-plugin-row`（id）与 `data-plugin-source`（`builtin` 或 `third-party`），其中显示名带 `data-plugin-display-name`，说明带 `data-plugin-description`，待生效变化的徽标带 `data-plugin-pending`（种类），没有登记的原因带 `data-plugin-not-loaded`（码），问题的徽标带 `data-plugin-problems`（`entries` 或 `contributions`），每条问题的原因带 `data-plugin-problem-line`，问题说明行带 `data-plugins-snapshot`，开关带 `data-plugin-toggle`，“卸载”带 `data-plugin-uninstall`；失败说明区带 `data-plugin-problem`（失败码，没有失败时没有这个属性）；安装确认框的确认按钮带 `data-plugin-install-confirm`，卸载确认框的带 `data-plugin-uninstall-confirm`。
+没有 emits、slots、expose；attrs 落在根上。根带 `data-plugins-page` 与 `data-plugins-state`（`loading`、`failed` 或 `ready`）；说明行带 `data-plugins-restart`，安全模式说明行带 `data-plugins-safe-mode`；路径输入框带 `data-plugin-path`，“安装…”带 `data-plugin-install`；读取失败的说明带 `data-plugins-load-failure`，其中的“重试”带 `data-plugins-retry`；两组各带 `data-plugin-group`（`third-party` 或 `builtin`），第三方插件为空时的说明带 `data-plugins-empty`；每个插件一行带 `data-plugin-row`（id）与 `data-plugin-source`（`builtin` 或 `third-party`），其中显示名带 `data-plugin-display-name`，说明带 `data-plugin-description`，待生效变化的徽标带 `data-plugin-pending`（种类），没有登记的原因带 `data-plugin-not-loaded`（码），问题的徽标带 `data-plugin-problems`（`entries`、`contributions` 或 `catalogs`），每条问题的原因带 `data-plugin-problem-line`，问题说明行带 `data-plugins-snapshot`，开关带 `data-plugin-toggle`，“卸载”带 `data-plugin-uninstall`；失败说明区带 `data-plugin-problem`（失败码，没有失败时没有这个属性）；安装确认框的确认按钮带 `data-plugin-install-confirm`，卸载确认框的带 `data-plugin-uninstall-confirm`。
 
 ## 状态
 

@@ -6,6 +6,7 @@
 
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import type {Catalog} from "@notnotype/nb-ui/text";
 
 import {pluginsAt, productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
@@ -61,6 +62,19 @@ export const browserPluginDefinitions: Readonly<Record<string, PluginDefinition>
 export const browserHostPlugins: Readonly<Record<BrowserHostPluginId, BrowserHostPluginFactory>> = {
     "runtime.diagnostics": (context) => createBrowserDiagnosticsPlugin({store: context.store, console: context.console}),
 };
+
+/** 一个内置插件随前端构建的消息目录：各语言的目录与源语言（docs/specs/ui/i18n.md）。 */
+export interface BuiltinCatalogs {
+    readonly source: string;
+    readonly catalogs: Readonly<Record<string, Catalog>>;
+}
+
+/**
+ * 内置插件的消息目录，按插件 id：插件在自己的目录模块里静态导入 `locales/<语言>.json`，在这里登一项，随前端构建进包；窗口在
+ * 挂载界面前把它们登记进翻译引擎，命名空间是插件 id。只有后端入口的内置插件也登在这里：它们的失败码同样在窗口里显示。第三方
+ * 插件的目录不在构建里，经引导的目录索引与目录端点取（docs/specs/runtime/browser-host.md 输出 2）。
+ */
+export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = {};
 
 /** 本外壳构建进去的浏览器插件：清单中有浏览器运行位置的插件，加上只有顶层声明式贡献的插件（只登记它们的声明）。 */
 export const builtinBrowserPlugins: ReadonlyArray<PluginDescriptor> = pluginsAt("browser", productPlugins);

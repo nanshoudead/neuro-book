@@ -15,7 +15,7 @@ import {Type} from "typebox";
 import type {PluginDefinition} from "../plugins/plugins";
 import {portabilityProblems} from "../plugins/plugins";
 import {defineRemoteService} from "../remote/remote";
-import {createManifestFormat, definitionOf, descriptorOf} from "./plugin-manifest";
+import {catalogFile, catalogProblems, createManifestFormat, definitionOf, descriptorOf, parseCatalog} from "./plugin-manifest";
 import type {ManifestSource, VersionSyntax} from "./plugin-manifest";
 
 /** 调用方注入的写法校验，这里用 npm 的 semver（测试依赖，内核运行时不依赖它）；应用侧另外只接受规范写法。 */
@@ -381,6 +381,41 @@ describe("平台档案", () => {
         expect(format.isBuiltinId("acme.files/files")).toBe(true);
         expect(format.isBuiltinId("example.notes")).toBe(false);
         expect(format.isReservedPublisher("acme")).toBe(true);
+    });
+});
+
+describe("消息目录（l10n 与目录内容）", () => {
+    it("l10n 读成源语言与语言列表；没写为 null；生成清单原样写出", () => {
+        expect(manifestOf({...base, l10n: {source: "zh-CN", locales: ["zh-CN", "en-US"]}}).l10n).toEqual({source: "zh-CN", locales: ["zh-CN", "en-US"]});
+        expect(manifestOf(base).l10n).toBeNull();
+        const built = build({descriptor: {id: "example.notes", version: "1.0.0", locations: []}, definitions: [], engine: "^0.1.0", l10n: {source: "en-US", locales: ["en-US"]}});
+        expect(built.status === "valid" ? [built.json.l10n, built.manifest.l10n] : built.problems).toEqual([{source: "en-US", locales: ["en-US"]}, {source: "en-US", locales: ["en-US"]}]);
+    });
+
+    it("形状不对时整份清单无效：源语言不在列表里、语言重复、不是规范写法、不是语言标签、空列表、多出字段", () => {
+        expect(problemsOf({...base, l10n: {source: "fr", locales: ["zh-CN"]}})).toEqual(["l10n.source"]);
+        expect(problemsOf({...base, l10n: {source: "zh-CN", locales: ["zh-CN", "zh-CN"]}})).toEqual(["l10n.locales.1"]);
+        // zh-cn 是合法标签，但登记进引擎的标签与界面语言 zh-CN 对不上：要求规范写法。
+        expect(problemsOf({...base, l10n: {source: "zh-cn", locales: ["zh-cn"]}})).toEqual(["l10n.locales.0", "l10n.source"]);
+        expect(problemsOf({...base, l10n: {source: "zh-CN", locales: ["zh-CN", "not a tag"]}})).toEqual(["l10n.locales.1"]);
+        expect(problemsOf({...base, l10n: {source: "zh-CN", locales: []}})).toEqual(["l10n.locales"]);
+        expect(problemsOf({...base, l10n: {source: "zh-CN", locales: ["zh-CN"], fallback: "en-US"}})).toEqual(["l10n"]);
+    });
+
+    it("目录内容：叶子是字符串或嵌套对象，键不含冒号，值不含 $t(；问题的路径是点号键路径", () => {
+        expect(catalogProblems({manifest: {displayName: "笔记"}, errors: {"not-found": "没有 {{name}}"}})).toEqual([]);
+        expect(catalogProblems({a: 1, b: {c: null, d: ["x"]}, "ns:key": "x", e: {f: "见 $t(other.key)"}}).map((problem) => problem.path)).toEqual(["a", "ns:key", "b.c", "b.d", "e.f"]);
+        expect(catalogProblems(["x"])).toEqual([{path: "", message: expect.stringContaining("数组")}]);
+        expect(catalogProblems("x")).toEqual([{path: "", message: expect.stringContaining("string")}]);
+    });
+
+    it("目录文件：不是 JSON 时报解析错误；嵌套极深也只得到问题，不抛栈溢出", () => {
+        expect(parseCatalog("{")).toMatchObject({ok: false, problems: [{path: "", message: expect.stringContaining("JSON")}]});
+        expect(parseCatalog(JSON.stringify({a: "x"}))).toEqual({ok: true, catalog: {a: "x"}});
+        const deep = `${"{\"a\":".repeat(20_000)}1${"}".repeat(20_000)}`;
+        const result = parseCatalog(deep);
+        expect(result.ok ? [] : result.problems.map((problem) => problem.message)).toEqual([expect.stringContaining("number")]);
+        expect(catalogFile("zh-CN")).toBe("locales/zh-CN.json");
     });
 });
 

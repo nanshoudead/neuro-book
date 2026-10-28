@@ -90,7 +90,8 @@ function failed(failure: InventoryFailure): CliFailure {
     const problems = failure.problems ?? [];
     // 有逐条问题时 detail 已带着第一条，只列问题，不再重复 detail。
     if (problems.length === 0) return new CliFailure(failure.code, failure.detail, 1);
-    return new CliFailure(failure.code, `插件清单有 ${String(problems.length)} 处错误：\n${problems.map((problem) => `  - ${problem}`).join("\n")}`, 1, {problems});
+    const subject = failure.code === "catalog-invalid" ? "消息目录" : "插件清单";
+    return new CliFailure(failure.code, `${subject}有 ${String(problems.length)} 处错误：\n${problems.map((problem) => `  - ${problem}`).join("\n")}`, 1, {problems});
 }
 
 const PENDING: Readonly<Record<PendingChange["kind"], string>> = {install: "重启后安装", uninstall: "重启后卸载", enable: "重启后启用", disable: "重启后禁用", upgrade: "重启后升级"};

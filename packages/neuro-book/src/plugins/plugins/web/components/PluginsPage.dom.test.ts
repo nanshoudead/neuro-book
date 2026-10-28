@@ -203,6 +203,14 @@ describe("PluginsPage", () => {
         expect(lines()).toEqual(["入口 server（server）激活失败：local 记录需要客户端身份", "入口 browser（browser）受阻：需要的服务 example.goal/progress 没有提供"]);
         expect(goal.querySelector("[data-plugin-problems=entries]")?.textContent).toContain("2 个入口没有运行");
         expect(goal.querySelector("[data-plugin-problems=contributions]")).toBeNull();
+
+        // 本窗口没取到的消息目录：另一种徽标，不算进入口问题。
+        windowProblems = [blocked, {kind: "catalog-unavailable", plugin: "example.goal", location: "browser", locale: "en-US", reason: "invalid", detail: "menu.open：值必须是字符串或嵌套的对象，这里是number"}];
+        notify();
+        await flushPromises();
+        expect(goal.querySelector("[data-plugin-problems=entries]")?.textContent).toContain("2 个入口没有运行");
+        expect(goal.querySelector("[data-plugin-problems=catalogs]")?.textContent).toContain("1 种语言的文字没有取到");
+        expect(lines().at(-1)).toBe("en-US 的文字没有取到：目录内容不合规则（menu.open：值必须是字符串或嵌套的对象，这里是number）");
     });
 
     it("顶层声明被拒时服务端与本窗口各有一条，合成一条显示；没有问题时不显示快照说明；卸载后不再听本窗口的变化", async () => {
@@ -319,6 +327,12 @@ describe("PluginsPage", () => {
         // 同一个失败再来一次：文字换成新节点，读屏会再播报一次。
         expect(document.querySelector("[data-plugin-problem] p")).not.toBe(first);
         expect(document.querySelector("[role=dialog]")).toBeNull();
+
+        fake.answerNext({ok: false, code: "catalog-invalid", detail: {detail: "消息目录有错误：locales/en-US.json：title：……", problems: ["locales/en-US.json：title：值必须是字符串或嵌套的对象，这里是number"]}});
+        await submitPath(wrapper, "/plugins/catalogs");
+        problem = document.querySelector("[data-plugin-problem]");
+        expect(problem?.getAttribute("data-plugin-problem")).toBe("catalog-invalid");
+        expect([...problem!.querySelectorAll("p")].map((line) => line.textContent)).toEqual(["插件的消息目录无效", "locales/en-US.json：title：值必须是字符串或嵌套的对象，这里是number"]);
 
         // 不带详情的码只显示码的文字一次（详情不重复一遍）。
         fake.answerNext({ok: false, code: "already-installed", detail: {detail: "example.hello@1.0.0 已安装或等待重启后切换"}});

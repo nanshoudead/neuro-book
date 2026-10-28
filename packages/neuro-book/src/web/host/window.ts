@@ -1,6 +1,7 @@
 /**
  * 窗口运行实例的启动与状态（runtime.browser-host 启动序列第 2–5 步）：取引导集合，连上内核 RPC 端口，按集合登记
- * 本外壳构建进去的浏览器插件，激活 `nbook.workbench` 并解析它交出的根界面。解析到根界面之前窗口不是 ready，
+ * 本外壳构建进去的浏览器插件，激活 `nbook.workbench` 并解析它交出的根界面。登记插件之前先把内置插件随构建的消息目录与
+ * 引导目录索引列出的第三方目录登记进翻译引擎；目录取不到或坏了只记成该插件的目录问题，窗口照常启动。解析到根界面之前窗口不是 ready，
  * 界面据此只在工作台与失败页之间二选一，不出现半个工作台。首连先于建立运行实例：插件激活时远程服务已可用。
  * 可用之后链路断开只把 ready 标成离线并退避重连；服务端已换进程时转入只能刷新的 `server-restarted`，绑定的项目
  * 代次已结束时转入 `project-gone`。地址栏指定了项目时首连同时绑定它，绑定结果随 ready 给出，并以本地能力
@@ -11,10 +12,11 @@
 
 import type {StopResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsStore, mechanismObservers, recordingEmergency} from "@notnotype/nb-runtime/diagnostics";
-import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
+import type {DiagnosticInput, DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
-import type {PluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
+import {parseCatalog} from "@notnotype/nb-runtime/plugin-manifest";
+import type {MessageCatalog, PluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import {Value} from "typebox/value";
@@ -23,7 +25,8 @@ import {definitionAt} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {manifestFormat, NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import {thirdPartyDefinitionsFor} from "nbook/plugin-platform/shared/definitions";
-import {pluginFileUrl} from "nbook/plugin-platform/shared/plugin-files";
+import {pluginCatalogUrl, pluginFileUrl} from "nbook/plugin-platform/shared/plugin-files";
+import type {PluginProblem} from "nbook/plugin-platform/shared/types";
 import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 import {createPluginCodeHost, pageDocument} from "nbook/plugin-platform/web/plugin-code";
 import type {PluginCodeHost, PluginDocument, PluginLink} from "nbook/plugin-platform/web/plugin-code";
@@ -32,6 +35,7 @@ import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exp
 import {workbenchRootKey} from "nbook/plugins/workbench/web/contracts";
 import type {WorkbenchRoot} from "nbook/plugins/workbench/web/contracts";
 import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersion} from "nbook/shared/browser-bootstrap";
+import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
 import {clockKey, windowConnectionKey, windowNavigationKey, windowPluginsKey, windowRescueKey} from "nbook/shared/host";
 import type {RescuedText, WindowRescue} from "nbook/shared/host";
 import type {WindowConnection, WindowConnectionState, WindowNavigation} from "nbook/shared/host";
@@ -41,9 +45,11 @@ import {windowProjectKey} from "nbook/shared/projects";
 import type {WindowProject} from "nbook/shared/projects";
 
 import {browserHostPlugins, browserPluginDefinitions, builtinBrowserPlugins, isBrowserHostPlugin} from "../plugins";
-import type {BrowserHostPluginFactory, BrowserHostPluginId, BrowserPluginContext} from "../plugins";
+import {builtinPluginCatalogs} from "../plugins";
+import type {BrowserHostPluginFactory, BrowserHostPluginId, BrowserPluginContext, BuiltinCatalogs} from "../plugins";
 import {BrowserRuntimeHost} from "./browser-host";
 import type {BrowserHost, PageLifecycleTarget} from "./browser-host";
+import {ConnectionError} from "./connection";
 import type {Connection, RpcEndpoint} from "./connection";
 import {createRemoteSession} from "./remote-session";
 import {createHostTextEngine} from "./text-engine";
@@ -82,6 +88,8 @@ export interface BrowserWindowOptions {
     readonly builtin?: ReadonlyArray<PluginDescriptor>;
     readonly definitions?: Readonly<Record<string, PluginDefinition>>;
     readonly hostPlugins?: Readonly<Record<BrowserHostPluginId, BrowserHostPluginFactory>>;
+    /** 内置插件随构建的消息目录；缺省按 `plugins.ts` 的 `builtinPluginCatalogs`。 */
+    readonly builtinCatalogs?: Readonly<Record<string, BuiltinCatalogs>>;
     /** 客户端身份（`client-identity.ts`），随握手发给服务端；缺省每个窗口各取一个随机值，不跨刷新。 */
     readonly clientIdentity?: string;
     /** 重连退避与远程调用超时的时钟；缺省系统时钟。 */
@@ -132,6 +140,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
     const builtin = options.builtin ?? builtinBrowserPlugins;
     const definitions = options.definitions ?? browserPluginDefinitions;
     const hostPlugins = options.hostPlugins ?? browserHostPlugins;
+    const builtinCatalogs = options.builtinCatalogs ?? builtinPluginCatalogs;
     const navigation: WindowNavigation = Object.freeze({
         navigateDocument: (href: string) => options.navigation.navigateDocument(href),
         reloadDocument: () => options.navigation.reloadDocument(),
@@ -180,8 +189,9 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         let selected: SelectedPlugin[];
         let endpoint: RpcEndpoint;
         let projectTitle: string | null;
+        let catalogIndex: BrowserBootstrap["catalogs"];
         try {
-            ({selected, endpoint, projectTitle} = selectPlugins(raw, builtin, definitions, hostPlugins));
+            ({selected, endpoint, projectTitle, catalogIndex} = selectPlugins(raw, builtin, definitions, hostPlugins));
         } catch (error) {
             if (!(error instanceof BootstrapRejected)) throw error;
             setState({status: error.kind, reason: error.message});
@@ -238,6 +248,13 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
             const context: BrowserPluginContext = {store, console: options.console};
             const observers = mechanismObservers(store);
             const windowPlugins = createWindowPlugins(() => host?.application.plugins ?? null, (error) => store.record({level: "warn", event: "browser-host.plugins-listener.failed", message: "入口状态的监听抛错", error}));
+            // 目录先于插件登记：入口激活、界面挂载时文字已经在引擎里。取不到的只成为问题，不让这一步失败。
+            const catalogProblems = await loadCatalogs({index: catalogIndex, builtin: builtinCatalogs, connection: options.connection, text, record: (input) => void store.record(input)});
+            windowPlugins.catalogProblems(catalogProblems);
+            if (closed) {
+                current.close();
+                return;
+            }
             // 登记看的是定义里的 id，引导集合与必需插件看的是表项的 id：两者不一致时不装，否则会装进集合之外的插件。
             const builtinDefinitions = selected.flatMap((plugin) => (plugin.kind === "definition" ? [plugin.definition] : []));
             const thirdPartyPlugins = selected.flatMap((plugin) => (plugin.kind === "third-party" ? [plugin] : []));
@@ -359,7 +376,7 @@ function selectPlugins(
     builtin: ReadonlyArray<PluginDescriptor>,
     definitions: Readonly<Record<string, PluginDefinition>>,
     hostPlugins: Readonly<Record<BrowserHostPluginId, BrowserHostPluginFactory>>,
-): {readonly selected: SelectedPlugin[]; readonly endpoint: RpcEndpoint; readonly projectTitle: string | null} {
+): {readonly selected: SelectedPlugin[]; readonly endpoint: RpcEndpoint; readonly projectTitle: string | null; readonly catalogIndex: BrowserBootstrap["catalogs"]} {
     const version = declaredProtocolVersion(raw);
     if (version !== null && version !== BROWSER_PROTOCOL_VERSION) {
         throw new BootstrapRejected("incompatible", `服务端的引导协议版本是 ${String(version)}，本页面是 ${String(BROWSER_PROTOCOL_VERSION)}`);
@@ -401,7 +418,57 @@ function selectPlugins(
     for (const id of REQUIRED_PLUGINS) {
         if (!selected.some((item) => item.id === id)) throw new BootstrapRejected("startup-failed", `引导集合缺少必需插件 ${id}`);
     }
-    return {selected, endpoint: raw.rpc, projectTitle: raw.project?.title ?? null};
+    return {selected, endpoint: raw.rpc, projectTitle: raw.project?.title ?? null, catalogIndex: raw.catalogs};
+}
+
+type CatalogProblem = Extract<PluginProblem, {kind: "catalog-unavailable"}>;
+
+/** 取一种语言的目录：取到并合规时是目录，否则是问题（端点 404、内容不合规、连不上或端点出错）。只接住连接错误，别的照常抛。 */
+async function fetchCatalog(connection: Connection, plugin: string, prefix: string, locale: string): Promise<{readonly ok: true; readonly catalog: MessageCatalog} | {readonly ok: false; readonly problem: CatalogProblem}> {
+    const problem = (reason: CatalogProblem["reason"], detail: string | null) => ({ok: false as const, problem: {kind: "catalog-unavailable" as const, plugin, location: "browser", locale, reason, detail}});
+    let body: string;
+    try {
+        body = await connection.catalog(pluginCatalogUrl(prefix, locale));
+    } catch (error) {
+        if (!(error instanceof ConnectionError)) throw error;
+        return error.status === 404 ? problem("not-found", null) : problem("fetch-failed", error.message);
+    }
+    const parsed = parseCatalog(body);
+    if (parsed.ok) return {ok: true, catalog: parsed.catalog};
+    const [first] = parsed.problems;
+    const more = parsed.problems.length > 1 ? `，另有 ${String(parsed.problems.length - 1)} 处` : "";
+    return problem("invalid", first === undefined ? null : `${first.path === "" ? "" : `${first.path}：`}${first.message}${more}`);
+}
+
+/**
+ * 把消息目录登记进翻译引擎（docs/specs/runtime/browser-host.md 输出 2）：内置插件的随构建，第三方的按引导目录索引经目录端点
+ * 取，各插件、各语言并行。一个插件取到几种语言就登记几种，一种都没取到时不登记，文字按回退链显示。返回没取到的那些，每条
+ * 另记一条诊断。
+ */
+async function loadCatalogs(options: {
+    readonly index: BrowserBootstrap["catalogs"];
+    readonly builtin: Readonly<Record<string, BuiltinCatalogs>>;
+    readonly connection: Connection;
+    readonly text: WindowText;
+    readonly record: (input: DiagnosticInput) => void;
+}): Promise<PluginProblem[]> {
+    for (const [plugin, {source, catalogs}] of Object.entries(options.builtin)) options.text.register(plugin, catalogs, source);
+    const results = await Promise.all(options.index.map(async (entry) => {
+        const fetched = await Promise.all(entry.locales.map(async (locale) => [locale, await fetchCatalog(options.connection, entry.plugin, entry.prefix, locale)] as const));
+        const catalogs: Record<string, MessageCatalog> = {};
+        const problems: CatalogProblem[] = [];
+        for (const [locale, result] of fetched) {
+            if (result.ok) catalogs[locale] = result.catalog;
+            else problems.push(result.problem);
+        }
+        if (Object.keys(catalogs).length > 0) options.text.register(entry.plugin, catalogs, entry.source);
+        return problems;
+    }));
+    const problems = results.flat();
+    for (const problem of problems) {
+        options.record({level: "warn", event: "browser-host.plugin.catalog-failed", message: `插件 ${problem.plugin} 的 ${problem.locale} 消息目录没有取到，文字按回退链显示`, data: {plugin: problem.plugin, locale: problem.locale, reason: problem.reason, detail: problem.detail}});
+    }
+    return problems;
 }
 
 /** 一次启动的链路状态与交给插件的只读视图；监听抛错交给 `report`，不影响其它监听与链路。 */

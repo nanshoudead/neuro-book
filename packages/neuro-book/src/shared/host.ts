@@ -88,7 +88,7 @@ export interface WindowPlugins {
     retry(ref: EntryRef): Promise<WindowPluginRetry>;
     /** 入口声明的激活事件；未登记、或运行实例还没建立时为 null。按需激活前用它判断某个入口会不会被这个事件激活。 */
     activationEvents(ref: EntryRef): ReadonlyArray<string> | null;
-    /** 本窗口此刻的插件问题（入口激活失败、受阻、被拒的贡献），插件页用；运行实例还没建立时为空。 */
+    /** 本窗口此刻的插件问题（入口激活失败、受阻、被拒的贡献、没取到的消息目录），插件页用；运行实例还没建立时只有目录问题。 */
     problems(): ReadonlyArray<PluginProblem>;
 }
 

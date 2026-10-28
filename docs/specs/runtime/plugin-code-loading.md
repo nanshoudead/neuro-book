@@ -29,6 +29,7 @@ owners:
 - **位置核对**：插件描述的 `locations` 与实际导出了插件定义的入口位置要一致：有入口的位置没写进 `locations`，或写了却没有那个位置的入口，构建失败并说明改哪里。只在没有别的构建问题时核对（入口模块读不出来时不另报一条误导的位置问题）。
 - **插件样式**：清单的 `style` 指向一份样式表。构建预设把各入口的样式合并后包进 `@layer components`（与宿主组件样式同层，宿主的原子类仍能覆盖插件组件），并为插件用到的 Lucide 图标类（`i-lucide-<名字>`）生成规则：宿主只为自己源码里出现过的类名生成规则，插件不能依赖宿主的原子类。扫描清单本身（声明里的图标）与各位置入口模块图里的源码（含打进来的依赖）；别的图标集的类名给构建警告，拼接出来的类名找不到。
 - **插件文件端点**：`GET <挂载前缀>/plugins/<插件 id>/files/<内容摘要>/<相对路径>`，提供插件的浏览器代码、样式与静态资源。挂载前缀由平台档案给出（[`runtime.plugin-manifest`](plugin-manifest.md) 的术语），NeuroBook 是 `/api/runtime`。内容摘要是本次启动时算出的版本目录全部文件的摘要。
+- **消息目录端点**：`GET <挂载前缀>/plugins/<插件 id>/catalogs/<内容摘要>/<语言>.json`，提供插件清单 `l10n.locales` 列出的消息目录（[`runtime.plugin-manifest`](plugin-manifest.md) 输出 12）。内容摘要与插件文件端点的相同。
 
 ## 输入与前置条件
 
@@ -51,6 +52,7 @@ owners:
 7. **开发模式验证。** 开发模式可以验证 L2：反复启用、禁用与升级同一插件 40 次，堆内存不随次数增长；卸载后的弱引用检查在若干轮 GC 后确认回收（浏览器端等 Vue 开发构建缓冲的前 3 秒组件事件清空后再检查）。
 8. **插件文件端点。** 只返回本次启动集合里已登记的插件当前版本目录（`<State Root>/plugins/<插件 id>/<版本>/`）内的普通文件，按扩展名给出内容类型；已登录才可访问（planned：认证实现之前，服务端只监听回环地址并核对 `Host`）。路径按原始路径的 `/` 切段、逐段解码，解码后的段含 `/`、`\`、NUL，或等于 `.`、`..`、空串时返回 400；逐段核对不跟随符号链接。插件未登记、摘要不是当前摘要或文件不存在时返回 404。响应带 `Cross-Origin-Resource-Policy: same-origin` 与 `X-Content-Type-Options: nosniff`，别的网页不能用 `<script>` 跨源探测装了哪些插件。
 9. **错误边界。** 插件视图在 workbench 的组件树内渲染，外包错误边界：渲染、生命周期与组件事件处理中的错误只影响该视图，视图原位显示错误，其它视图与插件照常。生产构建另存组件名与错误信息供诊断（Vue 生产构建只给出错误参考链接）。不在 Vue 调用路径上的错误由 SDK 的作用域定时器与异步包装捕获（[`runtime.plugin-api`](plugin-api.md)）。
+10. **消息目录端点。** 只为本次启动集合里写了 `l10n` 的插件、当前摘要、清单 `l10n.locales` 列出的语言返回 `locales/<语言>.json` 的原样内容（内容类型 JSON），不执行插件代码，所以只有后端入口、不在浏览器登记的插件也取得到它的目录。访问要求与安全响应头同插件文件端点。路径不是“插件 id、摘要、语言标签加 `.json`”的形状时返回 400；插件不在集合里、没有 `l10n`、摘要不是当前摘要、语言不在列表里或文件不存在时返回 404；文件读不了时返回 500 并记一条诊断。端点不检查内容，内容的检查由取目录的一方做（[`runtime.browser-host`](browser-host.md) 输出 8）。
 
 ## 状态与转换
 
@@ -67,7 +69,7 @@ owners:
 
 - 本能力不写持久数据；只读安装目录。
 - 浏览器装载会向页面加入插件样式，注销时移除。
-- 插件文件端点的响应可以长期缓存：URL 含版本目录的内容摘要，升级与同版本重装（卸载、重启后再装同一版本）都换摘要，旧 URL 返回 404，浏览器不会执行缓存里的旧代码。浏览器引导的修订号同样并入摘要（[`runtime.browser-host`](browser-host.md)）。
+- 插件文件端点的响应可以长期缓存：URL 含版本目录的内容摘要，升级与同版本重装（卸载、重启后再装同一版本）都换摘要，旧 URL 返回 404，浏览器不会执行缓存里的旧代码。浏览器引导的修订号同样并入摘要（[`runtime.browser-host`](browser-host.md)）。消息目录端点的成功响应同样可以长期缓存，失败响应不缓存。
 
 ## 失败与恢复
 
@@ -97,9 +99,10 @@ owners:
 7. **L2。** 开发模式下反复启用、禁用、升级 40 次，服务端与浏览器的堆内存不随次数增长。
 8. **文件端点。** 未登录请求返回 401（planned）；含编码的分隔符或 NUL（`..%2F`、`%5C`、`%00`）的路径返回 400，明文 `..` 拿不到版本目录外的文件；旧摘要（升级或同版本重装之前的）返回 404。
 9. **错误边界。** 插件视图渲染时抛错，只有该视图显示错误，其它视图可用。
+10. **消息目录端点。** 已安装、写了 `l10n` 的插件：当前摘要下列出的语言返回目录原文；不在列表里的语言、旧摘要返回 404；语言段不是语言标签加 `.json` 时返回 400。只有服务端入口的插件同样取得到。
 
 Smoke：阶段 3 的示例外部插件在 Chromium、Electron、WebKitGTK 上核对场景 1、4、9；服务端核对场景 4 至 7。
 
 ## 证据
 
-- 批准依据：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P1 第 8、9 项、P2、P7（2026-09-30 确认采用宿主模块表、共享入口第一版只含 `components`、插件文件需登录）；验证依据 [G1 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g1/REPORT.md)（两种做法在 Chromium、WPE WebKit、Electron、WebKitGTK 上成立，宿主模块表可回收）；[运行时模块卸载调研](../../research/runtime-module-unloading.md)；表外模块错误码、端点的 400 与 404 语义由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文；t04 的构建与装载做法（登记工厂、`@vue/reactivity` 进宿主模块表、删模块缓存再装载、内容摘要的文件 URL、样式与图标）经 [w00027 t04 计划](../../../.agents/works/w00027-plugin-platform/tasks/t04-browser-loading-sdk/plan.md)的深入设计审查修订（2026-10-23，开发者授权自主推进，待追认）；动态导入、严格模式、`import.meta.url`、显式的宿主 Vue 包、图标扫描范围、宿主模块表懒建立与停止时立刻结束按 t04 第一轮实现审查修订（同日，待追认）。
+- 批准依据：消息目录端点依据[《界面文字的消息目录》](../../proposals/i18n-message-catalogs.md)（2026-10-27 接受）；[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P1 第 8、9 项、P2、P7（2026-09-30 确认采用宿主模块表、共享入口第一版只含 `components`、插件文件需登录）；验证依据 [G1 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g1/REPORT.md)（两种做法在 Chromium、WPE WebKit、Electron、WebKitGTK 上成立，宿主模块表可回收）；[运行时模块卸载调研](../../research/runtime-module-unloading.md)；表外模块错误码、端点的 400 与 404 语义由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文；t04 的构建与装载做法（登记工厂、`@vue/reactivity` 进宿主模块表、删模块缓存再装载、内容摘要的文件 URL、样式与图标）经 [w00027 t04 计划](../../../.agents/works/w00027-plugin-platform/tasks/t04-browser-loading-sdk/plan.md)的深入设计审查修订（2026-10-23，开发者授权自主推进，待追认）；动态导入、严格模式、`import.meta.url`、显式的宿主 Vue 包、图标扫描范围、宿主模块表懒建立与停止时立刻结束按 t04 第一轮实现审查修订（同日，待追认）。

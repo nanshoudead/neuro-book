@@ -54,6 +54,8 @@ const TEXT = {
     unknownFailure: {"zh-CN": "操作没有完成", "en-US": "The operation did not complete"},
     entryProblems: {"zh-CN": "{count} 个入口没有运行", "en-US": "{count} entry point(s) not running"},
     rejectedProblems: {"zh-CN": "{count} 项贡献被拒", "en-US": "{count} contribution(s) rejected"},
+    catalogProblems: {"zh-CN": "{count} 种语言的文字没有取到", "en-US": "Text missing for {count} language(s)"},
+    catalogUnavailable: {"zh-CN": "{locale} 的文字没有取到：{reason}", "en-US": "Text for {locale} could not be loaded: {reason}"},
     entryFailed: {"zh-CN": "入口 {entry}（{location}）激活失败：{reason}", "en-US": "Entry {entry} ({location}) failed to activate: {reason}"},
     entryBlocked: {"zh-CN": "入口 {entry}（{location}）受阻：{reason}", "en-US": "Entry {entry} ({location}) is blocked: {reason}"},
     contributionRejected: {"zh-CN": "{capability} 的 {id} 被拒：{reason}", "en-US": "{id} for {capability} was rejected: {reason}"},
@@ -91,6 +93,7 @@ type FailureCode = PluginFailureCode | RemoteFailureCode;
 /** 业务失败码（plugin-install 的失败码表）都有文字；路由层失败码只写常见的三个，其余显示“操作没有完成”与详情。 */
 const FAILURE_TEXT: Readonly<Record<PluginFailureCode, LocalizedText> & Partial<Record<RemoteFailureCode, LocalizedText>>> = {
     "manifest-invalid": {"zh-CN": "插件的清单无效", "en-US": "The plugin manifest is invalid"},
+    "catalog-invalid": {"zh-CN": "插件的消息目录无效", "en-US": "The plugin's message catalogs are invalid"},
     "incompatible-engine": {"zh-CN": "插件与当前版本的 NeuroBook 不兼容", "en-US": "The plugin is not compatible with this version of NeuroBook"},
     "already-installed": {"zh-CN": "这个版本已经安装，或已在等待重启后切换", "en-US": "This version is already installed or waiting for the restart"},
     "uninstall-pending": {"zh-CN": "插件正在卸载，重启后再操作", "en-US": "The plugin is being uninstalled; restart first"},
@@ -106,7 +109,7 @@ const FAILURE_TEXT: Readonly<Record<PluginFailureCode, LocalizedText> & Partial<
 };
 
 /** 服务端详情能补充信息的码；其余的码固定文字已经说全，详情只会重复。 */
-const DETAIL_CODES: ReadonlySet<FailureCode> = new Set<FailureCode>(["manifest-invalid", "path-rejected", "copy-failed", "entry-missing", "registry-failed", "incompatible-engine"]);
+const DETAIL_CODES: ReadonlySet<FailureCode> = new Set<FailureCode>(["manifest-invalid", "catalog-invalid", "path-rejected", "copy-failed", "entry-missing", "registry-failed", "incompatible-engine"]);
 /** 失败后列表可能已过时的码：写出原因之后重新读列表。 */
 const STALE_CODES: ReadonlySet<FailureCode> = new Set<FailureCode>(["unknown-outcome", "not-installed", "uninstall-pending", "already-installed"]);
 
@@ -160,7 +163,7 @@ const stopWindow = props.windowPlugins?.onChange(() => {
 });
 onBeforeUnmount(() => stopWindow?.());
 
-const problemKey = (problem: PluginProblem): string => [problem.kind, problem.entry ?? "", problem.location, problem.kind === "contribution-rejected" ? `${problem.capability} ${problem.id}` : ""].join("|");
+const problemKey = (problem: PluginProblem): string => [problem.kind, problem.kind === "catalog-unavailable" ? problem.locale : (problem.entry ?? ""), problem.location, problem.kind === "contribution-rejected" ? `${problem.capability} ${problem.id}` : ""].join("|");
 
 /** 一个插件的问题：服务端的加上本窗口的。顶层声明在每个实例里都登记，被拒时两边各有一条，按贡献合成一条。 */
 function problemsOf(item: PluginListEntry): ReadonlyArray<PluginProblem> {
@@ -173,8 +176,9 @@ function problemsOf(item: PluginListEntry): ReadonlyArray<PluginProblem> {
 }
 
 const hasProblems = computed(() => items.value.some((item) => problemsOf(item).length > 0));
-const entryProblemCount = (item: PluginListEntry): number => problemsOf(item).filter((problem) => problem.kind !== "contribution-rejected").length;
+const entryProblemCount = (item: PluginListEntry): number => problemsOf(item).filter((problem) => problem.kind === "entry-failed" || problem.kind === "entry-blocked").length;
 const rejectedCount = (item: PluginListEntry): number => problemsOf(item).filter((problem) => problem.kind === "contribution-rejected").length;
+const catalogCount = (item: PluginListEntry): number => problemsOf(item).filter((problem) => problem.kind === "catalog-unavailable").length;
 
 const BLOCKED_REASON: Readonly<Record<Extract<PluginProblem, {kind: "entry-blocked"}>["reason"], LocalizedText>> = {
     "missing-service": {"zh-CN": "需要的服务 {key} 没有提供", "en-US": "the service {key} it needs is not provided"},
@@ -183,6 +187,12 @@ const BLOCKED_REASON: Readonly<Record<Extract<PluginProblem, {kind: "entry-block
     "provider-failed": {"zh-CN": "提供 {key} 的插件激活失败", "en-US": "the plugin providing {key} failed to activate"},
     "dependency-cycle": {"zh-CN": "依赖成环（{key}）", "en-US": "its dependencies form a cycle ({key})"},
     "version-mismatch": {"zh-CN": "{key} 的版本不在要求的范围里", "en-US": "the version of {key} is outside the required range"},
+};
+
+const CATALOG_REASON: Readonly<Record<Extract<PluginProblem, {kind: "catalog-unavailable"}>["reason"], LocalizedText>> = {
+    "not-found": {"zh-CN": "服务端没有这份目录", "en-US": "the server does not have this catalog"},
+    "invalid": {"zh-CN": "目录内容不合规则", "en-US": "the catalog content is invalid"},
+    "fetch-failed": {"zh-CN": "读取失败", "en-US": "loading failed"},
 };
 
 const REJECTED_REASON: Readonly<Record<Extract<PluginProblem, {kind: "contribution-rejected"}>["reason"], LocalizedText>> = {
@@ -196,6 +206,10 @@ const REJECTED_REASON: Readonly<Record<Extract<PluginProblem, {kind: "contributi
 function problemLine(problem: PluginProblem): string {
     if (problem.kind === "entry-failed") return format(TEXT.entryFailed, {entry: problem.entry, location: problem.location, reason: problem.message ?? `${problem.stage}/${problem.reason}`});
     if (problem.kind === "entry-blocked") return format(TEXT.entryBlocked, {entry: problem.entry, location: problem.location, reason: format(BLOCKED_REASON[problem.reason], {key: problem.key})});
+    if (problem.kind === "catalog-unavailable") {
+        const reason = text(CATALOG_REASON[problem.reason]);
+        return format(TEXT.catalogUnavailable, {locale: problem.locale, reason: problem.detail === null ? reason : format(TEXT.withDetail, {reason, detail: problem.detail})});
+    }
     const reason = text(REJECTED_REASON[problem.reason]);
     return format(TEXT.contributionRejected, {capability: problem.capability, id: problem.id, reason: problem.detail === null ? reason : format(TEXT.withDetail, {reason, detail: problem.detail})});
 }
@@ -431,6 +445,7 @@ onMounted(() => {
                                 <Badge v-if="item.notLoaded !== null" class="plugins-page__badge" size="sm" variant="soft" :tone="NOT_LOADED[item.notLoaded.code].tone" :data-plugin-not-loaded="item.notLoaded.code">{{ text(NOT_LOADED[item.notLoaded.code].text) }}</Badge>
                                 <Badge v-if="entryProblemCount(item) > 0" class="plugins-page__badge" size="sm" variant="soft" tone="danger" data-plugin-problems="entries">{{ format(TEXT.entryProblems, {count: String(entryProblemCount(item))}) }}</Badge>
                                 <Badge v-if="rejectedCount(item) > 0" class="plugins-page__badge" size="sm" variant="soft" tone="danger" data-plugin-problems="contributions">{{ format(TEXT.rejectedProblems, {count: String(rejectedCount(item))}) }}</Badge>
+                                <Badge v-if="catalogCount(item) > 0" class="plugins-page__badge" size="sm" variant="soft" tone="warning" data-plugin-problems="catalogs">{{ format(TEXT.catalogProblems, {count: String(catalogCount(item))}) }}</Badge>
                             </div>
                             <p v-if="item.notLoaded !== null && NOT_LOADED[item.notLoaded.code].showDetail" class="plugins-page__reason">{{ item.notLoaded.detail }}</p>
                             <p v-if="item.description !== null" class="plugins-page__description" :title="item.description" data-plugin-description>{{ item.description }}</p>

@@ -6,6 +6,7 @@
  * - 生成：代码定义写成清单并立刻读一遍（`build.ts`）。内置插件不写清单文件，它的代码定义就是清单；应用侧的对齐测试
  *   把代码定义生成清单，再还原比对。
  * - 还原：清单转成插件描述与各运行位置的定义（`definition.ts`）。
+ * - 消息目录：清单 `l10n` 列出的 `locales/<语言>.json` 的内容规则（`catalog.ts`），构建、安装、目录端点与窗口共用。
  *
  * 版本与版本范围按 npm semver 的写法，校验由调用方经 `versions` 给出：内核的运行时依赖只有 TypeBox，而手写的近似语法
  * 会放过非法写法、拒绝合法写法。
@@ -23,12 +24,15 @@ export {createManifestFormat} from "./format";
 export type {ManifestFormat, ManifestFormatOptions} from "./format";
 export {isBuiltinId, isReservedPublisher, RUNTIME_PUBLISHER} from "../plugins/plugins";
 export type {PluginPlatform} from "../plugins/plugins";
+export {canonicalLocaleTag, catalogFile, catalogProblems, localeTagProblem, parseCatalog} from "./catalog";
+export type {CatalogParseResult, MessageCatalog} from "./catalog";
 export {ID_SEGMENT_RULE, isIdSegment, isPluginId} from "./schema";
 export type {
     ManifestContract,
     ManifestContribution,
     ManifestContributionPoint,
     ManifestEntry,
+    ManifestL10n,
     ManifestProblem,
     ManifestReadResult,
     PluginManifest,

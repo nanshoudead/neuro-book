@@ -64,6 +64,12 @@ const ContractSchema = Type.Object({
     events: Type.Record(Type.String(), Type.Object({filter: Type.Unknown(), payload: Type.Unknown()}, {additionalProperties: false})),
 }, {additionalProperties: false});
 
+/** 消息目录的语言：`source` 是源语言（回退链的第二级），必须在 `locales` 里；每种语言一份 `locales/<语言>.json`。 */
+const L10nSchema = Type.Object({
+    source: NonEmptyString,
+    locales: Type.Array(NonEmptyString, {minItems: 1}),
+}, {additionalProperties: false});
+
 const EntrySchema = Type.Object({
     location: NonEmptyString,
     main: NonEmptyString,
@@ -96,6 +102,8 @@ export function manifestSchema(engine: string) {
         style: Type.Optional(NonEmptyString),
         /** 入口的 `remoteProvides`、`remoteDelegates` 引用的合同，键是合同 id；内置合同由宿主提供，不写在这里。 */
         contracts: Type.Optional(Type.Record(Type.String(), ContractSchema)),
+        /** 消息目录（runtime/plugin-manifest.md 的 `l10n`）；没有目录的插件不写。 */
+        l10n: Type.Optional(L10nSchema),
     });
 }
 
@@ -136,6 +144,9 @@ export interface ManifestEntry {
     readonly contributes: ReadonlyArray<ManifestContribution>;
 }
 
+/** 清单的 `l10n`：语言标签都是规范写法、不重复，源语言在列表里。 */
+export type ManifestL10n = Static<typeof L10nSchema>;
+
 /** 规范化的清单：缺省数组已经填成空数组，字段名与 `package.json` 一致。 */
 export interface PluginManifest {
     readonly id: string;
@@ -158,6 +169,8 @@ export interface PluginManifest {
     readonly contracts: Readonly<Record<string, ManifestContract>>;
     /** 浏览器要加载的样式表，相对插件目录；没有为 null。 */
     readonly style: string | null;
+    /** 消息目录的语言；没有目录为 null。 */
+    readonly l10n: ManifestL10n | null;
 }
 
 export interface ManifestProblem {

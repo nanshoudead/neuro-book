@@ -253,6 +253,58 @@ describe("复制范围（输入与前置条件、场景 10）", () => {
     });
 });
 
+describe("消息目录（catalog-invalid）", () => {
+    const L10N = {l10n: {source: "zh-CN", locales: ["zh-CN", "en-US"]}};
+    const GOOD = {"locales/zh-CN.json": JSON.stringify({manifest: {displayName: "你好"}}), "locales/en-US.json": JSON.stringify({manifest: {displayName: "Hello"}})};
+
+    it("清单列出的目录随复制范围装进版本目录；装好之后目录坏了，重启照常登记（目录问题由窗口报告）", async () => {
+        const w = await world();
+        const source = await w.source("catalogs", manifest("1.0.0", {...L10N, files: ["locales"]}), GOOD);
+        expect(await w.inventory.inspect(source)).toMatchObject({ok: true, value: {relation: "install"}});
+        expect(await w.inventory.install(source)).toMatchObject({ok: true});
+        const target = join(w.root, "example.hello", "1.0.0");
+        expect(await namesIn(join(target, "locales"))).toEqual(["en-US.json", "zh-CN.json"]);
+
+        await writeFile(join(target, "locales", "en-US.json"), "{坏了");
+        await rm(join(target, "locales", "zh-CN.json"));
+        const startup = await w.restart();
+        expect(startup.plugins.map((plugin) => [plugin.id, plugin.notLoaded])).toEqual([["example.hello", null]]);
+    });
+
+    it("手写清单的坏目录：预览与安装都返回 catalog-invalid，逐条问题带文件与键路径；不留下文件与记录", async () => {
+        const w = await world();
+        const cases: Array<[string, Readonly<Record<string, string>>, RegExp]> = [
+            ["leaf", {...GOOD, "locales/en-US.json": JSON.stringify({menu: {open: 1}})}, /^locales\/en-US\.json：menu\.open：/u],
+            ["json", {...GOOD, "locales/en-US.json": "{"}, /^locales\/en-US\.json：不是合法的 JSON/u],
+            ["source", {"locales/en-US.json": GOOD["locales/en-US.json"]}, /^locales\/zh-CN\.json：清单 l10n\.locales 列出了这种语言，但没有这个文件/u],
+            ["colon", {...GOOD, "locales/zh-CN.json": JSON.stringify({"menu:open": "打开"})}, /^locales\/zh-CN\.json：menu:open：键不能含 :/u],
+            ["nesting", {...GOOD, "locales/zh-CN.json": JSON.stringify({open: "见 $t(other)"})}, /^locales\/zh-CN\.json：open：值不能含 \$t\(/u],
+        ];
+        for (const [name, files, problem] of cases) {
+            const source = await w.source(name, manifest("1.0.0", L10N), files);
+            for (const result of [await w.inventory.inspect(source), await w.inventory.install(source)]) {
+                expect(result).toMatchObject({ok: false, code: "catalog-invalid"});
+                expect(result.ok ? [] : result.problems).toEqual([expect.stringMatching(problem)]);
+            }
+        }
+        expect(await exists(join(w.root, "plugins.json"))).toBe(false);
+        expect(await exists(join(w.root, "example.hello"))).toBe(false);
+        expect(await namesIn(join(w.root, ".staging"))).toEqual([]);
+    });
+
+    it("files 漏了目录文件：安装源里的目录没问题，预览通过；复制范围里缺目录，安装拒绝，不留下版本目录与登记", async () => {
+        const w = await world();
+        const source = await w.source("omitted", manifest("1.0.0", {...L10N, files: ["dist"], entries: {ui: {location: "browser", main: "dist/ui.js"}}}), {...GOOD, "dist/ui.js": ""});
+        expect(await w.inventory.inspect(source)).toMatchObject({ok: true});
+        const installed = await w.inventory.install(source);
+        expect(installed).toMatchObject({ok: false, code: "catalog-invalid"});
+        expect(installed.ok ? [] : installed.problems).toEqual([expect.stringMatching(/^locales\/zh-CN\.json：/u), expect.stringMatching(/^locales\/en-US\.json：/u)]);
+        expect(await exists(join(w.root, "plugins.json"))).toBe(false);
+        expect(await exists(join(w.root, "example.hello"))).toBe(false);
+        expect(await namesIn(join(w.root, ".staging"))).toEqual([]);
+    });
+});
+
 describe("升级（输出 8、场景 12、16）", () => {
     it("安装另一版本记为待切换；待切换期间再换版本时先改登记表、再删被取代的目录；重启后切到新版本、删旧目录", async () => {
         const w = await world();

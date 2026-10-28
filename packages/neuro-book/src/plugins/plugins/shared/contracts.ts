@@ -20,7 +20,7 @@ const One = Type.Object({plugin: PluginListItemSchema}, {additionalProperties: f
 
 export const pluginsRegistryContract = defineRemoteService({
     id: "nbook.plugins/registry",
-    version: 4,
+    version: 5,
     provider: "server",
     callers: ["browser"],
     methods: {
