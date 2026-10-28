@@ -23,8 +23,11 @@ updated: 2026-10-28
 - `bun run release:smoke` 通过（打包、仓库外安装、`nbstory` 命令行与 Skill、`serve` 加真实浏览器、Vite 宿主构建、应用与 SDK 的冒烟）。
 - 发布说明草稿：[evidences/release-notes.md](evidences/release-notes.md)。
 
+冒烟在版本号提交 `f374fa20f`（已在 master）上通过，tarball 与 `release-manifest.json` 在主工作区的 `dist/release/`（git 忽略）。`bun run release:publish` 在主工作区干跑停在门禁：`packages/nb-story/examples/journey-to-the-west/` 下有未跟踪的 `xiyouji-graph.json` 与 `xyj-library/`（示例走读留下的，不属于我，也不会进包：`files` 白名单不含 examples），发布前要先移走或清掉。
+
 ## 下一步（开发者）
 
+0. 清掉上面的未跟踪文件（`release:publish` 要求会发布的目录干净）。
 1. `git push origin master`（README 图片与发布门禁要用 origin/master）。
 2. `npm login`，在 master 上 `bun run release:publish`（先不带 `--yes` 看清单，再带 `--yes`）。
 3. 发布后在发布用的提交上 `bun run release:smoke --from registry`，把结果记进本 Task 的证据。
