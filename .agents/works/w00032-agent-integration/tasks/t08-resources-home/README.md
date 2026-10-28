@@ -34,7 +34,7 @@ updated: 2026-10-28
 
 t03、t05。
 
-## 设计稿（2026-10-28，第三版，待开发者确认）
+## 决定（开发者 2026-10-28，第三版设计稿定稿）
 
 第一版把 Profile home 固定在项目里；第二版列了维度，开发者据此提出：Profile 不分项目、跨 Profile 的东西用 `project://` 与 `user://`、复数方案做目录、`tmp://` 统一一个 `nbook` 文件夹、去掉 `artifact://`、`docs://` 与 `skills://` 的根是虚拟目录而下面是真实目录。第三版按这些改。
 
@@ -107,15 +107,15 @@ t03、t05。
 | 读第 3 章三天前的版本 | `history://…`（t13） |
 | 把书拷到另一台机器 | 只有作品文件跟着走 |
 
-### 待定
+### 另定的两条
 
 - 会话日志放在 `home/` 外，Agent 不能直接读写；读别的会话的对话记录在 t14 另给渲染的记录或专门的工具。
-- Skill 的来源：要不要读 `~/.agents/skills`、项目里的 `.agents/skills`，还是全由 NeuroBook 自己管。
+- Skill 格式遵守 Agent Skills 开放标准（`SKILL.md`），目录由 NeuroBook 自己管：来源只有内置、插件、`user://skills/`；默认不读 `~/.agents/skills`、项目里的 `.agents/skills`（写作用户的 Skill 目录不该混进写代码用的 Skill，同一 Profile 在不同机器上表现也会不同）。外部 Skill 可以复制或“导入”进 `user://skills/`；设置里另有“额外的 Skill 目录”，默认为空。书专属的 Skill 先不做（t15 再看）。
 
 ## 当前状态
 
-设计稿第三版，等开发者确认。
+讨论完成（2026-10-28）。计划与实施切片在本 Work 的讨论全部完成后另定。
 
 ## 下一步
 
-开发者确认后写成决定。
+实施时按 implementation-planning 写 `plan.md`；同时改 `workspace/resources.md`（去掉 `local://`、新增方案、`user://` 写入规则）与 `ui/prompt-editor.md`（附件地址）。

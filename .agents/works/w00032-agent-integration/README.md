@@ -25,6 +25,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-10-28 | t05 定稿：Profile 只提要求（工具、模型能力、压缩种子与摘要要求），实际配置放 Profile 设置；不碰审批；内置、插件、用户级三层；重载用打包加哈希；钩子拆到 t20（[t05](tasks/t05-profile/README.md)） |
 | 2026-10-28 | t06 定稿：审批照搬分支、默认放行写入；只读模式弹审批且优先于审批模式；内置 `ask`；分支 t20 三条追认；不做“改了再批”（[t06](tasks/t06-approval/README.md)） |
 | 2026-10-28 | t07 定稿：插话与排队照搬分支；中止补强制接管；排队进日志；等审批时打字即拒绝并附言；运行中不能改树；中断后不自动续跑（[t07](tasks/t07-run-control/README.md)） |
+| 2026-10-28 | t08 定稿：复数方案是目录（根虚拟、条目真实），单数是当前这一个；`session://`、`profile://`（只在状态根）、`tmp://`、`docs://`、`skills://`；去掉 `local://`、`artifact://`；Skill 由 NeuroBook 自己管（[t08](tasks/t08-resources-home/README.md)） |
 
 ## 调研
 
