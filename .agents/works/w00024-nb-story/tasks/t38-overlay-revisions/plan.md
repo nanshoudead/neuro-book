@@ -1,8 +1,8 @@
-# t37 图的修订：实施计划
+# t38 图的修订：实施计划
 
 ## Context
 
-抽取出来的图有核对管不到的错（t35 小抽取：马甲与人物的种类建错、称呼挂错对象），候选身份也没有地方确认。本计划实现 [`story.revisions`](../../../../docs/specs/story/revisions.md)（planned）与 [`story.viewer`](../../../../docs/specs/story/viewer.md) 输出 58 到 62、[`story.cli`](../../../../docs/specs/story/cli-skill.md) 的 `nbstory revisions`。界面已由评审板两轮定稿（[决定](README.md#决定2026-10-28开发者答复-20261028t123143979z-930ded64)）：确认两处都有、范围到“身份连接、改种类、挪称呼”、事后扫描另起 Task、六条规则确认。静态稿在草稿 worktree `.worktree/w00024-t37-t37-drafts`，不合并，作前端实现的外观参照。
+抽取出来的图有核对管不到的错（t35 小抽取：马甲与人物的种类建错、称呼挂错对象），候选身份也没有地方确认。本计划实现 [`story.revisions`](../../../../docs/specs/story/revisions.md)（planned）与 [`story.viewer`](../../../../docs/specs/story/viewer.md) 输出 58 到 62、[`story.cli`](../../../../docs/specs/story/cli-skill.md) 的 `nbstory revisions`。界面已由评审板两轮定稿（[决定](../t37-overlay-revisions-design/README.md)）：确认两处都有、范围到“身份连接、改种类、挪称呼”、事后扫描另起 Task、六条规则确认。静态稿在草稿 worktree `.worktree/w00024-t37-t37-drafts`，不合并，作前端实现的外观参照。
 
 约束：不改抽取数据；没有修订的书所有查询结果逐字不变；`src/core/` 只用 Node 兼容 API（没有 `bun:ffi` 的文件锁）；网页只引 `src/contract/`。
 

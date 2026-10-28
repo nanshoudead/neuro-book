@@ -11,12 +11,12 @@ updated: 2026-10-28
 
 实现 story.revisions（planned）与查看器输出 58 到 62、命令行 nbstory revisions；依据 t37 的评审与决定
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+合同：[`story.revisions`](../../../../docs/specs/story/revisions.md)（planned）、[`story.viewer`](../../../../docs/specs/story/viewer.md) 输出 58 到 62、[`story.cli`](../../../../docs/specs/story/cli-skill.md) 的 `nbstory revisions`。来源：[t37](../t37-overlay-revisions-design/README.md)（界面设计与决定）。计划见 [plan.md](plan.md)。
 
 ## 当前状态
 
-2026-10-28 经 nbdev 新建，尚未开工。
+2026-10-28 经 nbdev 新建（autonomous-delivery）。计划已写，交 omp 做设计审查。
 
 ## 下一步
 
-待补充。
+按计划的切片 1 到 5 实施；前端部分用 Claude Sonnet 审查。
