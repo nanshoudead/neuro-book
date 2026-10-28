@@ -37,7 +37,7 @@ owners:
 
 | 方法 | 种类 | 主要参数 | 结果里必须有的字段 |
 |---|---|---|---|
-| `revisions.list` | 读 | 可选 `state`、`source`、`entity`（只要涉及这个对象的项，人物卡用）；长列表 | 每项：`id`、`op`、`state`、`source`、`by`、`summary`（一句话）、`entities`（涉及的对象编号）、`evidence`、`refs`（出处）、`decidedAt`、`undoable`；`counts`（各状态条数，全书的，不受筛选影响） |
+| `revisions.list` | 读 | 可选 `state`、`source`、`entity`（只要涉及这个对象的项，人物卡用）；长列表 | 每项：`id`、`op`、`state`、`source`、`by`、`summary`（一句话）、`entities`（涉及的对象编号）、`evidence`、`quote`（依据那一段原文，截到 120 字）、`refs`（出处）、`decidedAt`、`undoable`；`counts`（各状态条数，全书的，不受筛选影响） |
 | `revisions.confirm` | 写 | `statement`（候选身份说法的 id） | `revision`（修订项）、`version` |
 | `revisions.reject` | 写 | `statement`、可选 `reason` | 同上 |
 | `revisions.link` | 写 | `a`、`b`（对象 id 或名字）、`evidence`、`certainty`（`candidate` 或 `certain`） | 同上 |
