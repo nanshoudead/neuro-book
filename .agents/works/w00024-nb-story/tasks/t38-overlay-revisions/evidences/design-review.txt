@@ -1,0 +1,135 @@
+# t38 图的修订设计审查
+
+审查对象：.agents/works/w00024-nb-story/tasks/t38-overlay-revisions/plan.md 与相关 planned Spec。
+
+### 1. 读查询没有把覆盖层与固定的一代绑定
+- 严重程度：阻断
+- 类别：不变量
+- 位置：`.agents/works/w00024-nb-story/tasks/t38-overlay-revisions/plan.md:30,35`；`packages/nb-story/src/core/library.ts:197-226`
+- 现象：计划只让 `openBookIndex` 先 `pinBook` 图文件，再按 `bookDir` 读取 `revisions-<n>.json`；`OverlayFile` 也没有 `generation` 字段。`Library.pinBook` 固定的是打开的数据文件，不固定覆盖层路径。
+- 为什么是问题：删除旧书目录并用同一 id 导入新书时，旧查询仍可能持有旧图文件，但覆盖层读取已经落到新目录：新书没有覆盖层时旧修订消失，或新书恰好有同版本覆盖层时把新书修订套到旧图上。两种结果都违反查询“固定一代、查询期间不受删除/换代影响”的既有合同；同一查询也不再是图与覆盖层的同一快照。
+- 如何核实：起一个查询前固定旧书数据文件；在读取覆盖层前把 `<root>/<id>` 改名、用同 id 发布新书并写一份覆盖层；观察该查询是否读到新目录的覆盖层。静态核对点是 `pinBook` 只返回已打开的数据句柄，而计划的 `readOverlay(bookDir)` 没有代号参数。
+- 建议改法：把覆盖层作为固定一代的一部分读取。至少把覆盖层文件句柄/内容在同一个 `pinBook` 窗口内固定，并在覆盖层文件中记录并核对 `generation`；更稳妥的是让 `PinnedBook` 暴露按固定目录句柄读取附加文件的接口，禁止调用方重新拼路径。
+
+### 2. 覆盖层写入在删除/换代窗口会污染新书
+- 严重程度：阻断
+- 类别：不变量
+- 位置：`.agents/works/w00024-nb-story/tasks/t38-overlay-revisions/plan.md:30-31,35`；`packages/nb-story/src/core/library.ts:149-159,383-423`
+- 现象：计划的写入流程是“读 `book.json` 校验 generation，再在 `bookDir` 下 `wx` 写文件”；没有 id 锁、目录句柄或写后再次核对。`Library.writableBook` 明确说明通过检查后书目录仍可能被改名移走，调用方必须承受该窗口。
+- 为什么是问题：进程 A 通过旧 generation 检查后，进程 B 删除旧书并用同 id 发布新书；A 随后按旧绝对路径创建 `revisions-*.json`，文件会进入新一代目录。由于覆盖层格式没有 generation，之后的新书会继承旧书的修订，违反 Spec“同 id 换一代不继承旧修订”，也违反删除后旧任务不得写回。
+- 如何核实：在写入检查与 `wx` 之间插入屏障；另一个进程执行 `book.remove` 后立即重新导入同 id；检查新书目录是否出现旧写入的 `revisions-*`。现有 `Library.removeBook` 的目录改名/重建语义已提供该竞态窗口。
+- 建议改法：为覆盖层写入纳入与删除/导入相同的 id 协调机制；如果 core 不能直接拿 flock，就把协调权提升到 `Library` 的公开原子写接口。无论是否加锁，文件都必须携带 generation，并在发布后重新核对 generation；核对失败要删除临时产物且不得触碰新一代目录。
+
+### 3. `wx` 创建不是原子发布，崩溃留下的最高版本会永久挡住读写
+- 严重程度：重要
+- 类别：正确性
+- 位置：`.agents/works/w00024-nb-story/tasks/t38-overlay-revisions/plan.md:13,30`；`packages/nb-story/src/core/library.ts:16-23,342-349`
+- 现象：计划把 `revisions-<n+1>.json` 以 `wx` 直接写入，然后让读者取最大版本；读到“被回收”的文件只重来，但没有定义半写文件的恢复或回退规则。现有书库的约定是先写完整临时文件，再 `rename` 替换 `book.json`。
+- 为什么是问题：`wx` 会先让文件名可见，再写 JSON。进程在写入中途退出时，半文件仍是最大版本；之后 `readOverlay` 每次都会优先读它，既不能回退到旧的完整版本，也会让下一次写入无法可靠地基于最新状态重试。即使把正常写入做成单次 `writeFile`，崩溃和磁盘错误仍能留下这个状态。
+- 如何核实：在临时文件写入大 JSON 的过程中强杀进程，随后列目录并连续调用读/写；静态判据是发布路径没有 `rename`，而读取优先级是版本号最大。
+- 建议改法：沿用 `Library` 的约定：写入唯一临时文件，完整写完后用 `rename(temp, revisions-<n+1>.json)` 发布，再清理旧版本。`wx` 只可用于抢版本号，不可用于把正在写的正式文件暴露给读者；读到损坏最高版本时应保留旧版本并清理/隔离损坏文件，不能无限重试。
+
+### 4. 驳回候选没有覆盖全部说法引用
+- 严重程度：重要
+- 类别：正确性
+- 位置：`.agents/works/w00024-nb-story/tasks/t38-overlay-revisions/plan.md:22-24,90-92`；`packages/nb-story/src/core/dataset.ts:92-122,141-154,175-191`；`packages/nb-story/src/core/tiers.ts:262-270`
+- 现象：计划列出的 `identity.reject` 清理对象只有 `premises`、`rel.to`、秘密的 `statements`，风险项也只笼统写“全部记录类型”。数据合同还存在 `knowledge.about` 与 `question.updates.answer` 对说法 id 的引用，等级计算明确读取这两种引用。
+- 为什么是问题：只删这三类会留下悬空的知情与悬念答案。当前投影会在部分路径把 `knowledge` 隐掉、把 `answer` 去掉，但这是查询层的补丁，不等于覆盖层后的数据满足引用不变量；例如历史/等级/出处统计若走未同步的索引，仍会把被驳回说法当作后文引用。计划又要求驳回项“在所有查询里不存在”，不能依赖每个查询恰好过滤悬空引用。
+- 如何核实：构造一条候选说法，同时让一条 `knowledge.about` 和一条 `question.updates.answer` 指向它，执行 reject 后检查 `applyOverlay` 结果及 `tiersAt`、`source.records`、`tier.explain` 的结果；重点确认这些引用是否被统一删除或被统一投影掉。
+- 建议改法：在 `applyOverlay` 中集中维护“说法被移除后的引用清理表”，至少覆盖 `premises`、`rel.to`、`secret.statements`、`knowledge.about`、`question.updates.answer`，并明确 `statement.secret` 与派生索引如何重建；用数据集级引用完整性检查而不是只测某几个查询。
+
+### 5. `origin` 的计划接缝会被严格草稿 schema 拒绝
+- 严重程度：重要
+- 类别：正确性
+- 位置：`.agents/works/w00024-nb-story/tasks/t38-overlay-revisions/plan.md:40-43`；`packages/nb-story/src/ingest/persona-check.ts:148-163`；`packages/nb-story/src/ingest/draft-schema.ts:116-141`
+- 现象：计划要求 `persona-check.ts` 的 `toStatement` 给返回的说法加 `origin: "persona-check"`。该函数返回的是要并入 `RawDraft` 的草稿记录；`StatementDraftSchema` 是 `additionalProperties: false`，不接受 `origin`。
+- 为什么是问题：按计划字面实现，马甲核对结果会在 `checkDraft`/草稿解析阶段因未知字段被丢弃或判为不合格，无法进入最终 `Dataset`；若绕过检查直接保留，又破坏现有草稿合同。最终“来源标记”输出 20 不会成立。
+- 如何核实：在现有 `toStatement` 返回值上追加 `origin`，经 `checkDraft` 或 `parseDraft` 走一遍；严格 schema 会在 `statements[*]` 报多余属性。现有 `toStatement` 的测试也只断言草稿形状，不覆盖来源字段。
+- 建议改法：二选一并写清数据边界：在草稿 schema、normalize、compile 全链路正式允许并传递 `origin`；或保持草稿合同不变，在 persona 候选编译成最终 `Statement` 后由专用路径补写 `origin`。后一种更不影响既有模型请求与草稿回放，但必须给最终数据的持久化测试。
+### 6. `stale` 没有可执行的“重新确认”操作，且当前抽取合同没有真实重抽入口
+- 严重程度：阻断
+- 类别：正确性
+- 位置：`docs/specs/story/revisions.md:38-46,63-67,83-92`；`.agents/works/w00024-nb-story/tasks/t38-overlay-revisions/plan.md:27-31,87`
+- 现象：Spec/静态稿要求锚对不上时显示“待重新确认”，前端计划也写了“重新确认”；公开方法只有 `list/confirm/reject/link/kind/moveName/undo`，没有重新绑定锚、替换对象或把 stale 项重新确认的参数。当前 ingest 合同对已保存章改动会报 `ingest_text_changed`，删除再导入又是新 generation 并应丢弃旧修订。
+- 为什么是问题：一旦对象编号变化，旧候选/改种类/挪称呼变成 `stale` 后，用户没有能把它重新指向新对象的 API；`undo` 只允许 adopted/rejected，`confirm` 只接当前 statement id，无法处理 id 已变的锚。与此同时，验收要求的“重抽同一本书后 stale/自动恢复”不是现有公开流程能产生的状态，第一版的核心恢复规则变成不可达或只能改文件实验。
+- 如何核实：按方法表逐个尝试：用新 id 的对象和说法调用 `confirm`/`kind`/`moveName`，都只能创建/操作当前目标，不能引用旧 revision 的 stale 锚；再按 ingest 输出 1、2 走同书改稿或删除重导入，观察前者拒绝、后者清空书目录。
+- 建议改法：先决定支持的重抽生命周期。若本 Task 必须实现 Spec，就增加带新目标/新锚的显式 `revisions.rebind`（或为各操作定义 stale 重确认参数），并把它纳入合同、HTTP、CLI、UI 与历史；若重抽留给后续 Task，应从本 Spec/验收中移除 stale 恢复承诺，而不是保留一个用户无法完成的按钮。
+
+### 7. `name.move` 没有定义称呼记录的时间与冲突规则，现有查询会把两套索引读出不一致
+- 严重程度：重要
+- 类别：正确性
+- 位置：`.agents/works/w00024-nb-story/tasks/t38-overlay-revisions/plan.md:26`；`docs/specs/story/revisions.md:58-62`；`packages/nb-story/src/core/projection.ts:72-80,228-231`；`packages/nb-story/src/core/api.ts:121-131`；`packages/nb-story/src/core/queries/source.ts:72-81`
+- 现象：计划同时要求删除 `from` 在依据位置之后的 `names` 记录、把称呼移给 `to`（括号写“`at` 取依据位置”），并把依据位置之后的 `mentions` 改指 `to`；但没有规定移入记录保留原首次出现位置还是重写为 evidence、`primary/note` 如何保留、`to` 已有同文字称呼时如何去重。
+- 为什么是问题：`BookView` 的人物卡、`resolveEntity` 和搜索读 `Entity.names`，原文页按段读 `mentionsByParagraph`。保留原名位置时，会出现从 evidence 起原文 mention 已指向 `to`，但 `to.names` 在首次原记录前仍没有该称呼，导致人物卡/按称呼解析/原文链接不一致；重写为 evidence 时又会让称呼在首次原文出现前进入 names，且重复或 primary 冲突会改变显示名和代表点。两条规则都不能靠现有代码自行推断。
+- 如何核实：构造 `from.names` 在 5.10、`mentions` 在 5.12，`evidence=5.5`，`to` 已在 5.1 出现但已有同文字的非 primary 名；分别按两种实现预期调用 `entity.card`、`entities.list`、`source.read`、`resolveEntity`，结果会在 names、mention link、primary label 之间分叉。
+- 建议改法：在 Spec 明确一个时间区间模型：移入 `to` 的新 name 从 evidence 生效还是保留原首次出现位置；同文字如何合并、哪条保留 `primary/note`；并用同一纯函数同时生成 names、mentions、displayName 与 source links，避免各查询分别猜规则。
+
+### 8. 循环并发写的清理范围没有限定，较早写入者可能删掉较新的版本
+- 严重程度：重要
+- 类别：不变量
+- 位置：`.agents/works/w00024-nb-story/tasks/t38-overlay-revisions/plan.md:13,30,97`；`docs/specs/story/revisions.md:86-97`
+- 现象：方案规定成功后删除旧版本，但没有说“旧”按本次成功版本之前的数字严格限定，还是删除目录中除自身外的所有 `revisions-*`。
+- 为什么是问题：A 读 n 写出 n+1 后尚未清理；B 读到 n+1，写出 n+2 并清理 n、n+1；A 随后执行自己的清理。如果 A 以“除 n+1 外都删”的常见实现清理，会把 B 的 n+2 一并删除，造成已成功返回的修订丢失。`wx` 只解决同一版本号的创建冲突，不解决发布后的回收竞态。
+- 如何核实：给两个写进程在“发布成功”和“清理旧文件”之间加屏障，交错执行 A(n+1)、B(n+2)、A cleanup，检查 n+2 是否仍在、下一次读取的最大版本是否包含 B 的变更。
+- 建议改法：清理集合必须是严格小于本次已发布版本的文件；更稳妥地按当前读取到的 generation 与版本再次列目录，只删确认早于安全水位的文件，任何 `ENOENT` 只视为已被另一进程回收，不得删除大于自身版本的文件。
+
+### 9. 待确认列表的输入状态没有规定是原始图还是套用后的图
+- 严重程度：重要
+- 类别：正确性
+- 位置：`.agents/works/w00024-nb-story/tasks/t38-overlay-revisions/plan.md:22,29,35-38`；`docs/specs/story/revisions.md:53-66`
+- 现象：计划把 `applyOverlay` 接在 `openBookIndex` 中 `settle` 之前，并让 `items.listItems(dataset, file, at)` 现算 pending/closed/已处理；但没有规定 list 使用 apply 前的原始候选，还是已经把 confirm 改成 certain、reject 删除后的数据集。
+- 为什么是问题：如果使用套用后的 dataset，确认候选已经不再是 candidate，驳回候选已经不存在，列表无法从数据本身重建原文、状态与 refs；只能靠 file 里的 params 反向补齐，且后文 closed 与 adopted 的优先级未定义。如果使用原始 dataset，又必须明确哪些用户修订只影响展示、哪些影响候选的闭合判定。否则同一 revision 在“查询图”和“待确认历史”会出现不同对象与摘要。
+- 如何核实：用一条候选同时执行 confirm，再调用 list；对比 list 是否能返回 adopted 的原说法、refs 和 decidedAt；再用同一对象对的后文确定说法验证另一候选是否 closed，而不是被 overlay 的 adopted 状态覆盖。
+- 建议改法：把原始 dataset、overlay record 与应用后的 projection 明确分层。list 从原始候选和 revision history 计算状态，再用 P 过滤 refs/summary；图查询只消费 applied dataset。把状态优先级（stale、adopted/rejected、closed、pending）写入状态机并测试。
+
+### 10. 前端计划引用了不存在的导航文件，且没有现有查询可直接提供“对象在已读章出现的段落”
+- 严重程度：重要
+- 类别：代码质量
+- 位置：`.agents/works/w00024-nb-story/tasks/t38-overlay-revisions/plan.md:49-55`；`packages/nb-story/src/web/shell/BookFrame.vue:31-67,314-329`；`packages/nb-story/src/web/shell/BookShell.vue:1-59`；`packages/nb-story/src/web/host/query.ts:26-70`
+- 现象：计划写“`BookShell.vue` 的 `NAV`”，实际 `NAV` 与页面异步映射、手机“更多”都在 `BookFrame.vue`；`BookShell.vue` 只有会话打开逻辑。计划还要求对话框默认列出“对象在已读章里出现的段落”，但现有合同只有 `source.read` 返回整段范围及其中可见 names，没有按 entity 直接列段的方法。
+- 为什么是问题：按计划字面改动会漏掉桌面导航、手机完整导航或页面映射；即使补对文件，段落选择也只能把第 1 章到 P 的全部原文拉回前端再过滤，长书会传输和渲染无界数据，无法证明“默认列表”在手机对话框中可用。`SearchBox` 只解决对象搜索，不解决依据段查询。
+- 如何核实：在当前树中搜索 `const NAV` 只有 `BookFrame.vue` 命中；再看 `source.read` 合同/实现，确认没有 entity 过滤参数。用 100 章书打开一个对象的改种类对话框，若按现有 API 实现只能请求全量已读原文或发出每章请求。
+- 建议改法：把实际受影响的 `BookFrame.vue`、`host/book.ts`、路由页映射列入计划；为依据段增加核心/合同查询（例如 `source.mentions`，按 entity、at 返回分页段），或明确只列最近固定窗口并给出性能上限。对话框必须处理空段、重名与对象合并后的 entity id。
+### 11. 验收映射没有覆盖崩溃、换代竞态和 stale 可恢复性
+- 严重程度：重要
+- 类别：测试
+- 位置：`.agents/works/w00024-nb-story/tasks/t38-overlay-revisions/plan.md:71-83,87`；`docs/specs/story/revisions.md:88-92,120-132`
+- 现象：计划把并发持久化主要映射到 `overlay/store.test.ts`，把重抽锚对应映射到构造数据；验证段明确写“重抽后锚对应只用构造数据验证，没有在真实重抽的书上验证”。没有列出 `wx` 半文件、发布后清理交错、删除/同 id 换代写入、旧查询与新目录交错等失败场景。
+- 为什么是问题：这些正是本设计新增的持久化与跨进程不变量；普通的“两进程不同说法都成功”不能证明崩溃恢复或目录换代隔离。按测试规范，失败路径、并发、资源释放必须有真实边界测试；当前验收映射会让实现即使污染新书或永久卡在损坏最高版本也可能全绿。
+- 如何核实：逐项对照 Spec 验收 7、8 与计划测试名；再对照 `Library` 的真实目录改名语义，确认计划没有一个测试在写入检查后删除并重导入，也没有一个测试强杀覆盖层写入者或验证半文件回退。
+- 建议改法：把每个竞态写成 L4 真实子进程场景：发布前强杀、发布后清理前强杀、A/B 版本交错、写入检查后删除换代；用同 id 新书断言无旧修订。重抽若本 Task 不支持，应从验收删掉或先补真实重抽入口；若支持，必须从公开入口产生 stale、rebind、恢复三种状态并测试。
+
+### 12. `book.info.revisions` 的每次现算没有成本边界，也会与列表重复扫描
+- 严重程度：建议
+- 类别：安全与性能
+- 位置：`.agents/works/w00024-nb-story/tasks/t38-overlay-revisions/plan.md:29,37`；`docs/specs/story/revisions.md:48,63-65`
+- 现象：计划要求 `book.info.revisions` 每次按阅读位置现算，而 `revisions.list` 也现算同一批 pending/stale/closed；没有缓存键、上限、增量算法或计时验收。
+- 为什么是问题：有 N 条候选、M 条历史和 K 个引用时，打开书/刷新书信息至少重复扫描 O(N+M+K)，列表页再扫描一次；`book.info` 是外壳与导航的基础请求，修订数量增大后会把所有页面打开成本绑定到全书修订历史，而现有查看器对长列表已有 1 秒首屏合同。
+- 如何核实：用同一 `BookIndex` 构造 N=10、100、1000 条 revision，连续请求 `book.info` 与 `revisions.list`，记录扫描次数和首屏时间；检查是否按 `(generation, graphRevision, overlayVersion, at)` 复用纯计数结果。
+- 建议改法：在 `BookIndex`/overlay 版本上缓存与 `at` 相关的计数，列表只在需要时生成明细；或让 `book.info` 只读轻量计数索引并给 history 数量上限。把 100 章样例和大历史的时间预算写进验收，而不是只写功能字段。
+## 未发现问题的方面
+
+- **`applyOverlay` 接在 `settle` 之前本身不是问题。** 从现有 `buildBookIndex` 看，`settle` 负责把记录的成立位置改成自身 `at` 与出处终点的最大值；先改写覆盖层再统一落定，能让新增手动说法、删除说法和改名后的数据进入同一套位置排序。真正的缺口是第 1、2、3、4、9 条所述的快照、持久化与列表分层，不是这一个调用顺序。
+- **身份合并的派生缓存有可用的失效边界。** `BookView` 的 memo 与 `tiersAt` 的缓存都挂在 `BookIndex` 对象上；计划把 `overlayVersion` 纳入索引缓存键、游标代号后，现有 `identityLinks`、`unmerged`、秘密矩阵与等级表不会继续复用旧 `BookIndex`。这要求实现确实按版本建新索引，不能原地修改旧索引。
+- **对象种类的现有读取路径没有发现绕过投影的查询缺口。** `identity.ts`、`queries/entities.ts`、`queries/graph.ts`、`queries/episodes.ts`、`queries/books.ts` 中的 `.kind` 读取对象均来自 `BookView.entity`/`VisibleEntity`，不是直接遍历 `index.dataset.entities` 的原始 `Entity`。因此只要 `projection.ts` 返回按 P 生效的 `VisibleEntity.kind`，这里没有另一个必须单独补丁的 raw-kind 路径。
+- **`mentionsByParagraph` 的接线方向是对的。** 索引在建 `mentionsByParagraph`，原文页从该索引取段落称呼；若 overlay 在建索引前改写 mentions，原文链接与段落中的 entity 可以一起更新。第 7 条指出的是 names 与 mentions 的变换合同不完整，不是索引名称本身不可用。
+- **游标失效的既有前端收口存在。** `packages/nb-story/src/web/host/query.ts:129-135` 对 `cursor_invalid` 调 `book.refresh()`，版本变化后会从第一页重取；因此“修订写入使旧游标失效”与 Spec 的时序约定一致，没有发现额外的翻页死锁。
+- **独立服务的 HTTP 形状可以承载新增方法。** `packages/nb-story/src/server/http.ts:122-145` 按错误码查 `HTTP_STATUS`，客户端按响应体的 `code` 处理；只要新增 R1 到 R6 同时登记进错误表、方法合同和命令行解码器，不需要为 revisions 另造 HTTP 路由协议。当前计划仍需落实这些登记，见合同维度的检查结论。
+- **刷新关系图、全书图和阅读页没有发现机制性遗漏。** 所有现有页面查询经 `useStoryQuery/usePagedQuery` 观察 `book.dataVersion`；修订成功后若按计划递增该版本，换页、图、人物卡、原文、搜索和统计都会重新取数。计划没有写清版本递增的位置，但静态机制本身存在。
+
+## 对计划“不做与风险”的判断
+
+- **不做合并对象：接受。** 与开发者已确认的范围一致；不能把合并对象偷偷用 `identity.link` 代替，当前计划没有这样做。
+- **不做改说法类别：接受。** 与已确认范围一致；`kind.set` 是对象种类，不是 `Statement.kind`，两者不能混用。
+- **不做事后扫描：接受。** 与已确认决定一致；`scan` 来源和 `pending` 预留不应在本 Task 产生实际扫描任务。
+- **不做自动采纳：接受。** 与已确认决定一致；保留 `by: "auto"` 的数据位不等于第一版启用自动生效。
+- **不做“待确认就暂停抽取”：接受。** 与已确认决定一致；抽取任务不能因用户未处理候选而阻塞。
+- **`kindFrom` 让所有按种类查询按位置生效：风险真实但可控。** 代码盘点未发现现有查询直接读取原始 `Entity.kind`；风险落在 `projection.ts` 是否实现多次 kindFrom 的按 P 选择、`identity.ts` 代表对象是否消费 projected kind，以及页面是否在写入后递增数据版本。应保留为验收场景，不应把它当作“projection 一处改了就天然完成”。
+- **`identity.reject` 引用清理：风险成立且范围比计划写的更大。** 见第 4 条；至少补 `knowledge.about` 与 `question.updates.answer`，并做数据集级引用测试。
+- **游标绑定 overlayVersion：取舍成立。** 修订改变排序、筛选和总数，旧游标继续使用会混入旧结果；绑定版本并从第一页重取符合既有时序，现有前端已有收口。代价是写入期间正在翻页的列表会重载一次，这是合同允许的行为。
+
+## 统计
+
+有效发现共 12 条：阻断 3 条（1、2、6），重要 8 条（3、4、5、7、8、9、10、11），建议 1 条（12）。
+
+本审查只读静态代码、计划与 Spec；未运行 `bun test`、e2e 或开发服务。
