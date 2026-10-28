@@ -71,3 +71,9 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 - [w00028 t03](../w00028-i18n/tasks/t03-shared-packages-migration/README.md)：共享包的文字迁移，合入后再写 Agent 插件的界面。
 - [w00031 t03](../w00031-language-policy/tasks/t03-failure-projection/README.md)：错误码与参数，工具错误的形状按它来。
 - [w00024](../w00024-nb-story/README.md)：nb-story 问答是 nb-harness 现在唯一的使用方。
+
+## 后续（本 Work 不做）
+
+- 网页工具插件（`web_fetch`、`web_search`）与网页搜索：另开 Work（t12，2026-10-28）。
+- 外部命令行的检测、下载与“外部工具”设置页：发布时做，策略记在 [t12](tasks/t12-builtin-tools/README.md)（2026-10-28）。
+- shell 的安全加固（密钥正则、路径条件、环境变量白名单）：以后专门做安全时考虑（t12，2026-10-28）。

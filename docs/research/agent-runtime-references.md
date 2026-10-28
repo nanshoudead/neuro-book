@@ -151,6 +151,11 @@
 - `run_in_background: true` 后台运行，不用 `&`；命令结束时宿主重新唤起 Agent（通知），要求不要轮询输出文件；前台 `sleep` 被拦。
 - Monitor 工具把一个长期运行脚本的每一行 stdout 当作事件推给 Agent（缺省 5 分钟、最多 30 分钟后到期，可重挂）；TaskStop 结束后台任务。
 
+### 8.4 omp 的 eval 与 Agent Hub（源码核实）
+
+- **eval**（`src/tools/eval.ts`、`src/eval/`、`src/prompts/tools/eval*.md`）：一个常驻的内核，后端是 Python 子进程（不是 IPython）或 Bun 的 JS；每次调用执行一个单元，顶层状态跨调用保留，压缩之后也保留，内核丢了会提示重新加载。单元里可用的内置函数：`read`、`write`、`env`、`output`（读后台任务的输出）、`tool.<名>(args)`（在代码里调用会话里的任意工具）、`wait`；`judge`、`judge_batch`、`completion`（在代码里调模型做分类、批量判断与补全）；`agent`、`workpool`（在代码里派后台子代理、按 DAG 分波次，结果自动送达）；`budget`（额度）；`@tool`（在内核里定义新工具给子代理用）；`%pip`、`%bun add` 装依赖，`%load` 载入脚本。单元也会自动转后台。即 CodeAct：模型写代码来编排工具、模型调用与子代理，而不是一次调一个工具。
+- **Agent Hub**：斜杠命令 `/hub` 打开的终端界面浮层，分 agents 与 activity 两块，列出在跑与已落盘的子代理、活动流，可以切到某个子代理的会话（`modes/controllers/selector-controller.ts`）。是给人看的界面，不是模型的工具。
+
 ### 8.3 NeuroBook 的部署形态（ADR 0033，核实）
 
 - 已有：npm 包 `@notnotype/neuro-book`，运行时用用户自己的 Bun（`bun add -g`），依赖全部打进 bundle。
