@@ -1,0 +1,120 @@
+# w00028 t03 第 9 片：nb-agent-ui 接入消息目录 —— 交付报告
+
+工作区：/home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n（分支 feat/w00028-i18n，HEAD 5343894f2），未提交、未切分支、未 stash。
+说明里写的 9abce2e58 是 master 上的记录提交（docs: t03 取文字样板收敛记录），不是本分支的祖先；按 HEAD 5343894f2 做。
+messages.ts 的删除在工作区里（未暂存，git status 显示 D）。
+
+## 进度
+- [x] 核心：目录、引用构造、类型
+- [x] Vue 层：端口与缺省
+- [x] 应用侧与 Lab
+- [x] nb-story
+- [x] 文档与 Spec
+- [x] 验证（结果在文末）
+
+## 改动
+
+nb-agent-ui（packages/nb-agent-ui）
+- 新增 src/locales/{zh-CN,en-US,index}.ts：写法同 nb-ui，嵌套对象加 `satisfies Catalog`；index 导出
+  NB_AGENT_UI_NAMESPACE = "nb-agent-ui"、NB_AGENT_UI_SOURCE_LOCALE = "zh-CN"、NB_AGENT_UI_CATALOGS。
+  内容由 HEAD 的 src/messages.ts 机械生成（{name} 改为 {{name}}，带数量的改为 _one/_other），没有改措辞。
+- package.json：exports 加 "./locales"。版本未改。
+- 新增 src/text.ts（核心，纯 TS）：AgentTextKey（从 zh-CN 目录推出，复数形归到不带后缀的键）、agentRef(key, params)
+  （= textRef(key, params, "nb-agent-ui")）、formatText（从 messages.ts 搬来，行为不变）。
+- 删除 src/messages.ts（textOf、agentText、两张表）。
+- types.ts：ViewText 删除；ErrorMessageView.message 与 SystemMessageView.label 改为 Text（nb-ui/text）。
+- registry.ts、process-summary.ts、builtin-tools.ts、conversation-turns.ts、composer-actions.ts、harness.ts、
+  vue/builtin-{roles,message-actions,composer}.ts：{key, params} 字面量改为 agentRef(...)，ViewText 改为 Text。
+  process-summary 里“读了 N 个、改了 M 个”原来按 read 选复数形（by: "read"），现在传 count: read，有注释。
+- harness.ts：createHarnessTranscript() 不再收 {locale}（HarnessTranscriptOptions 删除），运行错误与压缩条目产出 agentRef。
+- index.ts：去掉 ViewText、HarnessTranscriptOptions、textOf；加导出 agentRef、formatText（改从 ./text）、
+  type Text/TextRef/LocaleMap（转导出 nb-ui/text）、AgentTextKey（改从 ./text）。
+- 新增 src/vue/text.ts：provideAgentText(locale)（根组件用）、useAgentText()（零件用）、AgentTextApi {locale, t(key), text(value)}。
+  端口先后：宿主注入的端口 > 根组件按 locale（缺省 zh-CN）建的包内缺省端口并 provide > 单独挂载无注入时的包内缺省端口（zh-CN）。
+  包内缺省端口 = nb-ui 的 createMinimalTranslator，目录是 nb-ui 与本包两份。
+- vue/host.ts：只管渲染组件；provideAgentView({locale?, renderers?}) 交出渲染组件并调用 provideAgentText；转导出 useAgentText。
+- 三个根组件 AgentConversationView、AgentSessionList、AgentModelCatalog：locale 改为可选（缺省 undefined → zh-CN），
+  只在没有注入端口时起作用；会话列表的时间格式按端口的语言。
+- AgentChainBlock、AgentRawView、AgentTurnBlock：显示 Text（label、message）时经 text() 翻译。
+- 文档：AgentConversationView.md、AgentSessionList.md（标签 [] → [state:inject]，补“隐藏通道理由”）、
+  catalog/AgentModelCatalog.md（标签加 state:inject）、parts/AgentMarkdown.md、vue/README.md、vue/lab.ts 注释；
+  README（核心说明、`./locales`、第 5 条会话列表、新增“界面文字”与其下“没有宿主时”一节、harness 片段改 createHarnessTranscript()）；
+  AGENTS.md（“界面文字是包内的中英两张表，组件收 `locale`”这句改写）。
+- 测试：
+  - 新增 src/locales.test.ts（“文字没变”）：内嵌 HEAD 时 messages.ts 两张表原样（LEGACY）；目录键（复数归并）与表一一对应，
+    {{name}} 换回 {name} 后逐字相同；zh 带数量的写 _other、en 写 _one/_other；命名空间、源语言、agentRef；
+    最小实现下 en 复数随 count 变、zh 不受影响、全部参数代入。
+  - 新增 src/vue/text.dom.test.ts：单独挂载无注入是中文；无注入时根按 locale 建端口，子组件与嵌套 nb-ui 的 useText() 同一个，
+    locale 变了跟着变；注入端口时以端口为准、根的 locale 不起作用，端口换语言不重挂就变。
+  - AgentConversationView.dom.test.ts 加一条：注入英文端口、locale="zh-CN" 时是英文，端口换中文后不重挂就是中文。
+  - process-summary、conversation-turns、registry、harness、harness.contract、entry 的测试：期望改为 agentRef(...) 或经严格的最小实现翻译后比字符串；
+    没有放宽断言、没有跳过。entry.test.ts 经包名 `@notnotype/nb-agent-ui/locales` 取目录并加一条翻译“Context compacted”。
+
+应用（packages/neuro-book）
+- src/web/host/text-engine.ts：createHostTextEngine 登记 NB_AGENT_UI_NAMESPACE / NB_AGENT_UI_CATALOGS（源语言 zh-CN），注释改写。
+  boot.ts、window.ts、测试辅助 shared/testing/text-port.ts 都经它建引擎，所以三处都登记了；text-port.ts 只改了注释。
+- Lab（src/plugins/lab/web/fixtures/nb-agent-ui/）：
+  - 新增 agent-text.ts：agentSceneLocale、provideAgentSceneText（按场景语言建宿主引擎并注入，数据 tab 改 locale 时 setLocale）、
+    withAgentSceneText（给会话列表、模型目录这两个公开根组件套一层，locale 照传）。做法同 workbench-scene/workbench-text.ts。
+  - AgentConversationViewFixture.vue：按场景输入的 locale 注入端口（“英文界面”场景仍是英文）。
+  - host.ts：provideLabAgentHost 注入中文端口，provideAgentView 不再传 locale。
+  - index.ts：会话列表、模型目录两个 subject 经 withAgentSceneText 包一层；“不 inject”的注释改写。
+  - domain-tools.ts：两处 {key: "toolGroup.*", params} 改为 agentRef(...)（ViewText 去掉后原写法过不了类型检查）。
+- 应用里除 Lab 外没有用 nb-agent-ui 组件的地方，所以没有可删的 locale 属性。
+
+nb-story（packages/nb-story）
+- src/web/qa/tools.ts：type ViewText → type Text（同一入口 `@notnotype/nb-agent-ui`）。
+  nb-story 不注入翻译端口，QaPage、SettingsPage 传的 locale="zh-CN" 仍然生效，保留。
+
+Spec
+- docs/specs/ui/agent-conversation-view.md：locale 改为可选并写明只在无注入时起作用；宿主组件收到的 locale 是当前界面语言；
+  会话列表属性 locale?；“失败与恢复”加一条（注入了端口却没登记本包目录时显示键名、由宿主引擎报缺键）；
+  “边界与兼容”的界面文字一条改写（命名空间、目录、注入与否两种情况、核心产出文字引用）；新增验收第 35 条（端口优先与缺省），
+  Smoke 段的挂载测试范围改为“32 到 35 条”。没有引用 Task。
+
+## 键数
+- 189 个键（zh-CN 189 个叶子；en-US 201 个叶子 = 177 个普通 + 12 个复数各两形），其中 12 个带数量：
+  process.actions / requests / others、process.files.read / changed / readChanged、fileChanges.title、
+  toolGroup.generic / read / search / fetch / lookup。
+
+## 设计取舍
+1. 缺省端口怎么给（说明建议“端口取不到本包键时用自带最小翻译器兜底”）：没有这样做。端口取不到键时返回键名
+   （宿主严格模式下抛错），没有可靠的“取不到”判据；按提案第 6 节改为“看有没有注入”：有注入就用它，没有就由根组件按 locale
+   建包内缺省端口并 provide（嵌套的 nb-ui 控件也拿到同一个）。不直接用 nb-ui 的 useText()，因为它的缺省端口没有本包目录。
+2. locale 属性保留为可选而不是删除：nb-story 这类不注入端口的宿主靠它选语言；注入时忽略，Spec 与组件 .md 写明了。
+3. zh-CN 的 12 个带数量的键写成 `<键>_other`，不是裸键：nb-ui 最小实现带 count 时先在整条回退链上找 `<键>_other` 再找裸键，
+   中文只有裸键时会落到英文的 _other（探针实测中文界面显示“As 2”）。zh 目录头有注释。这是 nb-ui 最小实现的缺陷，本片没改 nb-ui，
+   见待决定第 1 条。i18next（应用的宿主引擎）对 zh 只用 other 形，两种写法都对。
+4. 登记位置：说明写 boot.ts，实际放在 createHostTextEngine（boot.ts 经它建引擎）。这样窗口缺省、测试辅助、Lab 的各个夹具引擎
+   都自动带上本包目录，不用各处补登记；它的注释原本就写着“登记 nb-ui 的目录”，相当于共享包目录登记表。
+5. Lab 场景按场景输入的 locale 建端口，而不是跟 Lab 窗口的语言：保留原有“英文界面”场景（e2e 用它查 More actions 等英文）。
+6. 类型 CatalogKey 在 src/text.ts 抄了一份应用 nbook/shared/plugin-text 的写法（本包不能引用应用）。
+
+## 没把握的与待决定
+1. nb-ui 最小实现的复数回退顺序（见取舍 3）：建议在 nb-ui 修成“每一级语言先找 `<键>_<形>` 再找裸键”，修好后本包 zh 目录可改回裸键。
+   要开 issue 或另立 Task，由主会话决定。
+2. 公开接口有删改（本片没有发版）：删 ViewText、textOf、HarnessTranscriptOptions 与 createHarnessTranscript 的 {locale} 参数；
+   ErrorMessageView.message、SystemMessageView.label 类型由 string 变为 Text（宿主读这两个字段当字符串的会编译不过）；
+   新增 agentRef、Text/TextRef/LocaleMap 转导出、./locales、NB_AGENT_UI_SOURCE_LOCALE。仓库内的消费者（应用 Lab、nb-story）已改。
+3. AssistantMessageView.error、MessageAnnotationView.text 仍是 string：本片只把“已经折进 MessageView 的包内文字”改成 Text，
+   这两处是宿主给的文字，没动；要不要也放宽成 Text 待定。
+4. scripts/ci/message-catalogs.ts 只扫 JSON 目录，不查共享包的 .ts 目录；本包目录的键与占位一致性由 src/locales.test.ts 核对。
+   是否把共享包的 .ts 目录纳入仓库检查，未做，待定。
+5. CatalogKey 重复两份（应用与本包）：可以考虑放进 nb-ui/text 共用，本片没动 nb-ui。
+6. docs/specs/ui/i18n.md 的“缺省端口”一条只写了 nb-ui 的缺省端口；共享包自己的缺省（本包按根组件 locale 建端口）写在
+   agent-conversation-view.md 与 README，没有改 i18n.md。要不要在 i18n.md 加一句共享包的通用写法，待定。
+7. 内部零件 .md 里“经 useAgentText() 取宿主交出的语言”这类句子保留未改（含义仍成立：语言来自注入的端口或根组件建的端口）。
+8. 应用 Lab 的 e2e（packages/neuro-book/e2e/lab-agent-ui.e2e.ts、lab-scenes.e2e.ts）没有跑：未验证。
+   Lab 的挂载测试（fixtures/index.dom.test.ts 等）在 vitest 里跑过。
+
+## 验证结果（都在本工作区跑）
+- packages/nb-agent-ui：`bun run typecheck` 通过；`bun run test`：bun test 189 pass 0 fail，vitest 10 个文件 55 个用例全过
+  （输出里的“error: 回调坏了”“error: diff 坏了”是已有用例故意触发的诊断输出）。boundary.test.ts 在其中，通过。
+- packages/neuro-book：`bun run typecheck` 通过（tsc、vue-tsc web、vue-tsc browser-test）；`bun run test:bun` 1609 pass 0 fail
+  （日志 /tmp/w00028-t03/9-nb-testbun.log）；`bunx vitest run --testTimeout=30000` 68 个文件 396 个用例全过（/tmp/w00028-t03/9-nb-vitest.log）。
+- packages/nb-story：typecheck 各段分开跑：tsc、tsconfig.core、vue-tsc web、e2e 通过；tsconfig.web-test 报
+  src/web/host/relations-view.ts(7,32) TS2307 找不到 ../graph/StoryNetwork.vue，与改动前的基线（/tmp/w00028-t03/9-nbstory-typecheck-baseline.log）
+  同一条，是 master 上已有的问题。`bun test` 544 pass 0 fail。
+- packages/nb-markdown：`bun run typecheck` 通过（它有一份对照本包端口的类型断言）。
+- 仓库根：`bun run docs:check` failures []、warnings []；`bun run governance:check` failures []、warnings []；
+  `bun scripts/ci/message-catalogs.ts` 退出 0、无输出。
