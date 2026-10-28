@@ -34,52 +34,58 @@ updated: 2026-10-28
 
 t03、t05。
 
-## 设计稿（2026-10-28，第二版，待开发者确认）
+## 设计稿（2026-10-28，第三版，待开发者确认）
 
-第一版把 Profile home 固定在项目里，开发者指出 Profile home 不一定属于项目、维度要列清楚。第二版先列维度，再用例子推出整套方案。
+第一版把 Profile home 固定在项目里；第二版列了维度，开发者据此提出：Profile 不分项目、跨 Profile 的东西用 `project://` 与 `user://`、复数方案做目录、`tmp://` 统一一个 `nbook` 文件夹、去掉 `artifact://`、`docs://` 与 `skills://` 的根是虚拟目录而下面是真实目录。第三版按这些改。
 
-### 维度
+### 规律
 
-| 维度 | 取值 |
-|---|---|
-| 归属 | 会话、Profile、所有 Agent 共用、插件、用户 |
-| 项目范围 | 某个项目（随书的文件夹走）、跨项目（随状态根，即随这台机器上的用户） |
-| 寿命 | 临时（关会话或启动时清理）、随会话（删会话即删）、长期 |
-| 谁写 | Agent 读写、Agent 只读、用户写 Agent 读 |
-| 算不算作品内容 | 算：只读模式下写入弹审批（t06）、nb-history 记账、Files 里看得到；不算：Agent 自己的东西 |
-| 真实还是虚拟 | 真实目录（bash 能用）、虚拟（只能经读写工具，必要时由 harness 换成真实路径） |
-| 会话没有项目时 | 可用、不可用 |
-
-Profile 与项目两个维度交叉：
-
-| | 当前项目 | 跨项目 |
-|---|---|---|
-| 某个 Profile | `profile://`：写手在这本书上的进度与笔记 | `profile-global://`：写手跨书的心得（“用户不喜欢破折号”） |
-| 所有 Profile | 普通的 `project://` 文件：`project://AGENTS.md`、设定集，用户也看、也改 | `user://agent/`：用户写的 Profile 与 Skill、跨书偏好 |
+- 复数是目录：`projects://`、`sessions://`、`profiles://`、`skills://`、`docs://` 的根是虚拟目录，读它得到一段说明（这个目录是什么、怎么用）与下面的条目；根下的每个条目是真实目录，工具与 bash 都能用（harness 换成真实路径）。
+- 单数是当前这一个：`project://` 等于 `projects://<主项目>/`，`session://` 等于 `sessions://<当前会话>/`，`profile://` 等于 `profiles://<当前 Profile>/`。自己的读写，别人的只读。
+- 主项目：会话在哪个项目里建的；没有项目时 `project://` 不可用。
+- 跨 Profile 的东西用 `project://`（随书）与 `user://`（跨书），不另设方案。
 
 ### 方案
 
-| 方案与路径 | 真实位置 | 作用 | Agent | 作品内容 | 真实/虚拟 | 没有项目时 |
-|---|---|---|---|---|---|---|
-| `project://<路径>` | `<主项目>/<路径>` | 作品文件（已实现） | 读写 | 算 | 真实 | 不可用 |
-| `projects://<短名>/<路径>` | `<该项目>/<路径>`；`projects://` 本身是项目列表 | 跨项目读写别的书（ADR 0024 的租约） | 读写 | 算（那本书的） | 真实，列表虚拟 | 可用 |
-| `session://<路径>` | `<状态根>/agent/sessions/<会话 id>/files/<路径>` | 本会话的工作区：计划、草稿、脚本；bash 的工作目录 | 读写 | 不算 | 真实 | 可用 |
-| `session://attachments/<名称>` | 同上目录下 | 用户上传的附件，上传后不可改；fork 时硬链接 | 只读 | 不算 | 真实 | 可用 |
-| `tmp://<路径>` | `<系统临时目录>/nbook-<状态根哈希>/<会话 id>/<路径>` | 一次性临时文件；会话关闭或启动时清理 | 读写 | 不算 | 真实 | 可用 |
-| `artifact://<序号>` | `<状态根>/agent/sessions/<会话 id>/artifacts/<序号>/<工具名>.log` | 本会话工具大结果的全文 | 只读 | 不算 | 虚拟 | 可用 |
-| `profile://<路径>` | `<主项目>/.nbook/agent/profile-homes/<profileKey>/<路径>` | 本 Profile 在本书上的笔记 | 读写 | 不算 | 真实 | 不可用 |
-| `profile-global://<路径>` | `<状态根>/agent/profile-homes/<profileKey>/<路径>` | 本 Profile 跨书的心得 | 读写 | 不算 | 真实 | 可用 |
-| `user://<路径>` | `<状态根>/user/<路径>`（已实现） | 用户的跨项目资产；`user://agent/profiles/` 放用户写的 Profile，`user://agent/skills/` 放用户 Skill | 读；写要询问 | 不算 | 真实 | 可用 |
-| `docs://neurobook/…`、`docs://sdk/…`、`docs://plugins/<插件 id>/…` | 应用包、SDK 包、各插件包里声明的文档目录 | 产品文档、插件作者文档、插件贡献的文档 | 只读 | 不算 | 虚拟 | 可用 |
-| `skill://<名>/<路径>` | 内置、插件、用户 Skill 的目录 | Skill 的说明与脚本（t15） | 只读 | 不算 | 虚拟，可换真实路径 | 可用 |
-| `sessions://<会话 id>/…` | 相关会话（子代理、父会话、fork 来源）的 `transcript.md`、`files/` | 读别的会话的记录与产物（t14） | 只读 | 不算 | 虚拟 | 可用 |
-| `history://…` | nb-history 的时间线与旧版本 | 读文件的旧版本（t13） | 只读 | 不算 | 虚拟 | 不可用 |
-| `mcp://<服务>/<资源>` | MCP 服务 | MCP 资源（t19） | 按服务 | 不算 | 虚拟 | 可用 |
-| 插件方案（例如 `plot://`） | 由插件定 | 插件自己的数据 | 由插件定 | 由插件定 | 由插件定 | 由插件定 |
+| 方案与路径 | 真实位置 | 作用 | Agent | 算作品内容 | 没有项目时 |
+|---|---|---|---|---|---|
+| `projects://` | 虚拟：说明与项目列表 | 所有已登记的项目 | 只读 | — | 可用 |
+| `projects://<短名>/<路径>` | `<该项目>/<路径>` | 别的书的文件（ADR 0024 的租约） | 读写 | 算 | 可用 |
+| `project://<路径>` | 同 `projects://<主项目>/` | 当前书的作品文件（已实现） | 读写 | 算 | 不可用 |
+| `sessions://` | 虚拟：说明与会话列表 | 所有会话 | 只读 | — | 可用 |
+| `sessions://<会话 id>/…` | `<状态根>/agent/sessions/<会话 id>/home/…` | 别的会话的工作区 | 只读 | 不算 | 可用 |
+| `session://<路径>` | 同 `sessions://<当前会话>/` | 本会话的工作区：计划、草稿、脚本；bash 的工作目录 | 读写 | 不算 | 可用 |
+| `session://attachments/<名称>` | 同上 | 用户上传的附件；fork 时硬链接复制 | 只读 | 不算 | 可用 |
+| `session://artifacts/<序号>-<工具名>.log` | 同上 | 工具大结果的全文（取代 `artifact://`） | 只读 | 不算 | 可用 |
+| `profiles://` | 虚拟：说明与 Profile 目录（key、名称、来源、可不可用） | 所有 Profile | 只读 | — | 可用 |
+| `profiles://<key>/…` | `<状态根>/agent/profiles/<key>/…` | 别的 Profile 的 home | 只读 | 不算 | 可用 |
+| `profile://<路径>` | 同 `profiles://<当前 Profile>/` | 本 Profile 的笔记与记忆，跨书；按书的笔记由提示词约定放 `profile://books/<项目 id>/` 或写进 `project://` | 读写 | 不算 | 可用 |
+| `tmp://<路径>` | `<系统临时目录>/nbook/sessions/<会话 id>/<路径>` | 一次性临时文件；会话关闭时清理，只清本状态根的会话；Linux 上 `nbook` 已被别的用户占用时用 `nbook-<用户 id>` | 读写 | 不算 | 可用 |
+| `user://<路径>` | `<状态根>/user/<路径>`（已实现） | 用户的跨项目资产：`profiles/`（用户写的 Profile）、`skills/`（用户 Skill）、`AGENTS.md`（对所有 Agent 与所有书的说明） | 读；写要询问 | 不算 | 可用 |
+| `docs://` | 虚拟：说明、共用文档与条目列表 | 文档目录 | 只读 | — | 可用 |
+| `docs://builtin/…`、`docs://agent/…`、`docs://<插件 id>/…` | 应用包、Agent 插件、各插件包里声明的文档目录 | 产品与 SDK 文档、插件贡献的文档 | 只读 | 不算 | 可用 |
+| `skills://` | 虚拟：说明与 Skill 目录（名称、说明、来源） | 所有可用的 Skill | 只读 | — | 可用 |
+| `skills://<名>/…` | 该 Skill 的真实目录（内置、插件或 `user://skills/`） | Skill 的说明与脚本（t15） | 只读 | 不算 | 可用 |
+| `history://…` | 虚拟 | 文件的旧版本（t13） | 只读 | 不算 | 不可用 |
+| `mcp://<服务>/<资源>` | 虚拟 | MCP 资源（t19） | 按服务 | 不算 | 可用 |
+| 插件方案（例如 `plot://`） | 由插件定 | 插件自己的数据 | 由插件定 | 由插件定 | 由插件定 |
 
-- 去掉 `local://` 的两种含义：会话工作目录改为 `session://`，附件改为 `session://attachments/`。
-- `user://` 的写入规则从“Profile 显式授权”改为“写入要询问”（t05、t06 定了 Profile 不碰审批）。
-- 主项目：会话在哪个项目里建的；`project://`、`profile://` 按它解析。
+与现行 Spec 不同：去掉 `local://`（会话工作目录改 `session://`，附件改 `session://attachments/`）；`user://` 的写入从“Profile 显式授权”改为“写入要询问”。bash 对虚拟的根目录不可用（`rg docs://` 报错并提示选子目录）；Agent 自己的搜索工具可以在根上展开到各条目。
+
+状态根下的布局：
+
+```text
+<状态根>/
+├── user/                          user://
+│   ├── AGENTS.md
+│   ├── profiles/<key>.profile.tsx
+│   └── skills/<名>/
+└── agent/
+    ├── sessions/<会话 id>/
+    │   ├── session.jsonl          会话日志，不在 home 里
+    │   └── home/                  session://（含 attachments/、artifacts/）
+    └── profiles/<key>/            profile://
+```
 
 ### 用例子验证
 
@@ -87,24 +93,29 @@ Profile 与项目两个维度交叉：
 |---|---|
 | 计划模式写计划 | `session://plan.md`；不算作品内容，只读模式下不弹审批 |
 | 用户粘贴一张图 | `session://attachments/image-1.png` |
-| 工具输出 300 KB | 截断后给模型，全文 `artifact://3` |
+| 工具输出 300 KB | 截断后给模型，全文 `session://artifacts/3-read.log`，可以 `rg` |
 | bash 跑 Python 统计字数 | 工作目录 `session://`，中间文件 `tmp://` |
-| 写手决定“悟空口头禅是‘俺老孙’” | 书的设定，所有 Profile 都要知道：写进 `project://设定/人物.md`（作品内容，用户可见） |
-| 写手记“第 12 章写到第 3 节” | 只对写手、只对这本书有用：`profile://progress.md` |
-| 用户对写手说“我不喜欢破折号” | 写手在所有书上都要记住：`profile-global://preferences.md` |
-| 用户说“所有 Agent 都用简体中文” | 所有 Profile、所有书：`user://agent/preferences.md` |
-| 没打开项目时和 Agent 聊天 | `project://`、`profile://` 不可用；`session://`、`profile-global://`、`user://` 可用 |
-| 在《A》的会话里参考《B》的设定 | `projects://b/设定/人物.md` |
-| 导演派写手写一章，导演读写手的产物 | 写手的结果作为工具结果返回；要细看时 `sessions://<写手会话>/files/…` |
-| Agent 写一个插件 | 读 `docs://sdk/…`；插件源码放哪随 Creator 的设计另定 |
-| Skill 带的脚本 | `skill://outline/scripts/count.py`，bash 执行时换成真实路径 |
-| 读第 3 章三天前的版本 | `history://…`（t13 定写法） |
-| 把书拷到另一台机器 | 作品文件与 `profile://` 跟着走；会话、`profile-global://`、`user://` 不跟（t03 已接受） |
+| 写手决定“悟空口头禅是‘俺老孙’” | 书的设定：`project://设定/人物.md` |
+| 写手记“第 12 章写到第 3 节” | 写进 `project://` 的进度文件，或 `profile://books/<项目 id>/progress.md`（不随书走） |
+| 用户对写手说“我不喜欢破折号” | `profile://preferences.md` |
+| 用户说“所有 Agent 都用简体中文” | `user://AGENTS.md` |
+| 没打开项目时聊天 | 只有 `project://` 不可用 |
+| 在《A》里参考《B》的设定 | `projects://b/设定/人物.md` |
+| 导演看写手的产物 | `sessions://<写手会话>/…` |
+| Agent 写插件前查 SDK | 读 `docs://`（说明与目录），再 `rg docs://builtin/sdk` |
+| Skill 带的脚本 | `skills://outline/scripts/count.py`，bash 执行时换成真实路径 |
+| 读第 3 章三天前的版本 | `history://…`（t13） |
+| 把书拷到另一台机器 | 只有作品文件跟着走 |
+
+### 待定
+
+- 会话日志放在 `home/` 外，Agent 不能直接读写；读别的会话的对话记录在 t14 另给渲染的记录或专门的工具。
+- Skill 的来源：要不要读 `~/.agents/skills`、项目里的 `.agents/skills`，还是全由 NeuroBook 自己管。
 
 ## 当前状态
 
-设计稿第二版，等开发者确认。
+设计稿第三版，等开发者确认。
 
 ## 下一步
 
-开发者确认或修改上面的方案后，把决定写进本 README。
+开发者确认后写成决定。
