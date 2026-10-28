@@ -1,0 +1,69 @@
+第 7 片 workbench 插件（nbook.workbench）迁移交付报告
+
+结论：src/plugins/workbench/ 的双语内联文字、messages 表与取文字函数、.vue 里写死的文字已迁到插件目录；一次做完，没有剩余分块。未提交。
+范围外的共享代码（src/ui、src/shared、nb-ui 的 Tabs、QuickPick）未改。验证结果见文末“验证”。
+
+== 改动 ==
+目录：src/plugins/workbench/locales/{zh-CN,en-US}.json，139 个键（数量键 1 个：shell.drop.mergeContainer，中文只有 _other，英文 _one 与 _other 同文，
+  沿用旧文字“Merge {count} views”，单数也写 views，旧文字如此，只在这里提）。
+新增：shared/text.ts（workbenchText、WorkbenchTextKey；命名空间写字面量 "nbook.workbench"，因 plugin.ts -> shared/contracts.ts -> text.ts 会成环，一致性由 locales.test.ts 核对）、
+  web/text.ts（workbenchCatalogs）、locales.test.ts、testing/text.ts（workbenchTestText：窗口同款引擎、登记本插件目录的测试端口）、
+  testing/declarations.ts（completedCommand：测试里把省略 title 的命令声明按登记规则补全）、
+  lab/web/fixtures/workbench-scene/workbench-text.ts（provideWorkbenchText、withWorkbenchText：Lab 夹具自己的宿主引擎端口）。
+删除：web/commands/palette-messages.ts（旧双语表与取文字函数）；各 .vue、命令文件里的 TEXT/messages 表；
+  只用于取文字的 locale 属性与 dragHint、dragLabel、moreLabel、collapseLabel、expandLabel 等文字属性。
+声明：设置项（theme、appearance 及选项）、标题栏菜单的组、命令（含 category）、活动栏条目 profile、公开状态的 reason 全部按约定键；必填 title 省略（Written 类型），
+  category、description、reason 显式写 workbenchText 引用。
+运行期：palette-host、open-commands、app-commands、panel-commands、part-commands、view-commands、theme-commands、failure-notice、titlebar-source、items/registry、
+  views/presentation、editor-area 改收 TextResolver 或返回文字引用；theme-commands 按要求用端口（switchSetting 传 text）。
+  view-commands 的“新建容器（在{区域}）”旧代码是模板按区域名代入，迁移后拆成每区域一键 viewCommands.newContainer.<part>（三条整句，与旧结果逐字相同）。
+.vue：Shell、StatusBar、TitleBar、ItemStrip、ActivityBar、ToolPartHost、ViewContainerHost、ViewInstances、ViewFrame、CommandPalette、CommandHost 删掉文字用的属性，
+  用 useText()（ViewInstances 自己不取文字，只把属性删掉）；ActivityBar 的 label、ToolPartHost 的 label/emptyText、ViewSection 的 collapseLabel/dragLabel 仍是纯展示属性，由上层给，未动。
+.md：StatusBar、TitleBar、ItemStrip、ActivityBar、ToolPartHost、ViewContainerHost、ViewFrame、Shell、CommandPalette、CommandHost 加 state:inject 并写理由，
+  删掉 Props 里已删的属性；ViewInstances.md 只删 locale。
+Spec：docs/specs/workbench/quick-open.md 的实现位置一行（palette-messages.ts -> locales/）。其余 Spec 对这些接口没有说法，未改。
+登记：src/web/plugins.ts 的 builtinPluginCatalogs 加 "nbook.workbench"；scripts/ci/message-catalogs.ts 的 CATALOG_DIRECTORIES 加 workbench/locales。
+连带改动（别的包里因 PaletteHost 去掉 locale 而动的）：plugins/projects/projects.test.ts（一行）、plugins/lab/web/fixtures/command-scene/lab-command-scene.ts（面板不再传 locale）。
+
+测试：
+- locales.test.ts（bun）：LEGACY 表取自 git HEAD 4e5b99459 的字面量（139 项），双向键集、逐字值（{name} -> {{name}}）、数量键形状与英文单复数取文字、命名空间等于 descriptor.id。
+  变异自检做过两次：把一个 en-US 值改一个字母 -> locales.test 失败；把 zh-CN 里的约定键 set-panel-position 改名 -> convention-keys.test、locales.test、panel-commands 的相关用例失败；均已还原（cmp 确认）。
+- 断言中文的测试改经端口：titlebar-menu、view-actions、items/registry、part/panel/view-commands、WorkbenchCommandHost.dom、WorkbenchCommandPalette.dom（语言切换用宿主引擎 setLocale）、
+  WorkbenchStatusBar.dom、WorkbenchTitleBar.dom、WorkbenchShellParts.dom（新增 ActivityBar 按钮 aria-description 的断言）、editor-area.dom。
+  命令测试用 completedCommand；panel-commands 的 reason 经 text.t 解出再断言。
+- Lab：StatusBar、TitleBar、ItemStrip、ActivityBar、ViewFrame、ContainerHost、ShellLayout 场景夹具经 withWorkbenchText 包一层端口（场景 id 为 english/-english 的用英文，另有显式英文清单：hidden、long）；
+  命令场景层 LabCommandSceneLayer 提供端口；场景 id 与输入集合未变（e2e 里的 s=long 等不受影响）。
+
+== 没迁移的（列给主会话）==
+1. 单语中文的运行期文字（原来就只有中文，没有双语表）：
+   - Shell 的“没有布局”（noLayout）、命令面板“当前页面没有命令面板”、views 呈现里的 unknownView/unplaced/partial/stale 等占位说明、“外壳当前不可调整”；
+   - 各命令返回的 CommandResult.reason，经 failureNotice 到用户眼前。
+   这些没有英文版，要写英文并决定键，范围大于“按键迁字面量”。建议优先处理会进通知的 reason。
+2. 标题栏菜单 4 个菜单项的 label 保持字面量：commands 插件里 MenuItemDeclaration.label 的类型是 LocalizedText（双语对象），装不下文字引用。建议把它放宽为 Text（动 commands 插件，不属本片）。
+3. nb-ui 的 Tabs、QuickPick 等共享组件里写死的文字（读屏名称之类）不在范围，未动；src/ui、src/shared 里没有属于 workbench 的文字。
+4. 数据性字符串（命令 id、路径、data-* 值）不是界面文字，未迁。
+
+== 给主会话的决定点 / 没把握的 ==
+1. 全角标点粘在代码里：TitleBar 的“：”和“（）”（搜索按钮名“搜索命令（快捷键）”）、ItemStrip 的 aria-label “：”仍由代码拼，未进目录；英文界面下会出现全角括号。
+   改法是目录里写整句带参数，需要开发者决定要不要改文字。
+2. 旧英文不一致（逐字沿用，未润色）：右栏在 partCommands 写 “Auxiliary Bar”，在 viewCommands 写 “Secondary Side Bar”；“Move to”（viewCommands.pickTarget）与 “Move To”（shell.moveTo）；
+   主题命令的“Follow System”与设置项的“System”；“Merge 1 views”单数。
+3. 参数与数量处理：端口会截断超长参数（500 字符），palette.commandFailed 的 {title} 等不受影响；container.id 作为标题回退时现在是普通字符串（原来也是），不翻译。
+4. PaletteHost 去掉了 locale 选项（面板文字由组件经端口取，宿主不再管语言）：连带改了 projects.test.ts 和 lab-command-scene.ts，都是删一个参数。
+5. Lab：MoveViewMenu、ViewSection 的夹具里的示例文字（如“资源管理器”）是样例数据，保留字面量；EditorBreadcrumbs 夹具仍传 locale: "zh-CN"（editor 片的组件，不是我这片的）。
+6. 没跑 e2e，也没拍 Lab 截图（改动是文字来源，文字内容与旧字面量逐字相同，由 locales.test.ts 保证）。
+
+== 验证 ==
+- packages/neuro-book：bun run typecheck 通过（tsc、vue-tsc 两个 tsconfig 全 exit 0）
+- bun run test:bun：1599 pass / 0 fail（179 个文件）
+- bunx vitest run --testTimeout=30000：65 个文件 381 个用例全过
+- bun test plugin-sdk：76 pass / 0 fail
+- 仓库根 bun run docs:check：failures 为空；bun run governance:check：failures 为空；bun scripts/ci/message-catalogs.ts：exit 0
+- 中途发现并已修的连带失败：主题、明暗两项（workbench 的配置项）现在是文字引用，设置窗口测试与 Lab 夹具的端口原本只登记 nbook.settings，显示成键名。
+  因此在这些地方多登记了 nbook.workbench 目录（都是加一项登记，不改断言）：
+  src/plugins/settings/testing/text.ts、src/ui/settings/SettingsRow.dom.test.ts、
+  src/plugins/settings/web/components/SettingsWindow.dom.test.ts、src/plugins/lab/web/fixtures/settings-scene/settings-host.ts。
+- 未跑：e2e、Lab 截图。
+
+== 超出 brief 范围的改动（为保持别处验证通过，请主会话知晓）==
+上面四个文件（settings 的测试辅助与 Lab 设置夹具）各加了一行 nbook.workbench 目录登记；projects.test.ts 与 lab-command-scene.ts 因 PaletteHost 去掉 locale 删了一个参数。
