@@ -136,9 +136,30 @@
 
 [WEIFENG2333/phistory](https://github.com/WEIFENG2333/phistory) 按版本存各家 CLI（Claude Code、Codex、omp、DeepSeek Harness 等）第一次请求的完整系统提示词（`captures/<工具>/<版本>/variants/<变体>/prompt.md`）；压缩请求不在其中（2026-10-28 浅克隆检索，Claude Code 只有 default、sdk 两个变体）。
 
+## 8. shell 工具、执行时限与后台任务（2026-10-28）
+
+### 8.1 omp 18.12.3（源码核实，`pi-coding-agent/src/tools/bash.ts`、`tool-timeouts.ts`、`exec/settings.ts`、`tools/settings.ts`、`tools/wait.ts`、`internal-urls/proc-protocol.ts`）
+
+- 工具名 `bash`（设置里叫 `bash.*`），命令由 `pi-natives` 内嵌的 brush shell 执行（`executeShell`、`Shell`），不依赖系统的 bash。`pi-natives` 另有原生的 `grep`、`glob`、`fuzzyFind`。
+- 执行时限：参数 `timeout` 以秒计，缺省 300，范围 1 到 3600，0 表示不设；全局 `tools.maxTimeout` 可以封顶（缺省 0 即不封顶）。
+- 后台：参数 `async: true` 把命令放到后台（`async.enabled` 缺省开，`async.maxJobs` 缺省 100）；`bash.autoBackground.enabled` 缺省开，命令跑过 `bash.autoBackground.thresholdMs`（缺省 60 秒）自动转后台、结果稍后送达。另有“服务”形态（等日志里的就绪行或端口）。`wait` 工具阻塞等自己启动的后台任务（上限 30 分钟），期间来了消息也会结束等待。`proc://` 读任务状态与输出、写 stdin、结束任务。
+- 其它：`bash.allowCompoundCommands` 缺省关；有 git 守卫、按模式拦截命令的设置。
+
+### 8.2 Claude Code（本会话自己的工具定义，2026-10-28）
+
+- Bash 的 `timeout` 以毫秒计，缺省 120,000（2 分钟），前台命令上限 86,400,000。
+- `run_in_background: true` 后台运行，不用 `&`；命令结束时宿主重新唤起 Agent（通知），要求不要轮询输出文件；前台 `sleep` 被拦。
+- Monitor 工具把一个长期运行脚本的每一行 stdout 当作事件推给 Agent（缺省 5 分钟、最多 30 分钟后到期，可重挂）；TaskStop 结束后台任务。
+
+### 8.3 NeuroBook 的部署形态（ADR 0033，核实）
+
+- 已有：npm 包 `@notnotype/neuro-book`，运行时用用户自己的 Bun（`bun add -g`），依赖全部打进 bundle。
+- 待另写提案（ADR 0033 决定 6）：随发行捆绑 Bun 的目录包；原生窗口的桌面壳（Electrobun、Tauri、Electron 实测后选，都把 Bun 当独立进程）；服务器部署。
+
 ## 未验证边界
 
 - omp 18.12.3 与仓库锁定的 18.2.5 之间，`pi-coding-agent` 以外的包是否有与本文相关的变化，没有对照。
 - 两家模型接口的工具搜索没有实测；OpenAI 的模型范围来自第三方资料。
+- `pi-natives` 的 brush shell 在仓库锁定的 18.2.5 里有没有、在 Windows 上能不能用，没有核实。
 - Claude Code 的压缩提示词是二进制里的字符串，哪个变体是线上缺省没有查明（有 A/B 变体表）。
 - omp 包内 `docs/*.md` 的正文（打包在 `dist/docs-index.generated.txt`，经压缩编码）没有解码阅读。
