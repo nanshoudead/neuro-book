@@ -50,4 +50,5 @@ type Props = {
 
 - `env:portal`：Dialog 把面板传送到 `body`（产品）或宿主提供的传送目标（Lab 的画布），脱离页面根的裁剪与层叠；目标找不到时 Dialog 回退到 `body`。
 - `state:inject`：窗口 `provide` 标题区通道给页面里的 `SettingsPageActions` 与 `SettingsPageList`；页面不该为标题区的挂载点与“这一层能不能写”各接一条线。
+- `state:inject`（续）：经 `useText()` 取宿主注入的翻译端口，窗口自己的固定文字在 `nbook.settings` 的目录里（`window.*` 键）；组件没有语言属性。没有宿主注入时只显示键名，所以测试与 Lab 场景要注入登记了这份目录的宿主引擎端口（Lab 的局部宿主给 `host.text`）。
 - `state:local`：只有左栏的焦点移动、面板根元素的引用与确认框弹出前的焦点，窗口的状态都在模型里。

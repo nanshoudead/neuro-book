@@ -4,17 +4,18 @@
  * 本作品的设置经传入的配置服务写这一层。规则见 docs/specs/settings/settings-window.md 输出 9–13、18。
  */
 import {IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import type {TextParams} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, ref, useId} from "vue";
 
-import {formatText, localize, resolverFor} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 import type {SettingDefinition, SettingLayer, SettingsFailure, SettingsService} from "nbook/shared/settings";
 
 import {isReadOnlySetting, projectOverride, settingsRowState} from "./row-state";
 import type {SettingsRowReason} from "./row-state";
 import HighlightedText from "./HighlightedText.vue";
 import {settingAppliesText, settingValueText} from "./setting-text";
+import {settingsUiText} from "./text";
+import type {SettingsUiKey} from "./text";
 
 defineOptions({name: "SettingsRow"});
 
@@ -22,7 +23,6 @@ const props = withDefaults(defineProps<{
     settings: SettingsService;
     setting: SettingDefinition<unknown>;
     layer: SettingLayer;
-    locale: DisplayLocale;
     projectTitle?: string | null;
     wide?: boolean;
     /**
@@ -50,26 +50,14 @@ defineSlots<{
     default(props: {value: unknown; disabled: boolean; id: string; label: string; labelId: string; describedby: string | undefined}): unknown;
 }>();
 
-const TEXT = {
-    reset: {"zh-CN": "恢复默认", "en-US": "Reset to Default"},
-    inherited: {"zh-CN": "来自用户设置", "en-US": "From your settings"},
-    remove: {"zh-CN": "移除本作品的设置", "en-US": "Remove Book Setting"},
-    modified: {"zh-CN": "已修改", "en-US": "Modified"},
-    readOnly: {"zh-CN": "只读", "en-US": "Read-only"},
-    overridden: {"zh-CN": "《{title}》已单独设为{value}，此处的更改在该作品中不生效", "en-US": "“{title}” uses {value}; changes here don't apply to that book"},
-    overriddenUntitled: {"zh-CN": "本作品已单独设为{value}，此处的更改在该作品中不生效", "en-US": "This book uses {value}; changes here don't apply to it"},
-    userOnly: {"zh-CN": "仅可在用户设置中修改", "en-US": "Can only be changed in user settings"},
-    projectOnly: {"zh-CN": "仅可在本作品中设置", "en-US": "Can only be set for a book"},
-} satisfies Record<string, LocalizedText>;
-
 /** 状态原因的图标，画法同 nb-form 的字段外壳（`FieldShell`）：出错、警告、其余。类名写成字面量，图标才会被生成。 */
 const REASON_ICON = {error: "i-lucide-circle-alert", warning: "i-lucide-triangle-alert", muted: "i-lucide-info"} as const;
 /** 严重程度，大的重。 */
 const SEVERITY = {error: 2, warning: 1, muted: 0} as const;
 
-const text = (template: LocalizedText, params: Readonly<Record<string, string>> = {}): string => localize(formatText(template, params), props.locale);
-/** 声明里的文字（标题、说明、选项名）：文字引用查宿主注入的目录。 */
-const declared = resolverFor(() => props.locale, useText());
+/** 翻译端口由宿主注入：行自己的文字在 `nbook.settings` 的目录里，声明里的文字（标题、说明、选项名）也经它翻译。 */
+const declared = useText();
+const text = (key: SettingsUiKey, params?: TextParams): string => declared.t(settingsUiText(key, params));
 
 const controlId = useId();
 const labelId = `${controlId}-label`;
@@ -87,7 +75,7 @@ const state = computed(() => settingsRowState(inspection.value, declaration.valu
 const override = computed(() => projectOverride(inspection.value, declaration.value.layers, props.layer));
 const title = computed(() => (declaration.value.title === undefined ? props.setting.key : declared.t(declaration.value.title)));
 const description = computed(() => (declaration.value.description === undefined ? null : declared.t(declaration.value.description)));
-const applies = computed(() => settingAppliesText(declaration.value.applies, props.locale));
+const applies = computed(() => settingAppliesText(declaration.value.applies, declared));
 /** schema 写了 `readOnly`：不画控件，只写当前值（输出 9）。 */
 const readOnly = computed(() => isReadOnlySetting(declaration.value));
 const reasonTone = computed(() => props.reasons.reduce<SettingsRowReason["tone"] | null>((worst, reason) => (worst === null || SEVERITY[reason.tone] > SEVERITY[worst] ? reason.tone : worst), null));
@@ -105,9 +93,9 @@ const marked = computed(() => modified.value && !readOnly.value);
 const blocked = computed(() => state.value.kind !== "not-allowed" && state.value.blocked);
 /** 此刻这一层显示的值：写了取这一层，没写取下一层；控件与只读行都用它。 */
 const shown = computed(() => (state.value.kind === "edit" ? state.value.value : state.value.kind === "inherit" ? state.value.inherited : undefined));
-const valueText = (value: unknown): string => settingValueText(declaration.value, value, props.locale, declared);
+const valueText = (value: unknown): string => settingValueText(declaration.value, value, declared);
 /** 最右一格的动作：用户标签是“恢复默认”，本作品标签是“移除本作品的设置”，同一个图标按钮。 */
-const resetText = computed(() => text(props.layer === "user" ? TEXT.reset : TEXT.remove));
+const resetText = computed(() => text(props.layer === "user" ? "row.reset" : "row.remove"));
 
 /**
  * 焦点在行里的控件上时，原因的提示也显示（键盘用户悬停不到图标）。只认放控件的两处（`__field`、`__wide`）：右边那一格的
@@ -154,8 +142,8 @@ async function run(action: RowAction): Promise<void> {
             <div class="settings-row__text">
                 <div class="settings-row__title">
                     <label :id="labelId" :for="controlId"><HighlightedText :text="title" :words="highlight" /></label>
-                    <Tooltip v-if="marked" :text="text(TEXT.modified)">
-                        <span class="settings-row__dot" role="img" :aria-label="text(TEXT.modified)" data-settings-row-dot></span>
+                    <Tooltip v-if="marked" :text="text('row.modified')">
+                        <span class="settings-row__dot" role="img" :aria-label="text('row.modified')" data-settings-row-dot></span>
                     </Tooltip>
                     <Tooltip v-if="reasonTone !== null" placement="right" :force-open="controlFocused">
                         <span class="settings-row__reason" :class="`settings-row__reason--${reasonTone}`" :data-tone="reasonTone" aria-hidden="true" data-settings-row-reason>
@@ -166,7 +154,7 @@ async function run(action: RowAction): Promise<void> {
                         </template>
                     </Tooltip>
                     <!-- 沿用标签与生效时机不在 `<label>` 里：它们不是控件的名字，经 `describedby` 当说明念（审查 S5 Sonnet 3）。 -->
-                    <span v-if="inheritsUser" :id="inheritedId" class="settings-row__inherited" data-settings-row-inherited>{{ text(TEXT.inherited) }}</span>
+                    <span v-if="inheritsUser" :id="inheritedId" class="settings-row__inherited" data-settings-row-inherited>{{ text('row.inherited') }}</span>
                     <span v-if="applies !== null" :id="appliesId" class="settings-row__applies">{{ applies }}</span>
                 </div>
                 <p v-if="description !== null" :id="descriptionId" class="settings-row__description"><HighlightedText :text="description" :words="highlight" /></p>
@@ -177,13 +165,13 @@ async function run(action: RowAction): Promise<void> {
             -->
             <div class="settings-row__control" :data-settings-row-head="wide ? '' : undefined">
                 <div v-if="state.kind === 'not-allowed' || readOnly || !wide" class="settings-row__field" @focusin="onFocusIn" @focusout="onFocusOut">
-                    <span v-if="state.kind === 'not-allowed'" class="settings-row__not-allowed">{{ text(layer === "project" ? TEXT.userOnly : TEXT.projectOnly) }}</span>
+                    <span v-if="state.kind === 'not-allowed'" class="settings-row__not-allowed">{{ text(layer === 'project' ? 'row.userOnly' : 'row.projectOnly') }}</span>
                     <span v-else-if="readOnly" class="settings-row__value" data-settings-row-value>{{ valueText(shown) }}</span>
                     <slot v-else :value="shown" :disabled="blocked" :id="controlId" :label="title" :labelId="labelId" :describedby="describedby" />
                 </div>
                 <span class="settings-row__cell" data-settings-row-cell>
-                    <Tooltip v-if="readOnly && state.kind !== 'not-allowed'" :text="text(TEXT.readOnly)">
-                        <span class="settings-row__lock" role="img" :aria-label="text(TEXT.readOnly)" data-settings-row-lock><span class="i-lucide-lock"></span></span>
+                    <Tooltip v-if="readOnly && state.kind !== 'not-allowed'" :text="text('row.readOnly')">
+                        <span class="settings-row__lock" role="img" :aria-label="text('row.readOnly')" data-settings-row-lock><span class="i-lucide-lock"></span></span>
                     </Tooltip>
                     <Tooltip v-else-if="marked" :text="resetText">
                         <IconButton
@@ -206,7 +194,7 @@ async function run(action: RowAction): Promise<void> {
         <span v-if="reasonsText !== ''" :id="reasonsId" class="settings-row__sr-only" data-settings-row-reasons>{{ reasonsText }}</span>
         <p v-if="override !== null" class="settings-row__override" data-settings-row-overridden>
             <span class="i-lucide-info settings-row__override-icon" aria-hidden="true"></span>
-            <span>{{ text(projectTitle === null ? TEXT.overriddenUntitled : TEXT.overridden, {value: valueText(override.value), title: projectTitle ?? ""}) }}</span>
+            <span>{{ text(projectTitle === null ? 'row.overriddenUntitled' : 'row.overridden', {value: valueText(override.value), title: projectTitle ?? ""}) }}</span>
         </p>
     </div>
 </template>

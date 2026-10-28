@@ -50,8 +50,6 @@ type Props = {
     modelValue: string | null;
     /** 列表的可访问名称；必填。 */
     label: string;
-    /** 显示语言，只管“返回”“有改动”两处固定文字；缺省简体中文。 */
-    locale?: DisplayLocale;
 };
 
 type Emits = {
@@ -87,3 +85,4 @@ type Slots = {
 ## 隐藏通道理由
 
 - `state:inject`：标题区在窗口里、页面在窗口的另一个子树里，打开一项时要经窗口的通道（`page-chrome.ts`）换标题；让每个页面自己接线并把标题与返回动作逐层传出去，页面作者要重复写同一套，也容易漏掉卸载时的撤销。没有通道（Lab 单独渲染）时组件在详情上方自己画返回，列表与插槽照常工作。
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，固定文字在 `nbook.settings` 的目录里（`plugins/settings/locales/`；键表见 `ui/settings/text.ts`）；语言随端口切换，不重新挂载，组件没有语言属性。设置窗口里的页面与 SDK 交给第三方插件的设置页都在宿主窗口里，宿主总会登记这份目录。没有宿主注入时得到 nb-ui 的缺省端口，那里没有这份目录，只显示键名，所以测试与 Lab 场景要注入登记了它的宿主引擎端口。

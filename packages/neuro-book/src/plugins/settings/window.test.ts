@@ -51,7 +51,7 @@ import {createSettingsWindow, DEFAULT_SETTINGS_WINDOW_SIZE, FILE_SECTION_ID, MIN
 import type {SettingsLeaveTarget, SettingsWindow, SettingsWindowSize} from "./web/settings-window";
 import {settingsWindowSourceKey} from "./web/window-source";
 import type {SettingsWindowSource, WindowSetting} from "./web/window-source";
-import {textIn} from "nbook/shared/testing/text";
+import {settingsTestText} from "./testing/text";
 
 const silent = {error: () => undefined};
 /** 工作台描述里的配置项（主题、明暗），不装它的浏览器入口：外观分区里的两项要有人声明。 */
@@ -89,7 +89,7 @@ function windowFor(probe: Probe, bound: boolean): {readonly window: SettingsWind
     const size = ref<SettingsWindowSize | null>(null);
     const recorder: Recorder = {notices: [], reports: [], size};
     const window = createSettingsWindow({
-        text: textIn("zh-CN"),
+        text: settingsText.resolver,
         source: probe.source,
         settings: probe.settings,
         bound,
@@ -105,9 +105,17 @@ function windowFor(probe: Probe, bound: boolean): {readonly window: SettingsWind
     return {window, recorder};
 }
 
+/** 窗口模型的文字来自 `nbook.settings` 的目录；断言经同一份目录取，不在测试里另写一遍。 */
+const settingsText = settingsTestText("zh-CN");
+const t = settingsText.t;
+
 const disposers: Array<() => void> = [];
 const started: Application[] = [];
 const worlds: SettingsWorld[] = [];
+
+/** 失败原因里带的详情是底层给的（系统错误文字等），不在断言里写死：取详情之前的部分比较。 */
+const DETAIL = "\u0000detail";
+const beforeDetail = (text: string): string => text.slice(0, text.indexOf(DETAIL));
 let tmp = "";
 let counter = 0;
 
@@ -240,7 +248,7 @@ describe("左栏与配置项的落位（输出 1、2、8、12）", () => {
         // 刷新后回到第一个分区。
         expect(window.section.value).toBe("x.notes.first");
         // 没有可列的项的 list 分区停用，以原因作提示。
-        expect(window.nav.value.flatMap((group) => group.items).find((item) => item.id === "x.notes.first")?.unavailable).toBe("这个分区还没有设置项");
+        expect(window.nav.value.flatMap((group) => group.items).find((item) => item.id === "x.notes.first")?.unavailable).toBe(t("model.emptySection"));
     });
 
     it("分区里先列没写小组的项，再按声明的顺序列小组；组内按 order、同值按键；指向没有声明的小组按没写处理并记诊断", async () => {
@@ -261,7 +269,7 @@ describe("左栏与配置项的落位（输出 1、2、8、12）", () => {
         window.select(OTHER_SECTION_ID);
         const view = window.current.value;
         if (view?.kind !== "list") throw new Error("“其它”应是 list 分区");
-        expect(view.title).toBe("插件设置");
+        expect(view.title).toBe(t("model.otherTitle"));
         expect(view.groups.map((group) => [group.title, keysOf(group.settings)])).toEqual([
             ["x.misc", ["x.misc/flag"]],
             ["x.notes", ["x.notes/loose", "x.notes/orphan"]],
@@ -286,8 +294,8 @@ describe("左栏与配置项的落位（输出 1、2、8、12）", () => {
         window.setLayer("project");
         const items = new Map(window.nav.value.flatMap((group) => group.items).map((item) => [item.id, item.unavailable]));
         expect(items.get("x.notes.main")).toBeNull();
-        expect(items.get("x.notes.user")).toBe("这个分区的设置仅可在用户设置中修改");
-        expect(items.get("x.notes.page")).toBe("这个分区的设置仅可在用户设置中修改");
+        expect(items.get("x.notes.user")).toBe(t("model.userOnlySection"));
+        expect(items.get("x.notes.page")).toBe(t("model.userOnlySection"));
         window.select("x.notes.main");
         const view = window.current.value;
         if (view?.kind !== "list") throw new Error("x.notes.main 应是 list 分区");
@@ -295,7 +303,7 @@ describe("左栏与配置项的落位（输出 1、2、8、12）", () => {
         expect(view.excluded).toEqual(["戊"]);
         // 当前分区在新标签下不可用：右边原位给原因（输出 8）。
         window.select("x.notes.user");
-        expect(window.current.value?.unavailable).toBe("这个分区的设置仅可在用户设置中修改");
+        expect(window.current.value?.unavailable).toBe(t("model.userOnlySection"));
         window.setLayer("user");
         expect(window.current.value?.unavailable).toBeNull();
     });
@@ -309,7 +317,7 @@ describe("打开窗口（输出 15、16）", () => {
 
     it("分区不在左栏里为 invalid-args，未绑定作品却要本作品标签为 unavailable：两种都不打开、不改变窗口", async () => {
         const {window} = await plain();
-        expect(window.openWindow({section: "x.notes.nowhere"})).toEqual({ok: false, code: "invalid-args", reason: "设置里没有分区 x.notes.nowhere"});
+        expect(window.openWindow({section: "x.notes.nowhere"})).toEqual({ok: false, code: "invalid-args", reason: t("model.unknownSection", {section: "x.notes.nowhere"})});
         expect(window.openWindow({layer: "project"})).toMatchObject({ok: false, code: "unavailable"});
         expect(window.open.value).toBe(false);
         expect(window.section.value).toBe("nbook.appearance");
@@ -833,11 +841,11 @@ describe("通用列表的写入（输出 10、12、14）", () => {
         expect(window.pending(themeSetting.key)).toBeUndefined();
         expect(window.editing.get(themeSetting)).toBe("nbook");
         expect(recorder.notices).toHaveLength(1);
-        expect(recorder.notices[0]).toMatchObject({tone: "warning", title: "设置没有保存"});
-        expect(recorder.notices[0]?.message).toStartWith("主题：写不进设置文件");
+        expect(recorder.notices[0]).toMatchObject({tone: "warning", title: t("model.notSavedTitle")});
+        expect(recorder.notices[0]?.message).toStartWith(beforeDetail(t("model.notSaved", {title: "主题", reason: t("writeFailure.writeFailed", {detail: DETAIL})})));
 
         await window.write(themeOf(window), "solarized");
-        expect(recorder.notices[1]?.message).toStartWith("主题：这个值不能用");
+        expect(recorder.notices[1]?.message).toStartWith(beforeDetail(t("model.notSaved", {title: "主题", reason: t("writeFailure.invalidValue", {detail: DETAIL})})));
     });
 });
 
@@ -866,7 +874,7 @@ describe("设置文件视图（输出 23）：经远程合同整份读写，真�
     it("“设置文件”是左栏固定的一项，编辑当前标签那一层；项目层带文件路径，用户层不带", async () => {
         const {world: created, window} = await world();
         window.openWindow({section: FILE_SECTION_ID});
-        expect(window.current.value).toMatchObject({kind: "file", id: FILE_SECTION_ID, title: "设置文件", layer: "user", path: null});
+        expect(window.current.value).toMatchObject({kind: "file", id: FILE_SECTION_ID, title: t("model.fileTitle"), layer: "user", path: null});
         window.setLayer("project");
         expect(window.current.value).toMatchObject({kind: "file", layer: "project", path: created.projectFile});
     });

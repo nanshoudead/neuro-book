@@ -12,9 +12,11 @@ import SettingsPageList from "nbook/ui/settings/SettingsPageList.vue";
 
 import {useLabSubject} from "../lab-subject";
 import type {LabFixtureProps} from "../lab-subject";
+import {provideSettingsText} from "./settings-scene/settings-text";
 
 const props = defineProps<LabFixtureProps>();
 const subject = useLabSubject<typeof SettingsPageList>(() => props.input);
+provideSettingsText(props.scene);
 
 const channeled = props.scene === "open-in-title";
 const chrome = createPageChrome(ref(true));

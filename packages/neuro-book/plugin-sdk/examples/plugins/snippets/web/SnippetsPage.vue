@@ -86,7 +86,6 @@ async function save(items: ReadonlyArray<Snippet>): Promise<boolean> {
             :settings="settings"
             :setting="itemsSetting"
             :layer="context.layer.value"
-            :locale="locale"
             :project-title="context.projectTitle.value"
             wide
             @write-failed="report"

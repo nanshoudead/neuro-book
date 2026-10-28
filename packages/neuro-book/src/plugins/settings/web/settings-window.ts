@@ -19,17 +19,19 @@ import type {ComputedRef, Ref} from "@vue/reactivity";
 import type {Component} from "vue";
 
 import type {FormOptionSources} from "@notnotype/nb-form/vue";
+import type {TextParams} from "@notnotype/nb-ui/text";
 
 import type {CommandResult} from "nbook/plugins/commands/shared/contracts";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
-import {formatText, localize, textOf} from "nbook/shared/localized-text";
-import type {DisplayLocale, DisplayText, LocalizedText, TextResolver} from "nbook/shared/localized-text";
+import type {DisplayLocale, DisplayText, TextResolver} from "nbook/shared/localized-text";
 import {settingsFailureText} from "nbook/ui/settings/setting-text";
 import type {SettingDefinition, SettingLayer, SettingsFailure, SettingsService, SettingUpdateOptions, SettingWriteResult} from "nbook/shared/settings";
 
 import {SETTINGS_SECTION_CATEGORIES} from "../shared/contracts";
 import type {SettingsSectionCategory} from "../shared/contracts";
 import type {LayerTextPosition} from "../shared/layers";
+import {settingsText} from "../shared/text";
+import type {SettingsTextKey} from "../shared/text";
 import type {LayerFile} from "../shared/remote-link";
 import type {SettingsPageContext} from "./contracts";
 import type {SettingsPageDelivery, SettingsSectionEntry} from "./sections";
@@ -242,23 +244,6 @@ export interface SettingsWindow {
     dispose(): void;
 }
 
-const TEXT = {
-    otherTitle: {"zh-CN": "插件设置", "en-US": "Plugin Settings"},
-    otherDescription: {"zh-CN": "未提供独立分区的插件设置", "en-US": "Settings from plugins that have no section of their own"},
-    userOnlySection: {"zh-CN": "这个分区的设置仅可在用户设置中修改", "en-US": "Settings in this section can only be changed in your settings"},
-    projectOnlySection: {"zh-CN": "这个分区的设置仅可在本作品中设置", "en-US": "Settings in this section can only be set for a book"},
-    emptySection: {"zh-CN": "这个分区还没有设置项", "en-US": "This section has no settings yet"},
-    unknownSection: {"zh-CN": "设置里没有分区 {section}", "en-US": "There is no settings section {section}"},
-    noProject: {"zh-CN": "这个窗口没有打开作品，没有本作品的设置", "en-US": "No book is open in this window, so there are no book settings"},
-    notSavedTitle: {"zh-CN": "设置没有保存", "en-US": "Setting not saved"},
-    unknownTitle: {"zh-CN": "设置可能没有保存", "en-US": "Setting may not be saved"},
-    notSaved: {"zh-CN": "{title}：{reason}", "en-US": "{title}: {reason}"},
-    searchTitle: {"zh-CN": "搜索结果", "en-US": "Search Results"},
-    fileTitle: {"zh-CN": "设置文件", "en-US": "Settings File"},
-    fileDescription: {"zh-CN": "直接编辑这一层的设置文件（JSON，可以写注释）", "en-US": "Edit this layer's settings file directly (JSON with comments)"},
-    fileKeyword: {"zh-CN": "settings.json", "en-US": "settings.json"},
-} satisfies Record<string, LocalizedText>;
-
 /** 搜索结果视图的 id：不是分区，与“其它”一样只有一段，分区贡献写不出来。 */
 export const SEARCH_VIEW_ID = "search";
 
@@ -354,8 +339,8 @@ function buildCatalog(source: SettingsWindowSource, report: (message: string) =>
     const ordered = SETTINGS_SECTION_CATEGORIES.flatMap((category) => sections.filter((section) => section.category === category).sort((left, right) => left.order - right.order || byCodeUnit(left.id, right.id)));
     const file: CatalogSection = {
         id: FILE_SECTION_ID,
-        title: TEXT.fileTitle,
-        description: TEXT.fileDescription,
+        title: settingsText("model.fileTitle"),
+        description: settingsText("model.fileDescription"),
         icon: "i-lucide-file-json",
         category: "plugins",
         order: 0,
@@ -363,14 +348,14 @@ function buildCatalog(source: SettingsWindowSource, report: (message: string) =>
         layout: "column",
         layers: LAYERS,
         groups: [],
-        keywords: [TEXT.fileKeyword],
+        keywords: [settingsText("model.fileKeyword")],
         pageSettings: [],
     };
     if (other.size === 0) return [...ordered, file];
     return [...ordered, {
         id: OTHER_SECTION_ID,
-        title: TEXT.otherTitle,
-        description: TEXT.otherDescription,
+        title: settingsText("model.otherTitle"),
+        description: settingsText("model.otherDescription"),
         icon: "i-lucide-ellipsis",
         category: "plugins",
         order: 0,
@@ -410,7 +395,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
         catalog();
         return built?.byId.get(id);
     };
-    const text = (template: LocalizedText, params: Readonly<Record<string, string | number>> = {}): string => localize(formatText(template, params), options.locale.value);
+    const text = (key: SettingsTextKey, params?: TextParams): string => options.text.t(settingsText(key, params));
 
     const open = ref(false);
     const focusRequest = ref(0);
@@ -424,11 +409,11 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
 
     /** 分区在这个标签下不可用的原因（输出 8）；可用为 null。 */
     const unavailableIn = (entry: CatalogSection, tab: SettingLayer): string | null => {
-        const reason = tab === "project" ? TEXT.userOnlySection : TEXT.projectOnlySection;
+        const reason = tab === "project" ? "model.userOnlySection" : "model.projectOnlySection";
         if (entry.kind === "page") return entry.layers.includes(tab) ? null : text(reason);
         if (entry.kind === "file") return null;
         const all = entry.groups.flatMap((group) => group.settings);
-        if (all.length === 0) return text(TEXT.emptySection);
+        if (all.length === 0) return text("model.emptySection");
         return all.some((setting) => setting.definition.declaration.layers.includes(tab)) ? null : text(reason);
     };
 
@@ -464,10 +449,10 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     const notifyFailure = (setting: WindowSetting, code: SettingsFailure, detail: string): void => {
         const title = options.text.t(setting.definition.declaration.title);
         if (code === "unknown-outcome") {
-            options.notify({tone: "warning", title: text(TEXT.unknownTitle), message: text(TEXT.notSaved, {title, reason: settingsFailureText(code, detail, options.locale.value)})});
+            options.notify({tone: "warning", title: text("model.unknownTitle"), message: text("model.notSaved", {title, reason: settingsFailureText(code, detail, options.text)})});
             return;
         }
-        options.notify({tone: "warning", title: text(TEXT.notSavedTitle), message: text(TEXT.notSaved, {title, reason: settingsFailureText(code, detail, options.locale.value)})});
+        options.notify({tone: "warning", title: text("model.notSavedTitle"), message: text("model.notSaved", {title, reason: settingsFailureText(code, detail, options.text)})});
     };
 
     const editing: SettingsService = {
@@ -642,7 +627,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
                 groups.push({id: `${entry.id}#${group.id ?? ""}`, title: groupTitle ?? title, parent: groupTitle === null ? null : title, settings: hits});
             }
         }
-        const heading = {id: SEARCH_VIEW_ID, title: text(TEXT.searchTitle), description: null, unavailable: null};
+        const heading = {id: SEARCH_VIEW_ID, title: text("model.searchTitle"), description: null, unavailable: null};
         return {...heading, kind: "search", query: query.value, words: words.value, list: {...heading, kind: "list", groups, excluded: []}, pages: pageHits};
     };
     const current = computed(() => {
@@ -730,8 +715,8 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
         editing,
         options: () => source.options(),
         openWindow: (args) => {
-            if (args.section !== undefined && sectionOf(args.section) === undefined) return {ok: false, code: "invalid-args", reason: text(TEXT.unknownSection, {section: args.section})};
-            if (args.layer === "project" && !options.bound) return {ok: false, code: "unavailable", reason: text(TEXT.noProject)};
+            if (args.section !== undefined && sectionOf(args.section) === undefined) return {ok: false, code: "invalid-args", reason: text("model.unknownSection", {section: args.section})};
+            if (args.layer === "project" && !options.bound) return {ok: false, code: "unavailable", reason: text("model.noProject")};
             const target: SettingsLeaveTarget = {kind: "open", ...(args.section === undefined ? {} : {section: args.section}), ...(args.layer === undefined ? {} : {layer: args.layer})};
             if (open.value) {
                 const moves = (args.section !== undefined && (args.section !== section.value || query.value !== "")) || (args.layer !== undefined && args.layer !== layer.value);

@@ -18,7 +18,8 @@ import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform, menuImplementatio
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {bindingsOf} from "nbook/shared/store/public";
-import {windowLocale, windowTextKey} from "nbook/shared/window-text";
+import {resolverFor} from "nbook/shared/localized-text";
+import {windowLocale, windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {windowNavigationKey, windowPluginsKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
@@ -147,6 +148,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const publicState = bindingsOf(workbenchState, workbenchStateBindings(layout.current));
             const settings = context.services.require(settingsKey);
             const locale = await windowLocale(context.services, () => displayLocale(settings));
+            const text = resolverFor(() => displayLocale(settings), await windowTextPort(context.services, () => displayLocale(settings)));
             const theme = computed(() => settings.get(themeSetting));
             const appearance = computed(() => settings.get(appearanceSetting));
             const homeSlot = new HomeSlot(context.declarations, (message) => diagnostics.record({level: "warn", event: "workbench.home", message, source: {plugin: descriptor.id}}));
@@ -184,7 +186,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 contributions: {
                     [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: {[PROFILE_ITEM]: NO_IMPLEMENTATION},
                     [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(WORKBENCH_TITLEBAR_MENU_ITEMS),
-                    [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey), () => locale.value)},
+                    [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick, text), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey), () => locale.value)},
                     [PUBLIC_STATE_POINT]: Object.fromEntries(publicState.bindings),
                 },
             };

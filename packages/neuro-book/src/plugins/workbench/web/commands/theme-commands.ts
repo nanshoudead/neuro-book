@@ -8,6 +8,7 @@ import {Type} from "typebox";
 
 import type {CommandDeclaration, CommandImplementation} from "nbook/plugins/commands/shared/contracts";
 import {switchSetting} from "nbook/plugins/settings/shared/contracts";
+import type {TextResolver} from "nbook/shared/localized-text";
 import type {SettingsService} from "nbook/shared/settings";
 
 import {appearanceSetting, themeSetting} from "../../shared/contracts";
@@ -38,12 +39,13 @@ export const SWITCH_APPEARANCE_DECLARATION: CommandDeclaration = {
 };
 
 /** 两条命令的实现；键写死成两个命令 id，激活产出的编译期核对才对得上声明。 */
-export function themeCommands(settings: SettingsService, quickPick: QuickPick): {readonly [SWITCH_THEME_COMMAND]: CommandImplementation; readonly [SWITCH_APPEARANCE_COMMAND]: CommandImplementation} {
+export function themeCommands(settings: SettingsService, quickPick: QuickPick, text: TextResolver): {readonly [SWITCH_THEME_COMMAND]: CommandImplementation; readonly [SWITCH_APPEARANCE_COMMAND]: CommandImplementation} {
     return {
         [SWITCH_THEME_COMMAND]: {
             run: (args) => switchSetting({
                 settings,
                 quickPick,
+                text,
                 setting: themeSetting,
                 value: (args as {readonly theme?: (typeof THEMES)[number]}).theme,
                 choices: [{id: "nbook", label: "NeuroBook"}, {id: "macos", label: "macOS"}],
@@ -54,6 +56,7 @@ export function themeCommands(settings: SettingsService, quickPick: QuickPick): 
             run: (args) => switchSetting({
                 settings,
                 quickPick,
+                text,
                 setting: appearanceSetting,
                 value: (args as {readonly appearance?: (typeof APPEARANCES)[number]}).appearance,
                 choices: [

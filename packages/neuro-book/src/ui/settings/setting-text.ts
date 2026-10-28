@@ -3,45 +3,30 @@
  * 写入失败的原因。`SettingsRow`、设置窗口与插件的设置页面共用，几处写出的同一个值、同一种失败才一致。
  */
 
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText, TextResolver} from "nbook/shared/localized-text";
+import type {TextResolver} from "nbook/shared/localized-text";
 import {literalUnionValues} from "nbook/shared/settings";
 import type {SettingApplies, SettingLiteral, SettingsFailure, WrittenSettingDeclaration} from "nbook/shared/settings";
 
-const TEXT = {
-    on: {"zh-CN": "开", "en-US": "On"},
-    off: {"zh-CN": "关", "en-US": "Off"},
-    empty: {"zh-CN": "（空）", "en-US": "(empty)"},
-    items: {"zh-CN": "{count} 项", "en-US": "{count} items"},
-} satisfies Record<string, LocalizedText>;
+import {settingsUiText} from "./text";
+import type {SettingsUiKey} from "./text";
 
-const APPLIES: Readonly<Record<Exclude<SettingApplies, "now">, LocalizedText>> = {
-    "next-run": {"zh-CN": "下次运行生效", "en-US": "Applies on next run"},
-    "next-session": {"zh-CN": "下次会话生效", "en-US": "Applies to the next session"},
-    "restart": {"zh-CN": "重启后生效", "en-US": "Applies after restart"},
+const APPLIES: Readonly<Record<Exclude<SettingApplies, "now">, SettingsUiKey>> = {
+    "next-run": "applies.next-run",
+    "next-session": "applies.next-session",
+    "restart": "applies.restart",
 };
 
-const FAILURES = {
-    layerInvalid: {"zh-CN": "设置文件有错误，修好之后才能保存", "en-US": "the settings file has errors; fix it first"},
-    writeFailed: {"zh-CN": "写不进设置文件（{detail}）", "en-US": "could not write the settings file ({detail})"},
-    unavailable: {"zh-CN": "暂时连不上，没有保存", "en-US": "temporarily unreachable; nothing was saved"},
-    invalidValue: {"zh-CN": "这个值不能用（{detail}）", "en-US": "this value cannot be used ({detail})"},
-    unknownOutcome: {"zh-CN": "可能没有保存，以设置文件为准", "en-US": "it may not have been saved; the settings file is authoritative"},
-    conflict: {"zh-CN": "设置文件在别处改过了", "en-US": "the settings file was changed elsewhere"},
-    other: {"zh-CN": "{code}：{detail}", "en-US": "{code}: {detail}"},
-} satisfies Record<string, LocalizedText>;
-
 /** 写入失败的原因，给用户看（输出 14）：常见的几种换成说人话的句子，其余写失败码与详情。 */
-export function settingsFailureText(code: SettingsFailure, detail: string, locale: DisplayLocale): string {
-    const text = (template: LocalizedText): string => localize(formatText(template, {code, detail}), locale);
+export function settingsFailureText(code: SettingsFailure, detail: string, text: TextResolver): string {
+    const failure = (key: SettingsUiKey): string => text.t(settingsUiText(key, {code, detail}));
     switch (code) {
-        case "layer-invalid": return text(FAILURES.layerInvalid);
-        case "write-failed": return text(FAILURES.writeFailed);
-        case "unavailable": return text(FAILURES.unavailable);
-        case "invalid-value": return text(FAILURES.invalidValue);
-        case "unknown-outcome": return text(FAILURES.unknownOutcome);
-        case "conflict": return text(FAILURES.conflict);
-        default: return text(FAILURES.other);
+        case "layer-invalid": return failure("writeFailure.layerInvalid");
+        case "write-failed": return failure("writeFailure.writeFailed");
+        case "unavailable": return failure("writeFailure.unavailable");
+        case "invalid-value": return failure("writeFailure.invalidValue");
+        case "unknown-outcome": return failure("writeFailure.unknownOutcome");
+        case "conflict": return failure("writeFailure.conflict");
+        default: return failure("writeFailure.other");
     }
 }
 
@@ -64,19 +49,19 @@ export function settingChoices(declaration: WrittenSettingDeclaration, text: Tex
 }
 
 /** 值的一行摘要：沿用提示、覆盖提示与只读显示用。 */
-export function settingValueText(declaration: WrittenSettingDeclaration, value: unknown, locale: DisplayLocale, text: TextResolver): string {
+export function settingValueText(declaration: WrittenSettingDeclaration, value: unknown, text: TextResolver): string {
     const choice = settingChoices(declaration, text)?.find((candidate) => candidate.value === value);
     if (choice !== undefined) return choice.label;
-    if (typeof value === "boolean") return localize(value ? TEXT.on : TEXT.off, locale);
+    if (typeof value === "boolean") return text.t(settingsUiText(value ? "value.on" : "value.off"));
     if (typeof value === "number") return String(value);
-    if (typeof value === "string") return value === "" ? localize(TEXT.empty, locale) : abbreviate(value);
-    if (Array.isArray(value)) return localize(formatText(TEXT.items, {count: value.length}), locale);
+    if (typeof value === "string") return value === "" ? text.t(settingsUiText("value.empty")) : abbreviate(value);
+    if (Array.isArray(value)) return text.t(settingsUiText("value.items", {count: value.length}));
     return abbreviate(JSON.stringify(value) ?? "");
 }
 
 /** `applies` 不是 `now` 时标在标题后的文字。 */
-export function settingAppliesText(applies: SettingApplies, locale: DisplayLocale): string | null {
-    return applies === "now" ? null : localize(APPLIES[applies], locale);
+export function settingAppliesText(applies: SettingApplies, text: TextResolver): string | null {
+    return applies === "now" ? null : text.t(settingsUiText(APPLIES[applies]));
 }
 
 function abbreviate(text: string): string {

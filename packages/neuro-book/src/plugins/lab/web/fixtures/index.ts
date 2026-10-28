@@ -66,6 +66,7 @@ import type {LabInputOf, LabJsonPropOf, LabSlotOf, LabSubjectProps} from "../lab
 
 import {EXPLORER_ROWS, manyRows, UNBOUND_ROWS} from "./explorer-rows";
 import {withExplorerText} from "./explorer-scene/explorer-text";
+import {withSettingsText} from "./settings-scene/settings-text";
 import {withNbookMarkdownHost} from "./markdown-host";
 import {nbAgentUiFixtures} from "./nb-agent-ui";
 import {nbFormFixtures} from "./nb-form";
@@ -1063,7 +1064,7 @@ function shelfFixtures(): LabFixture[] {
  * （`settings-scene/`）：产品里同一个窗口模型与配置实例，配置层换成内存里的拥有者。
  */
 function settingsFixtures(): LabFixture[] {
-    const row = (setting: typeof appearanceSetting | typeof themeSetting | typeof localeSetting | typeof snippetsSettings.items | typeof rowDemoSettings.workers | typeof rowDemoSettings.library | typeof rowDemoSettings.mode, layer: "user" | "project", wide = false) => ({setting, layer, locale: "zh-CN" as const, projectTitle: "雾港", wide});
+    const row = (setting: typeof appearanceSetting | typeof themeSetting | typeof localeSetting | typeof snippetsSettings.items | typeof rowDemoSettings.workers | typeof rowDemoSettings.library | typeof rowDemoSettings.mode, layer: "user" | "project", wide = false) => ({setting, layer, projectTitle: "雾港", wide});
     /** 状态原因：出错、警告、淡色各一条，看图标取最重的色调、提示逐条列出。 */
     const reasons = [
         {tone: "error" as const, text: "未保存：取值范围为 1–8"},
@@ -1106,17 +1107,16 @@ function settingsFixtures(): LabFixture[] {
             ],
             load: async () => (await import("./SettingsPageActionsFixture.vue")).default,
         }),
-        defineSubjectFixture<typeof SettingsSaveBar>({
+        defineLabFixture<typeof SettingsSaveBar>({
             component: "SettingsSaveBar",
-            class: "w-full",
             scenes: [
-                {id: "clean", label: "没有改动：两个按钮停用，不写字", input: {props: {locale: "zh-CN", dirty: false, busy: false}}},
-                {id: "dirty", label: "有改动：缺省文字，按钮可用", input: {props: {locale: "zh-CN", dirty: true, busy: false}}},
-                {id: "busy", label: "保存中：按钮停用", input: {props: {locale: "zh-CN", dirty: true, busy: true}}},
-                {id: "message", label: "自定义文字", input: {props: {locale: "zh-CN", dirty: true, busy: false, message: "还没保存：“接口地址”还没有填写"}}},
-                {id: "english", label: "英文界面", input: {props: {locale: "en-US", dirty: true, busy: false}}},
+                {id: "clean", label: "没有改动：两个按钮停用，不写字", input: {props: {dirty: false, busy: false}}},
+                {id: "dirty", label: "有改动：缺省文字，按钮可用", input: {props: {dirty: true, busy: false}}},
+                {id: "busy", label: "保存中：按钮停用", input: {props: {dirty: true, busy: true}}},
+                {id: "message", label: "自定义文字", input: {props: {dirty: true, busy: false, message: "还没保存：“接口地址”还没有填写"}}},
+                {id: "english", label: "英文界面", input: {props: {dirty: true, busy: false}}},
             ],
-            subject: () => import("nbook/ui/settings/SettingsSaveBar.vue"),
+            load: async () => withSettingsText(createSubjectFixture<typeof SettingsSaveBar>((await import("nbook/ui/settings/SettingsSaveBar.vue")).default, {class: "w-full"})),
         }),
         defineSubjectFixture<typeof HighlightedText>({
             component: "HighlightedText",

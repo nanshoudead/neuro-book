@@ -231,7 +231,7 @@ async function save(anyway = false): Promise<void> {
         if (result.ok) {
             reset(saved.value);
             await restoreFocus();
-        } else failure.value = TEXT.notWritten.replace("{reason}", settingsFailureText(result.code, result.detail, "zh-CN"));
+        } else failure.value = TEXT.notWritten.replace("{reason}", settingsFailureText(result.code, result.detail, declaredText));
     } finally {
         saving.value = false;
     }
@@ -269,7 +269,7 @@ async function writeNow(setting: SettingDefinition<unknown>, value: unknown): Pr
         <div class="sample-models__body">
             <section v-if="current === null" class="sample-models__group" data-sample-models-general>
                 <h3 class="sample-models__group-title">{{ TEXT.general }}</h3>
-                <SettingsRow v-for="setting in [modelsSettings.defaultModel, modelsSettings.effort]" :key="setting.key" v-slot="row" :settings="settings" :setting="setting" :layer="context.layer.value" locale="zh-CN" :project-title="context.projectTitle.value">
+                <SettingsRow v-for="setting in [modelsSettings.defaultModel, modelsSettings.effort]" :key="setting.key" v-slot="row" :settings="settings" :setting="setting" :layer="context.layer.value" :project-title="context.projectTitle.value">
                     <div class="sample-models__control">
                         <SchemaField
                             :id="row.id"
@@ -329,7 +329,7 @@ async function writeNow(setting: SettingDefinition<unknown>, value: unknown): Pr
                 <Button size="sm" variant="secondary" @click="discard">{{ TEXT.reread }}</Button>
                 <Button size="sm" variant="secondary" :disabled="saving" @click="save(true)">{{ TEXT.saveAnyway }}</Button>
             </p>
-            <SettingsSaveBar locale="zh-CN" :dirty="dirty" :busy="saving" :can-save="writable && !changedElsewhere" :message="failure ?? undefined" @save="save()" @discard="discard" />
+            <SettingsSaveBar :dirty="dirty" :busy="saving" :can-save="writable && !changedElsewhere" :message="failure ?? undefined" @save="save()" @discard="discard" />
         </div>
     </div>
 </template>

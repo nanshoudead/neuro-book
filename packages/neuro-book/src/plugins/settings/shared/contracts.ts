@@ -15,14 +15,14 @@ import {Type} from "typebox";
 
 import type {CommandFailureCode, CommandResult} from "nbook/plugins/commands/shared/contracts";
 import type {QuickPick} from "nbook/plugins/workbench/shared/contracts";
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/localized-text";
+import type {DisplayLocale, DisplayText, TextResolver} from "nbook/shared/localized-text";
 import {HOST_LOCALES, hostLocaleSchema} from "nbook/shared/host-locales";
 import type {HostLocale} from "nbook/shared/host-locales";
 import {defineSetting, SETTINGS_FAILURES, SETTINGS_POINT} from "nbook/shared/settings";
 import type {SettingDefinition, SettingsFailure, SettingsService} from "nbook/shared/settings";
 
-import type {SettingsSectionDeclaration} from "./sections";
+import type {WrittenSettingsSectionDeclaration} from "./sections";
+import {settingsText} from "./text";
 
 export {SETTINGS_POINT};
 export {SETTINGS_CHOICES_ACTIVATION_PREFIX, SETTINGS_CHOICES_POINT, SETTINGS_PAGE_ACTIVATION_PREFIX, SETTINGS_PAGES_POINT, SETTINGS_SECTION_CATEGORIES, SETTINGS_SECTIONS_POINT, settingsChoicesEvent, settingsPageEvent} from "./sections";
@@ -40,16 +40,13 @@ export const SETTINGS_WINDOW_OPEN_KEY = "nbook.settings/windowOpen";
 export const APPEARANCE_SECTION = "nbook.appearance";
 
 /** 外观分区：工作台的主题、明暗（小组 ui）与本插件的界面语言（小组 language）按 `section` 指向它。 */
-export const APPEARANCE_SECTION_DECLARATION: SettingsSectionDeclaration = {
-    title: {"zh-CN": "外观", "en-US": "Appearance"},
-    description: {"zh-CN": "界面的主题、明暗与语言", "en-US": "Theme, appearance and language of the interface"},
+export const APPEARANCE_SECTION_DECLARATION: WrittenSettingsSectionDeclaration = {
+    // 标题与小组标题省略，登记时补约定键 settingsSections.nbook.appearance.*；描述是可选字段，要写出来。
+    description: settingsText("settingsSections.nbook.appearance.description"),
     icon: "i-lucide-palette",
     category: "app",
     order: 10,
-    groups: [
-        {id: "ui", title: {"zh-CN": "界面", "en-US": "Interface"}},
-        {id: "language", title: {"zh-CN": "语言", "en-US": "Language"}},
-    ],
+    groups: [{id: "ui"}, {id: "language"}],
 };
 
 /**
@@ -62,7 +59,6 @@ export function localeSettingFor(locales: readonly HostLocale[]): SettingDefinit
         name: "locale",
         schema: hostLocaleSchema(locales),
         default: "zh-CN",
-        title: {"zh-CN": "界面语言", "en-US": "Display Language"},
         layers: ["user"],
         section: APPEARANCE_SECTION,
         group: "language",
@@ -143,12 +139,6 @@ export interface SettingChoice<T extends string> {
     readonly label: DisplayText;
 }
 
-const COMMAND_TEXT = {
-    current: {"zh-CN": "当前", "en-US": "current"},
-    placeholder: {"zh-CN": "选中后立即生效", "en-US": "Takes effect immediately"},
-    failed: {"zh-CN": "配置写入失败（{code}）：{detail}", "en-US": "Settings write failed ({code}): {detail}"},
-} satisfies Record<string, LocalizedText>;
-
 /**
  * 三条设置命令（切换界面语言、主题、明暗）共用的执行：给了值就直接写，不打开选择；没给时经命令面板的选择模式列出
  * 选项，取消为成功、无副作用。写入失败按 docs/specs/workbench/commands.md 的“命令目录（设置）”转换为命令失败。
@@ -161,6 +151,8 @@ export async function switchSetting<T extends string>(options: {
     readonly choices: ReadonlyArray<SettingChoice<T>>;
     /** 选择的标题，通常就是命令的标题。 */
     readonly title: DisplayText;
+    /** 解析失败原因里的目录文字；原因进命令结果，是给人读的字符串。 */
+    readonly text: TextResolver;
 }): Promise<CommandResult<null>> {
     const {settings, setting} = options;
     let value = options.value;
@@ -168,8 +160,8 @@ export async function switchSetting<T extends string>(options: {
         const current = settings.get(setting) as T;
         const picked = await options.quickPick.pick({
             title: options.title,
-            placeholder: COMMAND_TEXT.placeholder,
-            items: options.choices.map((choice) => ({id: choice.id, label: choice.label, ...(choice.id === current ? {detail: COMMAND_TEXT.current} : {})})),
+            placeholder: settingsText("switch.placeholder"),
+            items: options.choices.map((choice) => ({id: choice.id, label: choice.label, ...(choice.id === current ? {detail: settingsText("switch.current")} : {})})),
         });
         if (picked.kind === "cancelled") return {ok: true, value: null};
         if (picked.kind === "unavailable") return {ok: false, code: "unavailable", reason: picked.reason};
@@ -179,7 +171,7 @@ export async function switchSetting<T extends string>(options: {
     }
     const result = await settings.update(setting, value);
     if (result.ok) return {ok: true, value: null};
-    const reason = localize(formatText(COMMAND_TEXT.failed, {code: result.code, detail: result.detail}), displayLocale(settings));
+    const reason = options.text.t(settingsText("switch.failed", {code: result.code, detail: result.detail}));
     return {ok: false, code: COMMAND_FAILURES[result.code], reason};
 }
 

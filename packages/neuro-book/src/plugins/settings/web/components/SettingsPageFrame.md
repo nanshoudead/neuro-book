@@ -1,5 +1,5 @@
 ---
-标签: []
+标签: [state:inject]
 别名: ["设置页框", "Settings Page Frame"]
 验证入口: SettingsWindow
 ---
@@ -23,13 +23,11 @@
 
 ```ts
 import type {Component} from "vue";
-import type {DisplayLocale} from "nbook/shared/localized-text";
 import type {SettingsPageContext} from "../contracts";
 import type {SettingsPageDelivery} from "../sections";
 import type {SettingsPageStatus} from "../settings-window";
 
 type Props = {
-    locale: DisplayLocale;
     /** 交付状态；不是 available 时只显示它，不看 status。 */
     delivery: SettingsPageDelivery;
     status: SettingsPageStatus;
@@ -53,3 +51,7 @@ type Emits = {
 ```
 
 没有 slots、expose；attrs 落在根上。根带 `data-settings-page`（分区 id）与 `data-settings-page-state`（交付状态或实例状态）。
+
+## 隐藏通道理由
+
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，固定文字在 `nbook.settings` 的目录里（`plugins/settings/locales/`；`pageFrame.*` 键）；语言随端口切换，不重新挂载，组件没有语言属性。设置窗口里的页面与 SDK 交给第三方插件的设置页都在宿主窗口里，宿主总会登记这份目录。没有宿主注入时得到 nb-ui 的缺省端口，那里没有这份目录，只显示键名，所以测试与 Lab 场景要注入登记了它的宿主引擎端口。

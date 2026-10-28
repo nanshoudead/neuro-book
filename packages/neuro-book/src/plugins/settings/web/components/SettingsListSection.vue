@@ -11,16 +11,18 @@ import {toPointer} from "@notnotype/nb-form";
 import type {FormIssue} from "@notnotype/nb-form";
 import {describeIssues, SchemaField} from "@notnotype/nb-form/vue";
 import type {DraftState, FieldState} from "@notnotype/nb-form/vue";
+import type {TextParams} from "@notnotype/nb-ui/text";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {reactive, watch} from "vue";
 
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {LocalizedText} from "nbook/shared/localized-text";
 import HighlightedText from "nbook/ui/settings/HighlightedText.vue";
 import {settingsRowState} from "nbook/ui/settings/row-state";
 import type {SettingsRowReason} from "nbook/ui/settings/row-state";
 import SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 
 import {settingErrors, settingForm} from "../setting-form";
+import {settingsText} from "../../shared/text";
+import type {SettingsTextKey} from "../../shared/text";
 import type {SettingsSectionView, SettingsWindow} from "../settings-window";
 import type {WindowSetting} from "../window-source";
 
@@ -33,11 +35,8 @@ const props = withDefaults(defineProps<{
     highlight?: ReadonlyArray<string>;
 }>(), {highlight: () => []});
 
-const TEXT = {
-    excludedUser: {"zh-CN": "{titles}仅可在用户设置中修改", "en-US": "{titles}: can only be changed in user settings"},
-    excludedProject: {"zh-CN": "{titles}仅可在本作品中设置", "en-US": "{titles}: can only be set for a book"},
-    notSaved: {"zh-CN": "未保存：{reason}", "en-US": "Not saved: {reason}"},
-} satisfies Record<string, LocalizedText>;
+const port = useText();
+const text = (key: SettingsTextKey, params?: TextParams): string => port.t(settingsText(key, params));
 
 const locale = props.window.locale;
 
@@ -118,15 +117,14 @@ function reasonsOf(setting: WindowSetting): ReadonlyArray<SettingsRowReason> {
     const reasons: SettingsRowReason[] = [];
     const state = fieldStates.get(setting.definition.key);
     const unsaved = notSavedReason(setting, actualValue(setting));
-    if (unsaved !== null) reasons.push({tone: "error", text: localize(formatText(TEXT.notSaved, {reason: unsaved}), locale.value), announced: state?.error === unsaved});
+    if (unsaved !== null) reasons.push({tone: "error", text: text("list.notSaved", {reason: unsaved}), announced: state?.error === unsaved});
     for (const warning of state?.warnings ?? []) reasons.push({tone: "warning", text: warning, announced: true});
     if (state?.status != null) reasons.push({tone: "muted", text: state.status, announced: true});
     return reasons;
 }
 
 function excludedText(titles: ReadonlyArray<string>): string {
-    const separator = locale.value === "zh-CN" ? "、" : ", ";
-    return localize(formatText(props.window.layer.value === "project" ? TEXT.excludedUser : TEXT.excludedProject, {titles: titles.join(separator)}), locale.value);
+    return text(props.window.layer.value === "project" ? "list.excludedUser" : "list.excludedProject", {titles: titles.join(text("list.separator"))});
 }
 </script>
 
@@ -145,7 +143,6 @@ function excludedText(titles: ReadonlyArray<string>): string {
                 :settings="window.editing"
                 :setting="setting.definition"
                 :layer="window.layer.value"
-                :locale="locale"
                 :project-title="window.projectTitle.value"
                 :wide="formOf(setting).wide"
                 :reasons="reasonsOf(setting)"

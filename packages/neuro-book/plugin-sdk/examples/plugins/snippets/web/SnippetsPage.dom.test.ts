@@ -31,13 +31,20 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {definitionAt} from "nbook/manifest";
 import {settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {settingsWorld} from "nbook/plugins/settings/testing/world";
+import {settingsTestText} from "nbook/plugins/settings/testing/text";
 import type {SettingsWorld} from "nbook/plugins/settings/testing/world";
+import {settingsCatalogs} from "nbook/plugins/settings/web/text";
 import type {SettingLayer, SettingsService} from "nbook/shared/settings";
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
 import {descriptor} from "../plugin";
 import {itemsSetting, SNIPPETS_SECTION} from "../shared/contracts";
 import type {Snippet} from "../shared/contracts";
 import SnippetsPage from "./SnippetsPage.vue";
+
+/** 设置行的固定文字取自 `nbook.settings` 的目录（经测试端口），断言也经目录解析。 */
+const port = testTextPort("zh-CN", {"nbook.settings": settingsCatalogs});
+const {t} = settingsTestText("zh-CN");
 
 let tmp = "";
 let cases = 0;
@@ -89,6 +96,7 @@ async function openPage() {
     const layer = ref<SettingLayer>("user");
     const wrapper = mount(SnippetsPage, {
         props: {context: {id: SNIPPETS_SECTION, layer: readonly(layer), projectTitle: readonly(ref("book")), options: {}, writable: readonly(ref(true)), dirty: () => undefined}, settings: probe.settings},
+        global: {provide: provideText(port)},
         attachTo: document.body,
     });
     mounted.push(wrapper);
@@ -145,7 +153,7 @@ describe("片段设置页", () => {
         await flushPromises();
         const row = () => wrapper.find("[data-settings-row]");
         expect(row().attributes("data-settings-row-state")).toBe("inherit");
-        expect(wrapper.find("[data-settings-row-inherited]").text()).toBe("来自用户设置");
+        expect(wrapper.find("[data-settings-row-inherited]").text()).toBe(t("row.inherited"));
         expect(wrapper.findAll("[data-snippet]")).toHaveLength(4);
         expect(wrapper.find<HTMLInputElement>("[data-snippet='0'] input").element.disabled).toBe(false);
 

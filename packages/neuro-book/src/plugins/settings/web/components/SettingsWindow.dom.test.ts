@@ -20,12 +20,19 @@ import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import {appearanceSetting, themeSetting} from "nbook/plugins/workbench/shared/contracts";
 import {defineSetting} from "nbook/shared/settings";
 import type {SettingDefinition} from "nbook/shared/settings";
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 import SettingsPageActions from "nbook/ui/settings/SettingsPageActions.vue";
 import {usePageChrome} from "nbook/ui/settings/page-chrome";
 
+import {settingsTestText} from "../../testing/text";
 import type {SettingsPageContext} from "../contracts";
 import type {SettingsWindow as SettingsWindowModel} from "../settings-window";
+import {settingsCatalogs} from "../text";
 import SettingsWindow from "./SettingsWindow.vue";
+
+/** 窗口里固定的文字取自 `nbook.settings` 的目录（经测试端口）；断言也经目录解析，不在测试里重复写一份文案。 */
+const textPort = (locale: "zh-CN" | "en-US" = "zh-CN") => testTextPort(locale, {"nbook.settings": settingsCatalogs});
+const {t} = settingsTestText("zh-CN");
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -33,8 +40,8 @@ afterEach(() => {
     document.body.innerHTML = "";
 });
 
-function render(model: SettingsWindowModel) {
-    const wrapper = mount(SettingsWindow, {props: {window: model}, attachTo: document.body});
+function render(model: SettingsWindowModel, locale: "zh-CN" | "en-US" = "zh-CN") {
+    const wrapper = mount(SettingsWindow, {props: {window: model}, global: {provide: provideText(textPort(locale))}, attachTo: document.body});
     cleanup.push(() => wrapper.unmount());
     return wrapper;
 }
@@ -85,7 +92,7 @@ describe("SettingsWindow", () => {
         expect(navIds()).toEqual(["nbook.appearance", "example.models.main", "example.snippets.main", "other", "file"]);
         expect(one("[data-settings-nav-current]").dataset.settingsNav).toBe("nbook.appearance");
         expect(document.body.querySelector("[data-settings-tabs]")).not.toBeNull();
-        expect(one("[data-settings-section='nbook.appearance']").textContent).toContain("界面的主题、明暗与语言");
+        expect(one("[data-settings-section='nbook.appearance']").textContent).toContain(t("settingsSections.nbook.appearance.description"));
         expect(all("[data-settings-group]").map((group) => group.dataset.settingsGroup)).toEqual(["ui", "language"]);
         expect(selected(appearanceSetting.key)).toBe("跟随系统");
         // 分段控件与单选组拿不到 `<label for>` 的名字，经 aria-labelledby 指向行的标题。
@@ -106,15 +113,15 @@ describe("SettingsWindow", () => {
         expect(selected(appearanceSetting.key)).toBe("深色");
 
         const tabs = all("[data-settings-tabs] button[role='radio']");
-        tabs.find((button) => button.textContent?.trim() === "本作品")?.click();
+        tabs.find((button) => button.textContent?.trim() === t("window.project"))?.click();
         await flushPromises();
         expect(host.window.layer.value).toBe("project");
         expect(document.body.querySelector("[data-settings-row='nbook.settings/locale']")).toBeNull();
-        expect(one("[data-settings-excluded]").textContent).toBe("界面语言仅可在用户设置中修改");
+        expect(one("[data-settings-excluded]").textContent).toBe(t("list.excludedUser", {titles: t("settings.locale.title")}));
         // 沿用的行照常画控件、显示用户层的值，标“来自用户设置”（输出 12）
         const theme = one(`[data-settings-row="${themeSetting.key}"]`);
         expect(theme.dataset.settingsRowState).toBe("inherit");
-        expect(theme.querySelector("[data-settings-row-inherited]")?.textContent).toBe("来自用户设置");
+        expect(theme.querySelector("[data-settings-row-inherited]")?.textContent).toBe(t("row.inherited"));
         const inherited = selected(themeSetting.key);
         const userBefore = host.user.values();
         const projectBefore = host.project?.values();
@@ -139,31 +146,31 @@ describe("SettingsWindow", () => {
         expect(selected(themeSetting.key)).toBe("macOS");
         segment(themeSetting.key, "NeuroBook").click();
         await flushPromises();
-        expect(notices).toEqual([{tone: "warning", title: "设置没有保存", message: "主题：写不进设置文件（场景让写入失败）"}]);
+        expect(notices).toEqual([{tone: "warning", title: t("model.notSavedTitle"), message: t("model.notSaved", {title: "主题", reason: t("writeFailure.writeFailed", {detail: "场景让写入失败"})})}]);
         expect(selected(themeSetting.key)).toBe("macOS");
         host.user.failWrites("unknown-outcome");
         segment(themeSetting.key, "NeuroBook").click();
         await flushPromises();
-        expect(notices[1]).toEqual({tone: "warning", title: "设置可能没有保存", message: "主题：可能没有保存，以设置文件为准"});
+        expect(notices[1]).toEqual({tone: "warning", title: t("model.unknownTitle"), message: t("model.notSaved", {title: "主题", reason: t("writeFailure.unknownOutcome")})});
     });
 
     it("层文件无效：标题区右侧的警告是按钮，悬停提示写原因、修复前的后果与路径，控件停用；层连不上是不能点的文字；恢复后警告消失", async () => {
         const {host} = await scene("project-invalid");
         const warning = one("[data-settings-layer-notice='invalid']");
         expect(warning.tagName).toBe("BUTTON");
-        expect(warning.textContent).toContain("设置文件格式有误");
-        expect(warning.textContent).toContain("打开");
+        expect(warning.textContent).toContain(t("window.invalid"));
+        expect(warning.textContent).toContain(t("window.openAction"));
         expect(warning.closest("[data-settings-heading]")).not.toBeNull();
         expect(one(`[data-settings-row="${appearanceSetting.key}"]`).dataset.settingsRowBlocked).toBe("");
         warning.focus();
-        await vi.waitFor(() => expect(tooltipLines()).toEqual(["第 3 行第 1 列：缺右花括号 }", "修复前，这一层的设置无法保存", SCENE_PROJECT_FILE]));
+        await vi.waitFor(() => expect(tooltipLines()).toEqual([t("window.invalidAt", {line: 3, column: 1, reason: "缺右花括号 }"}), t("window.cannotSave"), SCENE_PROJECT_FILE]));
         host.project?.setInvalid(null);
         await flushPromises();
         expect(document.body.querySelector("[data-settings-layer-notice]")).toBeNull();
         host.project?.setUnreachable(true);
         await flushPromises();
         const unreachable = one("[data-settings-layer-notice='unavailable']");
-        expect(unreachable.textContent).toContain("暂时无法连接，无法保存");
+        expect(unreachable.textContent).toContain(t("window.unavailable"));
         expect(unreachable.tagName).not.toBe("BUTTON");
         expect(unreachable.querySelector("button")).toBeNull();
         expect(document.body.querySelector("[data-settings-open-file]")).toBeNull();
@@ -185,9 +192,9 @@ describe("SettingsWindow", () => {
         const described = (row: string) => (one(`[data-settings-row='${row}'] #${CSS.escape((one(`[data-settings-row='${row}'] label`) as HTMLLabelElement).htmlFor)}`).getAttribute("aria-describedby") ?? "").split(" ").map((id) => document.getElementById(id)?.textContent ?? "");
         expect(one("[data-settings-row='example.notes/interval'] label").textContent).toBe("保存间隔（秒）");
         const heading = (row: string) => one(`[data-settings-row='${row}'] label`).parentElement!.textContent;
-        expect(heading("example.notes/interval")).toContain("下次会话生效");
-        expect(described("example.notes/interval")).toContain("下次会话生效");
-        expect(heading("example.notes/tags")).toContain("重启后生效");
+        expect(heading("example.notes/interval")).toContain(t("applies.next-session"));
+        expect(described("example.notes/interval")).toContain(t("applies.next-session"));
+        expect(heading("example.notes/tags")).toContain(t("applies.restart"));
         expect(heading("example.notes/autosave")).not.toContain("生效");
         const input = one("[data-settings-row='example.notes/interval'] input") as HTMLInputElement;
         input.value = "1000";
@@ -242,7 +249,7 @@ describe("SettingsWindow", () => {
         remove.click();
         await flushPromises();
         expect([...tags.querySelectorAll<HTMLInputElement>("[data-nb-list-item] input")].map((element) => element.value)).toEqual(["人物", "地点", "伏笔", "对白"]);
-        expect(notices.at(-1)?.title).toBe("设置没有保存");
+        expect(notices.at(-1)?.title).toBe(t("model.notSavedTitle"));
         expect(tags.contains(document.activeElement)).toBe(true);
         expect(tags.querySelector("[aria-live='polite']")?.textContent).toBe("刚才的改动没有生效");
     });
@@ -306,8 +313,8 @@ describe("SettingsWindow", () => {
         // 窗口没有标题栏（输出 16）：“设置”只作可访问名称，关闭按钮在右上角
         const dialog = one("[role='dialog']");
         expect(dialog.querySelector("header.nb-dialog__header")).toBeNull();
-        expect(document.getElementById(dialog.getAttribute("aria-labelledby") ?? "")?.textContent).toBe("设置");
-        one("button[aria-label='关闭']").click();
+        expect(document.getElementById(dialog.getAttribute("aria-labelledby") ?? "")?.textContent).toBe(t("window.title"));
+        one(`button[aria-label='${t("window.close")}']`).click();
         await flushPromises();
         expect(host.window.open.value).toBe(false);
     });
@@ -353,7 +360,7 @@ describe("page 页面的寿命（输出 6）", () => {
         render(created.window);
         await flushPromises();
         expect(one("[data-page-layer]").textContent).toBe("user");
-        all("[data-settings-tabs] button[role='radio']").find((button) => button.textContent?.trim() === "本作品")?.click();
+        all("[data-settings-tabs] button[role='radio']").find((button) => button.textContent?.trim() === t("window.project"))?.click();
         await flushPromises();
         expect(one("[data-page-layer]").textContent).toBe("project");
         expect(counts).toEqual({mounted: 1, unmounted: 0, loads: 1});
@@ -413,7 +420,7 @@ describe("搜索与未保存保护（输出 21、22）", () => {
         input.value = "没有这样的设置";
         input.dispatchEvent(new Event("input"));
         await flushPromises();
-        expect(one("[data-settings-no-results]").textContent).toBe("没有找到设置");
+        expect(one("[data-settings-no-results]").textContent).toBe(t("window.noResults"));
         const escape = new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true});
         input.dispatchEvent(escape);
         await flushPromises();
@@ -444,7 +451,7 @@ describe("搜索与未保存保护（输出 21、22）", () => {
         host.window.search("片段");
         await flushPromises();
         const hit = one("[data-settings-page-hit='example.snippets.main']");
-        expect(hit.getAttribute("aria-label")).toBe("打开：常用片段");
+        expect(hit.getAttribute("aria-label")).toBe(t("window.openHit", {title: "常用片段"}));
         hit.click();
         await flushPromises();
         expect([host.window.query.value, host.window.section.value]).toEqual(["", "example.snippets.main"]);
@@ -477,16 +484,16 @@ describe("搜索与未保存保护（输出 21、22）", () => {
         other.click();
         await flushPromises();
         const dialog = one("[role='alertdialog']");
-        expect(dialog.textContent).toContain("放弃未保存的更改？");
-        expect(dialog.textContent).toContain("“页面”有未保存的更改。离开此页面后，这些更改将会丢失。");
+        expect(dialog.textContent).toContain(t("window.leave.title"));
+        expect(dialog.textContent).toContain(t("window.leave.description", {title: "页面"}));
         expect(created.window.section.value).toBe("x.page.main");
-        [...dialog.querySelectorAll("button")].find((button) => button.textContent?.trim() === "继续编辑")!.click();
+        [...dialog.querySelectorAll("button")].find((button) => button.textContent?.trim() === t("window.leave.keepEditing"))!.click();
         await vi.waitFor(() => expect(document.body.querySelector("[role='alertdialog']")).toBeNull());
         await vi.waitFor(() => expect(document.activeElement).toBe(other));
         expect(created.window.unsaved.value).toBe(true);
         other.click();
         await flushPromises();
-        [...one("[role='alertdialog']").querySelectorAll("button")].find((button) => button.textContent?.trim() === "放弃")!.click();
+        [...one("[role='alertdialog']").querySelectorAll("button")].find((button) => button.textContent?.trim() === t("window.leave.discard"))!.click();
         await flushPromises();
         expect(created.window.section.value).toBe("other");
         expect(created.window.unsaved.value).toBe(false);
@@ -519,23 +526,23 @@ describe("设置文件视图（输出 23）", () => {
         expect(area().value).toContain("// 主题跟着 macOS");
         expect(area().value).toContain("retired.plugin/flag");
         expect(document.getElementById(one("[data-settings-file] label").getAttribute("for")!)).toBe(area());
-        expect(button("保存").disabled).toBe(true);
+        expect(button(t("saveBar.save")).disabled).toBe(true);
         // 没有改动：保存栏的两个按钮在、都停用，不写文字。
-        expect(button("放弃更改").disabled).toBe(true);
+        expect(button(t("saveBar.discard")).disabled).toBe(true);
         expect(document.body.querySelector("[data-settings-save-bar-note]")).toBeNull();
         await type(area().value.replace("120", "90"));
-        expect(one("[data-settings-save-bar-note]").textContent?.trim()).toBe("有未保存的更改");
-        expect([button("放弃更改").disabled, button("保存").disabled]).toEqual([false, false]);
+        expect(one("[data-settings-save-bar-note]").textContent?.trim()).toBe(t("saveBar.unsaved"));
+        expect([button(t("saveBar.discard")).disabled, button(t("saveBar.save")).disabled]).toEqual([false, false]);
         expect(host.window.unsaved.value).toBe(true);
-        button("保存").click();
+        button(t("saveBar.save")).click();
         await flushPromises();
         expect(host.user.values()).toMatchObject({"example.notes/interval": 90});
         expect(host.user.text()).toContain("retired.plugin/flag");
-        expect(button("保存").disabled).toBe(true);
+        expect(button(t("saveBar.save")).disabled).toBe(true);
         expect(document.activeElement).toBe(area());
         expect(host.window.unsaved.value).toBe(false);
         await type("{}");
-        button("放弃更改").click();
+        button(t("saveBar.discard")).click();
         await flushPromises();
         expect(area().value).toBe(host.user.text());
     });
@@ -596,12 +603,12 @@ describe("设置文件视图（输出 23）", () => {
 
         host.user.setText("{\"example.notes/interval\": 300}");
         await flushPromises();
-        expect(one("[data-settings-file-changed]").textContent).toContain("文件已在别处被修改");
+        expect(one("[data-settings-file-changed]").textContent).toContain(t("file.changedElsewhere"));
         expect(area().value).toContain("\"b\": 2");
         await type("{\"example.notes/interval\": 60}");
-        button("保存").click();
+        button(t("saveBar.save")).click();
         await flushPromises();
-        expect(one("[data-settings-file-error]").textContent).toContain("未保存：文件已在别处被修改");
+        expect(one("[data-settings-file-error]").textContent).toContain(t("file.conflict"));
         // 冲突的提示与两个按钮在框上面，不在标题区。
         expect(headingNote()).toBeUndefined();
         expect(host.user.values()).toMatchObject({"example.notes/interval": 300});
@@ -618,14 +625,14 @@ describe("设置文件视图（输出 23）", () => {
         const {host} = await scene("file");
         await vi.waitFor(() => expect(one("[data-settings-file]").dataset.settingsFileState).toBe("ready"));
         await type("{}");
-        expect(button("保存").disabled).toBe(false);
+        expect(button(t("saveBar.save")).disabled).toBe(false);
         host.user.setUnreachable(true);
         await vi.waitFor(() => expect(host.window.layerNotice.value?.kind).toBe("unavailable"));
         expect(area().readOnly).toBe(true);
         // 放弃只丢本地草稿，不需要连上。
-        expect([button("放弃更改").disabled, button("保存").disabled]).toEqual([false, true]);
+        expect([button(t("saveBar.discard")).disabled, button(t("saveBar.save")).disabled]).toEqual([false, true]);
         host.user.setUnreachable(false);
-        await vi.waitFor(() => expect(button("保存").disabled).toBe(false));
+        await vi.waitFor(() => expect(button(t("saveBar.save")).disabled).toBe(false));
     });
 
     it("Tab 插入两个空格，Esc 之后的 Tab 照常移走焦点；有改动时离开先确认", async () => {
@@ -654,7 +661,7 @@ describe("设置文件视图（输出 23）", () => {
         await vi.waitFor(() => expect(one("[data-settings-file]").dataset.settingsFileState).toBe("ready"));
         expect(area().value.trim().endsWith("}")).toBe(false);
         await type("{\"nbook.workbench/appearance\": \"dark\"}");
-        button("保存").click();
+        button(t("saveBar.save")).click();
         await flushPromises();
         expect(host.window.layerNotice.value).toBeNull();
         expect(document.body.querySelector("[data-settings-layer-notice]")).toBeNull();
@@ -722,11 +729,11 @@ describe("Lab“模型服务”：一张列表加下一级页面、草稿、未�
         expect(document.body.querySelector("[data-sample-models-general]")).toBeNull();
         expect(titleText()).toBe("本地 Ollama");
         expect(one("[data-settings-heading-back]").textContent?.trim()).toBe("模型服务");
-        expect(one("[data-settings-heading-back]").getAttribute("aria-label")).toBe("返回 模型服务");
+        expect(one("[data-settings-heading-back]").getAttribute("aria-label")).toBe(t("window.back", {title: "模型服务"}));
         expect(detailInputs()[1]!.value).toBe("本地 Ollama");
         // 详情里一直有保存栏，没有改动时两个按钮停用。
-        expect(action("保存").disabled).toBe(true);
-        expect(action("放弃更改").disabled).toBe(true);
+        expect(action(t("saveBar.save")).disabled).toBe(true);
+        expect(action(t("saveBar.discard")).disabled).toBe(true);
         await goBack();
         expect(titleText()).toBe("模型服务");
         expect(document.body.querySelector("[data-settings-heading-back]")).toBeNull();
@@ -790,7 +797,7 @@ describe("Lab“模型服务”：一张列表加下一级页面、草稿、未�
         expect(titleText()).toBe("未命名的服务商");
         expect(host.window.unsaved.value).toBe(true);
         expect(providers(host)).toHaveLength(2);
-        action("保存").click();
+        action(t("saveBar.save")).click();
         await flushPromises();
         expect(one("[data-settings-save-bar-note]").textContent).toMatch(/^还没保存：/u);
         expect(providers(host)).toHaveLength(2);
@@ -800,11 +807,11 @@ describe("Lab“模型服务”：一张列表加下一级页面、草稿、未�
         await fill(baseUrl!, "https://api.openai.com/v1");
         await fill(timeout!, "30");
         expect(titleText()).toBe("OpenAI");
-        action("保存").click();
+        action(t("saveBar.save")).click();
         await flushPromises();
         expect(providers(host)?.map((provider) => provider.id)).toEqual(["deepseek", "local", "openai"]);
         expect(host.window.unsaved.value).toBe(false);
-        expect(action("保存").disabled).toBe(true);
+        expect(action(t("saveBar.save")).disabled).toBe(true);
         expect(document.activeElement).toBe(detailInputs()[0]);
     });
 
@@ -816,7 +823,7 @@ describe("Lab“模型服务”：一张列表加下一级页面、草稿、未�
         await flushPromises();
         expect(listTitles()).toEqual(["本地 Ollama"]);
         expect(titleText()).toBe("模型服务");
-        action("放弃更改").click();
+        action(t("saveBar.discard")).click();
         await flushPromises();
         expect(listTitles()).toEqual(["DeepSeek", "本地 Ollama"]);
         expect(host.window.unsaved.value).toBe(false);
@@ -824,7 +831,7 @@ describe("Lab“模型服务”：一张列表加下一级页面、草稿、未�
         await pick("DeepSeek");
         headingAction("[data-sample-models-remove]").click();
         await flushPromises();
-        action("保存").click();
+        action(t("saveBar.save")).click();
         await flushPromises();
         expect(providers(host)?.map((provider) => provider.id)).toEqual(["local"]);
         expect(host.user.values()["example.models/defaultModel"]).toBe("deepseek/deepseek-chat");
@@ -839,7 +846,7 @@ describe("Lab“模型服务”：一张列表加下一级页面、草稿、未�
         expect(host.window.unsaved.value).toBe(true);
         one("[data-settings-nav='nbook.appearance']").click();
         await flushPromises();
-        [...one("[role='alertdialog']").querySelectorAll("button")].find((button) => button.textContent?.trim() === "放弃")!.click();
+        [...one("[role='alertdialog']").querySelectorAll("button")].find((button) => button.textContent?.trim() === t("window.leave.discard"))!.click();
         await flushPromises();
         expect(host.window.section.value).toBe("nbook.appearance");
         // 页面卸载，标题区也不再带着上一页的“‹ 模型服务”。
@@ -925,7 +932,7 @@ describe("实现审查补的用例（Sonnet 第 1、2、9、10、13 条，第 5 
         key(area(), {key: "Tab"});
         await flushPromises();
         expect(area().value).toBe("{\n      \"example.notes/interval\": 120\n}\n");
-        all("[data-settings-file] button").find((element) => element.textContent?.trim() === "保存")!.click();
+        all("[data-settings-file] button").find((element) => element.textContent?.trim() === t("saveBar.save"))!.click();
         await flushPromises();
         expect(host.user.text()).toBe("{\r\n      \"example.notes/interval\": 120\r\n}\r\n");
     });
@@ -954,7 +961,7 @@ describe("实现审查补的用例（Sonnet 第 1、2、9、10、13 条，第 5 
         search.value = "语言";
         search.dispatchEvent(new Event("input"));
         await flushPromises();
-        [...one("[role='alertdialog']").querySelectorAll("button")].find((button) => button.textContent?.trim() === "放弃")!.click();
+        [...one("[role='alertdialog']").querySelectorAll("button")].find((button) => button.textContent?.trim() === t("window.leave.discard"))!.click();
         await flushPromises();
         expect(host.window.query.value).toBe("语言");
         await vi.waitFor(() => expect(document.activeElement).toBe(one("[data-settings-search] input")));
@@ -974,9 +981,9 @@ describe("实现审查补的用例（Sonnet 第 1、2、9、10、13 条，第 5 
         await host.service("example.models").update(modelsSettings.providers, [{id: "other", name: "别处加的", baseUrl: "https://example.com", timeout: 10}], {layer: "user"});
         await flushPromises();
         expect(one("[data-sample-models-changed]").textContent).toContain("别处改过了");
-        const save = all("[data-sample-models-bar] button").find((element) => element.textContent?.trim() === "保存") as HTMLButtonElement;
+        const save = all("[data-sample-models-bar] button").find((element) => element.textContent?.trim() === t("saveBar.save")) as HTMLButtonElement;
         expect(save.disabled).toBe(true);
-        (all("[data-sample-models-changed] button").find((element) => element.textContent?.trim() === "仍然保存") as HTMLButtonElement).click();
+        (all("[data-sample-models-changed] button").find((element) => element.textContent?.trim() === t("file.saveAnyway")) as HTMLButtonElement).click();
         await flushPromises();
         expect((host.user.values()["example.models/providers"] as ReadonlyArray<{readonly name: string}>).map((provider) => provider.name)).toEqual(["深度求索", "本地 Ollama"]);
         expect(document.body.querySelector("[data-sample-models-changed]")).toBeNull();
@@ -1062,7 +1069,7 @@ describe("标题区：层警告、定位与页面级操作（输出 3、13、19�
         host.window.select("nbook.appearance");
         await flushPromises();
         const warning = one("[data-settings-layer-notice='invalid']");
-        expect(warning.textContent).toContain("设置文件格式有误");
+        expect(warning.textContent).toContain(t("window.invalid"));
         warning.focus();
         await vi.waitFor(() => expect(tooltipLines()[0]).toMatch(/^第 3 行第 5 列：/u));
         expect(tooltipLines().slice(1)).toEqual(["修复前，这一层的设置无法保存"]);
@@ -1086,7 +1093,7 @@ describe("标题区：层警告、定位与页面级操作（输出 3、13、19�
         area().value = "{\"nbook.workbench/theme\": \"macos\"}";
         area().dispatchEvent(new Event("input"));
         await flushPromises();
-        const save = all("[data-settings-file] button").find((element) => element.textContent?.trim() === "保存") as HTMLButtonElement;
+        const save = all("[data-settings-file] button").find((element) => element.textContent?.trim() === t("saveBar.save")) as HTMLButtonElement;
         save.click();
         await flushPromises();
         expect(document.body.querySelector("[data-settings-layer-notice]")).toBeNull();
@@ -1160,17 +1167,17 @@ describe("标题区：层警告、定位与页面级操作（输出 3、13、19�
         warning.click();
         await flushPromises();
         const dialog = one("[role='alertdialog']");
-        expect(dialog.textContent).toContain("放弃未保存的更改？");
-        expect(dialog.textContent).toContain("“页面”有未保存的更改。离开此页面后，这些更改将会丢失。");
+        expect(dialog.textContent).toContain(t("window.leave.title"));
+        expect(dialog.textContent).toContain(t("window.leave.description", {title: "页面"}));
         expect([created.window.section.value, created.window.fileLocation.value]).toEqual(["x.page.main", null]);
-        [...dialog.querySelectorAll("button")].find((button) => button.textContent?.trim() === "继续编辑")!.click();
+        [...dialog.querySelectorAll("button")].find((button) => button.textContent?.trim() === t("window.leave.keepEditing"))!.click();
         await vi.waitFor(() => expect(document.body.querySelector("[role='alertdialog']")).toBeNull());
         expect([created.window.section.value, created.window.fileLocation.value, created.window.unsaved.value]).toEqual(["x.page.main", null, true]);
         expect(document.body.querySelector("[data-dirty-page]")).not.toBeNull();
 
         one("[data-settings-open-file]").click();
         await flushPromises();
-        [...one("[role='alertdialog']").querySelectorAll("button")].find((button) => button.textContent?.trim() === "放弃")!.click();
+        [...one("[role='alertdialog']").querySelectorAll("button")].find((button) => button.textContent?.trim() === t("window.leave.discard"))!.click();
         await flushPromises();
         expect(created.window.section.value).toBe("file");
         await ready();
@@ -1299,7 +1306,7 @@ describe("标题区：层警告、定位与页面级操作（输出 3、13、19�
         await vi.waitFor(() => expect(document.body.querySelector("[data-claim-page]")).not.toBeNull());
         await claim("深层 A");
         // 切标签：页面不重建，标题替换还在。
-        all("[data-settings-tabs] button[role='radio']").find((button) => button.textContent?.trim() === "本作品")?.click();
+        all("[data-settings-tabs] button[role='radio']").find((button) => button.textContent?.trim() === t("window.project"))?.click();
         await flushPromises();
         expect(events).toEqual([]);
         expect(titleText()).toBe("深层 A");
@@ -1307,7 +1314,7 @@ describe("标题区：层警告、定位与页面级操作（输出 3、13、19�
         one("[data-settings-nav='other']").click();
         await flushPromises();
         expect(events).toEqual(["unmount"]);
-        expect(titleText()).toBe("插件设置");
+        expect(titleText()).toBe(t("model.otherTitle"));
         one("[data-settings-nav='x.page.main']").click();
         await flushPromises();
         await vi.waitFor(() => expect(document.body.querySelector("[data-claim-page]")).not.toBeNull());
@@ -1408,7 +1415,7 @@ describe("左栏、搜索结果与命中高亮（输出 1、21）", () => {
     it("左栏三组的上方各有一个组标题，顺序是通用、写作助手、扩展；组标题之后才是这一组的分区；不再有分隔线", async () => {
         await scene("user");
         const order = all("[data-settings-nav-label], [data-settings-nav]").map((element) => element.dataset.settingsNavLabel === undefined ? element.dataset.settingsNav : `组：${element.textContent}`);
-        expect(order).toEqual(["组：通用", "nbook.appearance", "组：写作助手", "example.models.main", "组：扩展", "example.snippets.main", "other", "file"]);
+        expect(order).toEqual([`组：${t("window.groups.app")}`, "nbook.appearance", `组：${t("window.groups.ai")}`, "example.models.main", `组：${t("window.groups.plugins")}`, "example.snippets.main", "other", "file"]);
         expect(document.body.querySelector("[data-settings-nav-separator]")).toBeNull();
     });
 
@@ -1426,19 +1433,21 @@ describe("左栏、搜索结果与命中高亮（输出 1、21）", () => {
         });
         cleanup.push(() => created.dispose());
         created.window.openWindow({section: "other"});
-        render(created.window);
+        render(created.window, "en-US");
         await flushPromises();
-        expect(all("[data-settings-nav-label]").map((label) => label.textContent)).toEqual(["General", "Writing assistant", "Extensions"]);
-        expect(one("[data-settings-nav='other']").textContent?.trim()).toBe("Plugin Settings");
-        expect(one("[data-settings-heading] h2").textContent).toBe("Plugin Settings");
-        expect(one("[data-settings-heading-description]").textContent).toBe("Settings from plugins that have no section of their own");
+        const english = settingsTestText("en-US").t;
+        expect(all("[data-settings-nav-label]").map((label) => label.textContent)).toEqual([english("window.groups.app"), english("window.groups.ai"), english("window.groups.plugins")]);
+        expect(one("[data-settings-nav='other']").textContent?.trim()).toBe(english("model.otherTitle"));
+        expect(one("[data-settings-heading] h2").textContent).toBe(english("model.otherTitle"));
+        expect(one("[data-settings-heading-description]").textContent).toBe(english("model.otherDescription"));
+        expect(english("model.otherTitle")).not.toBe(t("model.otherTitle"));
 
         cleanup.splice(0).forEach((dispose) => dispose());
         document.body.innerHTML = "";
         await scene("other");
-        expect(one("[data-settings-nav='other']").textContent?.trim()).toBe("插件设置");
-        expect(one("[data-settings-heading] h2").textContent).toBe("插件设置");
-        expect(one("[data-settings-heading-description]").textContent).toBe("未提供独立分区的插件设置");
+        expect(one("[data-settings-nav='other']").textContent?.trim()).toBe(t("model.otherTitle"));
+        expect(one("[data-settings-heading] h2").textContent).toBe(t("model.otherTitle"));
+        expect(one("[data-settings-heading-description]").textContent).toBe(t("model.otherDescription"));
     });
 
     it("左栏的分区是列表行：当前项标 aria-current、悬停与按下都没有缩放（类与行内样式里没有 scale）", async () => {
@@ -1472,8 +1481,8 @@ describe("左栏、搜索结果与命中高亮（输出 1、21）", () => {
         expect(hits.map((hit) => hit.dataset.settingsPageHit)).toEqual(["x.snippets.main"]);
         expect(hits[0]!.tagName).toBe("BUTTON");
         expect(hits[0]!.textContent).toContain("常用片段");
-        expect(hits[0]!.textContent?.trim().endsWith("打开")).toBe(true);
-        expect(one("[data-settings-result-count]").textContent).toBe("2 个设置、1 个页面");
+        expect(hits[0]!.textContent?.trim().endsWith(t("window.openAction"))).toBe(true);
+        expect(one("[data-settings-result-count]").textContent).toBe(t("window.results", {settings: 2, pages: 1}));
     });
 
     it("高亮：标题与说明各自标出命中的字，每个词的所有命中都标；文本总值不变，list 行与页面命中都一样", async () => {

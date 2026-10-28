@@ -24,6 +24,7 @@ import {pluginsBrowserPlugin} from "nbook/plugins/plugins/web/plugin";
 import {pluginsCatalogs} from "nbook/plugins/plugins/web/text";
 import {projectsBrowserPlugin} from "nbook/plugins/projects/web/plugin";
 import {settingsBrowserPlugin} from "nbook/plugins/settings/web/plugin";
+import {settingsCatalogs} from "nbook/plugins/settings/web/text";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
 import {storageBrowserPlugin} from "nbook/plugins/storage/web/plugin";
 import {workbenchBrowserPlugin} from "nbook/plugins/workbench/web/plugin";
@@ -79,6 +80,7 @@ export interface BuiltinCatalogs {
 export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = {
     "nbook.explorer": explorerCatalogs,
     "nbook.plugins": pluginsCatalogs,
+    "nbook.settings": settingsCatalogs,
 };
 
 /** 本外壳构建进去的浏览器插件：清单中有浏览器运行位置的插件，加上只有顶层声明式贡献的插件（只登记它们的声明）。 */

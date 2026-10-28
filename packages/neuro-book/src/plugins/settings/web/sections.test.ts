@@ -32,6 +32,7 @@ import {descriptor} from "../plugin";
 import {SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT} from "../shared/contracts";
 import type {SettingsPageDeclaration, SettingsSectionDeclaration} from "../shared/contracts";
 import {validatePageContribution} from "../shared/sections";
+import {settingsText} from "../shared/text";
 import type {SettingsPageImplementation} from "./contracts";
 import {settingsBrowserCore} from "./plugin";
 import {settingsWindowSourceKey} from "./window-source";
@@ -250,12 +251,16 @@ describe("分区目录与交付状态", () => {
             plugin: "nbook.settings",
             kind: "list",
             declaration: {
-                title: {"zh-CN": "外观", "en-US": "Appearance"},
-                description: {"zh-CN": "界面的主题、明暗与语言", "en-US": "Theme, appearance and language of the interface"},
+                // 标题没写，登记时补成约定键；描述是可选字段，写了的就是它自己。
+                title: settingsText("settingsSections.nbook.appearance.title"),
+                description: settingsText("settingsSections.nbook.appearance.description"),
                 icon: "i-lucide-palette",
                 category: "app",
                 order: 10,
-                groups: [{id: "ui", title: {"zh-CN": "界面", "en-US": "Interface"}}, {id: "language", title: {"zh-CN": "语言", "en-US": "Language"}}],
+                groups: [
+                    {id: "ui", title: settingsText("settingsSections.nbook.appearance.groups.ui.title")},
+                    {id: "language", title: settingsText("settingsSections.nbook.appearance.groups.language.title")},
+                ],
             },
         });
         expect(source.delivery("nbook.appearance")).toEqual({kind: "available"});

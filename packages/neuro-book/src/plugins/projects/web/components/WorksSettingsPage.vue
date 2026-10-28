@@ -88,7 +88,6 @@ async function pick(path: string): Promise<void> {
             :settings="settings"
             :setting="librarySetting"
             :layer="layer"
-            :locale="locale"
             @write-failed="(failure) => emit('write-failed', {code: failure.code, detail: failure.detail})"
         >
             <span v-if="shown(row.value) !== ''" class="works-settings__path" data-works-library>{{ shown(row.value) }}</span>

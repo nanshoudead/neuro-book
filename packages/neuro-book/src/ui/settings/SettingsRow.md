@@ -1,5 +1,5 @@
 ---
-标签: [state:local]
+标签: [state:local, state:inject]
 别名: ["设置行", "Settings Row"]
 ---
 
@@ -34,7 +34,6 @@
 ## 数据
 
 ```ts
-import type {DisplayLocale} from "nbook/shared/localized-text";
 import type {SettingDefinition, SettingLayer, SettingsFailure, SettingsService} from "nbook/shared/settings";
 
 type Props = {
@@ -44,8 +43,6 @@ type Props = {
     setting: SettingDefinition<unknown>;
     /** 当前标签，即编辑哪一层。必填、受控。 */
     layer: SettingLayer;
-    /** 显示语言。必填。 */
-    locale: DisplayLocale;
     /** 窗口绑定的作品的书名；覆盖提示里用它，缺省 null 时写“本作品”。 */
     projectTitle?: string | null;
     /** 宽排法；缺省 false。 */
@@ -98,3 +95,8 @@ type Slots = {
 - 状态原因的图标与提示和 nb-form 的字段外壳（`ui.forms` 输出 14）是同一套画法；`SettingsListSection` 把字段经 `field-state` 交出的警告与状态、自己算的“未保存”合成 `reasons` 传进来，页面自己画控件时按同样的办法传。
 - 写入经 `settings` 发出，`settings` 是调用方经属性传入、可替换的入口，不是组件自己伸出去的通道；页面传自己插件的配置服务时，它只能写自己插件声明的项（[`settings.configuration`](../../../../../docs/specs/settings/configuration.md) 输出 11）。
 - 控件改值后要写进与 `layer` 相同的层（`update(setting, value, {layer})`），否则“已修改”与控件显示的值对不上。
+
+## 隐藏通道理由
+
+- `state:local`：控件是否有焦点只用来决定状态原因的提示显不显示，不保存业务状态；值与层的状态都读配置服务。
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，固定文字在 `nbook.settings` 的目录里（`plugins/settings/locales/`；键表见 `ui/settings/text.ts`）；语言随端口切换，不重新挂载，组件没有语言属性。设置窗口里的页面与 SDK 交给第三方插件的设置页都在宿主窗口里，宿主总会登记这份目录。没有宿主注入时得到 nb-ui 的缺省端口，那里没有这份目录，只显示键名，所以测试与 Lab 场景要注入登记了它的宿主引擎端口。

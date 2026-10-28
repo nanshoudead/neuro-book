@@ -1,0 +1,175 @@
+{
+    "settingsSections": {
+        "nbook": {
+            "appearance": {
+                "title": "外观",
+                "description": "界面的主题、明暗与语言",
+                "groups": {
+                    "ui": {
+                        "title": "界面"
+                    },
+                    "language": {
+                        "title": "语言"
+                    }
+                }
+            }
+        }
+    },
+    "settings": {
+        "locale": {
+            "title": "界面语言"
+        }
+    },
+    "switch": {
+        "current": "当前",
+        "placeholder": "选中后立即生效",
+        "failed": "配置写入失败（{{code}}）：{{detail}}"
+    },
+    "commands": {
+        "switch-locale": {
+            "title": "切换界面语言"
+        },
+        "category": "设置",
+        "open": {
+            "title": "打开设置"
+        }
+    },
+    "state": {
+        "windowOpen": {
+            "reason": "设置窗口没有打开"
+        }
+    },
+    "activityItems": {
+        "nbook": {
+            "settings": {
+                "title": "设置"
+            }
+        }
+    },
+    "model": {
+        "otherTitle": "插件设置",
+        "otherDescription": "未提供独立分区的插件设置",
+        "userOnlySection": "这个分区的设置仅可在用户设置中修改",
+        "projectOnlySection": "这个分区的设置仅可在本作品中设置",
+        "emptySection": "这个分区还没有设置项",
+        "unknownSection": "设置里没有分区 {{section}}",
+        "noProject": "这个窗口没有打开作品，没有本作品的设置",
+        "notSavedTitle": "设置没有保存",
+        "unknownTitle": "设置可能没有保存",
+        "notSaved": "{{title}}：{{reason}}",
+        "searchTitle": "搜索结果",
+        "fileTitle": "设置文件",
+        "fileDescription": "直接编辑这一层的设置文件（JSON，可以写注释）",
+        "fileKeyword": "settings.json"
+    },
+    "window": {
+        "title": "设置",
+        "close": "关闭",
+        "nav": "设置分区",
+        "tabs": "设置的范围",
+        "user": "用户",
+        "project": "本作品",
+        "invalid": "设置文件格式有误",
+        "openAction": "打开",
+        "invalidAt": "第 {{line}} 行第 {{column}} 列：{{reason}}",
+        "cannotSave": "修复前，这一层的设置无法保存",
+        "fixAt": "第 {{line}} 行第 {{column}} 列：{{reason}}，改好后保存",
+        "fixHere": "{{reason}}，改好后保存",
+        "unavailable": "暂时无法连接，无法保存",
+        "empty": "没有可以显示的设置",
+        "search": "搜索设置",
+        "clearSearch": "清空搜索",
+        "noResults": "没有找到设置",
+        "pages": "页面",
+        "openPage": "打开",
+        "openHit": "打开：{{title}}",
+        "back": "返回 {{title}}",
+        "results": "{{settings}} 个设置、{{pages}} 个页面",
+        "groups": {
+            "app": "通用",
+            "ai": "写作助手",
+            "plugins": "扩展"
+        },
+        "leave": {
+            "title": "放弃未保存的更改？",
+            "description": "“{{title}}”有未保存的更改。离开此页面后，这些更改将会丢失。",
+            "discard": "放弃",
+            "keepEditing": "继续编辑"
+        }
+    },
+    "file": {
+        "label": "设置文件（{{layer}}）",
+        "user": "用户",
+        "project": "本作品",
+        "tabKey": "插入缩进",
+        "escThen": "后",
+        "escTabKey": "移出编辑区",
+        "saveKey": "保存",
+        "loading": "正在读取设置文件",
+        "readFailed": "无法读取设置文件：{{detail}}",
+        "reread": "重新读取",
+        "saveAnyway": "仍然保存",
+        "changedElsewhere": "文件已在别处被修改。“重新读取”会放弃这里的更改，“仍然保存”会覆盖别处的修改。",
+        "conflict": "未保存：文件已在别处被修改。“重新读取”会放弃这里的更改，“仍然保存”会覆盖别处的修改。",
+        "invalidText": "未保存：第 {{line}} 行第 {{column}} 列：{{detail}}",
+        "failed": "未保存：{{detail}}"
+    },
+    "list": {
+        "excludedUser": "{{titles}}仅可在用户设置中修改",
+        "excludedProject": "{{titles}}仅可在本作品中设置",
+        "notSaved": "未保存：{{reason}}",
+        "separator": "、"
+    },
+    "pageFrame": {
+        "declared": "正在等待这个分区所属的插件启动",
+        "blocked": "这个分区所属的插件无法启动：{{reason}}",
+        "failed": "这个分区所属的插件启动失败：{{reason}}",
+        "stopped": "这个分区所属的插件已停止（{{reason}}）",
+        "notActivatable": "插件没有声明打开分区时激活：{{reason}}",
+        "loading": "正在加载这个分区",
+        "loadFailed": "这个分区加载失败：{{reason}}",
+        "renderFailed": "这个分区出错：{{reason}}",
+        "retry": "重试",
+        "reload": "重新加载"
+    },
+    "row": {
+        "reset": "恢复默认",
+        "inherited": "来自用户设置",
+        "remove": "移除本作品的设置",
+        "modified": "已修改",
+        "readOnly": "只读",
+        "overridden": "《{{title}}》已单独设为{{value}}，此处的更改在该作品中不生效",
+        "overriddenUntitled": "本作品已单独设为{{value}}，此处的更改在该作品中不生效",
+        "userOnly": "仅可在用户设置中修改",
+        "projectOnly": "仅可在本作品中设置"
+    },
+    "pageList": {
+        "back": "返回",
+        "modified": "有改动"
+    },
+    "saveBar": {
+        "save": "保存",
+        "discard": "放弃更改",
+        "unsaved": "有未保存的更改"
+    },
+    "value": {
+        "on": "开",
+        "off": "关",
+        "empty": "（空）",
+        "items_other": "{{count}} 项"
+    },
+    "applies": {
+        "next-run": "下次运行生效",
+        "next-session": "下次会话生效",
+        "restart": "重启后生效"
+    },
+    "writeFailure": {
+        "layerInvalid": "设置文件有错误，修好之后才能保存",
+        "writeFailed": "写不进设置文件（{{detail}}）",
+        "unavailable": "暂时连不上，没有保存",
+        "invalidValue": "这个值不能用（{{detail}}）",
+        "unknownOutcome": "可能没有保存，以设置文件为准",
+        "conflict": "设置文件在别处改过了",
+        "other": "{{code}}：{{detail}}"
+    }
+}

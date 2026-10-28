@@ -4,7 +4,6 @@
  * 插件自己的配置服务，与 page 页面一样。场景输入是行的数据属性，配置服务由这里补上。
  */
 import {SchemaField} from "@notnotype/nb-form/vue";
-import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, onBeforeUnmount} from "vue";
 
 import {settingForm} from "nbook/plugins/settings/web/setting-form";
@@ -16,6 +15,7 @@ import {useLabEventSink} from "../lab-event-sink";
 import {useLabSubject} from "../lab-subject";
 import type {LabFixtureProps} from "../lab-subject";
 import {createSettingsHost} from "./settings-scene/settings-host";
+import {provideSettingsText, settingsSceneLocale} from "./settings-scene/settings-text";
 import type {HostLayer} from "./settings-scene/settings-host";
 import {SCENE_SETTINGS} from "./settings-scene/scene-data";
 import {rowDemoSettings} from "./settings-scene/scene-settings";
@@ -60,11 +60,13 @@ const bindings = computed(() => subject.bindings.value);
 const setting = computed(() => bindings.value.setting);
 /** 声明者自己的配置服务：恢复默认、移除本作品的设置与控件改值都只写它声明的这一项。 */
 const settings = computed(() => host.service(SETTINGS.find((entry) => entry.definition.key === setting.value.key)?.plugin ?? "nbook.workbench"));
-const text = resolverFor(() => bindings.value.locale, useText());
+// 行没有 `locale` 属性：语言由场景决定，文字来自注入的端口；选项名与表单文字取同一个语言。
+const locale = settingsSceneLocale(props.scene);
+const text = resolverFor(() => locale, provideSettingsText(props.scene));
 /** 选项名取配置服务里接受的声明（登记时补全过），与设置窗口一致；场景的项都在局部宿主里，总有接受的声明。 */
 const form = computed(() => {
     const accepted = settings.value.declaration(setting.value);
-    return accepted === null ? null : settingForm(accepted, bindings.value.locale, text);
+    return accepted === null ? null : settingForm(accepted, locale, text);
 });
 
 async function write(value: unknown, layer: SettingLayer): Promise<void> {
@@ -80,7 +82,7 @@ async function write(value: unknown, layer: SettingLayer): Promise<void> {
             :schema="setting.declaration.schema"
             :hints="form?.hints"
             :model-value="row.value"
-            :locale="bindings.locale"
+            :locale="locale"
             :disabled="row.disabled"
             :labelledby="row.labelId"
             :describedby="row.describedby"

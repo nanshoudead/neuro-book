@@ -5,10 +5,10 @@
  */
 import {AlertDialog, Dialog, Input, ScrollArea, SegmentedControl, Separator, Tooltip} from "@notnotype/nb-ui/components";
 import type {SegmentedControlValue} from "@notnotype/nb-ui/components";
+import type {TextParams} from "@notnotype/nb-ui/text";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, provide, ref, useId, watch} from "vue";
 
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {LocalizedText} from "nbook/shared/localized-text";
 import type {SettingLayer} from "nbook/shared/settings";
 import HighlightedText from "nbook/ui/settings/HighlightedText.vue";
 import {createPageChrome, SETTINGS_PAGE_CHROME} from "nbook/ui/settings/page-chrome";
@@ -16,6 +16,8 @@ import {createPageChrome, SETTINGS_PAGE_CHROME} from "nbook/ui/settings/page-chr
 import {DEFAULT_SETTINGS_WINDOW_SIZE, MIN_SETTINGS_WINDOW_SIZE} from "../settings-window";
 import type {SettingsLeaveTarget, SettingsNavItem, SettingsWindow} from "../settings-window";
 import {composing, isModKey} from "../keys";
+import {settingsText} from "../../shared/text";
+import type {SettingsTextKey} from "../../shared/text";
 import SettingsFileView from "./SettingsFileView.vue";
 import SettingsListSection from "./SettingsListSection.vue";
 import SettingsPageFrame from "./SettingsPageFrame.vue";
@@ -28,41 +30,10 @@ const props = defineProps<{
     window: SettingsWindow;
 }>();
 
-const TEXT = {
-    title: {"zh-CN": "设置", "en-US": "Settings"},
-    close: {"zh-CN": "关闭", "en-US": "Close"},
-    nav: {"zh-CN": "设置分区", "en-US": "Settings sections"},
-    tabs: {"zh-CN": "设置的范围", "en-US": "Settings scope"},
-    user: {"zh-CN": "用户", "en-US": "User"},
-    project: {"zh-CN": "本作品", "en-US": "This Book"},
-    invalid: {"zh-CN": "设置文件格式有误", "en-US": "Settings file has errors"},
-    openAction: {"zh-CN": "打开", "en-US": "Open"},
-    invalidAt: {"zh-CN": "第 {line} 行第 {column} 列：{reason}", "en-US": "Line {line}, column {column}: {reason}"},
-    cannotSave: {"zh-CN": "修复前，这一层的设置无法保存", "en-US": "Settings on this layer can't be saved until it is fixed"},
-    fixAt: {"zh-CN": "第 {line} 行第 {column} 列：{reason}，改好后保存", "en-US": "Line {line}, column {column}: {reason}. Save once it's fixed"},
-    fixHere: {"zh-CN": "{reason}，改好后保存", "en-US": "{reason}. Save once it's fixed"},
-    unavailable: {"zh-CN": "暂时无法连接，无法保存", "en-US": "Temporarily unreachable; can't save"},
-    empty: {"zh-CN": "没有可以显示的设置", "en-US": "There are no settings to show"},
-    search: {"zh-CN": "搜索设置", "en-US": "Search settings"},
-    clearSearch: {"zh-CN": "清空搜索", "en-US": "Clear search"},
-    noResults: {"zh-CN": "没有找到设置", "en-US": "No settings found"},
-    pages: {"zh-CN": "页面", "en-US": "Pages"},
-    openPage: {"zh-CN": "打开", "en-US": "Open"},
-    groupApp: {"zh-CN": "通用", "en-US": "General"},
-    groupAi: {"zh-CN": "写作助手", "en-US": "Writing assistant"},
-    groupPlugins: {"zh-CN": "扩展", "en-US": "Extensions"},
-    openHit: {"zh-CN": "打开：{title}", "en-US": "Open: {title}"},
-    back: {"zh-CN": "返回 {title}", "en-US": "Back to {title}"},
-    results: {"zh-CN": "{settings} 个设置、{pages} 个页面", "en-US": "{settings} settings, {pages} pages"},
-    leaveTitle: {"zh-CN": "放弃未保存的更改？", "en-US": "Discard unsaved changes?"},
-    leaveDescription: {"zh-CN": "“{title}”有未保存的更改。离开此页面后，这些更改将会丢失。", "en-US": "“{title}” has unsaved changes. They will be lost if you leave this page."},
-    discard: {"zh-CN": "放弃", "en-US": "Discard"},
-    keepEditing: {"zh-CN": "继续编辑", "en-US": "Keep Editing"},
-} satisfies Record<string, LocalizedText>;
-
 const model = props.window;
-const locale = model.locale;
-const text = (template: LocalizedText, params: Readonly<Record<string, string | number>> = {}): string => localize(formatText(template, params), locale.value);
+/** 窗口自己的文字在 `nbook.settings` 的目录里，经宿主注入的翻译端口翻译。 */
+const port = useText();
+const text = (key: SettingsTextKey, params?: TextParams): string => port.t(settingsText(key, params));
 
 const root = ref<HTMLElement | null>(null);
 const open = computed(() => model.open.value);
@@ -82,7 +53,7 @@ provide(SETTINGS_PAGE_CHROME, chrome);
  */
 const notice = computed((): SettingsSectionNotice | null => {
     const layer = model.layerNotice.value;
-    if (layer?.kind === "unavailable") return {kind: "unavailable", text: text(TEXT.unavailable)};
+    if (layer?.kind === "unavailable") return {kind: "unavailable", text: text("window.unavailable")};
     // 设置文件视图保存被拒时自己写的“未保存：第 N 行第 M 列：原因”：位置是刚保存的那份文本的，比层快照里的更新，盖过它。
     const note = chrome.note.value;
     if (note !== null) return {kind: "fixing", text: note};
@@ -90,10 +61,10 @@ const notice = computed((): SettingsSectionNotice | null => {
     // 没有语法位置的无效（文件读不出来）只有 detail。
     const reason = layer.reason ?? layer.detail;
     if (current.value?.kind === "file") {
-        return {kind: "fixing", text: layer.position === null ? text(TEXT.fixHere, {reason}) : text(TEXT.fixAt, {line: layer.position.line, column: layer.position.column, reason})};
+        return {kind: "fixing", text: layer.position === null ? text("window.fixHere", {reason}) : text("window.fixAt", {line: layer.position.line, column: layer.position.column, reason})};
     }
-    const first = layer.position === null ? reason : text(TEXT.invalidAt, {line: layer.position.line, column: layer.position.column, reason});
-    return {kind: "invalid", text: text(TEXT.invalid), action: text(TEXT.openAction), lines: [first, text(TEXT.cannotSave), ...(layer.path === null ? [] : [layer.path])]};
+    const first = layer.position === null ? reason : text("window.invalidAt", {line: layer.position.line, column: layer.position.column, reason});
+    return {kind: "invalid", text: text("window.invalid"), action: text("window.openAction"), lines: [first, text("window.cannotSave"), ...(layer.path === null ? [] : [layer.path])]};
 });
 
 /** 点层警告：打开这一层的设置文件并定位到出错处（有位置时）；有未保存的改动时先确认。 */
@@ -106,17 +77,17 @@ function openFile(): void {
 /** 页面登记了标题替换时，标题区写“‹ 分区标题”与页面给的标题（输出 19）；只对 page 分区生效。 */
 const replacement = computed((): SettingsSectionReplacement | null => {
     const claim = chrome.titleClaim.value;
-    return claim === null || current.value?.kind !== "page" ? null : {title: claim.title, backLabel: current.value.title, backName: text(TEXT.back, {title: current.value.title})};
+    return claim === null || current.value?.kind !== "page" ? null : {title: claim.title, backLabel: current.value.title, backName: text("window.back", {title: current.value.title})};
 });
 const searchId = `settings-search-${useId()}`;
 const navId = useId();
 /** 左栏三组的组标题（输出 1）。 */
-const GROUP_TITLE = {app: TEXT.groupApp, ai: TEXT.groupAi, plugins: TEXT.groupPlugins} as const;
+const GROUP_TITLE = {app: "window.groups.app", ai: "window.groups.ai", plugins: "window.groups.plugins"} as const;
 const fill = computed(() => current.value?.kind === "page" && current.value.layout === "fill" && current.value.unavailable === null);
 
 const tabOptions = computed(() => [
-    {value: "user", label: text(TEXT.user)},
-    {value: "project", label: text(TEXT.project)},
+    {value: "user", label: text("window.user")},
+    {value: "project", label: text("window.project")},
 ]);
 
 /** 搜索时左栏不标当前项（输出 21）。 */
@@ -186,7 +157,7 @@ function onSearchClear(): void {
 const resultCount = computed(() => {
     const view = current.value;
     if (view?.kind !== "search") return "";
-    return text(TEXT.results, {settings: view.list.groups.reduce((sum, group) => sum + group.settings.length, 0), pages: view.pages.length});
+    return text("window.results", {settings: view.list.groups.reduce((sum, group) => sum + group.settings.length, 0), pages: view.pages.length});
 });
 
 function openHit(id: string): void {
@@ -253,9 +224,9 @@ function onLeaveOpen(open: boolean): void {
     <Dialog
         :model-value="open"
         :modal="false"
-        :title="text(TEXT.title)"
+        :title="text('window.title')"
         :show-header="false"
-        :close-label="text(TEXT.close)"
+        :close-label="text('window.close')"
         closable
         resizable
         :show-footer="false"
@@ -281,10 +252,10 @@ function onLeaveOpen(open: boolean): void {
                             full-width
                             :model-value="model.layer.value"
                             :options="tabOptions"
-                            :aria-label="text(TEXT.tabs)"
+                            :aria-label="text('window.tabs')"
                             @update:model-value="(value: SegmentedControlValue) => model.setLayer(value as SettingLayer)"
                         />
-                        <label :for="searchId" class="settings-window__visually-hidden">{{ text(TEXT.search) }}</label>
+                        <label :for="searchId" class="settings-window__visually-hidden">{{ text('window.search') }}</label>
                         <Input
                             :id="searchId"
                             class="settings-window__search"
@@ -293,15 +264,15 @@ function onLeaveOpen(open: boolean): void {
                             size="sm"
                             icon-class="i-lucide-search"
                             clearable
-                            :clear-label="text(TEXT.clearSearch)"
-                            :placeholder="text(TEXT.search)"
+                            :clear-label="text('window.clearSearch')"
+                            :placeholder="text('window.search')"
                             :model-value="model.query.value"
                             @update:model-value="(value: string) => model.search(value)"
                             @keydown="onSearchKeydown"
                             @clear="onSearchClear"
                         />
                     </div>
-                    <nav class="settings-window__nav" :aria-label="text(TEXT.nav)" @keydown="onNavKeydown">
+                    <nav class="settings-window__nav" :aria-label="text('window.nav')" @keydown="onNavKeydown">
                         <div v-for="group in model.nav.value" :key="group.category" class="settings-window__nav-group" role="group" :aria-labelledby="`${navId}-${group.category}`">
                             <p :id="`${navId}-${group.category}`" class="settings-window__nav-label" :data-settings-nav-label="group.category">{{ text(GROUP_TITLE[group.category]) }}</p>
                             <!--
@@ -331,7 +302,7 @@ function onLeaveOpen(open: boolean): void {
                     </nav>
                 </div>
                 <Separator orientation="vertical" class="settings-window__divider" />
-                <div v-if="current === null" class="settings-window__empty">{{ text(TEXT.empty) }}</div>
+                <div v-if="current === null" class="settings-window__empty">{{ text('window.empty') }}</div>
                 <!--
                     fill 页面拿到标题下面的整块区域，自己滚动；其余放进封顶的内容列，内容列滚动（输出 3）。设置文件也占整块：文本框随
                     窗口高度伸缩，保存栏钉在底部，不随内容滚到折叠线下面（输出 23）。
@@ -342,7 +313,6 @@ function onLeaveOpen(open: boolean): void {
                         <SettingsFileView v-if="current.kind === 'file'" :window="model" :layer="current.layer" :path="current.path" />
                         <SettingsPageFrame
                             v-else-if="page !== null"
-                            :locale="locale"
                             :delivery="page.delivery"
                             :status="page.status"
                             :error="page.error"
@@ -366,22 +336,21 @@ function onLeaveOpen(open: boolean): void {
                             <!-- 换搜索词就重建：留在行里的不合格值随之丢掉（同换分区）。 -->
                             <SettingsListSection v-if="current.list.groups.length > 0" :key="current.query" :window="model" :view="current.list" :highlight="current.words" />
                             <section v-if="current.pages.length > 0" class="settings-window__hits" data-settings-page-hits>
-                                <h3 class="settings-window__hits-title">{{ text(TEXT.pages) }}</h3>
+                                <h3 class="settings-window__hits-title">{{ text('window.pages') }}</h3>
                                 <!-- 一条一行，整行可点；右端“打开 ›”。 -->
-                                <button v-for="hit in current.pages" :key="hit.id" type="button" class="settings-window__hit nb-ui-focus-ring-inset" :aria-label="text(TEXT.openHit, {title: hit.title})" :data-settings-page-hit="hit.id" @click="openHit(hit.id)">
+                                <button v-for="hit in current.pages" :key="hit.id" type="button" class="settings-window__hit nb-ui-focus-ring-inset" :aria-label="text('window.openHit', {title: hit.title})" :data-settings-page-hit="hit.id" @click="openHit(hit.id)">
                                     <span class="settings-window__hit-text">
                                         <span class="settings-window__hit-title"><HighlightedText :text="hit.title" :words="current.words" /></span>
                                         <span v-if="hit.description !== null" class="settings-window__description"><HighlightedText :text="hit.description" :words="current.words" /></span>
                                     </span>
-                                    <span class="settings-window__hit-open" aria-hidden="true">{{ text(TEXT.openPage) }}<span class="i-lucide-chevron-right"></span></span>
+                                    <span class="settings-window__hit-open" aria-hidden="true">{{ text('window.openPage') }}<span class="i-lucide-chevron-right"></span></span>
                                 </button>
                             </section>
-                            <p v-if="current.list.groups.length === 0 && current.pages.length === 0" class="settings-window__unavailable" data-settings-no-results role="status">{{ text(TEXT.noResults) }}</p>
+                            <p v-if="current.list.groups.length === 0 && current.pages.length === 0" class="settings-window__unavailable" data-settings-no-results role="status">{{ text('window.noResults') }}</p>
                         </template>
                         <SettingsListSection v-else-if="current.kind === 'list'" :window="model" :view="current" />
                         <SettingsPageFrame
                             v-else-if="page !== null"
-                            :locale="locale"
                             :delivery="page.delivery"
                             :status="page.status"
                             :error="page.error"
@@ -400,10 +369,10 @@ function onLeaveOpen(open: boolean): void {
         </div>
         <AlertDialog
             :open="model.leaving.value !== null"
-            :title="text(TEXT.leaveTitle)"
-            :description="text(TEXT.leaveDescription, {title: current?.title ?? ''})"
-            :confirm-text="text(TEXT.discard)"
-            :cancel-text="text(TEXT.keepEditing)"
+            :title="text('window.leave.title')"
+            :description="text('window.leave.description', {title: current?.title ?? ''})"
+            :confirm-text="text('window.leave.discard')"
+            :cancel-text="text('window.leave.keepEditing')"
             tone="warning"
             data-settings-leave
             @update:open="onLeaveOpen"
