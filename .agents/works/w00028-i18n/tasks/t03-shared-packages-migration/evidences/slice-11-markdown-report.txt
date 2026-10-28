@@ -1,0 +1,199 @@
+# w00028 t03 第 11 片：nb-markdown 接入文字值与消息目录：交付报告
+
+工作区：/home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n（分支 feat/w00028-i18n，HEAD 8cbf36165）。没有提交、没有切分支、没有 stash，暂存区为空。中途曾误把 prompt-labels.ts 的删除暂存进去一次，已用 `git restore --staged` 撤回。
+
+## 进度
+- [x] 1 目录与“文字没变”测试
+- [x] 2 MarkdownText 放宽为 Text；纯 TS 入口
+- [x] 3 Vue 层经端口取文字；两处 render() 带上下文
+- [x] 4 markdown 插件的 NBOOK_IMAGE_MISSING 迁进 nbook.markdown 目录
+- [x] 5 应用侧、Lab、nb-story
+- [x] 6 文档与 Spec
+- [x] 7 验证（结果见末尾）
+
+## 改动
+
+### nb-markdown（packages/nb-markdown）
+
+目录与测试
+- 新增 src/locales/{zh-CN,en-US,index}.ts，共 36 个键，来自四张旧表：
+  - chip.ts 的 TEXT：9 个
+  - MarkdownImage.vue 的 TEXT：3 个
+  - static-views.ts 的 HTML_LABELS：3 个
+  - prompt-labels.ts 的 PROMPT_TEXT：21 个
+- 键名按“表名.原键”取，分为 chip.*、image.*、htmlEmbed.*、prompt.* 四组。占位符 `{x}` 改成 `{{x}}`，文字逐字没变。
+- `prompt.lines` 在两种语言里都是不带复数后缀的键，理由写在 zh-CN.ts 的头注释里：i18next 遇到 count 但没有复数形时回退到裸键，这样宿主引擎与最小实现的输出一致。
+- index.ts 导出 NB_MARKDOWN_NAMESPACE="nb-markdown"、NB_MARKDOWN_SOURCE_LOCALE、NB_MARKDOWN_CATALOGS、MarkdownTextKey，以及 markdownRef(key, params)。
+- package.json 的 exports 加了 `./locales`，version 没动。
+- 新增 src/locales.test.ts（bun），即“文字没变”测试。LEGACY 表照 HEAD 8cbf36165 原样抄录，测三件事：
+  - 键一一对应；值把 `{}` 换成 `{{}}` 后逐字相同。
+  - 用严格的最小实现按旧代码的参数翻译，结果与旧代码代入的结果相同（count 取 1、2、1000，tag 取 `</paste>`）。
+  - 命名空间与源语言。
+
+文字类型与纯 TS 入口（src/locale.ts）
+- 保留 `MarkdownLocale = string`；`MarkdownText` 改为 nb-ui 的 `Text`。
+- 纯 TS 的 `say()` 不翻译 TextRef，遇到时返回键。
+- 新增 `fillBraces`。
+- 根上的文件仍然只引 `@notnotype/nb-ui/text`，boundary.test 通过。
+
+取文字（新增 src/host/text.ts，由 host/index.ts 转出）
+- 端口按以下先后取：
+  1. 注入的端口；
+  2. 根组件按 locale（缺省 zh-CN）建的包内缺省端口，并 provide 给子树；
+  3. 零件单独挂载时，用包内缺省的 zh-CN 端口。
+- 导出四个函数：
+  - useMarkdownText、provideMarkdownText；
+  - markdownViewContext：给 render() 用的 AppContext，`Object.create(app.provides)` 后加上 TEXT_PORT_KEY，只用公开 API；
+  - markdownTextIn：普通 DOM 从上下文里取端口。
+- 包内缺省端口的翻译器登记了 nb-ui 与 nb-markdown 两份目录。
+
+组件
+- 以下零件去掉了 locale 属性，改为经端口取文字：InlineChip、MarkdownImage、PromptAttachmentStrip、PromptPasteFrame。
+- PromptPasteBlockView、PromptTokenView 不再转传 locale。
+- MarkdownDisplay、PromptEditor、PromptTextView 三个根组件的 locale 改为可选，只在上面没有注入端口时起作用。
+- 删除 prompt-labels.ts；PromptNodeContext 去掉 locale。
+- MarkdownImage 的 missing 改收 Text：
+  - TextRef：组件合进 name 参数后经端口翻译；
+  - 字符串与语言映射：照旧按 `{name}` 代入。
+
+两处 render() 带上下文
+- 展示器（display/static-views.ts）：
+  - MarkdownDisplay 在 setup 里取 `markdownViewContext(text)`，交给 renderer host 的 context 与 text。
+  - 挂图片前设 `image.appContext = host.context`。
+  - HTML 卡片的按钮与小块的提示经 host.text 取文字。
+- 编辑器（editor/image-views.ts、reference-links.ts）：
+  - MarkdownViewHost 的 `locale()` 换成 `context?: AppContext | null`。
+  - 挂图片时设 appContext；链接小块的提示经 `markdownTextIn(host.context)` 取。
+  - 不给 context 时用缺省的 zh-CN。
+- chip/chip.ts：ChipInput 的 locale 换成 `translate: (text: TextRef) => string`，删除 TEXT 表。
+
+测试
+- 新增 src/host/text.dom.test.ts，8 例：
+  1. 零件单独挂载用缺省端口；
+  2. 根组件按 locale 建端口，嵌套的 nb-ui 控件拿到同一个；
+  3. 注入的端口优先，换语言时不重挂；
+  4. missing 传 TextRef 与传语言映射各一例；
+  5. 展示器静态视图里的图片跟着端口换语言，小块与 HTML 按钮显示英文；
+  6. 展示器没有注入端口时按 locale；
+  7. 编辑器节点视图经 markdownViewContext 换语言；
+  8. 编辑器不给 context 时显示中文。
+- 自检：去掉两处 appContext 的赋值，有 3 例失败。
+- 其他测试的调整：
+  - InlineChip.dom.test 的换语言一例改为注入端口后切换。
+  - MarkdownImage.dom.test、prompt-editor-extensions.dom.test 去掉 locale。
+  - agent-ports.typecheck.ts 的反例改为“端口不给 draft 时不能通过”：原反例依赖 locale 必填，locale 改为可选后失效。
+
+文档
+- README：
+  - 新增“界面文字”一节。
+  - 入口表加 `./locales`；`./host` 一行补上新函数。
+  - 改写 MarkdownImage、InlineChip 不读宿主的那句。
+  - “接到 nb-agent-ui”里写明对话视图上面要注入端口（原因见下面的嵌套问题）。
+- AGENTS.md：改写“界面文字”一条。
+- 组件文档：
+  - InlineChip、PromptAttachmentStrip、PromptPasteFrame 标 `state:inject`，并写明隐藏通道理由。
+  - PromptPasteBlockView 加 `state:inject`。
+  - MarkdownImage 补上理由。
+  - MarkdownDisplay、PromptEditor、PromptTextView 的 locale 改为可选，并写明端口的先后。
+
+### neuro-book（packages/neuro-book）
+
+宿主引擎
+- web/host/text-engine.ts：createHostTextEngine 登记 nb-markdown 的目录，注释同步。
+- text-engine.test.ts 加一组“输出 9：nb-markdown 的目录在宿主引擎与最小实现下一致”，两种语言都测。
+
+markdown 插件
+- 新增 locales/{zh-CN,en-US}.json，键 `image.missing`，文字原样。
+- 新增 web/text.ts（markdownCatalogs，以及用 pluginText 建的 markdownText），写法同 html-preview。
+- 新增 locales.test.ts（“文字没变”测试，LEGACY 表取自 HEAD）。
+- web/host.ts：`NBOOK_IMAGE_MISSING = markdownText("image.missing")`，现在是 TextRef。
+- 登记进 web/plugins.ts 的 builtinPluginCatalogs 和 scripts/ci/message-catalogs.ts 的 CATALOG_DIRECTORIES。
+
+MarkdownControl
+- MarkdownControl.vue：viewHost 的 `locale: () => props.locale` 换成 `context: markdownViewContext()`。
+- locale 属性保留：它是编辑器控件合同的一员（docs/specs/workbench/editor.md）。注释改为“不按它取文字”。
+- MarkdownControl.md：标签加 `state:inject` 并写了说明。这个组件原本就 inject 方言目录与资产地址，只是没标。
+
+MarkdownHosted
+- MarkdownHosted.vue 与 .md：改写“只收属性、不 inject”的注释，写明文字经端口取。
+
+测试
+- plugin.dom.test.ts、MarkdownHosted.dom.test.ts：改为经 testTextPort 注入窗口端口（登记 nbook.markdown），并去掉 InlineChip、MarkdownImage 的 locale。
+- MarkdownControl.dom.test.ts：改为用宿主引擎注入端口。“图片……写明原因”一例加了断言：窗口 setLocale("en-US") 后，节点视图里的图片说明变成英文。这是应用侧带上上下文的证据。
+- components/MarkdownDisplay.dom.test.ts：去掉编辑器 host 的 locale。
+- shared/testing/text-port.ts：注释同步。
+
+Lab
+- 新增 fixtures/markdown-text.ts（withMarkdownSceneText）：按场景建宿主引擎、登记 nbook.markdown，只注入给场景里的组件。
+- 场景用英文的条件（满足任一条，否则用中文）：
+  - 场景 id 是 `english` 或以 `-english` 结尾；
+  - 场景输入的 locale 是 en-US（给仍保留 locale 的根组件用）。
+- index.ts 的登记：
+  - InlineChip、MarkdownImage、MarkdownDisplay、PromptEditor 的 load 包上 withMarkdownSceneText。
+  - PromptTextView、PromptAttachmentStrip、PromptPasteFrame 从 defineSubjectFixture 改为 defineLabFixture + createSubjectFixture 再包一层，写法同 ExplorerTree；events、writeBack、class、runtimeProps 不变。
+  - InlineChip（含 english 场景）与 MarkdownImage 的场景去掉 locale。
+- prompt-scene/scenes.ts：附件条与粘贴块外框的场景去掉 locale。
+- editor-scene/editor-text.ts、nb-agent-ui/agent-text.ts：另外登记 nbook.markdown。场景里 Markdown 图片的“不在作品里”取的是这个键。
+
+### nb-story（packages/nb-story）
+- 新增 src/web/qa/text-port.ts（storyTextPort）：最小实现，登记 nb-ui、nb-agent-ui、nb-markdown 三份目录，语言 zh-CN。由 QaPage.vue 用 `provide(TEXT_PORT_KEY, storyTextPort())` 注入。
+- 新增 src/web/qa/text-port.test.ts（bun）。nb-story 的网页测试只有 bun 纯函数测试，不能挂 .vue，所以只测端口本身能翻出 nb-markdown 与 nb-agent-ui 的中文。
+- 为什么要注入：AgentConversationView 上面没有端口时，会 provide 自己的包端口，里面只有 nb-ui 与 nb-agent-ui 的目录。嵌在里面的 nb-markdown 组件（PromptEditor、PromptTextView、StoryMarkdown 里的 MarkdownDisplay）读到这个端口，就会显示键名。
+- 不注入的后果：问答页的输入框会显示 prompt.* 的键名。这一点是从代码推断的，没有在浏览器里验证。
+
+### 仓库根
+- docs/specs/ui/markdown-display.md：
+  - locale 改为可选；
+  - “边界与兼容”加两条：界面文字在目录里、端口优先；注入了端口却没登记目录时显示键名；
+  - 合同测试加 host/text.dom.test.ts。
+- docs/specs/ui/prompt-editor.md：
+  - 输出 12 改为“按端口的语言或 locale”；
+  - “边界与兼容”加界面文字一条。
+- 上面两处 Spec 改动照 nb-agent-ui、nb-form 两片的先例，在 worktree 里改。主工作区 master 的 Spec 要不要另行同步，由主会话决定。
+
+## 设计取舍
+- 根组件保留可选的 locale，零件去掉。nb-agent-ui 的端口类型（MarkdownDisplayPortProps、PromptEditorPortProps 等）要求有 locale，agent-ports.typecheck 也要求组件接受它，所以根组件只能放宽为可选。零件不受这条约束，只为取文字的 locale 就去掉了。
+- render() 只带端口，不带组件这一级的其它 provide。`instance.provides` 不是 Vue 的公开接口；挂上的组件（MarkdownImage）只读端口，其它东西都经属性传。
+- 普通 DOM 上的文字（小块的悬停提示、HTML 卡片的按钮）按画的时候的语言取，不做成响应式，与旧行为相同（旧代码在算 decorations 时取 locale）。图片组件则会跟着端口换语言。
+- 端口里取不到本包的键时不兜底：这时返回键名，严格模式的宿主引擎会直接抛错，没有可靠的判据去判断何时该兜底。做法与 nb-agent-ui 相同，Spec 里也写明了“显示键名，由宿主引擎报缺键”。
+- markdown 插件的 host.ts 现在经 web/text.ts 引 plugin.ts（descriptor），后者又带进 shared/dialects（typebox）。host.ts 头注释说的“不引语言”仍然成立；但 typebox 会不会让按需加载的小块变重，没有量过。
+
+## 没把握的与待决定
+1. 公开接口变了，要不要记进 CHANGELOG 或升版本号（这一片没改 version）。变化如下：
+   - InlineChip、MarkdownImage、PromptAttachmentStrip、PromptPasteFrame 去掉了 `locale` 属性；
+   - MarkdownDisplay、PromptEditor、PromptTextView 的 locale 改为可选；
+   - ChipInput 的 `locale` 换成 `translate`；
+   - MarkdownViewHost 的 `locale()` 换成 `context?`。第三方宿主自己建编辑器时要改为传 context，否则节点视图显示中文；
+   - 删除 prompt/prompt-labels.ts；
+   - 纯 TS 的 `say()` 遇到 TextRef 时返回键。
+2. 通用问题：包的缺省端口会遮住兄弟包的目录。
+   - 上面没有端口时，nb-agent-ui 会 provide 自己的缺省端口，里面只有它自己的目录，嵌在其中的 nb-markdown 组件因此显示键名。
+   - 反过来，nb-markdown 根组件的缺省端口里也没有 nb-agent-ui 与 nb-form 的目录。
+   - 这一片只在 nb-story 的 QaPage 注入了一个合并的端口。要不要在 nb-ui 这一层解决（例如让缺省端口能合并多个包的目录），请主会话或开发者决定。
+3. 编辑器里链接小块的悬停提示，换语言后要等文档有变化才重算，与改动前相同；图片已经能跟着换。端口语言变化时 dispatch REFRESH_REFERENCE_LINKS 这一步没有做。
+4. 同类遗留，这一片没有动：
+   - nb-markdown 的 language/syntax/html-embed/index.ts 里，缺省的 `resolveLabels` 写死中文（"渲染"、"查看源码"、"HTML"）。编辑器里的可渲染 HTML 卡片用的是它，所以编辑器里这几个按钮不跟语言走；展示器一侧已改为经端口取。要改，得让语法模块拿到端口，这会动到语法模块的接口。
+   - neuro-book 里仍有内联的中英两份文字：plugins/commands/shared/plugin.ts 的 when 理由（第 37 到 39 行）和 plugins/workbench/web/titlebar/menu-items.ts 的菜单标签。第 10 片已经报过。
+5. Lab 里判断用英文的两条条件并存：InlineChip 的 english 场景看 id，PromptEditor 的 english 场景看输入，两个场景都满足。在数据 tab 里把 PromptEditor 的 locale 改成 en-US 时语言能跟着换，前提是 Lab 把改后的输入经 `input` 属性传回来。这一点没有在浏览器里看过。
+6. 编辑器 Spec（docs/specs/workbench/editor.md 第 89 行）说控件的 locale 是“控件自己显示的说明按它取”。MarkdownControl 现在改为按端口取；编辑器区传的 locale 就是窗口端口的语言，所以行为不变。这句措辞不在这一片的范围，没有改。
+7. 没有跑 e2e（包括 lab-markdown.e2e.ts 的英文界面一例）：按仓库约定改源码期间不跑 e2e，而且要先构建三份产物。
+
+## 验证结果
+所有结果都对最终代码跑出（全部改动停手后重跑），日志在 /tmp/w00028-t03/11-*.log。
+
+- nb-markdown：`bun run typecheck && bun run test` 退出 0。bun 264 pass / 0 fail；vitest 9 files、120 tests 全过（11-nbmd-verify-final.log）。
+- neuro-book：
+  - `bun run typecheck` 退出 0（11-nbook-tc-final.log）；
+  - `bun run test:bun` 1615 pass / 0 fail（11-nbook-bun-final.log）；
+  - `bunx vitest run --testTimeout=30000` 68 files、396 tests 全过（11-nbook-vitest-final.log）。
+  - explorer/browse.test.ts 里会偶发失败的“展开的目录改名”，这次和上一轮全量都没有失败，所以没有单独重跑。
+- nb-agent-ui：typecheck 退出 0；test 退出 0，bun 189 pass，vitest 10 files、55 tests。
+- nb-story：
+  - typecheck 日志 EXIT=2（11-story-tc.log）。唯一的错误是已知问题：`src/web/host/relations-view.ts` 引 `../graph/StoryNetwork.vue` 报 TS2307，只出在 `tsc -p tsconfig.web-test.json` 这一步。本片没改这两个文件。
+  - 其余四步单独跑都没有报错：tsc 根、tsconfig.core、vue-tsc tsconfig.web（QaPage.vue 在这一步检查）、e2e/tsconfig。
+  - test 545 pass / 0 fail。
+  - 已查：QaPage 子树里没有 nb-form。nb-form 只出现在 shell/SettingsPage.vue，那是 /settings 路由，不在 QaPage 下面，所以 storyTextPort 不必登记 nb-form 的目录。
+- dev-panel：typecheck 退出 0；test 461 pass / 0 fail。
+- 仓库根：`bun run docs:check`、`bun run governance:check` 都退出 0，本次改动没有新的 failure 或 warning；`bun scripts/ci/message-catalogs.ts` 退出 0；`bun test scripts/ci/message-catalogs.test.ts` 6 pass。
+- master 上 docs/specs/ui/markdown-display.md、prompt-editor.md 在开分支之后没有改动（`git diff HEAD master` 为空），合入时这两份不会冲突。
+- e2e 没有跑（见“没把握的”第 7 条）。
