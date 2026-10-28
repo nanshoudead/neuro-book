@@ -25,9 +25,15 @@ updated: 2026-10-28
 
 冒烟在版本号提交 `f374fa20f`（已在 master）上通过，tarball 与 `release-manifest.json` 在主工作区的 `dist/release/`（git 忽略）。`bun run release:publish` 在主工作区干跑停在门禁：`packages/nb-story/examples/journey-to-the-west/` 下有未跟踪的 `xiyouji-graph.json` 与 `xyj-library/`（示例走读留下的，不属于我，也不会进包：`files` 白名单不含 examples），发布前要先移走或清掉。
 
+## 发布记录
+
+- 2026-10-28 开发者发布了 nb-runtime 0.2.0、nb-harness 0.1.1、nb-story 0.2.0（`--auth-type web`；registry 的版本信息有几十秒延迟，刚发完查到的还是旧版）。
+- 从 registry 装 nb-story 0.2.0 的冒烟失败：它依赖 `nb-runtime ^0.1.0`（应为 `^0.2.0`）。原因：`bun publish` 改写 `workspace:^` 用的是 `bun.lock` 里记的工作区版本，升版本号后没跑 `bun install` 刷新锁文件；打包冒烟用 file: 的 tarball 覆盖了依赖，查不出。0.2.0 能用（`nbstory`、`serve`、RPC 在 runtime 0.1.0 上都正常），只是依赖范围不对。
+- 修：`release:check` 加 `lockfile_version`（锁文件里的工作区版本要与 `package.json` 一致，有测试、做过变异检查）；刷新锁文件，nb-story 升 0.2.1（`af4a3a288`）。打包冒烟通过，tarball 的依赖是 `nb-runtime ^0.2.0`、`nb-harness ^0.1.1`。
+
 ## 下一步（开发者）
 
-0. 清掉上面的未跟踪文件（`release:publish` 要求会发布的目录干净）。
+0. （已做）清掉上面的未跟踪文件（`release:publish` 要求会发布的目录干净）。
 1. `git push origin master`（README 图片与发布门禁要用 origin/master）。
-2. `npm login`，在 master 上 `bun run release:publish`（先不带 `--yes` 看清单，再带 `--yes`）。
+2. `npm login`，在 master 上 `bun run release:publish`（先不带 `--yes` 看清单，再带 `--yes --auth-type web`）。现在只会发 nb-story 0.2.1。
 3. 发布后在发布用的提交上 `bun run release:smoke --from registry`，把结果记进本 Task 的证据。
