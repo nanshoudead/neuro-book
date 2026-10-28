@@ -68,7 +68,7 @@ interface ViewContext {
 | 规则 | 不满足时 |
 |---|---|
 | 视图 id 至多 128 个字符；`nbook.*` 插件写 `nbook.<名>`，其它插件以自己的插件 id 加 `.` 开头 | 声明被拒（`invalid-declaration`） |
-| `title` 两种语言都非空；`icon` 非空；`location`、`layout` 取上表的值 | 同上 |
+| `title` 是文字（见 [`ui/i18n`](../ui/i18n.md)）；`icon` 非空；`location`、`layout` 取上表的值 | 同上 |
 | 尺寸是正有限数；`maximumSize` 不小于有效最小值（[`ui.workbench-shell`](../ui/workbench-shell.md)“副作用与数据”） | 同上 |
 | 声明不认识的字段 | 同上 |
 

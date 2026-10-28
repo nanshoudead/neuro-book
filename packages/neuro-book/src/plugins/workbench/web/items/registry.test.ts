@@ -19,6 +19,7 @@ import {statusbarItemsPoint, titlebarItemsPoint, WORKBENCH_STATUSBAR_ITEMS_POINT
 import type {ItemDeclaration} from "../../shared/items";
 import type {ItemImplementation} from "../contracts";
 import {ItemRegistry} from "./registry";
+import {textIn} from "nbook/shared/testing/text";
 
 const started: Application[] = [];
 
@@ -103,16 +104,16 @@ describe("条目注册表", () => {
             "test.items.a": declaration("A", {order: 2}),
             "test.items.left": declaration("L", {alignment: "left", order: 9, command: {id: "nbook.editor.save-all"}}),
         }, control())]);
-        const shown = owner.status!.shown("zh-CN");
+        const shown = owner.status!.shown(textIn("zh-CN"));
         expect(shown.map((item) => item.id)).toEqual(["test.items.left", "test.items.a", "test.items.b"]);
         expect(shown[0]).toMatchObject({title: "标题L", text: "文字", tooltip: "提示", state: "warning", command: {id: "nbook.editor.save-all", args: {}}});
-        expect(owner.status!.shown("en-US")[1]!.title).toBe("Title A");
+        expect(owner.status!.shown(textIn("en-US"))[1]!.title).toBe("Title A");
     });
 
     it("when 的键都已就绪且为真才显示；值变化后在 computed 里重算", async () => {
         state.clear();
         const {owner} = await start([contributor("test.items", {"test.items.dirty": declaration("D", {when: {requires: ["test.items/dirty"]}})}, control())]);
-        const ids = computed(() => owner.status!.shown("zh-CN").map((item) => item.id));
+        const ids = computed(() => owner.status!.shown(textIn("zh-CN")).map((item) => item.id));
         expect(ids.value).toEqual([]);
         state.set("test.items/dirty", true);
         expect(ids.value).toEqual(["test.items.dirty"]);
@@ -126,8 +127,8 @@ describe("条目注册表", () => {
             contributor("test.two", {"test.one.same": declaration("2"), "other.item": declaration("3")}, control()),
             contributor("test.three", {"test.three.left": declaration("4", {alignment: "left"})}, control(), WORKBENCH_TITLEBAR_ITEMS_POINT),
         ]);
-        expect(owner.status!.shown("zh-CN")).toEqual([]);
-        expect(owner.title!.shown("zh-CN")).toEqual([]);
+        expect(owner.status!.shown(textIn("zh-CN"))).toEqual([]);
+        expect(owner.title!.shown(textIn("zh-CN"))).toEqual([]);
         expect(application.plugins.contribution(WORKBENCH_STATUSBAR_ITEMS_POINT, "test.one.same").map((entry) => entry.validation.status)).toEqual(["rejected", "rejected"]);
         expect(application.plugins.contribution(WORKBENCH_STATUSBAR_ITEMS_POINT, "other.item")[0]?.validation).toMatchObject({status: "rejected", detail: "贡献 id 要以插件 id test.two 加“.”开头：other.item"});
         expect(application.plugins.contribution(WORKBENCH_TITLEBAR_ITEMS_POINT, "test.three.left")[0]?.validation).toMatchObject({status: "rejected", detail: "标题栏的条目只放在右侧：test.three.left"});
@@ -140,13 +141,13 @@ describe("条目注册表", () => {
             return "文字";
         });
         const {owner} = await start([contributor("test.items", {"test.items.a": declaration("A")}, toggle)]);
-        expect(owner.status!.shown("zh-CN").map((item) => item.id)).toEqual(["test.items.a"]);
+        expect(owner.status!.shown(textIn("zh-CN")).map((item) => item.id)).toEqual(["test.items.a"]);
         const before = calls;
         const closing = toggle.context!.scope.parent!.close();
-        expect(owner.status!.shown("zh-CN")).toEqual([]);
+        expect(owner.status!.shown(textIn("zh-CN"))).toEqual([]);
         expect(calls).toBe(before);
         expect((await closing).status).toBe("closed");
-        await waitUntil("条目撤回", () => owner.status!.shown("zh-CN").length === 0);
+        await waitUntil("条目撤回", () => owner.status!.shown(textIn("zh-CN")).length === 0);
     });
 
     it("实现抛错的条目原位显示为出错且不可点，别的照常；同一个句柄只记一次诊断", async () => {
@@ -156,8 +157,8 @@ describe("条目注册表", () => {
             })),
             contributor("test.good", {"test.good.item": declaration("好", {order: 1})}, control()),
         ]);
-        const first = owner.status!.shown("zh-CN");
-        owner.status!.shown("zh-CN");
+        const first = owner.status!.shown(textIn("zh-CN"));
+        owner.status!.shown(textIn("zh-CN"));
         expect(first.map((item) => [item.id, item.text, item.state, item.command])).toEqual([["test.bad.item", "标题坏", "error", null], ["test.good.item", "文字", "warning", null]]);
         expect(first[0]!.tooltip).toBe("这个条目出错了：算不出来");
         expect(owner.reports).toEqual(["条目 test.bad.item 的实现出错：算不出来"]);

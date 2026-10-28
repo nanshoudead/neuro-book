@@ -51,6 +51,7 @@ import {createSettingsWindow, DEFAULT_SETTINGS_WINDOW_SIZE, FILE_SECTION_ID, MIN
 import type {SettingsLeaveTarget, SettingsWindow, SettingsWindowSize} from "./web/settings-window";
 import {settingsWindowSourceKey} from "./web/window-source";
 import type {SettingsWindowSource, WindowSetting} from "./web/window-source";
+import {textIn} from "nbook/shared/testing/text";
 
 const silent = {error: () => undefined};
 /** 工作台描述里的配置项（主题、明暗），不装它的浏览器入口：外观分区里的两项要有人声明。 */
@@ -88,6 +89,7 @@ function windowFor(probe: Probe, bound: boolean): {readonly window: SettingsWind
     const size = ref<SettingsWindowSize | null>(null);
     const recorder: Recorder = {notices: [], reports: [], size};
     const window = createSettingsWindow({
+        text: textIn("zh-CN"),
         source: probe.source,
         settings: probe.settings,
         bound,

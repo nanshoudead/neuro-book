@@ -11,8 +11,8 @@ import {Value} from "typebox/value";
 
 import type {ContributionDescriptor, ContributionHandle, ContributionReceiver} from "@notnotype/nb-runtime/plugins";
 
-import {localize, LocalizedTextSchema} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import {TextSchema} from "nbook/shared/text";
+import type {LocalizedText, TextResolver} from "nbook/shared/localized-text";
 
 import {formatKeybinding} from "./keybinding";
 import type {KeyPlatform} from "./keybinding";
@@ -40,7 +40,7 @@ const BASE = {
     command: Key,
     section: Type.String({pattern: "\\S", maxLength: 64}),
     order: Type.Optional(Rank),
-    label: Type.Optional(LocalizedTextSchema),
+    label: Type.Optional(TextSchema),
     toggled: Type.Optional(Key),
     when: Type.Optional(Type.Object({requires: Type.Array(Key)}, {additionalProperties: false})),
     args: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
@@ -164,7 +164,7 @@ export interface MenuFacts {
     readonly isEnabled: (id: string) => CommandResult<boolean>;
     /** 布尔公开键已就绪且为真。 */
     readonly isOn: (key: string) => boolean;
-    readonly locale: DisplayLocale;
+    readonly text: TextResolver;
     readonly platform: KeyPlatform;
     /** 这个位置此刻没有当前文件（或位置根本没有当前文件）为 null。 */
     readonly current: MenuCurrentFiles | null;
@@ -215,7 +215,7 @@ export function arrangeMenu(items: ReadonlyArray<{readonly id: string; readonly 
             command: command.id,
             args: declaration.args ?? {},
             context: declaration.context ?? null,
-            label: localize(declaration.label ?? command.title, facts.locale),
+            label: facts.text.t(declaration.label ?? command.title),
             enabled: enabled.ok && enabled.value,
             reason: enabled.ok ? null : enabled.reason,
             shortcut: command.keybinding === undefined ? null : formatKeybinding(command.keybinding, facts.platform),

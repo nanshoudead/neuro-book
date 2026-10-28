@@ -5,10 +5,12 @@
  * 偏好不读写存储（Lab 不碰产品 Storage），切场景时控制器、订阅、意图与命令表一起释放。
  */
 import {SegmentedControl} from "@notnotype/nb-ui/components";
+import {defaultTextPort} from "@notnotype/nb-ui/text-port";
 import {computed, onBeforeUnmount, ref, shallowRef} from "vue";
 
 import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
+import {resolverFor} from "nbook/shared/localized-text";
 import {MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import type {Release} from "nbook/plugins/commands/shared/contracts";
 import {EXPLORER_COMMAND_DECLARATIONS, explorerCommands} from "nbook/plugins/explorer/web/commands";
@@ -110,6 +112,7 @@ const Host = createExplorerViewHost(FilesExplorerView, {
     session,
     commands: registry,
     state: {read: () => ({status: "undeclared"})},
+    text: resolverFor(() => "zh-CN", defaultTextPort()),
     contextMenu: new MenuItemRegistry([], scene.signal),
     locale: computed(() => LAB_LOCALE),
     // 产品里是窗口绑定的作品的书名。

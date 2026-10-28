@@ -1,4 +1,9 @@
 <script setup lang="ts">
+import {defaultTextPort} from "@notnotype/nb-ui/text-port";
+import type {Text} from "@notnotype/nb-ui/text";
+
+/** Lab 场景固定显示中文。 */
+const labText = (text: Text): string => defaultTextPort().t(text);
 /**
  * 外壳二与外壳三的集成场景（docs/specs/ui/workbench-shell.md），登记为 WorkbenchShellLayout 的 views 系列场景：真实的外壳
  * 布局、活动栏、工具区域、面板框架、两层实例与拖放会话，落位、呈现、意图合成与落点判定用产品的纯模型；外壳的尺寸与面板状态是场景输入
@@ -159,7 +164,7 @@ function menuOf(viewId: string) {
     if (targets === null) return null;
     const container = presentation.value.containers.get(targets.sourceContainerId);
     return {
-        groups: targets.groups.map((group) => ({part: group.part, label: PART_LABELS[group.part], targets: group.targets.map((target) => ({id: target.containerId, label: target.title["zh-CN"], icon: target.icon})), createLabel: `新建容器（在${PART_LABELS[group.part]}）`})),
+        groups: targets.groups.map((group) => ({part: group.part, label: PART_LABELS[group.part], targets: group.targets.map((target) => ({id: target.containerId, label: labText(target.title), icon: target.icon})), createLabel: `新建容器（在${PART_LABELS[group.part]}）`})),
         source: targets.sourceContainerId,
         resetLabel: targets.canReset ? "重置位置" : null,
         identity: `${viewId}|${targets.sourceContainerId}|${container?.mode ?? ""}|${source.delivery(viewId).kind}|${String(generations.value.get(viewId) ?? 0)}`,
@@ -185,7 +190,7 @@ const dragGhost = computed(() => {
     if (current === null) return null;
     const title = current.source.kind === "view" ? catalog.value.get(current.source.viewId)?.title : presentation.value.containers.get(current.source.containerId)?.title;
     const icon = current.source.kind === "view" ? catalog.value.get(current.source.viewId)?.icon : presentation.value.containers.get(current.source.containerId)?.icon;
-    return title === undefined ? null : {label: title["zh-CN"], icon: icon ?? "", x: current.point.x, y: current.point.y};
+    return title === undefined ? null : {label: labText(title), icon: icon ?? "", x: current.point.x, y: current.point.y};
 });
 const DROP_LABELS: Readonly<Record<string, string>> = {"move-view": "移到这里", "detach-view": "新建容器", "move-container": "移动容器", "merge-container": "并入视图"};
 const dropFeedback = computed(() => {
@@ -198,8 +203,8 @@ const dropFeedback = computed(() => {
 
 const singleViewOf = (container: ContainerPresentation | null): string | null => (container?.mode === "single" ? (container.views[0]?.id ?? null) : null);
 
-const activityContainers = computed(() => presentation.value.parts.sidebar.switcher.map((item) => ({id: item.containerId, label: item.title["zh-CN"], icon: item.icon})));
-const panelTabs = computed(() => presentation.value.parts.panel.switcher.map((item) => ({value: item.containerId, label: item.title["zh-CN"], iconClass: item.icon, id: switcherTabId("lab-views", "panel", item.containerId), controls: switcherPanelId("lab-views", "panel"), attrs: {"data-switcher-entry": item.containerId, "data-drag-container": item.containerId, "aria-description": "按空格拿起并拖动"}})));
+const activityContainers = computed(() => presentation.value.parts.sidebar.switcher.map((item) => ({id: item.containerId, label: labText(item.title), icon: item.icon})));
+const panelTabs = computed(() => presentation.value.parts.panel.switcher.map((item) => ({value: item.containerId, label: labText(item.title), iconClass: item.icon, id: switcherTabId("lab-views", "panel", item.containerId), controls: switcherPanelId("lab-views", "panel"), attrs: {"data-switcher-entry": item.containerId, "data-drag-container": item.containerId, "aria-description": "按空格拿起并拖动"}})));
 
 const positions = [{value: "bottom", label: "底部"}, {value: "left", label: "左侧"}, {value: "right", label: "右侧"}];
 const position = computed({get: () => panel.value.position, set: (value: string | number | boolean) => {

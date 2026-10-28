@@ -14,7 +14,7 @@ import {Value} from "typebox/value";
 
 import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";
 
-import {LocalizedTextSchema} from "nbook/shared/localized-text";
+import {TextSchema} from "nbook/shared/text";
 import {isSettingsGroupId, isSettingsSectionId, SETTINGS_ORDER_LIMIT, SETTINGS_SECTION_ID_MAX_LENGTH} from "nbook/shared/settings";
 
 export const SETTINGS_SECTIONS_POINT = "settings.sections";
@@ -49,8 +49,8 @@ export const SETTINGS_PAGE_KEYWORDS_LIMIT = 20;
 
 /** 两种分区共有的字段：左栏怎样列出它。 */
 const heading = {
-    title: LocalizedTextSchema,
-    description: Type.Optional(LocalizedTextSchema),
+    title: TextSchema,
+    description: Type.Optional(TextSchema),
     icon: Type.String({pattern: "\\S"}),
     category: Type.Union([Type.Literal("app"), Type.Literal("ai"), Type.Literal("plugins")]),
     order: Type.Optional(Type.Number({minimum: -SETTINGS_ORDER_LIMIT, maximum: SETTINGS_ORDER_LIMIT})),
@@ -58,7 +58,7 @@ const heading = {
 
 export const SettingsSectionDeclarationSchema = Type.Object({
     ...heading,
-    groups: Type.Optional(Type.Array(Type.Object({id: Type.String(), title: LocalizedTextSchema}, {additionalProperties: false}))),
+    groups: Type.Optional(Type.Array(Type.Object({id: Type.String(), title: TextSchema}, {additionalProperties: false}))),
 }, {additionalProperties: false});
 
 export const SettingsPageDeclarationSchema = Type.Object({
@@ -66,7 +66,7 @@ export const SettingsPageDeclarationSchema = Type.Object({
     layout: Type.Optional(Type.Union([Type.Literal("column"), Type.Literal("fill")])),
     layers: Type.Optional(Type.Array(Layer, {minItems: 1})),
     /** 设置内搜索时除标题与说明外还比对的词（settings-window.md 输出 21）。 */
-    keywords: Type.Optional(Type.Array(LocalizedTextSchema, {maxItems: SETTINGS_PAGE_KEYWORDS_LIMIT})),
+    keywords: Type.Optional(Type.Array(TextSchema, {maxItems: SETTINGS_PAGE_KEYWORDS_LIMIT})),
 }, {additionalProperties: false});
 
 /** 选项提供者的声明没有字段：选项都由实现给出。 */

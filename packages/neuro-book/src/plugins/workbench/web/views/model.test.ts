@@ -12,6 +12,7 @@ import type {IntentResult, ViewIntent} from "./intents";
 import {computePlacement, defaultFingerprint} from "./placement";
 import type {ViewCatalog} from "./placement";
 import {buildPresentation, moveTargetsOf} from "./presentation";
+import {textIn} from "nbook/shared/testing/text";
 
 function view(location: ViewLocation, extra: Partial<ViewDeclaration> = {}): ViewDeclaration {
     return {title: {"zh-CN": "视图", "en-US": "View"}, icon: "i-lucide-square", location, layout: "scroll", ...extra};
@@ -55,7 +56,7 @@ describe("设计稿第 3 节典型情况", () => {
         expect(placement.parts.sidebar).toEqual(["view:test.a", "view:test.b"]);
         expect(placement.parts.panel).toEqual(["view:test.c"]);
         expect(placement.selected).toEqual({sidebar: "view:test.a", auxiliarybar: null, panel: "view:test.c"});
-        expect(presentation.parts.sidebar.switcher.map((item) => item.title["zh-CN"])).toEqual(["A", "B"]);
+        expect(presentation.parts.sidebar.switcher.map((item) => textIn("zh-CN").t(item.title))).toEqual(["A", "B"]);
         // 容器标题行只在 Sidebar 的 single 出现；Panel 与右栏用标签带。
         expect(presentation.containers.get("view:test.a")).toMatchObject({mode: "single", showContainerTitle: true});
         expect(presentation.containers.get("view:test.c")).toMatchObject({mode: "single", showContainerTitle: false});
@@ -111,7 +112,7 @@ describe("设计稿第 3 节典型情况", () => {
         const withoutA = catalogOf({[B]: titled("B", "panel"), [C]: titled("C", "panel")});
         const {placement, presentation} = model(withoutA, moved);
         expect(placement.containers.get("view:test.a")).toMatchObject({part: "panel", source: "member", members: [B]});
-        expect(presentation.containers.get("view:test.a")?.title["zh-CN"]).toBe("B");
+        expect(textIn("zh-CN").t(presentation.containers.get("view:test.a")!.title)).toBe("B");
         expect(placement.diagnostics.filter((line) => line.includes("view:test.a"))).toHaveLength(1);
         // 刷新后身份、归属与区域一致。
         expect(model(withoutA, structuredClone(moved)).placement).toEqual(placement);
@@ -163,9 +164,9 @@ describe("呈现模型", () => {
         expect(model(catalog, again, new Set([B])).presentation.containers.get("view:test.a")?.mode).toBe("single");
         const empty = model(catalog, again, new Set([A, B])).presentation.containers.get("view:test.a")!;
         expect(empty).toMatchObject({mode: "empty", members: [A, B], views: []});
-        expect(empty.title["zh-CN"]).toBe("A");
+        expect(textIn("zh-CN").t(empty.title)).toBe("A");
         // 标题取首个可见成员。
-        expect(model(catalog, again, new Set([A])).presentation.containers.get("view:test.a")?.title["zh-CN"]).toBe("B");
+        expect(textIn("zh-CN").t(model(catalog, again, new Set([A])).presentation.containers.get("view:test.a")!.title)).toBe("B");
     });
 
     it("轴与尺寸：侧栏纵向取高度、Panel 横向取宽度；最小值按声明与下限求", () => {

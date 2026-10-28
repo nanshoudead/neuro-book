@@ -18,7 +18,7 @@ import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import {MENU_BUTTON, MENU_EXTENSIONS, menuItemValidator, menuLocation} from "nbook/plugins/commands/shared/contracts";
 import type {MenuItemDeclaration} from "nbook/plugins/commands/shared/contracts";
-import {LocalizedTextSchema} from "nbook/shared/localized-text";
+import {TextSchema} from "nbook/shared/text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
 /** 需要结算的文档此刻的状态：dirty、在保存、有未裁决输入、有视图写不出（输出 61）、磁盘冲突。 */
@@ -91,7 +91,7 @@ export const OPEN_PAGE_COMMAND = "nbook.editor.open-page";
  * 会话记录）时自动打开。实现（`load()`）与页面组件收到的上下文在 `web/pages.ts`。
  */
 export const EditorPageDeclarationSchema = Type.Object({
-    title: LocalizedTextSchema,
+    title: TextSchema,
     icon: Type.String({pattern: "\\S"}),
     openOnFirstVisit: Type.Optional(Type.Boolean()),
 }, {additionalProperties: false});
@@ -124,7 +124,7 @@ export const CODE_EDITOR = "nbook.editor.code";
 const EXTENSION = Type.String({pattern: "^[a-z0-9]+(?:\\.[a-z0-9]+)*$"});
 
 export const EditorDeclarationSchema = Type.Object({
-    title: LocalizedTextSchema,
+    title: TextSchema,
     selector: Type.Optional(Type.Object({
         /** 不带点的小写后缀，可以多段（`d.ts`）。 */
         extensions: Type.Optional(Type.Array(EXTENSION, {minItems: 1})),

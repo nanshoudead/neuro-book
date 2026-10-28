@@ -10,8 +10,7 @@ import {shallowRef} from "@vue/reactivity";
 import {arrangeMenu, formatKeybinding} from "nbook/plugins/commands/shared/contracts";
 import type {CommandService, KeyPlatform, MenuFacts, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
-import {localize} from "nbook/shared/localized-text";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import type {TextResolver} from "nbook/shared/localized-text";
 import {assembleTitleActions} from "nbook/ui/menus/title-actions";
 import type {TitleActionCandidate, TitleActionsModel} from "nbook/ui/menus/title-actions";
 
@@ -29,12 +28,12 @@ import type {MenuGroup} from "./menu-model";
 export type ActivityEntry = ShownActivityItem & {readonly disabledReason: string | null};
 
 export interface ShellChrome {
-    menus(locale: DisplayLocale): MenuGroup[];
+    menus(text: TextResolver): MenuGroup[];
     /** 命令面板的快捷键，按平台写好；没有声明时为 null。 */
     searchShortcut(): string | null;
-    statusEntries(locale: DisplayLocale): StripEntry[];
-    titleEntries(locale: DisplayLocale): StripEntry[];
-    activityEntries(locale: DisplayLocale): ActivityEntry[];
+    statusEntries(text: TextResolver): StripEntry[];
+    titleEntries(text: TextResolver): StripEntry[];
+    activityEntries(text: TextResolver): ActivityEntry[];
     /** 点了一个条目：按它声明的命令执行；条目已不在（入口停止）时什么都不做。 */
     runItem(itemId: string): void;
     /**
@@ -42,7 +41,7 @@ export interface ShellChrome {
      * `workbench.view-title` 贡献的在后；按钮至多 8 个，多出的收进“⋯”。可用与否看命令的 `when`（不可用时带原因），按下态看
      * `toggled` 的公开键；视图实例还没建立（`instance` 为 null）时，要实例的动作不可用。
      */
-    viewActions(viewId: string, actions: ReadonlyArray<ViewAction>, locale: DisplayLocale, instance: ViewInstanceRef | null): TitleActionsModel;
+    viewActions(viewId: string, actions: ReadonlyArray<ViewAction>, text: TextResolver, instance: ViewInstanceRef | null): TitleActionsModel;
     /**
      * 点了视图标题的一个动作（按 `TitleActionEntry.key` 找，不按位置找：显示的列表会随 `when` 与按钮预算变）：执行它的命令，
      * 要实例的带上被点的视图实例；要实例而实例还没建立、或这一项已不在时不执行。
@@ -60,6 +59,9 @@ const INSTANCE_LOADING = {"zh-CN": "视图还没加载好", "en-US": "The view h
 
 /** 标题栏菜单没有位置参数。 */
 const NO_CONTEXTS: ReadonlySet<string> = new Set();
+
+/** `runItem` 只按 id 找条目，不用文字。 */
+const NO_TEXT: TextResolver = {t: () => "", variants: () => []};
 
 const OWN = "own:";
 
@@ -94,13 +96,13 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
         const enabled = commands.isEnabled(item.command.id);
         return enabled.ok ? (enabled.value ? null : item.title) : enabled.reason;
     };
-    const entries = (registry: ItemRegistry, locale: DisplayLocale): StripEntry[] => {
+    const entries = (registry: ItemRegistry, text: TextResolver): StripEntry[] => {
         void version.value;
-        return registry.shown(locale).map((item) => ({...item, disabledReason: disabledReason(item)}));
+        return registry.shown(text).map((item) => ({...item, disabledReason: disabledReason(item)}));
     };
 
     /** 菜单项求值要的事实：命令目录、可用性、公开状态；标题栏菜单没有位置参数，视图标题另给 `instance`。 */
-    const facts = (locale: DisplayLocale): MenuFacts => ({
+    const facts = (text: TextResolver): MenuFacts => ({
         command: (id) => {
             const command = commands.get(id);
             return command.ok ? command.value : null;
@@ -110,18 +112,18 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
             const read = state.read(key);
             return read.status === "ready" && read.value === true;
         },
-        locale,
+        text,
         platform: options.platform,
         current: null,
         contexts: NO_CONTEXTS,
     });
 
     return {
-        menus: (locale) => {
+        menus: (text) => {
             void version.value;
             const items = options.titlebarMenu.items();
             return TITLEBAR_MENU_GROUPS
-                .map((group) => ({id: group.id, label: localize(group.title, locale), sections: arrangeMenu(items.filter((item) => item.declaration.group === group.id), facts(locale))}))
+                .map((group) => ({id: group.id, label: text.t(group.title), sections: arrangeMenu(items.filter((item) => item.declaration.group === group.id), facts(text))}))
                 .filter((group) => group.sections.length > 0);
         },
         searchShortcut: () => {
@@ -129,17 +131,17 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
             const command = commands.get(OPEN_COMMANDS_ID);
             return command.ok && command.value.keybinding !== undefined ? formatKeybinding(command.value.keybinding, options.platform) : null;
         },
-        statusEntries: (locale) => entries(options.statusItems, locale),
-        titleEntries: (locale) => entries(options.titleItems, locale),
-        activityEntries: (locale) => {
+        statusEntries: (text) => entries(options.statusItems, text),
+        titleEntries: (text) => entries(options.titleItems, text),
+        activityEntries: (text) => {
             void version.value;
-            return options.activityItems.shown(locale).map((item) => ({...item, disabledReason: disabledReason(item)}));
+            return options.activityItems.shown(text).map((item) => ({...item, disabledReason: disabledReason(item)}));
         },
-        viewActions: (viewId, actions, locale, instance) => {
+        viewActions: (viewId, actions, text, instance) => {
             void version.value;
-            const loading = localize(INSTANCE_LOADING, locale);
+            const loading = text.t(INSTANCE_LOADING);
             const own = actions.map((action, index): TitleActionCandidate => {
-                const title = localize(action.title, locale);
+                const title = text.t(action.title);
                 const enabled = commands.isEnabled(action.command);
                 const read = action.toggled === undefined ? null : state.read(action.toggled);
                 const waiting = action.args === "instance" && instance === null;
@@ -155,7 +157,7 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
                     ...(keybinding === undefined ? {} : {shortcut: formatKeybinding(keybinding, options.platform)}),
                 }};
             });
-            const contributed = arrangeMenu(options.viewTitle.items().filter((item) => item.declaration.view === viewId), {...facts(locale), contexts: INSTANCE_CONTEXT})
+            const contributed = arrangeMenu(options.viewTitle.items().filter((item) => item.declaration.view === viewId), {...facts(text), contexts: INSTANCE_CONTEXT})
                 .map((section) => section.map((item): TitleActionCandidate => ({menu: item.placement === "menu", entry: {
                     key: item.id,
                     command: item.command,
@@ -180,7 +182,7 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
             void commands.execute(item.declaration.command, item.declaration.context === "instance" ? target : (item.declaration.args ?? {}), {source: "user"});
         },
         runItem: (itemId) => {
-            const item = [...options.statusItems.shown("en-US"), ...options.titleItems.shown("en-US"), ...options.activityItems.shown("en-US")].find((entry) => entry.id === itemId);
+            const item = [...options.statusItems.shown(NO_TEXT), ...options.titleItems.shown(NO_TEXT), ...options.activityItems.shown(NO_TEXT)].find((entry) => entry.id === itemId);
             if (item?.command == null) return;
             void commands.execute(item.command.id, item.command.args, {source: "user"});
         },

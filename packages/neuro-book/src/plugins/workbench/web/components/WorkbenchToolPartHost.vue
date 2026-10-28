@@ -4,7 +4,8 @@ import {computed, onBeforeUnmount, ref, watch} from "vue";
 
 import {Tabs} from "@notnotype/nb-ui/components";
 
-import {localize} from "nbook/shared/localized-text";
+import {localize, resolverFor} from "nbook/shared/localized-text";
+import {useText} from "@notnotype/nb-ui/text-port";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
 import type {ContainerPresentation, PartPresentation} from "../views/presentation";
@@ -35,6 +36,8 @@ const props = defineProps<{
     dragHint: string;
 }>();
 
+const resolver = resolverFor(() => props.locale, useText());
+
 const emit = defineEmits<{
     (event: "select", containerId: string): void;
     (event: "target", element: HTMLElement | null): void;
@@ -46,7 +49,7 @@ defineSlots<{
 
 const tabs = computed(() => props.presentation.switcher.map((item) => ({
     value: item.containerId,
-    label: localize(item.title, props.locale),
+    label: resolver.t(item.title),
     iconClass: item.icon,
     id: switcherTabId(props.idPrefix, props.part, item.containerId),
     controls: switcherPanelId(props.idPrefix, props.part),
@@ -70,7 +73,7 @@ onBeforeUnmount(() => {
         <header v-if="showTitleRow && selected !== null" class="workbench-tool-part__head workbench-tool-part__head--drag" :data-drag-container="selected.id">
             <span class="workbench-tool-part__icon" :class="selected.icon" aria-hidden="true"></span>
             <!-- 标题文字是键盘拖动的把手；指针拖动用整个标题行。 -->
-            <h2 class="workbench-tool-part__title"><span class="nb-ui-focus-ring workbench-tool-part__handle" role="button" tabindex="0" :aria-label="dragLabel.replace('{title}', localize(selected.title, locale))" data-drag-handle>{{ localize(selected.title, locale) }}</span></h2>
+            <h2 class="workbench-tool-part__title"><span class="nb-ui-focus-ring workbench-tool-part__handle" role="button" tabindex="0" :aria-label="dragLabel.replace('{title}', resolver.t(selected.title))" data-drag-handle>{{ resolver.t(selected.title) }}</span></h2>
             <div class="workbench-tool-part__actions" data-no-drag data-hover-actions>
                 <slot name="actions" :container="selected"></slot>
             </div>

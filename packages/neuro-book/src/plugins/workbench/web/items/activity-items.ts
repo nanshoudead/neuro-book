@@ -11,8 +11,7 @@ import {shallowRef} from "@vue/reactivity";
 import type {ContributionDescriptor, ContributionHandle, ContributionReceiver} from "@notnotype/nb-runtime/plugins";
 
 import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
-import {localize} from "nbook/shared/localized-text";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import type {TextResolver} from "nbook/shared/localized-text";
 
 import type {ActivityBarItemDeclaration} from "../../shared/items";
 import type {ActivityBarItemImplementation} from "../contracts";
@@ -61,7 +60,7 @@ export class ActivityItemRegistry {
     }
 
     /** 此刻要显示的条目，从上往下按 order 再按 id。响应式：在 computed 里读。 */
-    shown(locale: DisplayLocale): ShownActivityItem[] {
+    shown(text: TextResolver): ShownActivityItem[] {
         void this.#version.value;
         if (this.#stopped) return [];
         const items: Array<{readonly order: number; readonly item: ShownActivityItem}> = [];
@@ -70,7 +69,7 @@ export class ActivityItemRegistry {
             if (declaration === undefined || !handle.published || !(declaration.when?.requires ?? []).every((key) => this.#on(key))) continue;
             items.push({order: declaration.order, item: {
                 id,
-                title: localize(declaration.title, locale),
+                title: text.t(declaration.title),
                 icon: declaration.icon,
                 command: declaration.command === undefined ? null : {id: declaration.command.id, args: declaration.command.args ?? {}},
                 pressed: declaration.toggled === undefined ? null : this.#on(declaration.toggled),

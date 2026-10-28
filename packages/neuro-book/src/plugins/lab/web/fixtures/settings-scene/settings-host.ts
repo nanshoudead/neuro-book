@@ -4,6 +4,7 @@
  * 由场景给出，触发激活事件时交给场景处理（例如收到后交付）。场景之间互不影响，卸载时一起释放。Lab 与设置窗口的组件测试共用。
  */
 
+import {defaultTextPort} from "@notnotype/nb-ui/text-port";
 import {ref} from "vue";
 import type {Component, MaybeRefOrGetter} from "vue";
 
@@ -26,6 +27,7 @@ import type {SettingsWindow, SettingsWindowSize} from "nbook/plugins/settings/we
 import {choiceReferences, createSettingsWindowSource} from "nbook/plugins/settings/web/window-source";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import type {WindowPluginRetry, WindowPlugins} from "nbook/shared/host";
+import {resolverFor} from "nbook/shared/localized-text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 import type {SettingDefinition, SettingsService} from "nbook/shared/settings";
 
@@ -165,12 +167,14 @@ export function createSettingsHost(options: SettingsHostOptions): SettingsHost {
         return found;
     };
     const size = ref<SettingsWindowSize | null>(null);
+    const locale = ref(options.locale ?? "zh-CN");
     const settingsWindow = createSettingsWindow({
         source,
         settings: service("nbook.settings"),
         bound: project !== null,
         projectTitle: project === null ? null : options.projectTitle ?? null,
-        locale: ref(options.locale ?? "zh-CN"),
+        locale,
+        text: resolverFor(() => locale.value, defaultTextPort()),
         size: {remembered: size, remember: (next) => {
             size.value = next;
         }},

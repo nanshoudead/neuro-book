@@ -5,7 +5,8 @@ import type {BannerTone, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 
-import {localize} from "nbook/shared/localized-text";
+import {resolverFor} from "nbook/shared/localized-text";
+import {useText} from "@notnotype/nb-ui/text-port";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 import NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
 import TitleActions from "nbook/ui/menus/TitleActions.vue";
@@ -53,6 +54,7 @@ const props = withDefaults(defineProps<{
     /** 作品名（面包屑的第一段）；未绑定作品时为 null，写“作品”。 */
     workTitle?: string | null;
 }>(), {pages: null, emptyTips: () => [], titleActions: null, tabMenu: null, wrapTabs: true, breadcrumbs: true, workTitle: null});
+const resolver = resolverFor(() => props.locale, useText());
 
 /** 点了空态里的一条提示：交出它的命令，由宿主执行（组件不执行命令）。点了标题动作、标签菜单的一项：交出它的 key。 */
 const emit = defineEmits<{(event: "run-tip", command: string): void; (event: "title-action", key: string): void; (event: "tab-menu", tabId: string, key: string): void}>();
@@ -106,11 +108,11 @@ const binding = computed(() => props.area.binding(props.groupId));
 const active = computed(() => props.area.groups.activeGroup.value === props.groupId);
 
 const tabs = computed((): TabItem[] => {
-    const shown = (group.value?.tabs ?? []).map((tab) => ({tab, page: pageIdOf(tab.address), label: tabLabel(props.area, tab, props.locale, props.pages)}));
+    const shown = (group.value?.tabs ?? []).map((tab) => ({tab, page: pageIdOf(tab.address), label: tabLabel(props.area, tab, props.locale, resolver, props.pages)}));
     // 同名提示只看文件标签（输出 56）。
     const hints = tabHints(shown.flatMap(({tab, page, label}) => (page === null && tab.kind === "file" ? [{id: tab.id, label, address: tab.address, editor: tab.editor}] : [])), {
         root: (scheme) => editorText(props.locale, scheme === "project" ? "rootProject" : "rootUser"),
-        editor: (id) => localize(props.area.editors.declaration(id)?.title ?? {"zh-CN": id, "en-US": id}, props.locale),
+        editor: (id) => resolver.t(props.area.editors.declaration(id)?.title ?? id),
     });
     return shown.map(({tab, page, label}): TabItem => ({
         id: tab.id,

@@ -8,8 +8,7 @@
 import {arrangeMenu, formatKeybinding} from "nbook/plugins/commands/shared/contracts";
 import type {CommandService, KeyPlatform} from "nbook/plugins/commands/shared/contracts";
 import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
-import {localize} from "nbook/shared/localized-text";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import type {TextResolver} from "nbook/shared/localized-text";
 import {assembleTitleActions} from "nbook/ui/menus/title-actions";
 import type {TitleActionCandidate, TitleActionsModel} from "nbook/ui/menus/title-actions";
 
@@ -46,7 +45,7 @@ export interface EditorTitleActions {
      * 活动组的标题动作；没有编辑区时为 null。`model(maxButtons)` 按组给出的按钮个数拼好（至多 4 个）；`identity` 是“⋯”的菜单
      * 身份：活动组、活动标签与它的地址，任一变化就关闭打开着的菜单（输出 34）。响应式：在 computed 或渲染函数里读。
      */
-    current(locale: DisplayLocale): {readonly group: string; readonly model: (maxButtons: number) => TitleActionsModel; readonly identity: string} | null;
+    current(text: TextResolver): {readonly group: string; readonly model: (maxButtons: number) => TitleActionsModel; readonly identity: string} | null;
     /** 点了一个动作：按 key 找回动作执行；带 `context: "resource"` 的项收到此刻活动标签的地址，活动标签不是文件时不执行。 */
     run(key: string): void;
 }
@@ -69,14 +68,14 @@ export function createEditorTitleActions(options: {
     };
 
     return {
-        current: (locale) => {
+        current: (text) => {
             const area = options.area();
             if (area === null) return null;
             const {group, tab, file} = active(area);
             const own = OWN.flatMap((action): TitleActionCandidate[] => {
                 const command = options.commands.get(action.command);
                 if (!command.ok) return [];
-                const title = localize(action.key === "own:open-preview-side" ? SIDE_TITLE : command.value.title, locale);
+                const title = text.t(action.key === "own:open-preview-side" ? SIDE_TITLE : command.value.title);
                 const enabled = options.commands.isEnabled(action.command);
                 if (action.whenHidden === true && !(enabled.ok && enabled.value)) return [];
                 const keybinding = command.value.keybinding;
@@ -99,7 +98,7 @@ export function createEditorTitleActions(options: {
                     const read = options.state.read(key);
                     return read.status === "ready" && read.value === true;
                 },
-                locale,
+                text,
                 platform: options.platform,
                 current: file === null ? null : [nameOf(file)],
                 contexts: file === null ? NONE : RESOURCE,

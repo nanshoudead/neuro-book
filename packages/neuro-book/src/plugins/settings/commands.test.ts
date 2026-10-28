@@ -37,6 +37,7 @@ import type {SettingsService} from "nbook/shared/settings";
 import {settingsWorld} from "./testing/world";
 import type {SettingsWorld} from "./testing/world";
 import {settingsWindowEntry, settingsWindowState, SWITCH_LOCALE_COMMAND} from "./web/plugin";
+import {textIn} from "nbook/shared/testing/text";
 
 let tmp = "";
 let counter = 0;
@@ -137,8 +138,8 @@ describe("切换界面语言", () => {
         const a = await window(created, "w-a", choose);
         expect(await a.commands!.execute(SWITCH_LOCALE_COMMAND, {}, {source: "user"})).toEqual({ok: true, value: null});
         const request = choose.requests[0]!;
-        expect(textOf(request.title, "zh-CN")).toBe("切换界面语言");
-        expect(request.items.map((item) => [item.id, item.label, item.detail === undefined ? null : textOf(item.detail, "zh-CN")])).toEqual([["zh-CN", "简体中文", "当前"], ["en-US", "English", null]]);
+        expect(textIn("zh-CN").t(request.title)).toBe("切换界面语言");
+        expect(request.items.map((item) => [item.id, item.label, item.detail === undefined ? null : textIn("zh-CN").t(item.detail)])).toEqual([["zh-CN", "简体中文", "当前"], ["en-US", "English", null]]);
         expect(displayLocale(a.settings!)).toBe("en-US");
 
         const cancelled = await world();

@@ -9,8 +9,7 @@
 import {arrangeMenu} from "nbook/plugins/commands/shared/contracts";
 import type {CommandService, KeyPlatform} from "nbook/plugins/commands/shared/contracts";
 import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
-import {localize} from "nbook/shared/localized-text";
+import type {LocalizedText, TextResolver} from "nbook/shared/localized-text";
 
 import type {EditorTabContextItemDeclaration} from "../shared/contracts";
 import type {ActionResult, EditorArea} from "./area";
@@ -74,7 +73,7 @@ const NONE: ReadonlySet<string> = new Set();
 
 export interface EditorTabMenu {
     /** 标签的菜单；标签已不在为 null。响应式：在 computed 或渲染函数里读。 */
-    entries(tabId: string, locale: DisplayLocale): ReadonlyArray<TabMenuEntry> | null;
+    entries(tabId: string, text: TextResolver): ReadonlyArray<TabMenuEntry> | null;
     /** 菜单身份：组、地址与编辑器，任一变化（或标签已关）时打开着的菜单关闭。 */
     identity(tabId: string): string | null;
     /** 点了一项：按 key 找回动作，带这个标签执行；标签已不在时不执行。 */
@@ -100,16 +99,16 @@ export function createEditorTabMenu(options: {
         });
     };
     return {
-        entries: (tabId, locale) => {
+        entries: (tabId, text) => {
             const found = find(tabId);
             if (found === null) return null;
             const {tab} = found;
-            const own = OWN.map((section) => section.filter((action) => action.shown(tab)).map((action): TabMenuEntry => ({kind: "item", key: action.key, label: localize(action.label, locale), disabled: false, reason: null, shortcut: null})));
+            const own = OWN.map((section) => section.filter((action) => action.shown(tab)).map((action): TabMenuEntry => ({kind: "item", key: action.key, label: text.t(action.label), disabled: false, reason: null, shortcut: null})));
             // “在资源管理器中显示”是资源管理器的命令：可用与否照它自己的 `when`（资源管理器还没就绪时禁用）。
             const reveal = options.commands.get(REVEAL_COMMAND);
             if (file(tab) && reveal.ok) {
                 const enabled = options.commands.isEnabled(REVEAL_COMMAND);
-                const label = localize({"zh-CN": "在资源管理器中显示", "en-US": "Reveal in Explorer"}, locale);
+                const label = text.t({"zh-CN": "在资源管理器中显示", "en-US": "Reveal in Explorer"});
                 own[own.length - 1]?.push({kind: "item", key: REVEAL_KEY, label, disabled: !(enabled.ok && enabled.value), reason: enabled.ok ? (enabled.value ? null : label) : enabled.reason, shortcut: null});
             }
             const address = tab.kind === "file" ? tab.address : null;
@@ -123,7 +122,7 @@ export function createEditorTabMenu(options: {
                     const read = options.state.read(key);
                     return read.status === "ready" && read.value === true;
                 },
-                locale,
+                text,
                 platform: options.platform,
                 current: address === null ? null : [nameOf(address)],
                 contexts: address === null ? NONE : RESOURCE,

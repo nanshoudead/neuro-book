@@ -11,7 +11,8 @@ import {computed, onBeforeUnmount, ref, watch} from "vue";
 
 import {currentKeyPlatform, formatKeybinding, runsWithoutArgs} from "nbook/plugins/commands/shared/contracts";
 import type {CommandMetadata} from "nbook/plugins/commands/shared/contracts";
-import {textOf} from "nbook/shared/localized-text";
+import {resolverFor} from "nbook/shared/localized-text";
+import {useText} from "@notnotype/nb-ui/text-port";
 
 import {otherTexts, parseCommandQuery, parseLineNumber, searchCommands, searchPickItems} from "../commands/command-query";
 import type {PaletteItem} from "../commands/command-query";
@@ -35,6 +36,7 @@ const OPEN_COMMANDS_ID = "nbook.quick-open.open-commands";
 const PICK_TEXT_ID = "quick-pick:text";
 
 const host = props.host;
+const resolver = resolverFor(() => host.locale.value, useText());
 const activeId = ref<string | null>(null);
 
 /** 面板文案按宿主给的显示语言取：语言变化时打开中的面板随之换文字，输入与选中项不变。 */
@@ -89,27 +91,26 @@ const items = computed<readonly PaletteItem[]>(() => {
     if (picking !== null) {
         // 选择模式不做前缀路由：输入的就是要匹配或提交的文字。
         const text = host.query.value.trim();
-        const locale = host.locale.value;
         const shown = picking.items.map((item) => ({
             id: item.id,
-            label: textOf(item.label, locale),
-            ...(item.detail === undefined ? {} : {detail: textOf(item.detail, locale)}),
-            alternates: [...otherTexts(item.label, locale), ...(item.detail === undefined ? [] : otherTexts(item.detail, locale))],
+            label: resolver.t(item.label),
+            ...(item.detail === undefined ? {} : {detail: resolver.t(item.detail)}),
+            alternates: [...otherTexts(item.label, resolver), ...(item.detail === undefined ? [] : otherTexts(item.detail, resolver))],
         }));
         const found = searchPickItems(shown, text);
-        return picking.text === undefined || text === "" ? found : [...found, {id: PICK_TEXT_ID, label: textOf(picking.text.label(text), locale)}];
+        return picking.text === undefined || text === "" ? found : [...found, {id: PICK_TEXT_ID, label: resolver.t(picking.text.label(text))}];
     }
     if (parsedQuery.value.mode === "line") {
         const state = lineState.value;
         return state.line === null ? [] : [{id: LINE_ITEM_ID, label: paletteText("goToLine", {line: state.line})}];
     }
-    return searchCommands(visibleCommands.value, parsedQuery.value.text, host.recent.value, host.locale.value)
+    return searchCommands(visibleCommands.value, parsedQuery.value.text, host.recent.value, resolver)
         .map((item) => (item.shortcut === undefined ? item : {...item, shortcut: formatKeybinding(item.shortcut, KEY_PLATFORM)}));
 });
 
 const emptyText = computed(() => {
     const picking = host.pick.value;
-    if (picking !== null) return picking.empty === undefined ? paletteText("pickEmpty") : textOf(picking.empty, host.locale.value);
+    if (picking !== null) return picking.empty === undefined ? paletteText("pickEmpty") : resolver.t(picking.empty);
     return parsedQuery.value.mode === "line" ? lineState.value.message : paletteText("empty");
 });
 
@@ -176,8 +177,8 @@ onBeforeUnmount(() => {
         :query="host.query.value"
         :items="items"
         :active-id="activeId"
-        :title="host.pick.value === null ? paletteText('title') : textOf(host.pick.value.title, host.locale.value)"
-        :placeholder="host.pick.value === null ? paletteText('placeholder') : textOf(host.pick.value.placeholder, host.locale.value)"
+        :title="host.pick.value === null ? paletteText('title') : resolver.t(host.pick.value.title)"
+        :placeholder="host.pick.value === null ? paletteText('placeholder') : resolver.t(host.pick.value.placeholder)"
         :empty-text="emptyText"
         :focus-request="host.focusRequest.value"
         :restore-focus="true"

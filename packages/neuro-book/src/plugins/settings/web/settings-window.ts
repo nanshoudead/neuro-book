@@ -23,7 +23,7 @@ import type {FormOptionSources} from "@notnotype/nb-form/vue";
 import type {CommandResult} from "nbook/plugins/commands/shared/contracts";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import {formatText, localize, textOf} from "nbook/shared/localized-text";
-import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/localized-text";
+import type {DisplayLocale, DisplayText, LocalizedText, TextResolver} from "nbook/shared/localized-text";
 import {settingsFailureText} from "nbook/ui/settings/setting-text";
 import type {SettingDefinition, SettingLayer, SettingsFailure, SettingsService, SettingUpdateOptions, SettingWriteResult} from "nbook/shared/settings";
 
@@ -65,6 +65,8 @@ export interface SettingsWindowOptions {
     /** 绑定作品的书名；没有绑定为 null。 */
     readonly projectTitle: string | null;
     readonly locale: Readonly<Ref<DisplayLocale>>;
+    /** 声明里的文字（分区标题、配置项标题与说明）经它解析；`TextRef` 查窗口的目录。 */
+    readonly text: TextResolver;
     readonly size: SettingsWindowSizeStore;
     /** 工作台的通知（写入失败、结果未知）。 */
     readonly notify: (input: NotificationInput) => void;
@@ -173,6 +175,8 @@ export interface SettingsWindow {
     /** 绑定了作品（有“本作品”标签）；在入口这一代里不变。 */
     readonly bound: Readonly<Ref<boolean>>;
     readonly locale: Readonly<Ref<DisplayLocale>>;
+    /** 声明里的文字（分区标题、配置项标题与说明）经它解析；`TextRef` 查窗口的目录。 */
+    readonly text: TextResolver;
     /** 绑定作品的书名；没有绑定为 null。 */
     readonly projectTitle: Readonly<Ref<string | null>>;
     readonly open: Readonly<Ref<boolean>>;
@@ -260,8 +264,8 @@ export const SEARCH_VIEW_ID = "search";
 
 interface CatalogSection {
     readonly id: string;
-    readonly title: LocalizedText;
-    readonly description: LocalizedText | null;
+    readonly title: DisplayText;
+    readonly description: DisplayText | null;
     readonly icon: string;
     readonly category: SettingsSectionCategory;
     readonly order: number;
@@ -271,7 +275,7 @@ interface CatalogSection {
     readonly layers: ReadonlyArray<SettingLayer>;
     readonly groups: ReadonlyArray<{readonly id: string | null; readonly title: DisplayText | null; readonly settings: ReadonlyArray<WindowSetting>}>;
     /** page 分区：声明的搜索词与指向它、由页面画的配置项（都只用于搜索）。 */
-    readonly keywords: ReadonlyArray<LocalizedText>;
+    readonly keywords: ReadonlyArray<DisplayText>;
     readonly pageSettings: ReadonlyArray<WindowSetting>;
 }
 
@@ -380,16 +384,16 @@ function buildCatalog(source: SettingsWindowSource, report: (message: string) =>
 }
 
 /** 一项配置在搜索里比对的文字：标题、说明、键与固定选项名，两种语言都在（输出 21）。 */
-function settingText(setting: WindowSetting): string {
+function settingText(setting: WindowSetting, resolver: TextResolver): string {
     const {key, declaration} = setting.definition;
-    const texts: Array<LocalizedText | undefined> = [declaration.title, declaration.description];
+    const texts: Array<DisplayText | undefined> = [declaration.title, declaration.description];
     const choices = declaration.choices;
     if (Array.isArray(choices)) texts.push(...choices.map((choice) => choice.title));
-    return [key, ...texts.flatMap((text) => (text === undefined ? [] : Object.values(text)))].join("\n").toLocaleLowerCase();
+    return [key, ...texts.flatMap((text) => (text === undefined ? [] : resolver.variants(text)))].join("\n").toLocaleLowerCase();
 }
 
-function localizedText(texts: ReadonlyArray<LocalizedText | null>): string {
-    return texts.flatMap((text) => (text === null ? [] : Object.values(text))).join("\n").toLocaleLowerCase();
+function localizedText(texts: ReadonlyArray<DisplayText | null>, resolver: TextResolver): string {
+    return texts.flatMap((text) => (text === null ? [] : resolver.variants(text))).join("\n").toLocaleLowerCase();
 }
 
 /** 按空白分词、不分大小写，每个词都要出现。 */
@@ -431,8 +435,8 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     const view = (entry: CatalogSection, tab: SettingLayer): SettingsSectionView => {
         const heading = {
             id: entry.id,
-            title: localize(entry.title, options.locale.value),
-            description: entry.description === null ? null : localize(entry.description, options.locale.value),
+            title: options.text.t(entry.title),
+            description: entry.description === null ? null : options.text.t(entry.description),
             unavailable: unavailableIn(entry, tab),
         };
         if (entry.kind === "page") return {...heading, kind: "page", layout: entry.layout};
@@ -445,9 +449,9 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
             ...heading,
             kind: "list",
             groups: entry.groups
-                .map((group) => ({id: group.id, title: group.title === null ? null : textOf(group.title, options.locale.value), settings: group.settings.filter(allowed)}))
+                .map((group) => ({id: group.id, title: group.title === null ? null : options.text.t(group.title), settings: group.settings.filter(allowed)}))
                 .filter((group) => group.settings.length > 0),
-            excluded: entry.groups.flatMap((group) => group.settings.filter((setting) => !allowed(setting))).map((setting) => localize(setting.definition.declaration.title, options.locale.value)),
+            excluded: entry.groups.flatMap((group) => group.settings.filter((setting) => !allowed(setting))).map((setting) => options.text.t(setting.definition.declaration.title)),
         };
     };
 
@@ -458,7 +462,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     const pendingKey = (tab: SettingLayer, key: string): string => `${tab}\n${key}`;
 
     const notifyFailure = (setting: WindowSetting, code: SettingsFailure, detail: string): void => {
-        const title = localize(setting.definition.declaration.title, options.locale.value);
+        const title = options.text.t(setting.definition.declaration.title);
         if (code === "unknown-outcome") {
             options.notify({tone: "warning", title: text(TEXT.unknownTitle), message: text(TEXT.notSaved, {title, reason: settingsFailureText(code, detail, options.locale.value)})});
             return;
@@ -611,7 +615,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     const nav = computed(() => SETTINGS_SECTION_CATEGORIES
         .map((category) => ({
             category,
-            items: catalog().filter((entry) => entry.category === category).map((entry) => ({id: entry.id, title: localize(entry.title, options.locale.value), icon: entry.icon, unavailable: unavailableIn(entry, layer.value)})),
+            items: catalog().filter((entry) => entry.category === category).map((entry) => ({id: entry.id, title: options.text.t(entry.title), icon: entry.icon, unavailable: unavailableIn(entry, layer.value)})),
         }))
         .filter((group) => group.items.length > 0));
     /** 搜索结果（输出 21）：只列当前标签这一层允许的项与可用的 page 分区。 */
@@ -620,19 +624,19 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
         const groups: SettingsListGroup[] = [];
         const pageHits: SettingsPageHit[] = [];
         for (const entry of catalog()) {
-            const title = localize(entry.title, options.locale.value);
+            const title = options.text.t(entry.title);
             if (entry.kind === "page" || entry.kind === "file") {
                 if (!entry.layers.includes(tab)) continue;
-                const own = localizedText([entry.title, entry.description, ...entry.keywords]);
-                if (matches(own, words.value) || entry.pageSettings.some((setting) => matches(settingText(setting), words.value))) {
-                    pageHits.push({id: entry.id, title, description: entry.description === null ? null : localize(entry.description, options.locale.value)});
+                const own = localizedText([entry.title, entry.description, ...entry.keywords], options.text);
+                if (matches(own, words.value) || entry.pageSettings.some((setting) => matches(settingText(setting, options.text), words.value))) {
+                    pageHits.push({id: entry.id, title, description: entry.description === null ? null : options.text.t(entry.description)});
                 }
                 continue;
             }
             for (const group of entry.groups) {
-                const hits = group.settings.filter((setting) => allowed(setting) && matches(settingText(setting), words.value));
+                const hits = group.settings.filter((setting) => allowed(setting) && matches(settingText(setting, options.text), words.value));
                 if (hits.length === 0) continue;
-                const groupTitle = group.title === null ? null : textOf(group.title, options.locale.value);
+                const groupTitle = group.title === null ? null : options.text.t(group.title);
                 // 同一个分区的几个小组各是一组，id 要区分开（键与 `data-settings-group`）。
                 groups.push({id: `${entry.id}#${group.id ?? ""}`, title: groupTitle ?? title, parent: groupTitle === null ? null : title, settings: hits});
             }
@@ -707,6 +711,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     return {
         bound: readonly(ref(options.bound)),
         locale: options.locale,
+        text: options.text,
         projectTitle,
         open: readonly(open),
         focusRequest: readonly(focusRequest),

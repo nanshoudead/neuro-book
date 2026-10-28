@@ -25,6 +25,7 @@ import type {EditorArea, EditorControlHandle, TextEditorBinding} from "./web/are
 import {editorStateValues} from "./web/state";
 import {CURSOR_ITEM, editorStatusItems, LANGUAGE_ITEM, UNSAVED_ITEM, WORD_COUNT_DELAY_MS, WORD_COUNT_ITEM} from "./web/status-items";
 import {CODE_EDITOR} from "./shared/contracts";
+import {textIn} from "nbook/shared/testing/text";
 
 /** 组的文本绑定（这些用例里的标签都是文本编辑器）；字节绑定或没有绑定为 null。 */
 const textBinding = (area: Pick<EditorArea, "binding">, groupId: string): TextEditorBinding | null => {
@@ -86,7 +87,7 @@ describe("状态栏条目", () => {
         const {scene, area} = await world();
         const ref = shallowRef<EditorArea | null>(area);
         const keys = editorStateValues(ref);
-        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), new ManualClock(), LANGUAGE_NAMES, BUILTIN_TABLE);
+        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), new ManualClock(), LANGUAGE_NAMES, BUILTIN_TABLE, textIn("zh-CN"));
         await opened(scene, area, "project://a.md");
         expect(keys.hasUnsavedDocuments.value).toBe(false);
         type(area, "改过的第一章");
@@ -106,7 +107,7 @@ describe("状态栏条目", () => {
     it("保存失败的文档让条目进入错误状态，提示写明是哪个文件与原因", async () => {
         const {scene, area} = await world();
         const ref = shallowRef<EditorArea | null>(area);
-        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), new ManualClock(), LANGUAGE_NAMES, BUILTIN_TABLE);
+        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), new ManualClock(), LANGUAGE_NAMES, BUILTIN_TABLE, textIn("zh-CN"));
         await opened(scene, area, "project://b.md");
         type(area, "改过的 B");
         // 目录只读：保存写不进去（原子替换要在目录里建临时文件）。
@@ -125,7 +126,7 @@ describe("状态栏条目", () => {
         const ref = shallowRef<EditorArea | null>(area);
         const locale = shallowRef<"zh-CN" | "en-US">("zh-CN");
         const clock = new ManualClock();
-        const items = editorStatusItems(ref, computed(() => locale.value), clock, LANGUAGE_NAMES, BUILTIN_TABLE);
+        const items = editorStatusItems(ref, computed(() => locale.value), clock, LANGUAGE_NAMES, BUILTIN_TABLE, textIn("zh-CN"));
         const words = (): string => items[WORD_COUNT_ITEM]!.text();
         // 状态栏经响应式求值显示：到点算完要能让它重新求值。
         const shownWords = computed(() => items[WORD_COUNT_ITEM]!.text());
@@ -154,7 +155,7 @@ describe("状态栏条目", () => {
         const {scene, area} = await world();
         const ref = shallowRef<EditorArea | null>(area);
         const clock = new ManualClock();
-        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), clock, LANGUAGE_NAMES, BUILTIN_TABLE);
+        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), clock, LANGUAGE_NAMES, BUILTIN_TABLE, textIn("zh-CN"));
         const words = (): string => items[WORD_COUNT_ITEM]!.text();
         await opened(scene, area, "project://a.md");
         expect(words()).toBe("3 字");
@@ -170,7 +171,7 @@ describe("状态栏条目", () => {
         const {scene, area} = await world();
         const ref = shallowRef<EditorArea | null>(area);
         const clock = new ManualClock();
-        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), clock, LANGUAGE_NAMES, BUILTIN_TABLE);
+        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), clock, LANGUAGE_NAMES, BUILTIN_TABLE, textIn("zh-CN"));
         const shownWords = computed(() => items[WORD_COUNT_ITEM]!.text());
         await opened(scene, area, "project://a.md");
         expect(shownWords.value).toBe("3 字");
@@ -191,7 +192,7 @@ describe("状态栏条目", () => {
         const {scene, area} = await world();
         const ref = shallowRef<EditorArea | null>(area);
         const keys = editorStateValues(ref);
-        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), new ManualClock(), LANGUAGE_NAMES, BUILTIN_TABLE);
+        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), new ManualClock(), LANGUAGE_NAMES, BUILTIN_TABLE, textIn("zh-CN"));
         await opened(scene, area, "project://c.json");
         const position = shallowRef<{line: number; column: number} | null>({line: 18, column: 4});
         const withPosition: EditorControlHandle = {focus: () => undefined, flushPendingChange: () => undefined, position};
@@ -208,7 +209,7 @@ describe("状态栏条目", () => {
         const {scene, area} = await world();
         const ref = shallowRef<EditorArea | null>(area);
         const keys = editorStateValues(ref);
-        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), new ManualClock(), LANGUAGE_NAMES, BUILTIN_TABLE);
+        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), new ManualClock(), LANGUAGE_NAMES, BUILTIN_TABLE, textIn("zh-CN"));
         await opened(scene, area, "project://c.json");
         const language = shallowRef<string | null>("python");
         area.registerHandle(area.groups.activeGroup.value, CODE_EDITOR, {focus: () => undefined, flushPendingChange: () => undefined, language});

@@ -16,7 +16,7 @@ import {checkDescription} from "@notnotype/nb-form";
 import type {ContributionDeclaration} from "@notnotype/nb-runtime/plugins";
 import {encodeJsonValue} from "@notnotype/nb-runtime/remote";
 
-import {LocalizedTextSchema} from "nbook/shared/localized-text";
+import {TextSchema} from "nbook/shared/text";
 import type {LocalizedText} from "nbook/shared/localized-text";
 
 export type {DeepReadonly};
@@ -68,8 +68,8 @@ export interface SettingUiHints {
 
 const SettingUiHintsSchema = Type.Object({
     widget: Type.Optional(Type.String({minLength: 1})),
-    placeholder: Type.Optional(LocalizedTextSchema),
-    unit: Type.Optional(LocalizedTextSchema),
+    placeholder: Type.Optional(TextSchema),
+    unit: Type.Optional(TextSchema),
     rows: Type.Optional(Type.Integer({minimum: 1, maximum: 50})),
     searchable: Type.Optional(Type.Boolean()),
     itemLabel: Type.Optional(Type.String({minLength: 1})),
@@ -234,8 +234,8 @@ export function settingDeclarationProblem(plugin: string, key: string, declarati
     if (!Array.isArray(layers) || layers.length === 0 || layers.some((layer) => !(SETTING_LAYERS as ReadonlyArray<unknown>).includes(layer)) || new Set(layers).size !== layers.length) {
         return `配置项 ${key} 的 layers 必须是 user、project 的非空子集`;
     }
-    if (!Value.Check(LocalizedTextSchema, fields.title)) return `配置项 ${key} 的 title 必须是中英两份文本`;
-    if (fields.description !== undefined && !Value.Check(LocalizedTextSchema, fields.description)) return `配置项 ${key} 的 description 必须是中英两份文本`;
+    if (!Value.Check(TextSchema, fields.title)) return `配置项 ${key} 的 title 必须是文字（字符串、语言映射或文字引用）`;
+    if (fields.description !== undefined && !Value.Check(TextSchema, fields.description)) return `配置项 ${key} 的 description 必须是文字（字符串、语言映射或文字引用）`;
     if (fields.section !== undefined && !isSettingsSectionId(fields.section)) return `配置项 ${key} 的 section 必须是分区 id：点分的小写段，至多 ${String(SETTINGS_SECTION_ID_MAX_LENGTH)} 个字符`;
     if (fields.group !== undefined && fields.section === undefined) return `配置项 ${key} 写了 group 却没有 section：小组只在分区里有意义`;
     if (fields.group !== undefined && !isSettingsGroupId(fields.group)) return `配置项 ${key} 的 group 必须是小组 id：一个小写段，至多 ${String(SETTINGS_GROUP_ID_MAX_LENGTH)} 个字符`;
@@ -292,8 +292,8 @@ function choicesProblem(schema: TSchema, choices: unknown): string | null {
         const fields = choice as Record<string, unknown>;
         const extra = Object.keys(fields).filter((field) => !CHOICE_FIELDS.has(field));
         if (extra.length > 0) return `有未知字段：${extra.join("、")}`;
-        if (!Value.Check(LocalizedTextSchema, fields.title)) return "的 title 必须是中英两份文本";
-        if (fields.description !== undefined && !Value.Check(LocalizedTextSchema, fields.description)) return "的 description 必须是中英两份文本";
+        if (!Value.Check(TextSchema, fields.title)) return "的 title 必须是文字（字符串、语言映射或文字引用）";
+        if (fields.description !== undefined && !Value.Check(TextSchema, fields.description)) return "的 description 必须是文字（字符串、语言映射或文字引用）";
         if (!literals.includes(fields.value as SettingLiteral)) return `里的 ${JSON.stringify(fields.value)} 不是 schema 的字面量`;
         if (seen.includes(fields.value as SettingLiteral)) return `里的 ${JSON.stringify(fields.value)} 出现了不止一次`;
         seen.push(fields.value as SettingLiteral);
@@ -308,7 +308,7 @@ function choicesProblem(schema: TSchema, choices: unknown): string | null {
  * 记一份“哪种值能用哪个控件”。动态选项 `{from}` 对应 `x-form.options`：有它时文字的下拉才成立，写多行反而不生效。
  */
 function uiProblem(schema: TSchema, ui: unknown, choices: unknown): string | null {
-    if (!Value.Check(SettingUiHintsSchema, ui)) return "的形状不对：只能有 widget、placeholder、unit、rows、searchable、itemLabel，文字要中英两份";
+    if (!Value.Check(SettingUiHintsSchema, ui)) return "的形状不对：只能有 widget、placeholder、unit、rows、searchable、itemLabel，文字要是字符串、语言映射或文字引用";
     const from = typeof choices === "object" && choices !== null && !Array.isArray(choices) ? (choices as Partial<SettingChoiceSource>).from : undefined;
     const check = checkDescription({...schema, "x-form": {...(ui as SettingUiHints), ...(from === undefined ? {} : {options: from})}});
     const mismatch = check.problems.find((problem) => problem.code === "widget-mismatch" || problem.code === "item-label-unknown");

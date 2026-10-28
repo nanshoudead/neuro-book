@@ -10,7 +10,7 @@ import {Value} from "typebox/value";
 
 import type {ContributionDescriptor, ContributionPointDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {LocalizedTextSchema} from "nbook/shared/localized-text";
+import {TextSchema} from "nbook/shared/text";
 
 export const WORKBENCH_VIEWS_POINT = "workbench.views";
 
@@ -42,7 +42,7 @@ const Size = Type.Number({exclusiveMinimum: 0, maximum: 1_000_000});
 const ViewActionSchema = Type.Object({
     command: Type.String({pattern: "\\S"}),
     icon: Type.String({pattern: "\\S"}),
-    title: LocalizedTextSchema,
+    title: TextSchema,
     args: Type.Optional(Type.Literal("instance")),
     toggled: Type.Optional(Type.String({pattern: "\\S"})),
     /** inline（缺省）画成按钮，menu 收进标题行末尾的“⋯”（docs/specs/workbench/views.md 输出 10）。 */
@@ -53,7 +53,7 @@ export type ViewAction = DeepReadonly<Static<typeof ViewActionSchema>>;
 const SizePair = Type.Object({width: Type.Optional(Size), height: Type.Optional(Size)}, {additionalProperties: false});
 
 export const ViewDeclarationSchema = Type.Object({
-    title: LocalizedTextSchema,
+    title: TextSchema,
     icon: Type.String({pattern: "\\S"}),
     location: Type.Union([Type.Literal("sidebar"), Type.Literal("auxiliarybar"), Type.Literal("panel")]),
     order: Type.Optional(Type.Number({minimum: -1_000_000, maximum: 1_000_000})),

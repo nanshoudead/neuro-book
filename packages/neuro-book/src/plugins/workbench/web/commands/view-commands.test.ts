@@ -25,6 +25,7 @@ import type {LayoutStore} from "../state/layout-store";
 import {workbenchStateBindings} from "../state/public-state";
 import {openLayout} from "../testing/layout";
 import {MOVE_VIEW_COMMAND, OPEN_VIEW_COMMAND, VIEW_COMMAND_DECLARATIONS, viewCommands} from "./view-commands";
+import {textIn} from "nbook/shared/testing/text";
 
 let tmp = "";
 let counter = 0;
@@ -63,7 +64,7 @@ function picker(answer: (request: QuickPickRequest, index: number) => QuickPickR
     }};
 }
 
-const labels = (request: QuickPickRequest | undefined): string[] => (request?.items ?? []).map((item) => `${item.id}:${textOf(item.label, "zh-CN")}${item.detail === undefined ? "" : `/${textOf(item.detail, "zh-CN")}`}`);
+const labels = (request: QuickPickRequest | undefined): string[] => (request?.items ?? []).map((item) => `${item.id}:${textIn("zh-CN").t(item.label)}${item.detail === undefined ? "" : `/${textIn("zh-CN").t(item.detail)}`}`);
 
 const run = (store: LayoutStore, quickPick: QuickPick, args: Record<string, unknown>) => viewCommands(() => store, quickPick)[MOVE_VIEW_COMMAND].run(args);
 

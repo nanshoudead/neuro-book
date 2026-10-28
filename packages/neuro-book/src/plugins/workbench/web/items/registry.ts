@@ -14,8 +14,8 @@ import {shallowRef} from "@vue/reactivity";
 import type {ContributionDescriptor, ContributionHandle, ContributionReceiver} from "@notnotype/nb-runtime/plugins";
 
 import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import {formatText} from "nbook/shared/localized-text";
+import type {LocalizedText, TextResolver} from "nbook/shared/localized-text";
 
 import type {ItemDeclaration} from "../../shared/items";
 import type {ItemImplementation} from "../contracts";
@@ -78,14 +78,14 @@ export class ItemRegistry {
     }
 
     /** 此刻要显示的条目：左侧在前、右侧在后，同侧按 order 再按 id。响应式：在 computed 里读。 */
-    shown(locale: DisplayLocale): ShownItem[] {
+    shown(text: TextResolver): ShownItem[] {
         void this.#version.value;
         if (this.#stopped) return [];
         const items: ShownItem[] = [];
         for (const [id, handle] of this.#handles) {
             const declaration = this.#catalog.get(id);
             if (declaration === undefined || !handle.published || !this.#visible(declaration)) continue;
-            items.push(this.#render(id, handle, declaration, locale));
+            items.push(this.#render(id, handle, declaration, text));
         }
         const side = (item: ShownItem) => (item.alignment === "left" ? 0 : 1);
         return items.sort((a, b) => side(a) - side(b) || a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -98,10 +98,10 @@ export class ItemRegistry {
         });
     }
 
-    #render(id: string, handle: ItemHandle, declaration: ItemDeclaration, locale: DisplayLocale): ShownItem {
+    #render(id: string, handle: ItemHandle, declaration: ItemDeclaration, text: TextResolver): ShownItem {
         const base = {
             id,
-            title: localize(declaration.title, locale),
+            title: text.t(declaration.title),
             alignment: declaration.alignment,
             order: declaration.order,
             priority: declaration.priority,
@@ -116,7 +116,7 @@ export class ItemRegistry {
                 this.#reported.add(handle);
                 this.#report(`条目 ${id} 的实现出错：${message}`);
             }
-            return {...base, text: base.title, tooltip: localize(formatText(BROKEN, {message}), locale), state: "error", command: null};
+            return {...base, text: base.title, tooltip: text.t(formatText(BROKEN, {message})), state: "error", command: null};
         }
     }
 }

@@ -12,7 +12,7 @@
 import {Type} from "typebox";
 
 import type {CommandDeclaration, CommandImplementation, CommandResult} from "nbook/plugins/commands/shared/contracts";
-import type {LocalizedText} from "nbook/shared/localized-text";
+import type {DisplayText, LocalizedText} from "nbook/shared/localized-text";
 
 import type {QuickPick} from "../../shared/contracts";
 import {OPEN_VIEW_COMMAND, VIEW_LOCATIONS} from "../../shared/views";
@@ -111,7 +111,7 @@ async function pickAndMove(store: LayoutStore, quickPick: QuickPick): Promise<Co
         const targets = moveTargetsOf(presentation, placement, catalog, viewId);
         return targets !== null && (targets.groups.length > 0 || targets.canReset);
     });
-    const containerTitle = (containerId: string): LocalizedText | undefined => presentation.containers.get(containerId)?.title;
+    const containerTitle = (containerId: string): DisplayText | undefined => presentation.containers.get(containerId)?.title;
     const pickedView = await quickPick.pick({
         title: TEXT.pickView,
         placeholder: TEXT.pickView,

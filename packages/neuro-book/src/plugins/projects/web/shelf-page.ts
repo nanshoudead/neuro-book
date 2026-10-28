@@ -155,7 +155,7 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
     const items = shallowRef<ReadonlyArray<ShelfItem>>([]);
     const now = ref(new Date(host.clock.now()).toISOString());
     const activeId = ref<string | null>(null);
-    const text = (value: LocalizedText | DisplayText): string => (typeof value === "string" ? value : localize(value, host.locale()));
+    const text = (value: LocalizedText | string): string => (typeof value === "string" ? value : localize(value, host.locale()));
     const reason = (code: string, detail?: unknown): string => text(failureReason(code, detail));
 
     /** 移出后要选中的那一部：移出前算好，刷新回来时用。 */

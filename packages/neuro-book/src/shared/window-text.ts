@@ -11,6 +11,7 @@ import {computed} from "vue";
 import type {ComputedRef} from "vue";
 
 import type {Catalog} from "@notnotype/nb-ui/text";
+import {createMinimalTranslator} from "@notnotype/nb-ui/text/minimal";
 import type {TextPort} from "@notnotype/nb-ui/text-port";
 
 export interface WindowText {
@@ -34,4 +35,16 @@ export const windowTextKey: ServiceKey<WindowText> = defineServiceKey<WindowText
 export async function windowLocale(services: Pick<ServiceAccess, "resolve">, fallback: () => string): Promise<ComputedRef<string>> {
     const text = await services.resolve(windowTextKey);
     return text.status === "resolved" ? computed(() => text.instance.port.locale.value) : computed(fallback);
+}
+
+/**
+ * 插件取翻译端口的写法：有窗口引擎就是它的端口，没有（只装插件的测试场地）时按设置里的语言解析语言映射与字符串，
+ * `TextRef` 显示键名。依赖要声明成 `{key: windowTextKey, required: false}`。
+ */
+export async function windowTextPort(services: Pick<ServiceAccess, "resolve">, fallback: () => string): Promise<TextPort> {
+    const text = await services.resolve(windowTextKey);
+    if (text.status === "resolved") return text.instance.port;
+    const locale = computed(fallback);
+    const translator = createMinimalTranslator({catalogs: {}});
+    return {locale, t: (value) => translator.translate(value, locale.value), variants: translator.variants};
 }

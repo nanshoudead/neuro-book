@@ -12,7 +12,7 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {ItemDeclaration} from "nbook/plugins/workbench/shared/contracts";
 import type {ItemImplementation} from "nbook/plugins/workbench/web/contracts";
 import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import type {DisplayLocale, DisplayText, LocalizedText, TextResolver} from "nbook/shared/localized-text";
 import {countWords} from "nbook/plugins/markdown/shared/contracts";
 import type {DialectTable} from "nbook/plugins/markdown/shared/contracts";
 
@@ -109,9 +109,9 @@ function activeWordCount(area: Readonly<ShallowRef<EditorArea | null>>, clock: R
 }
 
 /** `dialects`：方言声明表（docs/specs/workspace/markdown-syntaxes.md 输出 9、10），在一个窗口的寿命内不变。 */
-export function editorStatusItems(area: Readonly<ShallowRef<EditorArea | null>>, locale: Readonly<ComputedRef<DisplayLocale>>, clock: RuntimeClock, languages: Pick<LanguageRegistry, "name">, dialects: DialectTable): Readonly<Record<string, ItemImplementation>> {
+export function editorStatusItems(area: Readonly<ShallowRef<EditorArea | null>>, locale: Readonly<ComputedRef<DisplayLocale>>, clock: RuntimeClock, languages: Pick<LanguageRegistry, "name">, dialects: DialectTable, resolver: TextResolver): Readonly<Record<string, ItemImplementation>> {
     const text = (value: LocalizedText): string => localize(value, locale.value);
-    const display = (value: LocalizedText | string): string => (typeof value === "string" ? value : text(value));
+    const display = (value: DisplayText): string => resolver.t(value);
     const wordCount = activeWordCount(area, clock, dialects);
     const unsaved = () => area.value?.openDocuments.value.filter(needsSaving) ?? [];
     const failures = () => unsaved().filter((document) => document.saveProblem.value !== null);

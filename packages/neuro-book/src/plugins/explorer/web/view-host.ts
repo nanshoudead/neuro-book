@@ -13,7 +13,7 @@ import type {CommandService, MenuItemRegistry} from "nbook/plugins/commands/shar
 import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
 import {OPEN_PROJECT_COMMAND} from "nbook/plugins/projects/shared/contracts";
 import type {ViewContext} from "nbook/plugins/workbench/web/contracts";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import type {DisplayLocale, TextResolver} from "nbook/shared/localized-text";
 
 import type {DropOver} from "./actions/drop";
 import type {CollisionChoice} from "./actions/paste-plan";
@@ -36,6 +36,8 @@ export interface ExplorerViewHostOptions {
     /** 别的插件经 `explorer.context` 贡献的菜单项。 */
     readonly contextMenu: MenuItemRegistry<ExplorerContextItemDeclaration>;
     readonly locale: ComputedRef<DisplayLocale>;
+    /** 贡献的菜单项标题可能是 `TextRef`，经窗口端口解析；语言映射按 `locale` 取。 */
+    readonly text: TextResolver;
     /** 窗口绑定的作品的显示名，项目根显示它；没有绑定项目时为 null。 */
     readonly projectTitle: string | null;
     /** 资源管理器的两个设置项（`shared/settings.ts`），改了即时生效。 */
@@ -56,7 +58,7 @@ type MenuTarget = {readonly address: string; readonly name: string | null};
  * 别的插件贡献的右键菜单项（docs/specs/workbench/files-explorer.md 的“右键菜单”）：排在固定动作之后，每节前一条分隔线；
  * 根行没有贡献项。
  */
-function contributedEntries(row: Row, targets: ReadonlyArray<MenuTarget>, locale: DisplayLocale, options: ExplorerViewHostOptions): MenuEntry[] {
+function contributedEntries(row: Row, targets: ReadonlyArray<MenuTarget>, options: ExplorerViewHostOptions): MenuEntry[] {
     if (row.kind !== "entry" || targets.length === 0) return [];
     const sections = arrangeMenu(options.contextMenu.items(), {
         command: (id) => {
@@ -68,7 +70,7 @@ function contributedEntries(row: Row, targets: ReadonlyArray<MenuTarget>, locale
             const read = options.state.read(key);
             return read.status === "ready" && read.value === true;
         },
-        locale,
+        text: options.text,
         platform: currentKeyPlatform(),
         current: targets.map((target) => target.name),
         contexts: SELECTION_CONTEXT,
@@ -134,7 +136,7 @@ export function createExplorerViewHost(view: Component, options: ExplorerViewHos
                         error: editing.error === null ? null : nameErrorText(locale, editing.error),
                         busy: editing.busy,
                     },
-                    menu: opened === null || menuRow === undefined || controller === null ? null : {x: opened.x, y: opened.y, entries: [...menuEntries(menuRow, controller.available.value, locale), ...contributedEntries(menuRow, opened.targets, locale, options)]},
+                    menu: opened === null || menuRow === undefined || controller === null ? null : {x: opened.x, y: opened.y, entries: [...menuEntries(menuRow, controller.available.value, locale), ...contributedEntries(menuRow, opened.targets, options)]},
                     dialog: controller?.dialog.value ?? null,
                     report: controller?.report.value ?? null,
                     running: controller?.running.value ?? null,

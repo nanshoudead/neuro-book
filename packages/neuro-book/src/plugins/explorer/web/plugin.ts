@@ -13,7 +13,8 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {COMMANDS_POINT, commandServiceKey, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import {documentCoordinatorKey} from "nbook/plugins/editor/shared/contracts";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
-import {windowLocale, windowTextKey} from "nbook/shared/window-text";
+import {resolverFor} from "nbook/shared/localized-text";
+import {windowLocale, windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import type {PublicStateRead} from "nbook/plugins/state/shared/contracts";
@@ -142,6 +143,7 @@ export const explorerBrowserPlugin: PluginDefinition = {
                     state: context.services.require(publicStateKey),
                     contextMenu,
                     locale,
+                    text: resolverFor(() => locale.value, await windowTextPort(context.services, () => displayLocale(settings))),
                     projectTitle: context.services.require(windowProjectKey).project?.title ?? null,
                     display: computed(() => ({indentGuides: settings.get(indentGuidesSetting), hideMarkdownExtension: settings.get(hideMarkdownExtensionSetting)})),
                     report: (id, reason) => diagnostics.record({level: "warn", event: "explorer.command", message: `${id} 执行失败：${reason}`, source: {plugin: descriptor.id}}),

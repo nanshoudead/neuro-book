@@ -32,6 +32,7 @@ import {
     SET_PANEL_POSITION_COMMAND,
     TOGGLE_PANEL_MAXIMIZED_COMMAND,
 } from "./panel-commands";
+import {textIn} from "nbook/shared/testing/text";
 
 let tmp = "";
 let counter = 0;
@@ -111,13 +112,13 @@ describe("命令", () => {
     it("位置与对齐：带参数直接改；省略时经选择列出并标出当前，选中即改，取消不改；选择服务不可用时 unavailable", async () => {
         const store = await layout();
         store.actions.acceptLayoutFacts(SPLIT);
-        const choose = picker((request) => (request.items.some((item) => item.id === "right") && textOf(request.title, "zh-CN") === "面板位置" ? {kind: "item", id: "right"} : {kind: "item", id: "justify"}));
+        const choose = picker((request) => (request.items.some((item) => item.id === "right") && textIn("zh-CN").t(request.title) === "面板位置" ? {kind: "item", id: "right"} : {kind: "item", id: "justify"}));
         const commands = panelCommands(() => store, choose);
 
         expect(await commands[SET_PANEL_POSITION_COMMAND].run({position: "top"})).toEqual({ok: true, value: null});
         expect(store.state.panel.position).toBe("top");
         expect(await commands[SET_PANEL_POSITION_COMMAND].run({})).toEqual({ok: true, value: null});
-        expect(choose.requests[0]!.items.map((item) => [item.id, item.detail === undefined ? null : textOf(item.detail, "zh-CN")])).toEqual([["bottom", null], ["top", "当前"], ["left", null], ["right", null]]);
+        expect(choose.requests[0]!.items.map((item) => [item.id, item.detail === undefined ? null : textIn("zh-CN").t(item.detail)])).toEqual([["bottom", null], ["top", "当前"], ["left", null], ["right", null]]);
         expect(store.state.panel.position).toBe("right");
 
         store.actions.setPanelPosition("bottom");

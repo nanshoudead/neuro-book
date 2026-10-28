@@ -9,8 +9,7 @@ import type {Component} from "vue";
 
 import type {ContributionDeclarations, ContributionHandle, ContributionReceiver} from "@notnotype/nb-runtime/plugins";
 
-import {localize} from "nbook/shared/localized-text";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import type {DisplayLocale, TextResolver} from "nbook/shared/localized-text";
 
 import {EDITOR_PAGES_POINT} from "../shared/contracts";
 import type {EditorPageDeclaration} from "../shared/contracts";
@@ -58,7 +57,7 @@ export interface EditorPageImplementation {
 /** 编辑组渲染页面标签要的东西。 */
 export interface EditorPageSource {
     /** 页面标题；声明已不在（贡献方停了）时为 null。 */
-    title(id: string, locale: DisplayLocale): string | null;
+    title(id: string, text: TextResolver): string | null;
     /** 页面组件；还没交付实现时为 null。 */
     component(id: string): Component | null;
     readonly context: EditorPageContext;
@@ -107,9 +106,9 @@ export class EditorPageRegistry {
 
     source(context: EditorPageContext): EditorPageSource {
         return {
-            title: (id, locale) => {
+            title: (id, text) => {
                 const declaration = this.declaration(id);
-                return declaration === null ? null : localize(declaration.title, locale);
+                return declaration === null ? null : text.t(declaration.title);
             },
             component: (id) => {
                 const handle = this.#published.value.get(id);

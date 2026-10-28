@@ -34,6 +34,7 @@ import {ActivityItemRegistry} from "./web/items/activity-items";
 import {ItemRegistry} from "./web/items/registry";
 import {createShellChrome} from "./web/titlebar/titlebar-source";
 import type {ShellChrome} from "./web/titlebar/titlebar-source";
+import {textIn} from "nbook/shared/testing/text";
 
 const silent = {error: () => undefined};
 let tmp = "";
@@ -156,7 +157,7 @@ describe("活动栏底部条目", () => {
             "test.items.a": declaration("甲", {order: 900}),
             "test.items.hidden": declaration("藏", {order: 10, when: {requires: ["test.items/ready"]}}),
         }, items)]);
-        const entries = computed(() => chrome.activityEntries("zh-CN"));
+        const entries = computed(() => chrome.activityEntries(textIn("zh-CN")));
         expect(entries.value.map((entry) => entry.id)).toEqual(["test.items.a", "test.items.b", "test.items.gear"]);
         expect(entries.value.map((entry) => entry.pressed)).toEqual([null, null, false]);
         items.open.value = true;
@@ -172,7 +173,7 @@ describe("活动栏底部条目", () => {
             "test.items.later": declaration("稍后", {order: 2, command: {id: "test.items.later"}}),
             "test.items.open": declaration("打开", {order: 3, command: {id: "test.items.open", args: {section: "x"}}}),
         }, items)]);
-        const entries = computed(() => chrome.activityEntries("zh-CN"));
+        const entries = computed(() => chrome.activityEntries(textIn("zh-CN")));
         expect(entries.value.map((entry) => [entry.id, entry.command?.id ?? null, entry.disabledReason])).toEqual([
             ["test.items.avatar", null, null],
             ["test.items.later", "test.items.later", "还没准备好"],
@@ -195,7 +196,7 @@ describe("活动栏底部条目", () => {
             contributor({"test.three.extra": {...declaration("四"), extra: true} as ActivityBarItemDeclaration}, control(), "test.three"),
             contributor({"test.four.server": declaration("五")}, control(), "test.four", "server"),
         ]);
-        expect(chrome.activityEntries("zh-CN")).toEqual([]);
+        expect(chrome.activityEntries(textIn("zh-CN"))).toEqual([]);
         const validation = (id: string) => application.plugins.contribution(WORKBENCH_ACTIVITYBAR_ITEMS_POINT, id).map((entry) => entry.validation);
         expect(validation("test.items.same").map((entry) => entry.status)).toEqual(["rejected", "rejected"]);
         expect(validation("other.item")[0]).toMatchObject({status: "rejected", detail: "贡献 id 要以插件 id test.two 加“.”开头：other.item"});
@@ -207,7 +208,7 @@ describe("活动栏底部条目", () => {
         const items = control();
         const {chrome} = await start([contributor({"test.items.gear": declaration("齿轮", {command: {id: "test.items.open"}})}, items)]);
         // 直接求值：入口开始停止时句柄先失去 published（不是响应式的），撤回稍后才到。
-        const ids = () => chrome.activityEntries("zh-CN").map((entry) => entry.id);
+        const ids = () => chrome.activityEntries(textIn("zh-CN")).map((entry) => entry.id);
         expect(ids()).toEqual(["test.items.gear"]);
         const closing = items.context!.scope.parent!.close();
         expect(ids()).toEqual([]);

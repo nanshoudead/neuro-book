@@ -27,6 +27,7 @@ import {workbenchState, workbenchStateBindings} from "../state/public-state";
 import {openLayout} from "../testing/layout";
 import {APP_COMMAND_DECLARATIONS, appCommands, DOCUMENTATION_COMMAND, DOCUMENTATION_URL, RELOAD_COMMAND} from "./app-commands";
 import {PART_COMMAND_DECLARATIONS, partCommands, SET_PART_HIDDEN_COMMAND} from "./part-commands";
+import {textIn} from "nbook/shared/testing/text";
 
 let tmp = "";
 let counter = 0;
@@ -112,7 +113,7 @@ describe("区域显隐", () => {
         const choose = picker(() => ({kind: "item", id: "activitybar"}));
         const commands = partCommands(() => store, choose);
         expect(await commands[SET_PART_HIDDEN_COMMAND].run({})).toEqual({ok: true, value: null});
-        expect(choose.requests[0]!.items.map((item) => [item.id, item.detail === undefined ? null : textOf(item.detail, "zh-CN")])).toEqual([["sidebar", "显示中"], ["auxiliarybar", "显示中"], ["activitybar", "已隐藏"]]);
+        expect(choose.requests[0]!.items.map((item) => [item.id, item.detail === undefined ? null : textIn("zh-CN").t(item.detail)])).toEqual([["sidebar", "显示中"], ["auxiliarybar", "显示中"], ["activitybar", "已隐藏"]]);
         expect(store.actions.partVisible("activitybar")).toBe(true);
 
         expect(await partCommands(() => store, picker(() => ({kind: "cancelled"})))[SET_PART_HIDDEN_COMMAND].run({})).toEqual({ok: true, value: null});

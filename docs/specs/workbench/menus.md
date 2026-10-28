@@ -60,7 +60,7 @@ interface MenuItemDeclaration {
 |---|---|
 | 只接受浏览器入口的贡献 | 声明被拒（`invalid-declaration`） |
 | 菜单项 id 至多 128 个字符、点分小写段；`nbook.*` 插件写 `nbook.` 开头，其它插件以自己的插件 id 加 `.` 开头 | 同上 |
-| `command`、`section` 非空，`section` 至多 64 个字符；`order` 是 -1000000 到 1000000 的整数；`label` 两种语言都非空 | 同上 |
+| `command`、`section` 非空，`section` 至多 64 个字符；`order` 是 -1000000 到 1000000 的整数；`label` 是文字（见 [`ui/i18n`](../ui/i18n.md)） | 同上 |
 | 字段属于这个位置（共同字段加位置表里“另有的字段”与 `context`）；`context` 是这个位置规定的名字；`args` 与 `context` 不同时出现 | 同上 |
 | `extensions` 至少一项、至多 16 项，每项以 `.` 开头、后面至少一个字符、不含 `/`、`\` 与空白 | 同上 |
 | `placement` 为 `inline`（或省略）时有 `icon` | 同上 |

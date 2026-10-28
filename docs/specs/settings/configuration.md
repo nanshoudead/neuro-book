@@ -65,12 +65,12 @@ export const {settings: codeSettings, contributions: codeContributions} = define
 | `schema` | 可 JSON 序列化的 TypeBox schema |
 | `default` | JSON 能如实表示的值（规则同 [远程服务与 RPC 协议](../runtime/plugin-channel.md) 的帧编码：没有 `undefined`、非有限数、类实例、函数、循环），且符合 `schema` |
 | `layers` | `["user"]`、`["project"]` 或两者，缺省两者 |
-| `title` | 中英两份；`description` 可选，同样中英两份 |
+| `title` | 文字（字符串、语言映射或文字引用，见 [`ui/i18n`](../ui/i18n.md)）；`description` 可选，同样是文字 |
 | `section` | 可选，设置窗口里所在的分区 id（[`settings.window`](settings-window.md) 的分区 id 写法）；可以是别的插件贡献的分区 |
 | `group` | 可选，分区里的小组 id（一个小写段，至多 64 个字符）；只能和 `section` 一起写 |
 | `order` | 可选，小组内的顺序，-1000000 到 1000000 之间的数；同值按键 |
 | `choices` | 可选。`[{value, title, description?}]`：`schema` 是若干字面量的联合（`Type.Union` 的成员全是字符串、有限数或布尔的 `Type.Literal`）时，给每个字面量一个中英标题，与字面量一一对应。或 `{from: "<选项提供者 id>"}`：动态选项，只用在字符串的 `schema` 上，提供者 id 的写法同分区 id，存不存在不在登记时核对；提供者见 [`settings.window`](settings-window.md)“选项提供者” |
-| `ui` | 可选，设置窗口画这一项的界面提示，`ui.forms` 的 `x-form` 里与单个字段有关的几项（[`ui.forms`](../ui/forms.md)）：`widget`、`placeholder`、`unit`（中英两份）、`rows`（1 到 50 的整数）、`searchable`、`itemLabel`；写的控件要能用在这种值上（同 `ui.forms` 输出 2），`itemLabel` 要是列表项的字段 |
+| `ui` | 可选，设置窗口画这一项的界面提示，`ui.forms` 的 `x-form` 里与单个字段有关的几项（[`ui.forms`](../ui/forms.md)）：`widget`、`placeholder`、`unit`（文字）、`rows`（1 到 50 的整数）、`searchable`、`itemLabel`；写的控件要能用在这种值上（同 `ui.forms` 输出 2），`itemLabel` 要是列表项的字段 |
 | `applies` | `"now"`（缺省）、`"next-run"`、`"next-session"`、`"restart"`：改动什么时候完全生效 |
 | `secret` | 本期声明 `true` 被拒（密钥存储尚未实现） |
 

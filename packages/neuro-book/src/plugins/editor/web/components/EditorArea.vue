@@ -7,7 +7,9 @@ import {NestedGrid} from "@notnotype/nb-ui/layout";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 
+import {resolverFor} from "nbook/shared/localized-text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
+import {useText} from "@notnotype/nb-ui/text-port";
 
 import type {EditorArea} from "../area";
 import type {EmptyTip} from "../empty-tips";
@@ -43,6 +45,7 @@ const props = withDefaults(defineProps<{
     /** 作品名（面包屑的第一段）；未绑定作品为 null。 */
     workTitle?: string | null;
 }>(), {pages: null, emptyTips: () => [], titleActions: null, tabMenu: null, wrapTabs: true, breadcrumbs: true, workTitle: null});
+const resolver = resolverFor(() => props.locale, useText());
 const emit = defineEmits<{(event: "intent", intent: EditorIntent): void; (event: "run-tip", command: string): void; (event: "title-action", key: string): void; (event: "tab-menu", tabId: string, key: string): void}>();
 
 const root = ref<HTMLElement | null>(null);
@@ -110,7 +113,7 @@ const ghost = computed(() => {
     if (at === null) return null;
     const tab = props.area.groups.groups.value.flatMap((group) => group.tabs).find((candidate) => candidate.id === at.tabId);
     if (tab === undefined) return null;
-    return {label: tabLabel(props.area, tab, props.locale, props.pages ?? null), icon: pageIdOf(tab.address) === null ? fileIconForName(nameOf(tab.address)) : null, x: at.x, y: at.y};
+    return {label: tabLabel(props.area, tab, props.locale, resolver, props.pages ?? null), icon: pageIdOf(tab.address) === null ? fileIconForName(nameOf(tab.address)) : null, x: at.x, y: at.y};
 });
 const dropLabel = computed(() => (drop.value === null ? "" : editorText(props.locale, DROP_LABELS[drop.value.label])));
 

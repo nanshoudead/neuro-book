@@ -15,7 +15,8 @@ import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform, menuImplementatio
 import {filesKey} from "nbook/plugins/files/shared/contracts";
 import {dialectTable, MARKDOWN_DIALECTS_POINT, markdownKey} from "nbook/plugins/markdown/shared/contracts";
 import type {DialectDeclaration, MarkdownService} from "nbook/plugins/markdown/shared/contracts";
-import {windowLocale, windowTextKey} from "nbook/shared/window-text";
+import {resolverFor} from "nbook/shared/localized-text";
+import {windowLocale, windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {breadcrumbsSetting, codeSettings, enablePreviewSetting, wrapTabsSetting} from "../shared/settings";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
@@ -103,6 +104,7 @@ export const editorBrowserPlugin: PluginDefinition = {
             const settings = context.services.require(settingsKey);
             const project = context.services.require(windowProjectKey).project;
             const locale = await windowLocale(context.services, () => displayLocale(settings));
+            const resolver = resolverFor(() => locale.value, await windowTextPort(context.services, () => displayLocale(settings)));
             const codeOptions = computed((): CodeEditorOptions => ({
                 fontFamily: settings.get(codeSettings["code.fontFamily"]),
                 fontSize: settings.get(codeSettings["code.fontSize"]),
@@ -221,7 +223,7 @@ export const editorBrowserPlugin: PluginDefinition = {
             const tabMenu = {
                 entries: (tabId: string) => {
                     void commandsVersion.value;
-                    return tabMenuModel.entries(tabId, locale.value);
+                    return tabMenuModel.entries(tabId, resolver);
                 },
                 identity: (tabId: string) => tabMenuModel.identity(tabId),
             };
@@ -229,7 +231,7 @@ export const editorBrowserPlugin: PluginDefinition = {
             // 命令增减不经响应式通知：标题动作在渲染与组的 computed 里求值时都读一次版本号。
             const titleActions = () => {
                 void commandsVersion.value;
-                const current = titles.current(locale.value);
+                const current = titles.current(resolver);
                 return current === null ? null : {...current, model: (maxButtons: number) => {
                     void commandsVersion.value;
                     return current.model(maxButtons);
@@ -270,7 +272,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                     [EDITOR_EDITORS_POINT]: {[MARKDOWN_EDITOR]: builtinImplementation(builtins, MARKDOWN_EDITOR), [CODE_EDITOR]: builtinImplementation(builtins, CODE_EDITOR)},
                     [EDITOR_LANGUAGES_POINT]: Object.fromEntries(MONACO_LANGUAGES.map((entry) => [entry.id, monacoLanguageImplementation(entry)])),
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
-                    [WORKBENCH_STATUSBAR_ITEMS_POINT]: editorStatusItems(session.area, locale, context.services.require(clockKey), languages, dialectTable(context.declarations.list<DialectDeclaration>(MARKDOWN_DIALECTS_POINT))),
+                    [WORKBENCH_STATUSBAR_ITEMS_POINT]: editorStatusItems(session.area, locale, context.services.require(clockKey), languages, dialectTable(context.declarations.list<DialectDeclaration>(MARKDOWN_DIALECTS_POINT)), resolver),
                     [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(EDITOR_TITLEBAR_MENU_ITEMS),
                 },
             };

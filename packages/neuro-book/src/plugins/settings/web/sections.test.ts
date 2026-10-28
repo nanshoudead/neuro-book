@@ -175,7 +175,7 @@ describe("分区的登记校验", () => {
         expect(source.delivery("x.notes.main")).toEqual({kind: "available"});
     });
 
-    it("字段：groups 只给 list，layout、layers 与 keywords 只给 page；keywords 至多 20 个、两种语言都有；小组 id 合规且不重复，layers 非空不重复；已删除的 kind 是未知字段", async () => {
+    it("字段：groups 只给 list，layout、layers 与 keywords 只给 page；keywords 至多 20 个、每个都是合法文字（语言标签合法）；小组 id 合规且不重复，layers 非空不重复；已删除的 kind 是未知字段", async () => {
         const groups = [{id: "ui", title}, {id: "more-ui", title}];
         const cases: Readonly<Record<string, SectionSpec>> = {
             "x.combo.list-ok": list({groups}),
@@ -193,10 +193,11 @@ describe("分区的登记校验", () => {
             "x.combo.no-icon": page({icon: " "}),
             "x.combo.order": list({order: 2_000_000}),
             "x.combo.extra": page({minimumWidth: 600}),
-            "x.combo.title": list({title: {"zh-CN": "只有中文"}}),
+            "x.combo.title": list({title: {"not a tag": "标题"}}),
+            "x.combo.title-single": list({title: {"zh-CN": "只有中文"}}),
             "x.combo.keywords-ok": page({keywords: Array.from({length: 20}, () => title)}),
             "x.combo.keywords-many": page({keywords: Array.from({length: 21}, () => title)}),
-            "x.combo.keywords-lang": page({keywords: [{"zh-CN": "密钥"}]}),
+            "x.combo.keywords-lang": page({keywords: [{"not a tag": "密钥"}]}),
             "x.combo.list-keywords": list({keywords: [title]}),
         };
         const {application} = await start([contributor("x.combo", cases, control())]);
@@ -204,7 +205,9 @@ describe("分区的登记校验", () => {
         expect(validation(application, SETTINGS_SECTIONS_POINT, "x.combo.list-ok")).toEqual({status: "accepted"});
         expect(validation(application, SETTINGS_PAGES_POINT, "x.combo.page-ok")).toEqual({status: "accepted"});
         expect(validation(application, SETTINGS_PAGES_POINT, "x.combo.keywords-ok")).toEqual({status: "accepted"});
-        for (const id of Object.keys(cases).filter((id) => !id.endsWith("-ok"))) {
+        // 改为接受：单语言与纯字符串标题合法（ui/i18n.md 输出 1）。
+        expect(validation(application, SETTINGS_SECTIONS_POINT, "x.combo.title-single")).toEqual({status: "accepted"});
+        for (const id of Object.keys(cases).filter((id) => !id.endsWith("-ok") && !id.endsWith("-single"))) {
             expect(validation(application, pointOf(id), id), id).toMatchObject({status: "rejected", reason: "invalid-declaration"});
         }
         expect(application.plugins.entryState({plugin: "x.combo", entry: "browser"})?.status).toBe("available");

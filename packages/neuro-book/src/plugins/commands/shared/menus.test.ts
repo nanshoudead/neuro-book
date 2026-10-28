@@ -13,6 +13,7 @@ import type {ContextValues} from "./context-keys";
 import {arrangeMenu, matchesExtensions, MENU_BUTTON, MENU_EXTENSIONS, menuItemValidator, menuLocation} from "./menus";
 import type {MenuFacts, MenuItemDeclaration} from "./menus";
 import {createCommandRegistry} from "./registry";
+import {textIn} from "nbook/shared/testing/text";
 
 /** 测试命令的 id：注册表要求 `nbook.<已登记的域>.<动作>`，借用 `view` 域。 */
 const cmd = (name: string): string => `nbook.view.${name}`;
@@ -49,7 +50,7 @@ function facts(commands: ReturnType<typeof registry>["commands"], overrides: Par
         },
         isEnabled: (id) => commands.isEnabled(id),
         isOn: () => false,
-        locale: "zh-CN",
+        text: textIn("zh-CN"),
         platform: "other",
         current: null,
         contexts: new Set(),
@@ -118,7 +119,7 @@ describe("可用、文字与勾选（输出 2、5）", () => {
         const mac = byId(arrangeMenu(items, facts(commands, {platform: "mac", isOn: (key) => key === "x/sidebar"})));
         expect(mac.get("t.toggle")).toMatchObject({label: "侧栏", shortcut: "⌘B", checked: true, args: {part: "sidebar"}, context: null});
         expect(mac.get("t.plain")).toMatchObject({label: "标题 plain", shortcut: null, checked: null, args: {}});
-        const english = byId(arrangeMenu(items, facts(commands, {locale: "en-US"}))).get("t.toggle")!;
+        const english = byId(arrangeMenu(items, facts(commands, {text: textIn("en-US")}))).get("t.toggle")!;
         expect([english.label, english.shortcut, english.checked]).toEqual(["Sidebar", "Ctrl+B", false]);
     });
 });

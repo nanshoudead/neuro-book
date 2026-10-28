@@ -4,13 +4,14 @@
  * （外壳二），实例层搬进各区域的落点。
  */
 import {Tabs} from "@notnotype/nb-ui/components";
+import {useText} from "@notnotype/nb-ui/text-port";
 import type {GridDropRect, GridOrientation} from "@notnotype/nb-ui/layout";
 import {computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 import type {Component} from "vue";
 
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import {formatText, localize, resolverFor} from "nbook/shared/localized-text";
+import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/localized-text";
 import TitleActions from "nbook/ui/menus/TitleActions.vue";
 import {NO_TITLE_ACTIONS} from "nbook/ui/menus/title-actions";
 import type {TitleActionsModel} from "nbook/ui/menus/title-actions";
@@ -91,7 +92,8 @@ const TEXT = {
     dropAfter: {"zh-CN": "放在“{title}”后", "en-US": "Place after “{title}”"},
 } satisfies Record<string, LocalizedText>;
 
-const text = (value: LocalizedText): string => localize(value, props.locale);
+const resolver = resolverFor(() => props.locale, useText());
+const text = (value: DisplayText): string => resolver.t(value);
 const welcome = computed(() => (props.project === null ? text(TEXT.ready) : text(formatText(TEXT.readyWithProject, {name: props.project}))));
 
 const state = computed(() => props.layout.state);
@@ -143,7 +145,7 @@ function run(id: string, args: Record<string, unknown> = {}): void {
 /** “打开项目”的命令 id：项目插件的公开合同，工作台不为它依赖项目插件的模块。 */
 const OPEN_PROJECT_COMMAND = "nbook.project.open";
 
-const titleMenus = computed(() => props.chrome?.menus(props.locale) ?? []);
+const titleMenus = computed(() => props.chrome?.menus(resolver) ?? []);
 /** 标题栏三个布局按钮的按下态：区域此刻看得见（未隐藏且未拖到零），与视图菜单的勾选同一判断。 */
 const layoutButtons = computed(() => ({
     sidebar: {pressed: props.layout.actions.partVisible("sidebar"), disabled: !state.value.ready},
@@ -254,7 +256,7 @@ const instanceOf = (viewId: string): ViewInstanceRef | null => {
 };
 
 /** 视图的标题动作（docs/specs/workbench/views.md 输出 10、11）；Lab 里没有命令服务（没有 chrome）时没有。 */
-const viewActionsOf = (viewId: string): TitleActionsModel => props.chrome?.viewActions(viewId, state.value.catalog.get(viewId)?.actions ?? [], props.locale, instanceOf(viewId)) ?? NO_TITLE_ACTIONS;
+const viewActionsOf = (viewId: string): TitleActionsModel => props.chrome?.viewActions(viewId, state.value.catalog.get(viewId)?.actions ?? [], resolver, instanceOf(viewId)) ?? NO_TITLE_ACTIONS;
 
 const hasViewActions = (viewId: string): boolean => {
     const model = viewActionsOf(viewId);
@@ -435,7 +437,7 @@ const dropFeedback = computed(() => {
                 :menus="titleMenus"
                 :search-shortcut="chrome.searchShortcut()"
                 :layout="layoutButtons"
-                :items="chrome.titleEntries(locale)"
+                :items="chrome.titleEntries(resolver)"
                 @run="(command, args) => run(command, {...args})"
                 @search="run(OPEN_COMMANDS_ID)"
                 @toggle-part="togglePart"
@@ -455,7 +457,7 @@ const dropFeedback = computed(() => {
                 :sidebar-visible="sidebarVisible"
                 :drag-hint="text(TEXT.dragHint)"
                 :more-label="text(TEXT.more)"
-                :items="chrome?.activityEntries(locale) ?? []"
+                :items="chrome?.activityEntries(resolver) ?? []"
                 @select="selectSidebarContainer"
                 @run-item="(id) => chrome?.runItem(id)"
             />
@@ -542,7 +544,7 @@ const dropFeedback = computed(() => {
                 :panel-hidden="panelHidden"
                 :panel-toggle-disabled="!state.ready"
                 :problems="state.problems"
-                :items="chrome?.statusEntries(locale) ?? []"
+                :items="chrome?.statusEntries(resolver) ?? []"
                 @run-item="(id) => chrome?.runItem(id)"
                 @toggle-panel="run(SET_PANEL_HIDDEN_COMMAND, {hidden: !panelHidden})"
                 @retry="(record) => layout.actions.retry(record as 'side' | 'panelSize' | 'customizations')"

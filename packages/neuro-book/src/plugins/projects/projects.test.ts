@@ -58,6 +58,7 @@ import {PROJECT_STATS_RECORD} from "./shared/stats-record";
 import {openProject} from "./web/open-project";
 import type {OpenProjectHost} from "./web/open-project";
 import {projectsBrowserPlugin} from "./web/plugin";
+import {textIn} from "nbook/shared/testing/text";
 
 const silentConsole = {error: () => undefined};
 
@@ -228,7 +229,7 @@ describe("Spec projects 场景 11：打开项目", () => {
         const host = createPaletteHost({locale, commands: createCommandRegistry({contextKeys: contextTable({}), report: (error) => {
             throw error;
         }})});
-        return {host, opened: (match = () => true) => waitUntil("进入选择模式", () => (host.pick.value !== null && match(textOf(host.pick.value.title, locale.value)) ? host.pick.value : null))};
+        return {host, opened: (match = () => true) => waitUntil("进入选择模式", () => (host.pick.value !== null && match(textIn(locale.value).t(host.pick.value.title)) ? host.pick.value : null))};
     }
 
     /** 像面板那样提交：选中、关闭，再报告关闭完成。 */
@@ -271,10 +272,10 @@ describe("Spec projects 场景 11：打开项目", () => {
         await opened();
         submit(host, {kind: "text", text: join(tmp, "dirs", "nowhere")});
         const retry = await opened((title) => title.includes("登记失败"));
-        expect(textOf(retry.title, "zh-CN")).toBe("打开项目：登记失败（路径无效或不存在）");
+        expect(textIn("zh-CN").t(retry.title)).toBe("打开项目：登记失败（路径无效或不存在）");
         // 选择开着时换成英文：同一个请求按新语言显示，标题里没有服务端给的中文说明。
         locale.value = "en-US";
-        expect(textOf(retry.title, locale.value)).toBe("Open Project: registration failed (the path is invalid or does not exist)");
+        expect(textIn(locale.value).t(retry.title)).toBe("Open Project: registration failed (the path is invalid or does not exist)");
         locale.value = "zh-CN";
         expect(failures).toEqual([{reason: "invalid-path", detail: expect.stringContaining("nowhere")}]);
         submit(host, {kind: "text", text: fresh});

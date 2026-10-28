@@ -10,7 +10,7 @@ import {Value} from "typebox/value";
 
 import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";
 
-import {LocalizedTextSchema} from "nbook/shared/localized-text";
+import {TextSchema} from "nbook/shared/text";
 
 export const WORKBENCH_HOME_POINT = "workbench.home";
 
@@ -19,7 +19,7 @@ export const WORKBENCH_PATH = "/workbench";
 
 export const HomeDeclarationSchema = Type.Object({
     /** 首页的名字：诊断与文档标题用它。 */
-    title: LocalizedTextSchema,
+    title: TextSchema,
 }, {additionalProperties: false});
 
 export type HomeDeclaration = Static<typeof HomeDeclarationSchema>;

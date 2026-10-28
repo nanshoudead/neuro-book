@@ -27,7 +27,8 @@ import type {ActivityBarItemImplementation, WorkbenchOverlayImplementation} from
 import {clockKey, windowConnectionKey, windowPluginsKey} from "nbook/shared/host";
 import {HOST_LOCALES, hostLocaleSchema} from "nbook/shared/host-locales";
 import {windowProjectKey} from "nbook/shared/projects";
-import {windowTextKey} from "nbook/shared/window-text";
+import {resolverFor} from "nbook/shared/localized-text";
+import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 import type {SettingLayer} from "nbook/shared/settings";
 
@@ -110,14 +111,14 @@ export const settingsWindowEntry = defineEntry({
     id: "window",
     location: "browser",
     activationEvents: ["onStartup"],
-    dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: settingsWindowSourceKey}, {key: notificationsKey}, {key: storageKey}, {key: windowProjectKey}],
+    dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: settingsWindowSourceKey}, {key: notificationsKey}, {key: storageKey}, {key: windowProjectKey}, {key: windowTextKey, required: false}],
     contributions: [
         {capability: COMMANDS_POINT, id: OPEN_SETTINGS_COMMAND, declaration: OPEN_SETTINGS_DECLARATION},
         {capability: WORKBENCH_ACTIVITYBAR_ITEMS_POINT, id: SETTINGS_GEAR_ITEM, declaration: GEAR_DECLARATION},
         {capability: WORKBENCH_OVERLAYS_POINT, id: SETTINGS_WINDOW_OVERLAY, declaration: OVERLAY_DECLARATION},
         ...settingsWindowState.contributions,
     ],
-    activate: (context) => {
+    activate: async (context) => {
         const diagnostics = context.services.require(diagnosticsKey);
         const settings = context.services.require(settingsKey);
         const storage = context.services.require(storageKey);
@@ -133,6 +134,7 @@ export const settingsWindowEntry = defineEntry({
             // 窗口的显示名：书名，没有书名时是目录原名（nbook/shared/projects 的 WindowProject）。
             projectTitle: project?.title ?? null,
             locale: computed(() => displayLocale(settings)),
+            text: resolverFor(() => displayLocale(settings), await windowTextPort(context.services, () => displayLocale(settings))),
             size: {remembered, remember: (next) => size().remember(next)},
             notify: (input) => void notifications.notify(input),
             report: (message) => diagnostics.record({level: "warn", event: "settings.window", message, source: {plugin: descriptor.id}}),

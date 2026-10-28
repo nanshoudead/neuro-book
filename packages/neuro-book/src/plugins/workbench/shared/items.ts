@@ -9,7 +9,7 @@ import {Value} from "typebox/value";
 
 import type {ContributionDescriptor, ContributionPointDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {LocalizedTextSchema} from "nbook/shared/localized-text";
+import {TextSchema} from "nbook/shared/text";
 
 export const WORKBENCH_STATUSBAR_ITEMS_POINT = "workbench.statusbar-items";
 export const WORKBENCH_TITLEBAR_ITEMS_POINT = "workbench.titlebar-items";
@@ -25,7 +25,7 @@ const When = Type.Object({requires: Type.Array(Type.String({pattern: "\\S"}))}, 
 
 export const ItemDeclarationSchema = Type.Object({
     /** 条目的名字：“更多”菜单与读屏用它。 */
-    title: LocalizedTextSchema,
+    title: TextSchema,
     alignment: Type.Union([Type.Literal("left"), Type.Literal("right")]),
     /** 同侧从小到大排。 */
     order: Rank,
@@ -39,7 +39,7 @@ export type ItemDeclaration = Static<typeof ItemDeclarationSchema>;
 
 export const ActivityBarItemDeclarationSchema = Type.Object({
     /** 悬停提示与可访问名称；没有命令的条目以它说明为什么不可点。 */
-    title: LocalizedTextSchema,
+    title: TextSchema,
     icon: Type.String({pattern: "\\S"}),
     /** 从上往下按它排，同值按 id。 */
     order: Rank,

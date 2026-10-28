@@ -69,6 +69,8 @@ function typePaths(): Record<string, string[]> {
     paths["@notnotype/nb-form"] = ["../nb-form/src/index.ts"];
     paths["@notnotype/nb-form/vue"] = ["../nb-form/src/vue/index.ts"];
     paths["@notnotype/nb-ui/components"] = ["../nb-ui/src/components/index.ts"];
+    paths["@notnotype/nb-ui/text"] = ["../nb-ui/src/text/index.ts"];
+    paths["@notnotype/nb-ui/text-port"] = ["../nb-ui/src/text-port/index.ts"];
     return paths;
 }
 

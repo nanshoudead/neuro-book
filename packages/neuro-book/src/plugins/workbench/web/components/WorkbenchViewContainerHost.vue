@@ -6,7 +6,8 @@ import {NestedGrid} from "@notnotype/nb-ui/layout";
 import {useGridLayout, useLayoutExtent} from "@notnotype/nb-ui/composables";
 import {computed, defineComponent, h, onBeforeUnmount, onMounted, ref} from "vue";
 
-import {localize} from "nbook/shared/localized-text";
+import {resolverFor} from "nbook/shared/localized-text";
+import {useText} from "@notnotype/nb-ui/text-port";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {containerSizePatch, createContainerGrid} from "../views/container-grid";
@@ -31,6 +32,8 @@ const emit = defineEmits<{
     (event: "toggle-collapsed", viewId: string, collapsed: boolean): void;
     (event: "target", viewId: string, element: HTMLElement | null): void;
 }>();
+
+const resolver = resolverFor(() => props.locale, useText());
 
 defineSlots<{
     "view-actions"?(props: {viewId: string}): unknown;
@@ -120,14 +123,14 @@ const ViewTarget = defineComponent({
                 <WorkbenchViewSection
                     v-if="views.get(node.id) !== undefined"
                     :view-id="node.id"
-                    :title="localize(views.get(node.id)!.title, locale)"
+                    :title="resolver.t(views.get(node.id)!.title)"
                     :icon="views.get(node.id)!.icon"
                     :axis="container.axis"
                     :chrome="container.mode === 'multiple'"
                     :collapsed="views.get(node.id)!.collapsed"
                     :collapse-label="collapseLabel"
                     :expand-label="expandLabel"
-                    :drag-label="dragLabel.replace('{title}', localize(views.get(node.id)!.title, locale))"
+                    :drag-label="dragLabel.replace('{title}', resolver.t(views.get(node.id)!.title))"
                     @toggle-collapsed="(collapsed: boolean) => emit('toggle-collapsed', node.id, collapsed)"
                 >
                     <template #actions>
