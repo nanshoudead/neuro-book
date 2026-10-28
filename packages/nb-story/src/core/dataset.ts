@@ -54,6 +54,8 @@ const EntitySchema = Type.Object({
     names: Type.Array(EntityNameSchema),
     /** 整理时被并入的对象编号。 */
     mergedFrom: Type.Array(Id),
+    /** 修订（docs/specs/story/revisions.md）改了种类：从各个位置起生效的种类，只由 `applyOverlay` 写。 */
+    kindFrom: Type.Optional(Type.Array(Type.Object({at: PositionSchema, kind: oneOf(ENTITY_KINDS)}))),
 });
 
 /** 程序在原文里找到的一次称呼。via=note 表示由草稿指定了归属。 */
@@ -116,6 +118,10 @@ const StatementSchema = Type.Object({
     unverified: Type.Optional(Text),
     /** 先验等级：模型抽取当时给的重要程度，1 主线必需、2 有用、3 琐碎；旧书与没写的为缺省（docs/specs/story/queries.md 的记录等级）。 */
     tier: Type.Optional(Tier),
+    /** 说法的来源：`persona-check` 是抽取时的马甲核对写的候选（docs/specs/story/ingest.md 输出 20）；不影响任何查询。 */
+    origin: Type.Optional(Type.Literal("persona-check")),
+    /** 由哪条修订产生或改过（docs/specs/story/revisions.md）：记录里显示“你加的”“你确认的”。 */
+    revision: Type.Optional(Id),
     at: PositionSchema,
 });
 

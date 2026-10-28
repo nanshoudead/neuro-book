@@ -13,6 +13,9 @@
 
 import type {Arc, Beat, Dataset, Entity, Episode, Knowledge, LedgerEntry, Mention, Position, Question, Secret, SourceChapter, Span, Statement, Summary, TimeAnchor} from "./dataset";
 import type {BookMeta, Library} from "./library";
+import {applyOverlay} from "./overlay/apply";
+import type {Applied} from "./overlay/apply";
+import type {OverlayFile} from "./overlay/schema";
 import {comparePosition} from "./position";
 
 /** 带成立位置的记录。 */
@@ -69,6 +72,8 @@ export interface BookIndex {
     readonly citations: ReadonlyMap<string, readonly Citation[]>;
     /** 原文每一段（键 `章.段`）里程序找到的称呼。 */
     readonly mentionsByParagraph: ReadonlyMap<string, readonly Mention[]>;
+    /** 用户的修订（story.revisions）：修订文件、每条的套用结果与套用之前的数据集（待确认列表要用原始记录）。 */
+    readonly overlay: {readonly file: OverlayFile | null; readonly resolved: ReadonlyMap<string, Applied>; readonly original: Dataset};
 }
 
 function buildCitations(dataset: Dataset): Map<string, Citation[]> {
@@ -155,7 +160,8 @@ function identityLinkOf(statement: Statement, entities: ReadonlyMap<string, Enti
     return {statement, a, b, certain, secret: secretOf.get(statement.id) ?? null};
 }
 
-export function buildBookIndex(meta: BookMeta, raw: Dataset): BookIndex {
+export function buildBookIndex(meta: BookMeta, original: Dataset, overlayFile: OverlayFile | null = null): BookIndex {
+    const {dataset: raw, resolved} = applyOverlay(original, overlayFile);
     const dataset = settle(raw);
     const entities = byPosition(dataset.entities);
     const statements = byPosition(dataset.statements);
@@ -213,6 +219,7 @@ export function buildBookIndex(meta: BookMeta, raw: Dataset): BookIndex {
         knowledgeByWhoAbout,
         citations: buildCitations(dataset),
         mentionsByParagraph,
+        overlay: {file: overlayFile, resolved, original},
     };
 }
 

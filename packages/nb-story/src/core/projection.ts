@@ -75,7 +75,10 @@ export class BookView {
             const assigned = new Set(this.#prefix(this.index.mentions).filter(mention => mention.via === "note").map(mention => mention.entity));
             return this.#prefix(this.index.entities).map(entity => {
                 const names = entity.names.filter(name => this.visible(name.at)).sort((a, b) => comparePosition(a.at, b.at));
-                return {...entity, names, anonymous: PERSON_KINDS.has(entity.kind) && allGeneric(names) && !assigned.has(entity.id)};
+                // 修订改过种类时（overlay/apply.ts 的 `kindFrom`）取阅读位置上生效的那一个。
+                let kind = entity.kind;
+                for (const change of entity.kindFrom ?? []) if (this.visible(change.at)) kind = change.kind;
+                return {...entity, kind, names, anonymous: PERSON_KINDS.has(kind) && allGeneric(names) && !assigned.has(entity.id)};
             });
         });
     }
