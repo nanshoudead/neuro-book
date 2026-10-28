@@ -1,0 +1,224 @@
+/**
+ * `nbook.editor` 的消息目录（docs/specs/ui/i18n.md 的“目录与键”）。
+ *
+ * 第一条防止迁移改错文字：`LEGACY` 是迁移前（提交 660293339）代码里的双语字面量，按迁移后的键原样抄下，占位符还是旧的
+ * `{name}` 写法。目录里的每个键都要在表里、表里的每个键都要在目录里，值换成 `{{name}}` 后逐字相同；数字参数（字数、
+ * 个数、行列）旧代码按界面语言的千分位格式化后再填，迁移后写成 `{{name, number}}`，由引擎格式化，所以这几个键的占位符
+ * 换成 `{{name, number}}`。数量键的各复数形都与旧文字相同。以后有意改文字时，同一次改动里同步改这张表。
+ */
+
+import {describe, expect, it} from "bun:test";
+
+import {flattenCatalog} from "@notnotype/nb-ui/text";
+
+import {testTextPort} from "nbook/shared/testing/text-port";
+
+import {descriptor} from "./plugin";
+import enUS from "./locales/en-US.json";
+import zhCN from "./locales/zh-CN.json";
+import {editorText} from "./shared/text";
+import {editorCatalogs} from "./web/text";
+
+const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US": string}>> = {
+    "area.label": {"zh-CN": "编辑器", "en-US": "Editor"},
+    "area.tabsLabel": {"zh-CN": "打开的编辑器", "en-US": "Open editors"},
+    "area.moreActions": {"zh-CN": "更多操作", "en-US": "More Actions"},
+    "tab.close": {"zh-CN": "关闭 {name}", "en-US": "Close {name}"},
+    "tab.unpin": {"zh-CN": "取消固定 {name}", "en-US": "Unpin {name}"},
+    "root.project": {"zh-CN": "作品", "en-US": "Work"},
+    "root.user": {"zh-CN": "用户资产", "en-US": "User Assets"},
+    "crumbs.label": {"zh-CN": "文件路径", "en-US": "File Path"},
+    "crumbs.loading": {"zh-CN": "正在读取", "en-US": "Loading"},
+    "crumbs.empty": {"zh-CN": "空", "en-US": "Empty"},
+    "crumbs.retry": {"zh-CN": "重试", "en-US": "Retry"},
+    "drop.move": {"zh-CN": "移到这里", "en-US": "Move Here"},
+    "drop.keep": {"zh-CN": "原位", "en-US": "No Change"},
+    "drop.splitLeft": {"zh-CN": "拆分到左侧", "en-US": "Split Left"},
+    "drop.splitRight": {"zh-CN": "拆分到右侧", "en-US": "Split Right"},
+    "drop.splitTop": {"zh-CN": "拆分到上方", "en-US": "Split Up"},
+    "drop.splitBottom": {"zh-CN": "拆分到下方", "en-US": "Split Down"},
+    "tab.unsaved": {"zh-CN": "未保存", "en-US": "Unsaved"},
+    "tab.pinned": {"zh-CN": "已固定", "en-US": "Pinned"},
+    "tab.previewOf": {"zh-CN": "预览 {name}", "en-US": "Preview {name}"},
+    "tips.commands": {"zh-CN": "显示所有命令", "en-US": "Show All Commands"},
+    "tips.newFile": {"zh-CN": "新建文件", "en-US": "New File"},
+    "tips.newFileWhere": {"zh-CN": "资源管理器标题行的“新建文件”", "en-US": "“New File” in the Explorer title bar"},
+    "tips.welcome": {"zh-CN": "打开欢迎页", "en-US": "Open Welcome Page"},
+    "tips.welcomeWhere": {"zh-CN": "帮助 › 欢迎", "en-US": "Help › Welcome"},
+    "page.missing": {"zh-CN": "这个页面已经不在了：贡献它的插件停止了", "en-US": "This page is no longer available: the plugin that provided it has stopped"},
+    "area.loading": {"zh-CN": "正在读取…", "en-US": "Reading…"},
+    "page.loading": {"zh-CN": "正在加载页面…", "en-US": "Loading page…"},
+    "page.failed": {"zh-CN": "页面加载失败：{reason}", "en-US": "The page failed to load: {reason}"},
+    "document.openFailed": {"zh-CN": "打不开 {name}：{reason}", "en-US": "Cannot open {name}: {reason}"},
+    "document.retry": {"zh-CN": "重试", "en-US": "Retry"},
+    "document.notText": {"zh-CN": "{name} 不是 UTF-8 文本（可能是二进制文件或其它编码），不能在这里打开。", "en-US": "{name} is not UTF-8 text (it may be a binary file or use another encoding) and cannot be opened here."},
+    "document.binary": {"zh-CN": "{name} 是二进制文件，不能在这里打开。", "en-US": "{name} is a binary file and cannot be opened here."},
+    "document.editorGone": {"zh-CN": "打开 {name} 的编辑器已经不在了：贡献它的插件停止了或没有安装。", "en-US": "The editor for {name} is no longer available: the plugin that provided it has stopped or is not installed."},
+    "document.reopenDefault": {"zh-CN": "用默认编辑器打开", "en-US": "Open with Default Editor"},
+    "document.editorLoading": {"zh-CN": "正在加载编辑器…", "en-US": "Loading editor…"},
+    "banner.conflict": {"zh-CN": "磁盘上的文件已被修改，保存没有写入。", "en-US": "The file changed on disk; the save was not written."},
+    "banner.reload": {"zh-CN": "重新载入磁盘版本", "en-US": "Reload Disk Version"},
+    "banner.overwrite": {"zh-CN": "覆盖磁盘版本", "en-US": "Overwrite Disk Version"},
+    "banner.diskChanged": {"zh-CN": "磁盘上的文件已被修改；保存会得到冲突。", "en-US": "The file changed on disk; saving will conflict."},
+    "banner.unresolved": {"zh-CN": "另一个视图同时改了这份文档，这里的输入还没有进入正文。", "en-US": "Another view edited this document at the same time; this view's input has not been applied."},
+    "banner.adopt": {"zh-CN": "采用当前正文", "en-US": "Use Current Text"},
+    "banner.unrepresentable": {"zh-CN": "这个视图的第 {index} 块{excerpt}写不回 Markdown，输入没有进入正文，也不能保存。改一改这一块的格式，或采用当前正文。", "en-US": "Block {index}{excerpt} in this view cannot be written back as Markdown; the input has not been applied and cannot be saved. Change the formatting of that block, or use the current text."},
+    "banner.unrepresentableExcerpt": {"zh-CN": "（“{excerpt}”）", "en-US": " (“{excerpt}”)"},
+    "banner.locate": {"zh-CN": "定位", "en-US": "Show Block"},
+    "banner.keep": {"zh-CN": "保留本视图的内容", "en-US": "Keep This View's Text"},
+    "banner.deleted": {"zh-CN": "文件已被删除。保存会在原位置重新创建它。", "en-US": "The file was deleted. Saving recreates it at the same place."},
+    "banner.deletedClean": {"zh-CN": "文件已被删除。", "en-US": "The file was deleted."},
+    "banner.ended": {"zh-CN": "文件服务已结束（{reason}），不能保存。", "en-US": "The file service ended ({reason}); saving is not possible."},
+    "banner.saveFailed": {"zh-CN": "保存失败：{reason}", "en-US": "Save failed: {reason}"},
+    "banner.saveUnknown": {"zh-CN": "保存的结果未知，正在核对磁盘。", "en-US": "The save outcome is unknown; checking the disk."},
+    "area.dismiss": {"zh-CN": "关闭提示", "en-US": "Dismiss"},
+    "closeDialog.title": {"zh-CN": "保存对 {name} 的修改？", "en-US": "Save changes to {name}?"},
+    "closeDialog.body": {"zh-CN": "不保存的话，修改会丢失。", "en-US": "Your changes will be lost if you don't save them."},
+    "closeDialog.titleUnrepresentable": {"zh-CN": "放弃对 {name} 的修改？", "en-US": "Discard changes to {name}?"},
+    "closeDialog.bodyUnrepresentable": {"zh-CN": "这个视图有一块写不回 Markdown，不能保存；关闭会丢掉这个视图的修改。", "en-US": "A block in this view cannot be written back as Markdown, so it cannot be saved; closing discards this view's changes."},
+    "closeDialog.save": {"zh-CN": "保存", "en-US": "Save"},
+    "closeDialog.discard": {"zh-CN": "不保存", "en-US": "Don't Save"},
+    "closeDialog.cancel": {"zh-CN": "取消", "en-US": "Cancel"},
+    "settingsSections.nbook.editor.title": {"zh-CN": "编辑器", "en-US": "Editor"},
+    "settingsSections.nbook.editor.description": {"zh-CN": "标签栏与面包屑", "en-US": "Tabs and breadcrumbs"},
+    "settingsSections.nbook.editor.groups.tabs.title": {"zh-CN": "标签", "en-US": "Tabs"},
+    "settingsSections.nbook.editor.groups.code.title": {"zh-CN": "代码编辑器", "en-US": "Code Editor"},
+    "settings.enablePreview.title": {"zh-CN": "预览标签页", "en-US": "Preview Tabs"},
+    "settings.enablePreview.description": {"zh-CN": "单击打开的文件先占一个可被替换的标签，编辑或双击后转为常驻", "en-US": "A single click opens a replaceable tab that becomes permanent once edited or double-clicked"},
+    "settings.wrapTabs.title": {"zh-CN": "多行标签", "en-US": "Wrap Tabs"},
+    "settings.wrapTabs.description": {"zh-CN": "标签放不下时换行，固定的标签单独一行", "en-US": "Wrap tabs that do not fit; pinned tabs get a row of their own"},
+    "settings.breadcrumbs.title": {"zh-CN": "面包屑", "en-US": "Breadcrumbs"},
+    "settings.breadcrumbs.description": {"zh-CN": "标签栏下面显示文件的路径与光标所在的标题", "en-US": "Show the file path and the current heading below the tabs"},
+    "settings.code.fontFamily.title": {"zh-CN": "字体", "en-US": "Font Family"},
+    "settings.code.fontFamily.description": {"zh-CN": "CSS 的 font-family 写法；留空跟随主题的等宽字体", "en-US": "A CSS font-family list; leave empty to use the theme's monospace font"},
+    "settings.code.fontSize.title": {"zh-CN": "字号", "en-US": "Font Size"},
+    "settings.code.lineHeight.title": {"zh-CN": "行高", "en-US": "Line Height"},
+    "settings.code.lineHeight.description": {"zh-CN": "0 按字号自动；小于 8 是字号的倍数，8 以上是像素", "en-US": "0 follows the font size; below 8 multiplies the font size, 8 and above is in pixels"},
+    "settings.code.tabSize.title": {"zh-CN": "Tab 宽度", "en-US": "Tab Size"},
+    "settings.code.tabSize.description": {"zh-CN": "一级缩进占几个空格；推测缩进打开时，只在推测不出时用它", "en-US": "Spaces per indentation level; with indentation detection on, used only when nothing can be detected"},
+    "settings.code.detectIndentation.title": {"zh-CN": "推测缩进", "en-US": "Detect Indentation"},
+    "settings.code.detectIndentation.description": {"zh-CN": "按文件内容推测用空格还是制表符、缩进几格；关掉时一律用上面的 Tab 宽度与空格", "en-US": "Guess spaces or tabs and the indentation size from the file; when off, always use the tab size above with spaces"},
+    "settings.code.lineNumbers.title": {"zh-CN": "行号", "en-US": "Line Numbers"},
+    "settings.code.lineNumbers.choices.on.title": {"zh-CN": "显示", "en-US": "On"},
+    "settings.code.lineNumbers.choices.off.title": {"zh-CN": "不显示", "en-US": "Off"},
+    "settings.code.lineNumbers.choices.relative.title": {"zh-CN": "相对", "en-US": "Relative"},
+    "settings.code.minimap.title": {"zh-CN": "缩略图", "en-US": "Minimap"},
+    "settings.code.wordWrap.title": {"zh-CN": "自动换行", "en-US": "Word Wrap"},
+    "categories.editor": {"zh-CN": "编辑器", "en-US": "Editor"},
+    "categories.edit": {"zh-CN": "编辑", "en-US": "Edit"},
+    "commands.open.title": {"zh-CN": "打开文件", "en-US": "Open File"},
+    "commands.open-page.title": {"zh-CN": "打开页面", "en-US": "Open Page"},
+    "commands.save.title": {"zh-CN": "保存", "en-US": "Save"},
+    "commands.save-all.title": {"zh-CN": "全部保存", "en-US": "Save All"},
+    "commands.revert.title": {"zh-CN": "还原为磁盘版本", "en-US": "Revert to Disk Version"},
+    "commands.close.title": {"zh-CN": "关闭编辑器", "en-US": "Close Editor"},
+    "commands.close-others.title": {"zh-CN": "关闭其它编辑器", "en-US": "Close Other Editors"},
+    "commands.close-to-right.title": {"zh-CN": "关闭右侧编辑器", "en-US": "Close Editors to the Right"},
+    "commands.close-saved.title": {"zh-CN": "关闭已保存的编辑器", "en-US": "Close Saved Editors"},
+    "commands.pin-tab.title": {"zh-CN": "固定编辑器", "en-US": "Pin Editor"},
+    "commands.unpin-tab.title": {"zh-CN": "取消固定编辑器", "en-US": "Unpin Editor"},
+    "commands.copy-path.title": {"zh-CN": "复制路径", "en-US": "Copy Path"},
+    "commands.copy-relative-path.title": {"zh-CN": "复制相对路径", "en-US": "Copy Relative Path"},
+    "commands.split-right.title": {"zh-CN": "向右拆分编辑器", "en-US": "Split Editor Right"},
+    "commands.split-down.title": {"zh-CN": "向下拆分编辑器", "en-US": "Split Editor Down"},
+    "commands.reopen-with.title": {"zh-CN": "用其它编辑器重新打开", "en-US": "Reopen Editor With"},
+    "commands.open-preview.title": {"zh-CN": "打开预览", "en-US": "Open Preview"},
+    "commands.change-language.title": {"zh-CN": "更改语言模式", "en-US": "Change Language Mode"},
+    "commands.focus-breadcrumbs.title": {"zh-CN": "聚焦面包屑", "en-US": "Focus Breadcrumbs"},
+    "commands.focus.title": {"zh-CN": "聚焦编辑器", "en-US": "Focus Editor"},
+    "commands.nbook.edit.undo.title": {"zh-CN": "撤销", "en-US": "Undo"},
+    "commands.nbook.edit.redo.title": {"zh-CN": "重做", "en-US": "Redo"},
+    "commands.go-to-line.title": {"zh-CN": "跳转到行", "en-US": "Go to Line"},
+    "quickPick.reopenWith.title": {"zh-CN": "用其它编辑器重新打开", "en-US": "Reopen Editor With"},
+    "quickPick.reopenWith.placeholder": {"zh-CN": "选择打开这个文件的编辑器", "en-US": "Select an editor for this file"},
+    "quickPick.reopenWith.current": {"zh-CN": "当前", "en-US": "Current"},
+    "quickPick.changeLanguage.title": {"zh-CN": "更改语言模式", "en-US": "Change Language Mode"},
+    "quickPick.changeLanguage.placeholder": {"zh-CN": "选择语言", "en-US": "Select a language"},
+    "quickPick.changeLanguage.current": {"zh-CN": "{id}（当前）", "en-US": "{id} (current)"},
+    "state.focused.reason": {"zh-CN": "编辑区没有焦点", "en-US": "The editor does not have focus"},
+    "state.active.reason": {"zh-CN": "没有活动的编辑器", "en-US": "There is no active editor"},
+    "state.writable.reason": {"zh-CN": "活动的编辑器是只读的", "en-US": "The active editor is read-only"},
+    "state.lineNavigation.reason": {"zh-CN": "活动的编辑器不支持跳转到行", "en-US": "The active editor cannot go to a line"},
+    "state.dirty.reason": {"zh-CN": "活动文档没有未保存的修改", "en-US": "The active document has no unsaved changes"},
+    "state.hasUnsavedDocuments.reason": {"zh-CN": "没有需要保存的文档", "en-US": "No document needs saving"},
+    "state.hasCursorPosition.reason": {"zh-CN": "活动的编辑器不给出光标位置", "en-US": "The active editor does not report a cursor position"},
+    "state.ready.reason": {"zh-CN": "编辑器区还没建立", "en-US": "The editor area is not ready yet"},
+    "state.hasDocument.reason": {"zh-CN": "活动的编辑器没有文本", "en-US": "The active editor has no text"},
+    "state.hasPreview.reason": {"zh-CN": "这个文件没有预览", "en-US": "This file has no preview"},
+    "state.hasEditorStatus.reason": {"zh-CN": "活动的编辑器没有状态可显示", "en-US": "The active editor reports no status"},
+    "state.hasLanguage.reason": {"zh-CN": "活动的编辑器不分语言", "en-US": "The active editor has no language mode"},
+    "statusItems.unsaved.title": {"zh-CN": "未保存的文档", "en-US": "Unsaved documents"},
+    "statusItems.word-count.title": {"zh-CN": "字数", "en-US": "Word count"},
+    "statusItems.editor-status.title": {"zh-CN": "编辑器状态", "en-US": "Editor status"},
+    "statusItems.language.title": {"zh-CN": "语言模式", "en-US": "Language mode"},
+    "statusItems.cursor.title": {"zh-CN": "光标位置", "en-US": "Cursor position"},
+    "status.unsaved": {"zh-CN": "未保存 {count} 个", "en-US": "{count} unsaved"},
+    "status.saving": {"zh-CN": "正在保存", "en-US": "Saving"},
+    "status.failed": {"zh-CN": "保存失败：{path}（{reason}）", "en-US": "Save failed: {path} ({reason})"},
+    "status.more": {"zh-CN": "等 {count} 个", "en-US": "and {count} more"},
+    "status.words": {"zh-CN": "{count} 字", "en-US": "{count} words"},
+    "status.cursor": {"zh-CN": "第 {line} 行，第 {column} 列", "en-US": "Ln {line}, Col {column}"},
+    "editors.markdown.title": {"zh-CN": "Markdown 编辑器", "en-US": "Markdown Editor"},
+    "editors.code.title": {"zh-CN": "源码编辑器", "en-US": "Source Editor"},
+    "languages.plaintext": {"zh-CN": "纯文本", "en-US": "Plain Text"},
+    "titleActions.openPreviewSide": {"zh-CN": "在侧边打开预览", "en-US": "Open Preview to the Side"},
+    "tabMenu.close": {"zh-CN": "关闭", "en-US": "Close"},
+    "tabMenu.closeOthers": {"zh-CN": "关闭其他", "en-US": "Close Others"},
+    "tabMenu.closeToRight": {"zh-CN": "关闭右侧", "en-US": "Close to the Right"},
+    "tabMenu.closeSaved": {"zh-CN": "关闭已保存", "en-US": "Close Saved"},
+    "tabMenu.pin": {"zh-CN": "固定", "en-US": "Pin"},
+    "tabMenu.unpin": {"zh-CN": "取消固定", "en-US": "Unpin"},
+    "tabMenu.splitRight": {"zh-CN": "向右拆分", "en-US": "Split Right"},
+    "tabMenu.splitDown": {"zh-CN": "向下拆分", "en-US": "Split Down"},
+    "tabMenu.copyPath": {"zh-CN": "复制路径", "en-US": "Copy Path"},
+    "tabMenu.copyRelativePath": {"zh-CN": "复制相对路径", "en-US": "Copy Relative Path"},
+    "tabMenu.reveal": {"zh-CN": "在资源管理器中显示", "en-US": "Reveal in Explorer"},
+};
+
+const CATALOGS = {"zh-CN": zhCN, "en-US": enUS} as const;
+
+/** 旧代码里先按界面语言格式化成字符串再填的数字参数，迁移后由 `{{name, number}}` 格式化。 */
+const NUMBER_KEYS: ReadonlySet<string> = new Set(["status.unsaved", "status.more", "status.words", "status.cursor"]);
+/** 数量键（带 `count` 参数、按复数选形）。 */
+const PLURAL_KEYS = ["status.unsaved", "status.more", "status.words"];
+
+/** 复数形 `<键>_<类别>` 归到 `<键>`。 */
+const baseKey = (key: string): string => key.replace(/_(?:zero|one|two|few|many|other)$/u, "");
+
+/** 旧的 `{name}` 占位符换成目录的写法。 */
+const migrated = (key: string, legacy: string): string => legacy.replace(/\{(\w+)\}/gu, NUMBER_KEYS.has(key) ? "{{$1, number}}" : "{{$1}}");
+
+describe("nbook.editor 的目录", () => {
+    it("每个键的文字与迁移前的字面量逐字相同（占位符从 {name} 换成 {{name}}），两边的键一一对应", () => {
+        for (const [locale, catalog] of Object.entries(CATALOGS)) {
+            const flat = flattenCatalog(catalog);
+            expect({locale, keys: [...new Set(Object.keys(flat).map(baseKey))].sort()}).toEqual({locale, keys: Object.keys(LEGACY).sort()});
+            for (const [key, value] of Object.entries(flat)) {
+                const legacy = migrated(baseKey(key), LEGACY[baseKey(key)]![locale as keyof typeof CATALOGS]);
+                expect({locale, key, value}).toEqual({locale, key, value: legacy});
+            }
+        }
+    });
+
+    it("数量键：中文有 _other，英文有 _one 与 _other", () => {
+        const flatZh = Object.keys(flattenCatalog(zhCN));
+        const flatEn = Object.keys(flattenCatalog(enUS));
+        for (const key of PLURAL_KEYS) {
+            expect(flatZh.filter((candidate) => baseKey(candidate) === key)).toEqual([`${key}_other`]);
+            expect(flatEn.filter((candidate) => baseKey(candidate) === key)).toEqual([`${key}_one`, `${key}_other`]);
+        }
+    });
+
+    it("数字参数经引擎按界面语言格式化：千分位保留，英文一个时也是同一句", () => {
+        const zh = testTextPort("zh-CN", {"nbook.editor": editorCatalogs});
+        const en = testTextPort("en-US", {"nbook.editor": editorCatalogs});
+        expect(zh.t(editorText("status.words", {count: 1234567}))).toBe("1,234,567 字");
+        expect(en.t(editorText("status.words", {count: 1234567}))).toBe("1,234,567 words");
+        expect(en.t(editorText("status.unsaved", {count: 1}))).toBe("1 unsaved");
+        expect(zh.t(editorText("status.cursor", {line: 1200, column: 3}))).toBe("第 1,200 行，第 3 列");
+    });
+
+    it("文字引用的命名空间就是插件 id", () => {
+        expect(editorText("area.label").ns).toBe(descriptor.id);
+    });
+});

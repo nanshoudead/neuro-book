@@ -21,7 +21,7 @@ import type {LinkTap} from "nbook/plugins/files/testing/tap";
 
 import {CODE_EDITOR, MARKDOWN_EDITOR} from "./shared/contracts";
 import {createEditorArea} from "./web/area";
-import {BINARY_TAB_EDITOR, BUILTIN_EDITORS, catalogOf} from "./web/editors";
+import {BINARY_TAB_EDITOR, completedBuiltinEditors, catalogOf} from "./web/editors";
 import type {EditorCatalog} from "./web/editors";
 import type {EditorArea, EditorControlHandle, TextEditorBinding} from "./web/area";
 import {createEditorGroups} from "./web/groups/groups";
@@ -202,7 +202,7 @@ describe("Spec workbench.editor 输出 6–8：打开与切换", () => {
 
 /** 内置两个编辑器加一个 HTML 预览编辑器与一个只认 png 的字节编辑器。 */
 const WITH_PREVIEW = catalogOf([
-    ...Object.entries(BUILTIN_EDITORS).map(([id, declaration]) => ({id, declaration})),
+    ...completedBuiltinEditors(),
     {id: "test.html.preview", declaration: {title: {"zh-CN": "预览", "en-US": "Preview"}, selector: {extensions: ["html"]}, priority: "option", input: "text", role: "preview"}},
     {id: "test.image.viewer", declaration: {title: {"zh-CN": "图片", "en-US": "Image"}, selector: {extensions: ["png"]}, priority: "default", input: "bytes"}},
 ]);

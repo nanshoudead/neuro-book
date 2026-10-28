@@ -1,5 +1,5 @@
 ---
-标签: [state:local]
+标签: [state:local, state:inject]
 别名: ["面包屑", "Editor Breadcrumbs"]
 ---
 
@@ -36,7 +36,6 @@ type Props = {
     outline: EditorOutline | null;
     /** 列出一个目录：失败给出原因。 */
     list: (address: string, signal: AbortSignal) => Promise<{ok: true; entries: ReadonlyArray<{name: string; address: string; kind: "file" | "directory" | "link" | "other" | "missing"}>} | {ok: false; reason: string}>;
-    locale: DisplayLocale;
     /** 聚焦请求的序号：变了就把焦点放到最后一段（命令 `focus-breadcrumbs`）。 */
     focusSeq?: number;
 };
@@ -62,3 +61,7 @@ type Emits = {
 段是 roving tabindex 的一组按钮：←/→ 换段，Enter、空格或 ↓ 打开下拉（`DropdownMenu` 的键盘），下拉里 ↑/↓ 选、Enter 确认、Escape 关；下拉都关着时 Escape 交出 `escape`。悬停段时浅底色。
 
 `state:local`：打开着的是哪一段、目录下拉当前列的是哪个目录、它的读取状态与请求序号。
+
+## 隐藏通道理由
+
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，段的标签、读取中、空与重试这些界面文字都在本插件的目录（命名空间 `nbook.editor`，`../../locales/`）；语言随端口切换，不重新挂载，组件没有语言属性。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。

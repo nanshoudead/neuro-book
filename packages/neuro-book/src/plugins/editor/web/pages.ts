@@ -8,12 +8,13 @@ import {defineAsyncComponent, defineComponent, h, shallowRef} from "vue";
 import type {Component} from "vue";
 
 import type {ContributionDeclarations, ContributionHandle, ContributionReceiver} from "@notnotype/nb-runtime/plugins";
+import {useText} from "@notnotype/nb-ui/text-port";
 
-import type {DisplayLocale, TextResolver} from "nbook/shared/localized-text";
+import type {TextResolver} from "nbook/shared/localized-text";
 
 import {EDITOR_PAGES_POINT} from "../shared/contracts";
 import type {EditorPageDeclaration} from "../shared/contracts";
-import {editorText} from "./messages";
+import {editorText} from "../shared/text";
 
 const PAGE_SCHEME = "page://";
 
@@ -22,18 +23,24 @@ const PAGE_SCHEME = "page://";
  * `aria-busy`，截图工具（page:shot）据此等页面出来；失败时写出原因，aria-busy 随占位一起撤掉。编辑组给页面组件的 `context`
  * 也会透传到这两个组件上，`inheritAttrs: false` 不让它落成 DOM 属性。
  */
-function pageStates(locale: () => DisplayLocale): {readonly loading: Component; readonly failed: Component} {
+function pageStates(): {readonly loading: Component; readonly failed: Component} {
     return {
         loading: defineComponent({
             name: "EditorPageLoading",
             inheritAttrs: false,
-            setup: () => () => h("div", {"role": "status", "aria-busy": "true", "data-editor-page-loading": ""}, h("span", {class: "sr-only"}, editorText(locale(), "pageLoading"))),
+            setup: () => {
+                const text = useText();
+                return () => h("div", {"role": "status", "aria-busy": "true", "data-editor-page-loading": ""}, h("span", {class: "sr-only"}, text.t(editorText("page.loading"))));
+            },
         }),
         failed: defineComponent({
             name: "EditorPageFailed",
             inheritAttrs: false,
             props: {error: {type: Error, required: true}},
-            setup: (props) => () => h("p", {"class": "px-6 py-4 text-[length:var(--text-sm)] text-[var(--status-danger)]", "role": "alert", "data-editor-page-failed": ""}, editorText(locale(), "pageFailed", {reason: props.error.message})),
+            setup: (props) => {
+                const text = useText();
+                return () => h("p", {"class": "px-6 py-4 text-[length:var(--text-sm)] text-[var(--status-danger)]", "role": "alert", "data-editor-page-failed": ""}, text.t(editorText("page.failed", {reason: props.error.message})));
+            },
         }),
     };
 }
@@ -70,10 +77,9 @@ export class EditorPageRegistry {
     readonly #components = new WeakMap<ContributionHandle<EditorPageDeclaration, EditorPageImplementation>, Component>();
     readonly #states: {readonly loading: Component; readonly failed: Component};
 
-    /** `locale` 是界面语言，加载中与加载失败的说明按它写。 */
-    constructor(declarations: ContributionDeclarations, locale: () => DisplayLocale) {
+    constructor(declarations: ContributionDeclarations) {
         this.#declarations = declarations;
-        this.#states = pageStates(locale);
+        this.#states = pageStates();
     }
 
     receiver(): ContributionReceiver<EditorPageDeclaration, EditorPageImplementation> {

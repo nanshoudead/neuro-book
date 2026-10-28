@@ -13,9 +13,10 @@ import {assembleTitleActions} from "nbook/ui/menus/title-actions";
 import type {TitleActionCandidate, TitleActionsModel} from "nbook/ui/menus/title-actions";
 
 import type {EditorTitleItemDeclaration} from "../shared/contracts";
+import {editorText} from "../shared/text";
 import type {EditorArea} from "./area";
 import {OPEN_PREVIEW_COMMAND, REOPEN_WITH_COMMAND, SPLIT_RIGHT_COMMAND} from "./commands";
-import {nameOf} from "./messages";
+import {nameOf} from "./documents/address";
 
 export const EDITOR_TITLE_MAX_BUTTONS = 4;
 
@@ -35,7 +36,7 @@ const OWN: ReadonlyArray<{readonly key: string; readonly command: string; readon
 ];
 
 /** “在侧边打开预览”的标题：同一条命令带参数，标题另给。 */
-const SIDE_TITLE = {"zh-CN": "在侧边打开预览", "en-US": "Open Preview to the Side"};
+const SIDE_TITLE = editorText("titleActions.openPreviewSide");
 
 const RESOURCE: ReadonlySet<string> = new Set(["resource"]);
 const NONE: ReadonlySet<string> = new Set();

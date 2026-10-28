@@ -5,13 +5,18 @@
  * 这里是纯函数，组模型与测试直接用；交付的组件在 `editor-registry.ts`。
  */
 
-import {CODE_EDITOR, MARKDOWN_EDITOR} from "../shared/contracts";
+import type {Written} from "nbook/shared/convention-keys";
+
+import {CODE_EDITOR, completeEditorDeclaration, MARKDOWN_EDITOR} from "../shared/contracts";
 import type {EditorDeclaration} from "../shared/contracts";
 
-/** 编辑器区自己的两个编辑器的声明：插件定义与测试里的目录用同一份。 */
-export const BUILTIN_EDITORS: Readonly<Record<string, EditorDeclaration>> = {
-    [MARKDOWN_EDITOR]: {title: {"zh-CN": "Markdown 编辑器", "en-US": "Markdown Editor"}, selector: {extensions: ["md", "markdown"]}, priority: "default", input: "text", cursor: "offset"},
-    [CODE_EDITOR]: {title: {"zh-CN": "源码编辑器", "en-US": "Source Editor"}, priority: "option", input: "text", cursor: "line"},
+/**
+ * 编辑器区自己的两个编辑器的声明：插件定义与测试里的目录用同一份。`title` 省略，登记时补成约定键 `editors.<本地 id>.title`，
+ * 所以没经登记补全的声明里没有标题。
+ */
+export const BUILTIN_EDITORS: Readonly<Record<string, Written<EditorDeclaration, "title">>> = {
+    [MARKDOWN_EDITOR]: {selector: {extensions: ["md", "markdown"]}, priority: "default", input: "text", cursor: "offset"},
+    [CODE_EDITOR]: {priority: "option", input: "text", cursor: "line"},
 };
 
 /**
@@ -40,8 +45,16 @@ export function catalogOf(declarations: ReadonlyArray<{readonly id: string; read
     return {declaration: (id) => byId.get(id) ?? null, list: () => sorted};
 }
 
+/** 内置两个编辑器按登记时的补全规则补上标题后的声明（测试与没有贡献点的场合用；运行期由内核登记补全）。 */
+export function completedBuiltinEditors(): ReadonlyArray<{readonly id: string; readonly declaration: EditorDeclaration}> {
+    return Object.entries(BUILTIN_EDITORS).map(([id, declaration]) => ({
+        id,
+        declaration: completeEditorDeclaration({plugin: "nbook.editor", id, declaration}) as EditorDeclaration,
+    }));
+}
+
 /** 只有内置两个编辑器的目录（测试与没有贡献点的场合）。 */
-export const BUILTIN_CATALOG: EditorCatalog = catalogOf(Object.entries(BUILTIN_EDITORS).map(([id, declaration]) => ({id, declaration})));
+export const BUILTIN_CATALOG: EditorCatalog = catalogOf(completedBuiltinEditors());
 
 const fileName = (address: string): string => {
     const path = address.replace(/^[a-z]+:\/\//u, "");

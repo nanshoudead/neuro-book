@@ -8,7 +8,12 @@ import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 import {defineComponent, h, nextTick, ref} from "vue";
 
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
+
 import type {EditorOutline} from "../../shared/contracts";
+import {editorText} from "../../shared/text";
+import type {EditorTextKey} from "../../shared/text";
+import {editorCatalogs} from "../text";
 import EditorBreadcrumbs from "./EditorBreadcrumbs.vue";
 import type {BreadcrumbListing, BreadcrumbSegment} from "./EditorBreadcrumbs.vue";
 
@@ -17,6 +22,10 @@ const SEGMENTS: BreadcrumbSegment[] = [
     {kind: "dir", label: "正文", address: "project://正文"},
     {kind: "file", label: "第二章.md", address: "project://正文/第二章.md", icon: "markdown"},
 ];
+
+/** 组件注入的窗口端口；断言里的界面文字经它从目录取，不在测试里重复写一份。 */
+const port = testTextPort("zh-CN", {"nbook.editor": editorCatalogs});
+const shown = (key: EditorTextKey): string => port.t(editorText(key));
 
 const mounted: Array<{unmount(): void}> = [];
 afterEach(() => {
@@ -27,7 +36,7 @@ afterEach(() => {
 function crumbs(extra: {outline?: EditorOutline | null; segments?: BreadcrumbSegment[]} = {}) {
     const calls: Array<{address: string; signal: AbortSignal; resolve: (value: BreadcrumbListing) => void}> = [];
     const list = (address: string, signal: AbortSignal) => new Promise<BreadcrumbListing>((resolve) => calls.push({address, signal, resolve}));
-    const wrapper = mount(EditorBreadcrumbs, {props: {segments: extra.segments ?? SEGMENTS, parent: "project://正文", outline: extra.outline ?? null, list, locale: "zh-CN"}, attachTo: document.body});
+    const wrapper = mount(EditorBreadcrumbs, {props: {segments: extra.segments ?? SEGMENTS, parent: "project://正文", outline: extra.outline ?? null, list}, global: {provide: provideText(port)}, attachTo: document.body});
     mounted.push(wrapper);
     return {wrapper, calls};
 }
@@ -51,7 +60,7 @@ describe("EditorBreadcrumbs", () => {
     it("目录下拉：读取中一行，回来后列出子项；点目录进下一层（下拉不关），点文件交出 open；链接与缺失的项不可选", async () => {
         const {wrapper, calls} = crumbs();
         await open(wrapper, "dir");
-        expect(items()).toEqual(["正在读取"]);
+        expect(items()).toEqual([shown("crumbs.loading")]);
         expect(calls.map((call) => call.address)).toEqual(["project://正文"]);
         calls[0]?.resolve({ok: true, entries: [{name: "卷一", address: "project://正文/卷一", kind: "directory"}, {name: "第一章.md", address: "project://正文/第一章.md", kind: "file"}, {name: "旧稿", address: "project://正文/旧稿", kind: "missing"}]});
         await flushPromises();
@@ -60,7 +69,7 @@ describe("EditorBreadcrumbs", () => {
         item("卷一")?.click();
         await flushPromises();
         expect(calls.map((call) => call.address)).toEqual(["project://正文", "project://正文/卷一"]);
-        expect(items()).toEqual(["正在读取"]);
+        expect(items()).toEqual([shown("crumbs.loading")]);
         calls[1]?.resolve({ok: true, entries: [{name: "第三章.md", address: "project://正文/卷一/第三章.md", kind: "file"}]});
         await flushPromises();
         item("第三章.md")?.click();
@@ -75,8 +84,8 @@ describe("EditorBreadcrumbs", () => {
         expect(calls.map((call) => call.address)).toEqual(["project://正文"]);
         calls[0]?.resolve({ok: false, reason: "读不了这个目录"});
         await flushPromises();
-        expect(items()).toEqual(["读不了这个目录", "重试"]);
-        item("重试")?.click();
+        expect(items()).toEqual(["读不了这个目录", shown("crumbs.retry")]);
+        item(shown("crumbs.retry"))?.click();
         await flushPromises();
         expect(calls).toHaveLength(2);
         calls[1]?.resolve({ok: true, entries: [{name: "第一章.md", address: "project://正文/第一章.md", kind: "file"}, {name: "第二章.md", address: "project://正文/第二章.md", kind: "file"}]});
@@ -127,13 +136,13 @@ describe("EditorBreadcrumbs", () => {
         expect(document.activeElement?.getAttribute("data-breadcrumb-segment")).toBe("file");
         // 卸下（宿主用 v-if 关掉面包屑）时焦点在里面：交出 escape，宿主把焦点还给编辑器。
         let escapes = 0;
-        const shown = ref(true);
-        const host = mount(defineComponent({setup: () => () => (shown.value ? h(EditorBreadcrumbs, {segments: SEGMENTS, parent: null, outline: null, list: async () => ({ok: true as const, entries: []}), locale: "zh-CN", onEscape: () => {
+        const visible = ref(true);
+        const host = mount(defineComponent({setup: () => () => (visible.value ? h(EditorBreadcrumbs, {segments: SEGMENTS, parent: null, outline: null, list: async () => ({ok: true as const, entries: []}), onEscape: () => {
             escapes += 1;
-        }}) : null)}), {attachTo: document.body});
+        }}) : null)}), {global: {provide: provideText(port)}, attachTo: document.body});
         mounted.push(host);
         (host.get("[data-breadcrumb-segment=\"root\"]").element as HTMLElement).focus();
-        shown.value = false;
+        visible.value = false;
         await nextTick();
         expect(escapes).toBe(1);
     });

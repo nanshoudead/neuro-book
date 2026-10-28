@@ -725,14 +725,14 @@ export const labFixtures: LabFixture[] = [
     }),
     defineLabFixture<typeof EditorArea>({
         component: "EditorArea",
-        // 集成场景：真实的编辑器区控制器、文档模型与控件，文件换成内存适配器；输入只给界面语言。
+        // 集成场景：真实的编辑器区控制器、文档模型与控件，文件换成内存适配器；界面语言由场景 id 决定（`english` 用英文），输入只给多行标签。
         scenes: [
-            {id: "live", label: "内存数据：两个标签", input: {props: {locale: "zh-CN"}}},
-            {id: "split", label: "向右拆分的两组", input: {props: {locale: "zh-CN"}}},
-            {id: "english", label: "英文界面", input: {props: {locale: "en-US"}}},
-            {id: "empty", label: "没有标签：标志与提示", input: {props: {locale: "zh-CN"}}},
-            {id: "dialect", label: "Markdown 方言、提示块与原样内容", input: {props: {locale: "zh-CN"}}},
-            {id: "unrepresentable", label: "写不出：组顶部的提示", input: {props: {locale: "zh-CN"}}},
+            {id: "live", label: "内存数据：两个标签", input: {props: {wrapTabs: true}}},
+            {id: "split", label: "向右拆分的两组", input: {props: {wrapTabs: true}}},
+            {id: "english", label: "英文界面", input: {props: {wrapTabs: true}}},
+            {id: "empty", label: "没有标签：标志与提示", input: {props: {wrapTabs: true}}},
+            {id: "dialect", label: "Markdown 方言、提示块与原样内容", input: {props: {wrapTabs: true}}},
+            {id: "unrepresentable", label: "写不出：组顶部的提示", input: {props: {wrapTabs: true}}},
         ],
         load: async () => (await import("./editor-scene/EditorAreaFixture.vue")).default,
     }),

@@ -36,3 +36,9 @@ export async function textHash(text: string): Promise<string> {
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
     return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
+
+/** 地址的最后一段：标签与提示里的文件名。 */
+export function nameOf(address: string): string {
+    const path = address.replace(/^[a-z]+:\/\//u, "");
+    return path.slice(path.lastIndexOf("/") + 1) || address;
+}

@@ -14,6 +14,7 @@ import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {createBrowserDiagnosticsPlugin} from "nbook/plugins/diagnostics/web/plugin";
 import {editorBrowserPlugin} from "nbook/plugins/editor/web/plugin";
+import {editorCatalogs} from "nbook/plugins/editor/web/text";
 import {htmlPreviewBrowserPlugin} from "nbook/plugins/html-preview/web/plugin";
 import {imageViewerBrowserPlugin} from "nbook/plugins/image-viewer/web/plugin";
 import {markdownBrowserPlugin} from "nbook/plugins/markdown/web/plugin";
@@ -78,6 +79,7 @@ export interface BuiltinCatalogs {
  * 插件的目录不在构建里，经引导的目录索引与目录端点取（docs/specs/runtime/browser-host.md 输出 2）。
  */
 export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = {
+    "nbook.editor": editorCatalogs,
     "nbook.explorer": explorerCatalogs,
     "nbook.plugins": pluginsCatalogs,
     "nbook.settings": settingsCatalogs,

@@ -10,33 +10,32 @@ import type {ShallowRef} from "@vue/reactivity";
 import {definePublicState} from "nbook/shared/store/public";
 import type {PublicBindings} from "nbook/shared/store/public";
 
+import {editorText} from "../shared/text";
 import type {EditorArea} from "./area";
 import type {TextDocument} from "./documents/store";
 
-const reason = (zh: string, en: string) => ({"zh-CN": zh, "en-US": en});
-
 export const editorState = definePublicState("nbook.editor", {
-    focused: {type: "boolean", unready: false, reason: reason("编辑区没有焦点", "The editor does not have focus")},
-    active: {type: "boolean", unready: false, reason: reason("没有活动的编辑器", "There is no active editor")},
-    writable: {type: "boolean", unready: false, reason: reason("活动的编辑器是只读的", "The active editor is read-only")},
-    lineNavigation: {type: "boolean", unready: false, reason: reason("活动的编辑器不支持跳转到行", "The active editor cannot go to a line")},
-    dirty: {type: "boolean", unready: false, reason: reason("活动文档没有未保存的修改", "The active document has no unsaved changes")},
-    hasUnsavedDocuments: {type: "boolean", unready: false, reason: reason("没有需要保存的文档", "No document needs saving")},
-    hasCursorPosition: {type: "boolean", unready: false, reason: reason("活动的编辑器不给出光标位置", "The active editor does not report a cursor position")},
+    focused: {type: "boolean", unready: false, reason: editorText("state.focused.reason")},
+    active: {type: "boolean", unready: false, reason: editorText("state.active.reason")},
+    writable: {type: "boolean", unready: false, reason: editorText("state.writable.reason")},
+    lineNavigation: {type: "boolean", unready: false, reason: editorText("state.lineNavigation.reason")},
+    dirty: {type: "boolean", unready: false, reason: editorText("state.dirty.reason")},
+    hasUnsavedDocuments: {type: "boolean", unready: false, reason: editorText("state.hasUnsavedDocuments.reason")},
+    hasCursorPosition: {type: "boolean", unready: false, reason: editorText("state.hasCursorPosition.reason")},
     // 编辑器区建好了（绑定项目的窗口读完会话记录之后）与活动标签的地址：资源管理器在打开作品时揭示恢复出的活动文件
     // （docs/specs/workbench/files-explorer.md）。地址取标签的，文档还没读到也有。
-    ready: {type: "boolean", unready: false, reason: reason("编辑器区还没建立", "The editor area is not ready yet")},
+    ready: {type: "boolean", unready: false, reason: editorText("state.ready.reason")},
     activeDocument: {type: "string", unready: ""},
     // 活动标签有文本文档（字数要它）；与 `active` 分开：图片这类字节标签是活动的编辑器，但没有正文（输出 41）。
-    hasDocument: {type: "boolean", unready: false, reason: reason("活动的编辑器没有文本", "The active editor has no text")},
+    hasDocument: {type: "boolean", unready: false, reason: editorText("state.hasDocument.reason")},
     // 活动标签的编辑器 id（输出 36）；页面或空组为空串。
     activeEditor: {type: "string", unready: ""},
     // 活动标签的文件有预览编辑器、它本身不是预览视图（输出 46）：“打开预览”据此可用。
-    hasPreview: {type: "boolean", unready: false, reason: reason("这个文件没有预览", "This file has no preview")},
+    hasPreview: {type: "boolean", unready: false, reason: editorText("state.hasPreview.reason")},
     // 活动控件交出了一行状态（输出 42）：状态栏的编辑器状态条目据此显示。
-    hasEditorStatus: {type: "boolean", unready: false, reason: reason("活动的编辑器没有状态可显示", "The active editor reports no status")},
+    hasEditorStatus: {type: "boolean", unready: false, reason: editorText("state.hasEditorStatus.reason")},
     // 活动控件分语言（源码编辑器，输出 45）：状态栏的语言条目与“更改语言模式”据此可用。
-    hasLanguage: {type: "boolean", unready: false, reason: reason("活动的编辑器不分语言", "The active editor has no language mode")},
+    hasLanguage: {type: "boolean", unready: false, reason: editorText("state.hasLanguage.reason")},
 });
 
 /** 文档需要保存：dirty、有未裁决输入或有视图写不出（与关闭时询问的判据相同，输出 4、26、61）。 */

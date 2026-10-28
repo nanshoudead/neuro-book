@@ -1,0 +1,333 @@
+{
+    "area": {
+        "label": "编辑器",
+        "tabsLabel": "打开的编辑器",
+        "moreActions": "更多操作",
+        "loading": "正在读取…",
+        "dismiss": "关闭提示"
+    },
+    "tab": {
+        "close": "关闭 {{name}}",
+        "unpin": "取消固定 {{name}}",
+        "unsaved": "未保存",
+        "pinned": "已固定",
+        "previewOf": "预览 {{name}}"
+    },
+    "root": {
+        "project": "作品",
+        "user": "用户资产"
+    },
+    "crumbs": {
+        "label": "文件路径",
+        "loading": "正在读取",
+        "empty": "空",
+        "retry": "重试"
+    },
+    "drop": {
+        "move": "移到这里",
+        "keep": "原位",
+        "splitLeft": "拆分到左侧",
+        "splitRight": "拆分到右侧",
+        "splitTop": "拆分到上方",
+        "splitBottom": "拆分到下方"
+    },
+    "tips": {
+        "commands": "显示所有命令",
+        "newFile": "新建文件",
+        "newFileWhere": "资源管理器标题行的“新建文件”",
+        "welcome": "打开欢迎页",
+        "welcomeWhere": "帮助 › 欢迎"
+    },
+    "page": {
+        "missing": "这个页面已经不在了：贡献它的插件停止了",
+        "loading": "正在加载页面…",
+        "failed": "页面加载失败：{{reason}}"
+    },
+    "document": {
+        "openFailed": "打不开 {{name}}：{{reason}}",
+        "retry": "重试",
+        "notText": "{{name}} 不是 UTF-8 文本（可能是二进制文件或其它编码），不能在这里打开。",
+        "binary": "{{name}} 是二进制文件，不能在这里打开。",
+        "editorGone": "打开 {{name}} 的编辑器已经不在了：贡献它的插件停止了或没有安装。",
+        "reopenDefault": "用默认编辑器打开",
+        "editorLoading": "正在加载编辑器…"
+    },
+    "banner": {
+        "conflict": "磁盘上的文件已被修改，保存没有写入。",
+        "reload": "重新载入磁盘版本",
+        "overwrite": "覆盖磁盘版本",
+        "diskChanged": "磁盘上的文件已被修改；保存会得到冲突。",
+        "unresolved": "另一个视图同时改了这份文档，这里的输入还没有进入正文。",
+        "adopt": "采用当前正文",
+        "unrepresentable": "这个视图的第 {{index}} 块{{excerpt}}写不回 Markdown，输入没有进入正文，也不能保存。改一改这一块的格式，或采用当前正文。",
+        "unrepresentableExcerpt": "（“{{excerpt}}”）",
+        "locate": "定位",
+        "keep": "保留本视图的内容",
+        "deleted": "文件已被删除。保存会在原位置重新创建它。",
+        "deletedClean": "文件已被删除。",
+        "ended": "文件服务已结束（{{reason}}），不能保存。",
+        "saveFailed": "保存失败：{{reason}}",
+        "saveUnknown": "保存的结果未知，正在核对磁盘。"
+    },
+    "closeDialog": {
+        "title": "保存对 {{name}} 的修改？",
+        "body": "不保存的话，修改会丢失。",
+        "titleUnrepresentable": "放弃对 {{name}} 的修改？",
+        "bodyUnrepresentable": "这个视图有一块写不回 Markdown，不能保存；关闭会丢掉这个视图的修改。",
+        "save": "保存",
+        "discard": "不保存",
+        "cancel": "取消"
+    },
+    "settingsSections": {
+        "nbook": {
+            "editor": {
+                "title": "编辑器",
+                "description": "标签栏与面包屑",
+                "groups": {
+                    "tabs": {
+                        "title": "标签"
+                    },
+                    "code": {
+                        "title": "代码编辑器"
+                    }
+                }
+            }
+        }
+    },
+    "settings": {
+        "enablePreview": {
+            "title": "预览标签页",
+            "description": "单击打开的文件先占一个可被替换的标签，编辑或双击后转为常驻"
+        },
+        "wrapTabs": {
+            "title": "多行标签",
+            "description": "标签放不下时换行，固定的标签单独一行"
+        },
+        "breadcrumbs": {
+            "title": "面包屑",
+            "description": "标签栏下面显示文件的路径与光标所在的标题"
+        },
+        "code": {
+            "fontFamily": {
+                "title": "字体",
+                "description": "CSS 的 font-family 写法；留空跟随主题的等宽字体"
+            },
+            "fontSize": {
+                "title": "字号"
+            },
+            "lineHeight": {
+                "title": "行高",
+                "description": "0 按字号自动；小于 8 是字号的倍数，8 以上是像素"
+            },
+            "tabSize": {
+                "title": "Tab 宽度",
+                "description": "一级缩进占几个空格；推测缩进打开时，只在推测不出时用它"
+            },
+            "detectIndentation": {
+                "title": "推测缩进",
+                "description": "按文件内容推测用空格还是制表符、缩进几格；关掉时一律用上面的 Tab 宽度与空格"
+            },
+            "lineNumbers": {
+                "title": "行号",
+                "choices": {
+                    "on": {
+                        "title": "显示"
+                    },
+                    "off": {
+                        "title": "不显示"
+                    },
+                    "relative": {
+                        "title": "相对"
+                    }
+                }
+            },
+            "minimap": {
+                "title": "缩略图"
+            },
+            "wordWrap": {
+                "title": "自动换行"
+            }
+        }
+    },
+    "categories": {
+        "editor": "编辑器",
+        "edit": "编辑"
+    },
+    "commands": {
+        "open": {
+            "title": "打开文件"
+        },
+        "open-page": {
+            "title": "打开页面"
+        },
+        "save": {
+            "title": "保存"
+        },
+        "save-all": {
+            "title": "全部保存"
+        },
+        "revert": {
+            "title": "还原为磁盘版本"
+        },
+        "close": {
+            "title": "关闭编辑器"
+        },
+        "close-others": {
+            "title": "关闭其它编辑器"
+        },
+        "close-to-right": {
+            "title": "关闭右侧编辑器"
+        },
+        "close-saved": {
+            "title": "关闭已保存的编辑器"
+        },
+        "pin-tab": {
+            "title": "固定编辑器"
+        },
+        "unpin-tab": {
+            "title": "取消固定编辑器"
+        },
+        "copy-path": {
+            "title": "复制路径"
+        },
+        "copy-relative-path": {
+            "title": "复制相对路径"
+        },
+        "split-right": {
+            "title": "向右拆分编辑器"
+        },
+        "split-down": {
+            "title": "向下拆分编辑器"
+        },
+        "reopen-with": {
+            "title": "用其它编辑器重新打开"
+        },
+        "open-preview": {
+            "title": "打开预览"
+        },
+        "change-language": {
+            "title": "更改语言模式"
+        },
+        "focus-breadcrumbs": {
+            "title": "聚焦面包屑"
+        },
+        "focus": {
+            "title": "聚焦编辑器"
+        },
+        "nbook": {
+            "edit": {
+                "undo": {
+                    "title": "撤销"
+                },
+                "redo": {
+                    "title": "重做"
+                }
+            }
+        },
+        "go-to-line": {
+            "title": "跳转到行"
+        }
+    },
+    "quickPick": {
+        "reopenWith": {
+            "title": "用其它编辑器重新打开",
+            "placeholder": "选择打开这个文件的编辑器",
+            "current": "当前"
+        },
+        "changeLanguage": {
+            "title": "更改语言模式",
+            "placeholder": "选择语言",
+            "current": "{{id}}（当前）"
+        }
+    },
+    "state": {
+        "focused": {
+            "reason": "编辑区没有焦点"
+        },
+        "active": {
+            "reason": "没有活动的编辑器"
+        },
+        "writable": {
+            "reason": "活动的编辑器是只读的"
+        },
+        "lineNavigation": {
+            "reason": "活动的编辑器不支持跳转到行"
+        },
+        "dirty": {
+            "reason": "活动文档没有未保存的修改"
+        },
+        "hasUnsavedDocuments": {
+            "reason": "没有需要保存的文档"
+        },
+        "hasCursorPosition": {
+            "reason": "活动的编辑器不给出光标位置"
+        },
+        "ready": {
+            "reason": "编辑器区还没建立"
+        },
+        "hasDocument": {
+            "reason": "活动的编辑器没有文本"
+        },
+        "hasPreview": {
+            "reason": "这个文件没有预览"
+        },
+        "hasEditorStatus": {
+            "reason": "活动的编辑器没有状态可显示"
+        },
+        "hasLanguage": {
+            "reason": "活动的编辑器不分语言"
+        }
+    },
+    "statusItems": {
+        "unsaved": {
+            "title": "未保存的文档"
+        },
+        "word-count": {
+            "title": "字数"
+        },
+        "editor-status": {
+            "title": "编辑器状态"
+        },
+        "language": {
+            "title": "语言模式"
+        },
+        "cursor": {
+            "title": "光标位置"
+        }
+    },
+    "status": {
+        "unsaved_other": "未保存 {{count, number}} 个",
+        "saving": "正在保存",
+        "failed": "保存失败：{{path}}（{{reason}}）",
+        "more_other": "等 {{count, number}} 个",
+        "words_other": "{{count, number}} 字",
+        "cursor": "第 {{line, number}} 行，第 {{column, number}} 列"
+    },
+    "editors": {
+        "markdown": {
+            "title": "Markdown 编辑器"
+        },
+        "code": {
+            "title": "源码编辑器"
+        }
+    },
+    "languages": {
+        "plaintext": "纯文本"
+    },
+    "titleActions": {
+        "openPreviewSide": "在侧边打开预览"
+    },
+    "tabMenu": {
+        "close": "关闭",
+        "closeOthers": "关闭其他",
+        "closeToRight": "关闭右侧",
+        "closeSaved": "关闭已保存",
+        "pin": "固定",
+        "unpin": "取消固定",
+        "splitRight": "向右拆分",
+        "splitDown": "向下拆分",
+        "copyPath": "复制路径",
+        "copyRelativePath": "复制相对路径",
+        "reveal": "在资源管理器中显示"
+    }
+}

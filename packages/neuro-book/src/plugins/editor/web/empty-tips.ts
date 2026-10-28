@@ -5,9 +5,10 @@
 
 import {formatKeybinding} from "nbook/plugins/commands/shared/contracts";
 import type {CommandService, KeyPlatform} from "nbook/plugins/commands/shared/contracts";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import type {TextResolver} from "nbook/shared/localized-text";
 
-import {editorText} from "./messages";
+import {editorText} from "../shared/text";
+import type {EditorTextKey} from "../shared/text";
 
 export interface EmptyTip {
     readonly command: string;
@@ -18,13 +19,13 @@ export interface EmptyTip {
     readonly hint: string | null;
 }
 
-const TIPS = [
-    {command: "nbook.quick-open.open-commands", label: "tipCommands", hint: null},
-    {command: "nbook.files.new-file", label: "tipNewFile", hint: "tipNewFileWhere"},
-    {command: "nbook.help.welcome", label: "tipWelcome", hint: "tipWelcomeWhere"},
-] as const;
+const TIPS: ReadonlyArray<{readonly command: string; readonly label: EditorTextKey; readonly hint: EditorTextKey | null}> = [
+    {command: "nbook.quick-open.open-commands", label: "tips.commands", hint: null},
+    {command: "nbook.files.new-file", label: "tips.newFile", hint: "tips.newFileWhere"},
+    {command: "nbook.help.welcome", label: "tips.welcome", hint: "tips.welcomeWhere"},
+];
 
-export function emptyTips(commands: Pick<CommandService, "get" | "isEnabled">, locale: DisplayLocale, platform: KeyPlatform): EmptyTip[] {
+export function emptyTips(commands: Pick<CommandService, "get" | "isEnabled">, text: TextResolver, platform: KeyPlatform): EmptyTip[] {
     return TIPS.flatMap((tip): EmptyTip[] => {
         const command = commands.get(tip.command);
         const enabled = commands.isEnabled(tip.command);
@@ -32,8 +33,8 @@ export function emptyTips(commands: Pick<CommandService, "get" | "isEnabled">, l
         const keybinding = command.value.keybinding;
         if (keybinding !== undefined) {
             // 其它平台写成 Ctrl+Shift+P，按加号拆成键；mac 的写法（⇧⌘P）没有加号，拆出来就是整串一个。
-            return [{command: tip.command, label: editorText(locale, tip.label), keys: formatKeybinding(keybinding, platform).split("+"), hint: null}];
+            return [{command: tip.command, label: text.t(editorText(tip.label)), keys: formatKeybinding(keybinding, platform).split("+"), hint: null}];
         }
-        return [{command: tip.command, label: editorText(locale, tip.label), keys: null, hint: tip.hint === null ? null : editorText(locale, tip.hint)}];
+        return [{command: tip.command, label: text.t(editorText(tip.label)), keys: null, hint: tip.hint === null ? null : text.t(editorText(tip.hint))}];
     });
 }

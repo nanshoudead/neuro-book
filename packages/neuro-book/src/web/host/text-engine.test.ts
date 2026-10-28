@@ -9,8 +9,8 @@ import {createMinimalTranslator} from "@notnotype/nb-ui/text/minimal";
 import {createTextEngine} from "./text-engine";
 
 const own: Readonly<Record<string, Catalog>> = {
-    "zh-CN": {files: {count_other: "{{count}} 个文件"}, path: "路径：{{path}}", nested: "$t(other:secret)"},
-    "en-US": {files: {count_one: "{{count}} file", count_other: "{{count}} files"}, path: "Path: {{path}}", onlyEnglish: "English only"},
+    "zh-CN": {big: "共 {{n, number}} 行", files: {count_other: "{{count}} 个文件"}, path: "路径：{{path}}", nested: "$t(other:secret)"},
+    "en-US": {big: "{{n, number}} lines", files: {count_one: "{{count}} file", count_other: "{{count}} files"}, path: "Path: {{path}}", onlyEnglish: "English only"},
 };
 const other: Readonly<Record<string, Catalog>> = {"zh-CN": {secret: "机密"}};
 const english: Readonly<Record<string, Catalog>> = {"en-US": {hello: "Hello"}};
@@ -99,6 +99,8 @@ describe("输出 9：最小实现与宿主引擎对同一组目录输出一致",
         ["zh-CN", textRef("hello", undefined, "en-source")],
         ["en-US", {"zh-CN": "中", "en-US": "En"}],
         ["zh-CN", "字面"],
+        ["zh-CN", textRef("big", {n: 1234567}, "own")],
+        ["en-US", textRef("big", {n: 1234567}, "own")],
     ];
     for (const [locale, text] of cases) {
         it(`${locale} ${JSON.stringify(text)}`, () => {

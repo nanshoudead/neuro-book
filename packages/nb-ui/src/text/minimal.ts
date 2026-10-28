@@ -1,5 +1,5 @@
 /**
- * 不依赖 i18next 的翻译（docs/specs/ui/i18n.md 输出 4 到 7、9、10）：只支持 `{{name}}` 插值与 `_one`、`_other` 这类
+ * 不依赖 i18next 的翻译（docs/specs/ui/i18n.md 输出 4 到 7、9、10）：只支持 `{{name}}`、`{{name, number}}` 插值与 `_one`、`_other` 这类
  * 复数后缀。nb-ui 的缺省端口与没有宿主的共享包用它；宿主的引擎对同一组目录必须给出相同的结果（输出 9）。
  */
 
@@ -21,7 +21,8 @@ export interface MinimalTranslator {
     variants(text: Text): readonly string[];
 }
 
-const PLACEHOLDER = /\{\{\s*(\w+)\s*\}\}/gu;
+/** `{{name}}` 与带数字格式的 `{{name, number}}`（按当前语言的千分位等，与 i18next 的内置格式一致）。 */
+const PLACEHOLDER = /\{\{\s*(\w+)(\s*,\s*number)?\s*\}\}/gu;
 
 export function createMinimalTranslator(options: MinimalTranslatorOptions): MinimalTranslator {
     const flat = new Map<string, Map<string, Readonly<Record<string, string>>>>();
@@ -63,8 +64,9 @@ export function createMinimalTranslator(options: MinimalTranslatorOptions): Mini
             report({kind: "missing-key", ns, key});
             return key;
         }
-        return message.replace(PLACEHOLDER, (placeholder, name: string) => {
+        return message.replace(PLACEHOLDER, (placeholder, name: string, numberFormat: string | undefined) => {
             const value = params[name];
+            if (typeof value === "number" && numberFormat !== undefined) return new Intl.NumberFormat(locale).format(value);
             if (value !== undefined) return String(value);
             if (options.strict === true) throw new Error(`Missing text param "${name}" for key "${key}" in namespace "${ns ?? ""}"`);
             report({kind: "missing-param", ns, key, param: name});

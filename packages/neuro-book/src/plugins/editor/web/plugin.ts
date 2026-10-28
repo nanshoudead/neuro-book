@@ -15,8 +15,7 @@ import {COMMANDS_POINT, commandServiceKey, completeMenuItemDeclaration, currentK
 import {filesKey} from "nbook/plugins/files/shared/contracts";
 import {dialectTable, MARKDOWN_DIALECTS_POINT, markdownKey} from "nbook/plugins/markdown/shared/contracts";
 import type {DialectDeclaration, MarkdownService} from "nbook/plugins/markdown/shared/contracts";
-import {resolverFor} from "nbook/shared/localized-text";
-import {windowLocale, windowTextKey, windowTextPort} from "nbook/shared/window-text";
+import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {breadcrumbsSetting, codeSettings, enablePreviewSetting, wrapTabsSetting} from "../shared/settings";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
@@ -103,8 +102,7 @@ export const editorBrowserPlugin: PluginDefinition = {
             const storage = context.services.require(storageKey);
             const settings = context.services.require(settingsKey);
             const project = context.services.require(windowProjectKey).project;
-            const locale = await windowLocale(context.services, () => displayLocale(settings));
-            const resolver = resolverFor(() => locale.value, await windowTextPort(context.services, () => displayLocale(settings)));
+            const text = await windowTextPort(context.services, () => displayLocale(settings));
             const codeOptions = computed((): CodeEditorOptions => ({
                 fontFamily: settings.get(codeSettings["code.fontFamily"]),
                 fontSize: settings.get(codeSettings["code.fontSize"]),
@@ -135,7 +133,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                 report,
             });
             context.signal.addEventListener("abort", () => session.dispose(), {once: true});
-            const pages = new EditorPageRegistry(context.declarations, () => locale.value);
+            const pages = new EditorPageRegistry(context.declarations);
             // 页面组件收到的上下文：最近打开随记录变化（reactive 把 computed 拆成值）。
             const pageContext = reactive({recent: computed(() => session.recent?.state.recent.display.addresses ?? [])});
 
@@ -205,7 +203,7 @@ export const editorBrowserPlugin: PluginDefinition = {
             const platform = currentKeyPlatform();
             const tips = () => {
                 void commandsVersion.value;
-                return emptyTips(commands, locale.value, platform);
+                return emptyTips(commands, text, platform);
             };
             const titleItems = new MenuItemRegistry(context.declarations.list<EditorTitleItemDeclaration>(EDITOR_TITLE_POINT), context.signal);
             const tabMenuItems = new MenuItemRegistry(context.declarations.list<EditorTabContextItemDeclaration>(EDITOR_TAB_CONTEXT_POINT), context.signal);
@@ -223,7 +221,7 @@ export const editorBrowserPlugin: PluginDefinition = {
             const tabMenu = {
                 entries: (tabId: string) => {
                     void commandsVersion.value;
-                    return tabMenuModel.entries(tabId, resolver);
+                    return tabMenuModel.entries(tabId, text);
                 },
                 identity: (tabId: string) => tabMenuModel.identity(tabId),
             };
@@ -231,7 +229,7 @@ export const editorBrowserPlugin: PluginDefinition = {
             // 命令增减不经响应式通知：标题动作在渲染与组的 computed 里求值时都读一次版本号。
             const titleActions = () => {
                 void commandsVersion.value;
-                const current = titles.current(resolver);
+                const current = titles.current(text);
                 return current === null ? null : {...current, model: (maxButtons: number) => {
                     void commandsVersion.value;
                     return current.model(maxButtons);
@@ -247,7 +245,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                         setup: () => {
                             provideToChildren(editorLanguagesKey, languages);
                             provideToChildren(codeEditorOptionsKey, codeOptions);
-                            return () => (session.area.value === null ? null : h(EditorArea, {area: session.area.value, locale: locale.value, control, pages: pages.source(pageContext), emptyTips: tips(), titleActions: titleActions(), tabMenu, wrapTabs: settings.get(wrapTabsSetting), breadcrumbs: settings.get(breadcrumbsSetting), workTitle: project?.title ?? null, onTabMenu: (tabId: string, key: string) => {
+                            return () => (session.area.value === null ? null : h(EditorArea, {area: session.area.value, control, pages: pages.source(pageContext), emptyTips: tips(), titleActions: titleActions(), tabMenu, wrapTabs: settings.get(wrapTabsSetting), breadcrumbs: settings.get(breadcrumbsSetting), workTitle: project?.title ?? null, onTabMenu: (tabId: string, key: string) => {
                             session.area.value?.activeHandle.value?.flushPendingChange();
                             tabMenuModel.run(tabId, key);
                         }, onRunTip: execute, onTitleAction: (key: string) => {
@@ -272,7 +270,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                     [EDITOR_EDITORS_POINT]: {[MARKDOWN_EDITOR]: builtinImplementation(builtins, MARKDOWN_EDITOR), [CODE_EDITOR]: builtinImplementation(builtins, CODE_EDITOR)},
                     [EDITOR_LANGUAGES_POINT]: Object.fromEntries(MONACO_LANGUAGES.map((entry) => [entry.id, monacoLanguageImplementation(entry)])),
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
-                    [WORKBENCH_STATUSBAR_ITEMS_POINT]: editorStatusItems(session.area, locale, context.services.require(clockKey), languages, dialectTable(context.declarations.list<DialectDeclaration>(MARKDOWN_DIALECTS_POINT)), resolver),
+                    [WORKBENCH_STATUSBAR_ITEMS_POINT]: editorStatusItems(session.area, context.services.require(clockKey), languages, dialectTable(context.declarations.list<DialectDeclaration>(MARKDOWN_DIALECTS_POINT)), text),
                     [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(EDITOR_TITLEBAR_MENU_ITEMS),
                 },
             };

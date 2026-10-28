@@ -6,14 +6,14 @@ import {describe, expect, it} from "bun:test";
 
 import {CODE_EDITOR, MARKDOWN_EDITOR} from "./shared/contracts";
 import type {EditorDeclaration} from "./shared/contracts";
-import {BINARY_TAB_EDITOR, BUILTIN_EDITORS, candidatesFor, catalogOf, editorRefusal, resolveEditor} from "./web/editors";
+import {BINARY_TAB_EDITOR, completedBuiltinEditors, candidatesFor, catalogOf, editorRefusal, resolveEditor} from "./web/editors";
 import {snapshotOf} from "./web/session-record";
 
 const title = {"zh-CN": "x", "en-US": "x"};
 const declare = (extra: Partial<EditorDeclaration>): EditorDeclaration => ({title, priority: "default", input: "text", ...extra});
 
 const catalog = catalogOf([
-    ...Object.entries(BUILTIN_EDITORS).map(([id, declaration]) => ({id, declaration})),
+    ...completedBuiltinEditors(),
     {id: "test.image.viewer", declaration: declare({input: "bytes", selector: {extensions: ["png", "svg"]}})},
     {id: "test.preview.html", declaration: declare({priority: "option", role: "preview", selector: {extensions: ["html"]}})},
     {id: "test.dts.editor", declaration: declare({selector: {extensions: ["d.ts"]}})},

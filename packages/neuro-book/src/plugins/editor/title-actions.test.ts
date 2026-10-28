@@ -15,7 +15,11 @@ import type {EditorTitleItemDeclaration} from "./shared/contracts";
 import {REOPEN_WITH_COMMAND, SPLIT_RIGHT_COMMAND} from "./web/commands";
 import {createEditorGroups} from "./web/groups/groups";
 import {createEditorTitleActions} from "./web/title-actions";
-import {textIn} from "nbook/shared/testing/text";
+import {testTextPort} from "nbook/shared/testing/text-port";
+import {editorCatalogs} from "./web/text";
+
+/** 窗口同款的翻译端口，登记了编辑器的目录（严格模式：缺键直接抛错）。 */
+const zh = testTextPort("zh-CN", {"nbook.editor": editorCatalogs});
 
 const PREVIEW = "nbook.editor.preview-test";
 
@@ -46,7 +50,7 @@ describe("编辑区标题的动作（editor.md 输出 34）", () => {
     it("编辑器自己的：向右拆分是按钮、用其它编辑器重新打开在“⋯”里；贡献的按后缀出现在后面，活动标签换成别的后缀或页面就消失", () => {
         const {titles, groups} = setup([preview()]);
         groups.open("project://a.md", {mode: "permanent", editor: MARKDOWN_EDITOR});
-        const md = titles.current(textIn("zh-CN"))!;
+        const md = titles.current(zh)!;
         expect(md.group).toBe(groups.activeGroup.value);
         expect(keys(md.model(4).buttons)).toEqual(["own:split-right", "acme.preview.button"]);
         expect(md.model(4).menu.map(keys)).toEqual([["own:reopen-with"]]);
@@ -55,9 +59,9 @@ describe("编辑区标题的动作（editor.md 输出 34）", () => {
         expect(md.model(4).buttons.map((entry) => entry.title)).toEqual(["向右拆分", "预览"]);
 
         groups.open("project://b.txt", {mode: "permanent", editor: CODE_EDITOR});
-        expect(keys(titles.current(textIn("zh-CN"))!.model(4).buttons)).toEqual(["own:split-right"]);
+        expect(keys(titles.current(zh)!.model(4).buttons)).toEqual(["own:split-right"]);
         groups.openPage("page://nbook.projects.welcome");
-        expect(keys(titles.current(textIn("zh-CN"))!.model(4).buttons)).toEqual(["own:split-right"]);
+        expect(keys(titles.current(zh)!.model(4).buttons)).toEqual(["own:split-right"]);
     });
 
     it("context resource 的项收到点下去时活动标签的地址；活动标签不是文件时不执行；编辑器自己的动作参数是 {}", async () => {
@@ -76,17 +80,17 @@ describe("编辑区标题的动作（editor.md 输出 34）", () => {
         const many = Array.from({length: 4}, (_, index) => ({id: `acme.many.b${String(index)}`, declaration: {section: "1", order: index, command: PREVIEW, icon: "i-lucide-square"}}));
         const {titles, groups} = setup(many);
         const first = groups.open("project://a.md", {mode: "permanent", editor: MARKDOWN_EDITOR});
-        const model = titles.current(textIn("zh-CN"))!.model(4);
+        const model = titles.current(zh)!.model(4);
         expect(keys(model.buttons)).toEqual(["own:split-right", "acme.many.b0", "acme.many.b1", "acme.many.b2"]);
         expect(model.menu.map(keys)).toEqual([["own:reopen-with"], ["acme.many.b3"]]);
         // 编辑组窄时由组给出更少的个数；给得再多也至多 4 个。
-        expect(keys(titles.current(textIn("zh-CN"))!.model(1).buttons)).toEqual(["own:split-right"]);
-        expect(titles.current(textIn("zh-CN"))!.model(1).menu.map(keys)).toEqual([["own:reopen-with"], ["acme.many.b0", "acme.many.b1", "acme.many.b2", "acme.many.b3"]]);
-        expect(titles.current(textIn("zh-CN"))!.model(8).buttons).toHaveLength(4);
-        const before = titles.current(textIn("zh-CN"))!.identity;
+        expect(keys(titles.current(zh)!.model(1).buttons)).toEqual(["own:split-right"]);
+        expect(titles.current(zh)!.model(1).menu.map(keys)).toEqual([["own:reopen-with"], ["acme.many.b0", "acme.many.b1", "acme.many.b2", "acme.many.b3"]]);
+        expect(titles.current(zh)!.model(8).buttons).toHaveLength(4);
+        const before = titles.current(zh)!.identity;
         groups.open("project://b.md", {mode: "permanent", editor: MARKDOWN_EDITOR});
-        expect(titles.current(textIn("zh-CN"))!.identity).not.toBe(before);
+        expect(titles.current(zh)!.identity).not.toBe(before);
         groups.activate(first.tab.id);
-        expect(titles.current(textIn("zh-CN"))!.identity).toBe(before);
+        expect(titles.current(zh)!.identity).toBe(before);
     });
 });

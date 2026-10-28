@@ -5,17 +5,18 @@
  */
 
 import {shallowRef} from "@vue/reactivity";
-import type {ComputedRef, ShallowRef} from "@vue/reactivity";
+import type {ShallowRef} from "@vue/reactivity";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
 import type {ItemDeclaration} from "nbook/plugins/workbench/shared/contracts";
 import type {ItemImplementation} from "nbook/plugins/workbench/web/contracts";
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, DisplayText, LocalizedText, TextResolver} from "nbook/shared/localized-text";
+import type {Written} from "nbook/shared/convention-keys";
+import type {TextResolver} from "nbook/shared/localized-text";
 import {countWords} from "nbook/plugins/markdown/shared/contracts";
 import type {DialectTable} from "nbook/plugins/markdown/shared/contracts";
 
+import {editorText} from "../shared/text";
 import type {EditorArea} from "./area";
 import type {LanguageRegistry} from "./code/languages";
 import {CHANGE_LANGUAGE_COMMAND, SAVE_ALL_COMMAND} from "./commands";
@@ -28,23 +29,15 @@ export const CURSOR_ITEM = "nbook.editor.cursor";
 export const EDITOR_STATUS_ITEM = "nbook.editor.editor-status";
 export const LANGUAGE_ITEM = "nbook.editor.language";
 
-export const EDITOR_STATUS_ITEMS: Readonly<Record<string, ItemDeclaration>> = {
-    [UNSAVED_ITEM]: {title: {"zh-CN": "未保存的文档", "en-US": "Unsaved documents"}, alignment: "right", order: 10, priority: 30, command: {id: SAVE_ALL_COMMAND}, when: {requires: [editorState.key("hasUnsavedDocuments")]}},
-    [WORD_COUNT_ITEM]: {title: {"zh-CN": "字数", "en-US": "Word count"}, alignment: "right", order: 20, priority: 20, when: {requires: [editorState.key("active"), editorState.key("hasDocument")]}},
+/** 声明的 `title` 省略，登记时补成约定键 `statusItems.<本地 id>.title`（docs/specs/ui/workbench-shell.md 输出 33）。 */
+export const EDITOR_STATUS_ITEMS: Readonly<Record<string, Written<ItemDeclaration, "title">>> = {
+    [UNSAVED_ITEM]: {alignment: "right", order: 10, priority: 30, command: {id: SAVE_ALL_COMMAND}, when: {requires: [editorState.key("hasUnsavedDocuments")]}},
+    [WORD_COUNT_ITEM]: {alignment: "right", order: 20, priority: 20, when: {requires: [editorState.key("active"), editorState.key("hasDocument")]}},
     // 活动控件交出的一行状态（输出 42），例如图片的尺寸；控件没给时不显示文字。
-    [EDITOR_STATUS_ITEM]: {title: {"zh-CN": "编辑器状态", "en-US": "Editor status"}, alignment: "right", order: 25, priority: 15, when: {requires: [editorState.key("hasEditorStatus")]}},
-    [LANGUAGE_ITEM]: {title: {"zh-CN": "语言模式", "en-US": "Language mode"}, alignment: "right", order: 28, priority: 12, command: {id: CHANGE_LANGUAGE_COMMAND}, when: {requires: [editorState.key("hasLanguage")]}},
-    [CURSOR_ITEM]: {title: {"zh-CN": "光标位置", "en-US": "Cursor position"}, alignment: "right", order: 30, priority: 10, when: {requires: [editorState.key("hasCursorPosition")]}},
+    [EDITOR_STATUS_ITEM]: {alignment: "right", order: 25, priority: 15, when: {requires: [editorState.key("hasEditorStatus")]}},
+    [LANGUAGE_ITEM]: {alignment: "right", order: 28, priority: 12, command: {id: CHANGE_LANGUAGE_COMMAND}, when: {requires: [editorState.key("hasLanguage")]}},
+    [CURSOR_ITEM]: {alignment: "right", order: 30, priority: 10, when: {requires: [editorState.key("hasCursorPosition")]}},
 };
-
-const TEXT = {
-    unsaved: {"zh-CN": "未保存 {count} 个", "en-US": "{count} unsaved"},
-    saving: {"zh-CN": "正在保存", "en-US": "Saving"},
-    failed: {"zh-CN": "保存失败：{path}（{reason}）", "en-US": "Save failed: {path} ({reason})"},
-    more: {"zh-CN": "等 {count} 个", "en-US": "and {count} more"},
-    words: {"zh-CN": "{count} 字", "en-US": "{count} words"},
-    cursor: {"zh-CN": "第 {line} 行，第 {column} 列", "en-US": "Ln {line}, Col {column}"},
-} satisfies Record<string, LocalizedText>;
 
 /** 提示里至多列出的文件数。 */
 const LISTED = 5;
@@ -108,51 +101,48 @@ function activeWordCount(area: Readonly<ShallowRef<EditorArea | null>>, clock: R
     };
 }
 
-/** 编辑器的条目自己按语言取好文字，给的都是字符串（条目的合同允许任何文字值）。 */
+/** 编辑器的条目自己翻好文字，给的都是字符串（条目的合同允许任何文字值）。 */
 type ResolvedItem = Omit<ItemImplementation, "text" | "tooltip"> & {text(): string; tooltip?(): string};
 
 /** `dialects`：方言声明表（docs/specs/workspace/markdown-syntaxes.md 输出 9、10），在一个窗口的寿命内不变。 */
-export function editorStatusItems(area: Readonly<ShallowRef<EditorArea | null>>, locale: Readonly<ComputedRef<DisplayLocale>>, clock: RuntimeClock, languages: Pick<LanguageRegistry, "name">, dialects: DialectTable, resolver: TextResolver): Readonly<Record<string, ResolvedItem>> {
-    const text = (value: LocalizedText): string => localize(value, locale.value);
-    const display = (value: DisplayText): string => resolver.t(value);
+export function editorStatusItems(area: Readonly<ShallowRef<EditorArea | null>>, clock: RuntimeClock, languages: Pick<LanguageRegistry, "name">, dialects: DialectTable, text: TextResolver): Readonly<Record<string, ResolvedItem>> {
     const wordCount = activeWordCount(area, clock, dialects);
     const unsaved = () => area.value?.openDocuments.value.filter(needsSaving) ?? [];
     const failures = () => unsaved().filter((document) => document.saveProblem.value !== null);
-    const number = (count: number): string => new Intl.NumberFormat(locale.value).format(count);
     return {
         [UNSAVED_ITEM]: {
-            text: () => text(formatText(TEXT.unsaved, {count: number(unsaved().length)})),
+            text: () => text.t(editorText("status.unsaved", {count: unsaved().length})),
             tooltip: () => {
                 const documents = unsaved();
                 const lines = [
-                    ...failures().map((document) => text(formatText(TEXT.failed, {path: shown(document.target.value.path), reason: document.saveProblem.value?.detail ?? ""}))),
-                    ...(documents.some((document) => document.saving.value) ? [text(TEXT.saving)] : []),
+                    ...failures().map((document) => text.t(editorText("status.failed", {path: shown(document.target.value.path), reason: document.saveProblem.value?.detail ?? ""}))),
+                    ...(documents.some((document) => document.saving.value) ? [text.t(editorText("status.saving"))] : []),
                     ...documents.slice(0, LISTED).map((document) => shown(document.target.value.path)),
-                    ...(documents.length > LISTED ? [text(formatText(TEXT.more, {count: number(documents.length - LISTED)}))] : []),
+                    ...(documents.length > LISTED ? [text.t(editorText("status.more", {count: documents.length - LISTED}))] : []),
                 ];
                 return lines.join("\n");
             },
             state: () => (failures().length > 0 ? "error" : "normal"),
         },
         [WORD_COUNT_ITEM]: {
-            text: () => text(formatText(TEXT.words, {count: number(wordCount())})),
+            text: () => text.t(editorText("status.words", {count: wordCount()})),
         },
         [EDITOR_STATUS_ITEM]: {
             text: () => {
                 const status = area.value?.activeHandle.value?.status?.value ?? null;
-                return status === null ? "" : display(status);
+                return status === null ? "" : text.t(status);
             },
         },
         [LANGUAGE_ITEM]: {
             text: () => {
                 const language = area.value?.activeHandle.value?.language?.value ?? null;
-                return language === null ? "" : display(languages.name(language));
+                return language === null ? "" : text.t(languages.name(language));
             },
         },
         [CURSOR_ITEM]: {
             text: () => {
                 const position = area.value?.activeHandle.value?.position?.value ?? null;
-                return position === null ? "" : text(formatText(TEXT.cursor, {line: number(position.line), column: number(position.column)}));
+                return position === null ? "" : text.t(editorText("status.cursor", {line: position.line, column: position.column}));
             },
         },
     };

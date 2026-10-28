@@ -1,0 +1,336 @@
+{
+    "area": {
+        "label": "Editor",
+        "tabsLabel": "Open editors",
+        "moreActions": "More Actions",
+        "loading": "Reading…",
+        "dismiss": "Dismiss"
+    },
+    "tab": {
+        "close": "Close {{name}}",
+        "unpin": "Unpin {{name}}",
+        "unsaved": "Unsaved",
+        "pinned": "Pinned",
+        "previewOf": "Preview {{name}}"
+    },
+    "root": {
+        "project": "Work",
+        "user": "User Assets"
+    },
+    "crumbs": {
+        "label": "File Path",
+        "loading": "Loading",
+        "empty": "Empty",
+        "retry": "Retry"
+    },
+    "drop": {
+        "move": "Move Here",
+        "keep": "No Change",
+        "splitLeft": "Split Left",
+        "splitRight": "Split Right",
+        "splitTop": "Split Up",
+        "splitBottom": "Split Down"
+    },
+    "tips": {
+        "commands": "Show All Commands",
+        "newFile": "New File",
+        "newFileWhere": "“New File” in the Explorer title bar",
+        "welcome": "Open Welcome Page",
+        "welcomeWhere": "Help › Welcome"
+    },
+    "page": {
+        "missing": "This page is no longer available: the plugin that provided it has stopped",
+        "loading": "Loading page…",
+        "failed": "The page failed to load: {{reason}}"
+    },
+    "document": {
+        "openFailed": "Cannot open {{name}}: {{reason}}",
+        "retry": "Retry",
+        "notText": "{{name}} is not UTF-8 text (it may be a binary file or use another encoding) and cannot be opened here.",
+        "binary": "{{name}} is a binary file and cannot be opened here.",
+        "editorGone": "The editor for {{name}} is no longer available: the plugin that provided it has stopped or is not installed.",
+        "reopenDefault": "Open with Default Editor",
+        "editorLoading": "Loading editor…"
+    },
+    "banner": {
+        "conflict": "The file changed on disk; the save was not written.",
+        "reload": "Reload Disk Version",
+        "overwrite": "Overwrite Disk Version",
+        "diskChanged": "The file changed on disk; saving will conflict.",
+        "unresolved": "Another view edited this document at the same time; this view's input has not been applied.",
+        "adopt": "Use Current Text",
+        "unrepresentable": "Block {{index}}{{excerpt}} in this view cannot be written back as Markdown; the input has not been applied and cannot be saved. Change the formatting of that block, or use the current text.",
+        "unrepresentableExcerpt": " (“{{excerpt}}”)",
+        "locate": "Show Block",
+        "keep": "Keep This View's Text",
+        "deleted": "The file was deleted. Saving recreates it at the same place.",
+        "deletedClean": "The file was deleted.",
+        "ended": "The file service ended ({{reason}}); saving is not possible.",
+        "saveFailed": "Save failed: {{reason}}",
+        "saveUnknown": "The save outcome is unknown; checking the disk."
+    },
+    "closeDialog": {
+        "title": "Save changes to {{name}}?",
+        "body": "Your changes will be lost if you don't save them.",
+        "titleUnrepresentable": "Discard changes to {{name}}?",
+        "bodyUnrepresentable": "A block in this view cannot be written back as Markdown, so it cannot be saved; closing discards this view's changes.",
+        "save": "Save",
+        "discard": "Don't Save",
+        "cancel": "Cancel"
+    },
+    "settingsSections": {
+        "nbook": {
+            "editor": {
+                "title": "Editor",
+                "description": "Tabs and breadcrumbs",
+                "groups": {
+                    "tabs": {
+                        "title": "Tabs"
+                    },
+                    "code": {
+                        "title": "Code Editor"
+                    }
+                }
+            }
+        }
+    },
+    "settings": {
+        "enablePreview": {
+            "title": "Preview Tabs",
+            "description": "A single click opens a replaceable tab that becomes permanent once edited or double-clicked"
+        },
+        "wrapTabs": {
+            "title": "Wrap Tabs",
+            "description": "Wrap tabs that do not fit; pinned tabs get a row of their own"
+        },
+        "breadcrumbs": {
+            "title": "Breadcrumbs",
+            "description": "Show the file path and the current heading below the tabs"
+        },
+        "code": {
+            "fontFamily": {
+                "title": "Font Family",
+                "description": "A CSS font-family list; leave empty to use the theme's monospace font"
+            },
+            "fontSize": {
+                "title": "Font Size"
+            },
+            "lineHeight": {
+                "title": "Line Height",
+                "description": "0 follows the font size; below 8 multiplies the font size, 8 and above is in pixels"
+            },
+            "tabSize": {
+                "title": "Tab Size",
+                "description": "Spaces per indentation level; with indentation detection on, used only when nothing can be detected"
+            },
+            "detectIndentation": {
+                "title": "Detect Indentation",
+                "description": "Guess spaces or tabs and the indentation size from the file; when off, always use the tab size above with spaces"
+            },
+            "lineNumbers": {
+                "title": "Line Numbers",
+                "choices": {
+                    "on": {
+                        "title": "On"
+                    },
+                    "off": {
+                        "title": "Off"
+                    },
+                    "relative": {
+                        "title": "Relative"
+                    }
+                }
+            },
+            "minimap": {
+                "title": "Minimap"
+            },
+            "wordWrap": {
+                "title": "Word Wrap"
+            }
+        }
+    },
+    "categories": {
+        "editor": "Editor",
+        "edit": "Edit"
+    },
+    "commands": {
+        "open": {
+            "title": "Open File"
+        },
+        "open-page": {
+            "title": "Open Page"
+        },
+        "save": {
+            "title": "Save"
+        },
+        "save-all": {
+            "title": "Save All"
+        },
+        "revert": {
+            "title": "Revert to Disk Version"
+        },
+        "close": {
+            "title": "Close Editor"
+        },
+        "close-others": {
+            "title": "Close Other Editors"
+        },
+        "close-to-right": {
+            "title": "Close Editors to the Right"
+        },
+        "close-saved": {
+            "title": "Close Saved Editors"
+        },
+        "pin-tab": {
+            "title": "Pin Editor"
+        },
+        "unpin-tab": {
+            "title": "Unpin Editor"
+        },
+        "copy-path": {
+            "title": "Copy Path"
+        },
+        "copy-relative-path": {
+            "title": "Copy Relative Path"
+        },
+        "split-right": {
+            "title": "Split Editor Right"
+        },
+        "split-down": {
+            "title": "Split Editor Down"
+        },
+        "reopen-with": {
+            "title": "Reopen Editor With"
+        },
+        "open-preview": {
+            "title": "Open Preview"
+        },
+        "change-language": {
+            "title": "Change Language Mode"
+        },
+        "focus-breadcrumbs": {
+            "title": "Focus Breadcrumbs"
+        },
+        "focus": {
+            "title": "Focus Editor"
+        },
+        "nbook": {
+            "edit": {
+                "undo": {
+                    "title": "Undo"
+                },
+                "redo": {
+                    "title": "Redo"
+                }
+            }
+        },
+        "go-to-line": {
+            "title": "Go to Line"
+        }
+    },
+    "quickPick": {
+        "reopenWith": {
+            "title": "Reopen Editor With",
+            "placeholder": "Select an editor for this file",
+            "current": "Current"
+        },
+        "changeLanguage": {
+            "title": "Change Language Mode",
+            "placeholder": "Select a language",
+            "current": "{{id}} (current)"
+        }
+    },
+    "state": {
+        "focused": {
+            "reason": "The editor does not have focus"
+        },
+        "active": {
+            "reason": "There is no active editor"
+        },
+        "writable": {
+            "reason": "The active editor is read-only"
+        },
+        "lineNavigation": {
+            "reason": "The active editor cannot go to a line"
+        },
+        "dirty": {
+            "reason": "The active document has no unsaved changes"
+        },
+        "hasUnsavedDocuments": {
+            "reason": "No document needs saving"
+        },
+        "hasCursorPosition": {
+            "reason": "The active editor does not report a cursor position"
+        },
+        "ready": {
+            "reason": "The editor area is not ready yet"
+        },
+        "hasDocument": {
+            "reason": "The active editor has no text"
+        },
+        "hasPreview": {
+            "reason": "This file has no preview"
+        },
+        "hasEditorStatus": {
+            "reason": "The active editor reports no status"
+        },
+        "hasLanguage": {
+            "reason": "The active editor has no language mode"
+        }
+    },
+    "statusItems": {
+        "unsaved": {
+            "title": "Unsaved documents"
+        },
+        "word-count": {
+            "title": "Word count"
+        },
+        "editor-status": {
+            "title": "Editor status"
+        },
+        "language": {
+            "title": "Language mode"
+        },
+        "cursor": {
+            "title": "Cursor position"
+        }
+    },
+    "status": {
+        "unsaved_one": "{{count, number}} unsaved",
+        "unsaved_other": "{{count, number}} unsaved",
+        "saving": "Saving",
+        "failed": "Save failed: {{path}} ({{reason}})",
+        "more_one": "and {{count, number}} more",
+        "more_other": "and {{count, number}} more",
+        "words_one": "{{count, number}} words",
+        "words_other": "{{count, number}} words",
+        "cursor": "Ln {{line, number}}, Col {{column, number}}"
+    },
+    "editors": {
+        "markdown": {
+            "title": "Markdown Editor"
+        },
+        "code": {
+            "title": "Source Editor"
+        }
+    },
+    "languages": {
+        "plaintext": "Plain Text"
+    },
+    "titleActions": {
+        "openPreviewSide": "Open Preview to the Side"
+    },
+    "tabMenu": {
+        "close": "Close",
+        "closeOthers": "Close Others",
+        "closeToRight": "Close to the Right",
+        "closeSaved": "Close Saved",
+        "pin": "Pin",
+        "unpin": "Unpin",
+        "splitRight": "Split Right",
+        "splitDown": "Split Down",
+        "copyPath": "Copy Path",
+        "copyRelativePath": "Copy Relative Path",
+        "reveal": "Reveal in Explorer"
+    }
+}

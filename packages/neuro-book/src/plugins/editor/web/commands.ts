@@ -8,11 +8,12 @@ import {Type} from "typebox";
 import type {Static} from "typebox";
 import type {ShallowRef} from "@vue/reactivity";
 
-import type {CommandDeclaration, CommandImplementation, CommandResult} from "nbook/plugins/commands/shared/contracts";
+import type {CommandImplementation, CommandResult, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import type {FilesService} from "nbook/plugins/files/shared/contracts";
 import type {QuickPick} from "nbook/plugins/workbench/shared/contracts";
 
 import {OPEN_PAGE_COMMAND} from "../shared/contracts";
+import {editorText} from "../shared/text";
 import type {ActionResult, BatchCloseResult, EditorArea} from "./area";
 import type {EditorTab} from "./groups/groups";
 import {resourceOf} from "./documents/address";
@@ -45,11 +46,10 @@ export const UNDO_COMMAND = "nbook.edit.undo";
 export const REDO_COMMAND = "nbook.edit.redo";
 export const GO_TO_LINE_COMMAND = "nbook.editor.go-to-line";
 
-const EDITOR = {"zh-CN": "编辑器", "en-US": "Editor"};
-const EDIT = {"zh-CN": "编辑", "en-US": "Edit"};
+const EDITOR = editorText("categories.editor");
+const EDIT = editorText("categories.edit");
 const NO_ARGS = Type.Object({}, {additionalProperties: false});
 const when = (...names: ReadonlyArray<keyof typeof editorState.declarations & string>) => ({requires: names.map((name) => editorState.key(name))});
-const title = (zh: string, en: string) => ({"zh-CN": zh, "en-US": en});
 
 const OPEN_ARGS = Type.Object({
     address: Type.String(),
@@ -85,34 +85,34 @@ const GO_TO_LINE_ARGS = Type.Object({
     line: Type.Integer({minimum: 1, maximum: Number.MAX_SAFE_INTEGER}),
 }, {additionalProperties: false});
 
-export const EDITOR_COMMAND_DECLARATIONS: Readonly<Record<string, CommandDeclaration>> = {
-    [OPEN_COMMAND]: {title: title("打开文件", "Open File"), category: EDITOR, description: "Open a resource address in the active editor group, or in the group given by id, or with group \"side\" in the group to the right of the active one (split right when there is none); preview tabs are replaced by the next preview open.", args: OPEN_ARGS, effect: "read", expose: {human: false, agent: "auto"}},
+export const EDITOR_COMMAND_DECLARATIONS: Readonly<Record<string, WrittenCommandDeclaration>> = {
+    [OPEN_COMMAND]: {category: EDITOR, description: "Open a resource address in the active editor group, or in the group given by id, or with group \"side\" in the group to the right of the active one (split right when there is none); preview tabs are replaced by the next preview open.", args: OPEN_ARGS, effect: "read", expose: {human: false, agent: "auto"}},
     // 要参数、不进命令面板：用户经各页面自己的命令打开（例如“帮助 > 欢迎”）。
-    [OPEN_PAGE_COMMAND]: {title: title("打开页面", "Open Page"), category: EDITOR, description: "Open an editor page (a tab that is not a file, such as the welcome page) by its contribution id; a page already open in the window is activated instead of opened twice.", args: OPEN_PAGE_ARGS, effect: "read", expose: {human: false, agent: "auto"}},
-    [SAVE_COMMAND]: {title: title("保存", "Save"), category: EDITOR, description: "Save the active document against its disk baseline; a changed disk is reported as a conflict, never overwritten.", args: NO_ARGS, effect: "write", when: when("dirty"), expose: {agent: "confirm"}},
-    [SAVE_ALL_COMMAND]: {title: title("全部保存", "Save All"), category: EDITOR, description: "Save every open document with unsaved changes.", args: NO_ARGS, effect: "write", expose: {agent: "confirm"}},
-    [REVERT_COMMAND]: {title: title("还原为磁盘版本", "Revert to Disk Version"), category: EDITOR, description: "Discard the active document's unsaved changes and reload it from disk.", args: NO_ARGS, effect: "write", when: when("active"), expose: {agent: "never", hints: {destructive: true}}},
-    [CLOSE_COMMAND]: {title: title("关闭编辑器", "Close Editor"), category: EDITOR, description: "Close a tab (the active one unless tabId is given); asks first when its document has unsaved changes.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
-    [CLOSE_OTHERS_COMMAND]: {title: title("关闭其它编辑器", "Close Other Editors"), category: EDITOR, description: "Close the other tabs in the tab's group (the active tab unless tabId is given), keeping pinned tabs; stops when the user cancels a prompt or a save fails.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
-    [CLOSE_TO_RIGHT_COMMAND]: {title: title("关闭右侧编辑器", "Close Editors to the Right"), category: EDITOR, description: "Close the tabs to the right of the tab (the active tab unless tabId is given), keeping pinned tabs; stops when the user cancels a prompt or a save fails.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
-    [CLOSE_SAVED_COMMAND]: {title: title("关闭已保存的编辑器", "Close Saved Editors"), category: EDITOR, description: "Close the tabs in the tab's group (the active tab unless tabId is given) that have nothing to save, keeping pinned tabs.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
-    [PIN_TAB_COMMAND]: {title: title("固定编辑器", "Pin Editor"), category: EDITOR, description: "Pin a file tab (the active one unless tabId is given): pinned tabs stay at the start of the group and are kept by close others and close to the right.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
-    [UNPIN_TAB_COMMAND]: {title: title("取消固定编辑器", "Unpin Editor"), category: EDITOR, description: "Unpin a tab (the active one unless tabId is given).", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [OPEN_PAGE_COMMAND]: {category: EDITOR, description: "Open an editor page (a tab that is not a file, such as the welcome page) by its contribution id; a page already open in the window is activated instead of opened twice.", args: OPEN_PAGE_ARGS, effect: "read", expose: {human: false, agent: "auto"}},
+    [SAVE_COMMAND]: {category: EDITOR, description: "Save the active document against its disk baseline; a changed disk is reported as a conflict, never overwritten.", args: NO_ARGS, effect: "write", when: when("dirty"), expose: {agent: "confirm"}},
+    [SAVE_ALL_COMMAND]: {category: EDITOR, description: "Save every open document with unsaved changes.", args: NO_ARGS, effect: "write", expose: {agent: "confirm"}},
+    [REVERT_COMMAND]: {category: EDITOR, description: "Discard the active document's unsaved changes and reload it from disk.", args: NO_ARGS, effect: "write", when: when("active"), expose: {agent: "never", hints: {destructive: true}}},
+    [CLOSE_COMMAND]: {category: EDITOR, description: "Close a tab (the active one unless tabId is given); asks first when its document has unsaved changes.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [CLOSE_OTHERS_COMMAND]: {category: EDITOR, description: "Close the other tabs in the tab's group (the active tab unless tabId is given), keeping pinned tabs; stops when the user cancels a prompt or a save fails.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [CLOSE_TO_RIGHT_COMMAND]: {category: EDITOR, description: "Close the tabs to the right of the tab (the active tab unless tabId is given), keeping pinned tabs; stops when the user cancels a prompt or a save fails.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [CLOSE_SAVED_COMMAND]: {category: EDITOR, description: "Close the tabs in the tab's group (the active tab unless tabId is given) that have nothing to save, keeping pinned tabs.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [PIN_TAB_COMMAND]: {category: EDITOR, description: "Pin a file tab (the active one unless tabId is given): pinned tabs stay at the start of the group and are kept by close others and close to the right.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [UNPIN_TAB_COMMAND]: {category: EDITOR, description: "Unpin a tab (the active one unless tabId is given).", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
     // 写系统剪贴板：Agent 不调用（与资源管理器的复制路径相同）。
-    [COPY_PATH_COMMAND]: {title: title("复制路径", "Copy Path"), category: EDITOR, description: "Copy the absolute path (on the server machine) of a file tab (the active one unless tabId is given) to the system clipboard.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "never"}},
-    [COPY_RELATIVE_PATH_COMMAND]: {title: title("复制相对路径", "Copy Relative Path"), category: EDITOR, description: "Copy the path of a file tab (the active one unless tabId is given) relative to its root to the system clipboard.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "never"}},
-    [SPLIT_RIGHT_COMMAND]: {title: title("向右拆分编辑器", "Split Editor Right"), category: EDITOR, description: "Open the tab's document (the active tab unless tabId is given) in a new group to the right.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
-    [SPLIT_DOWN_COMMAND]: {title: title("向下拆分编辑器", "Split Editor Down"), category: EDITOR, description: "Open the tab's document (the active tab unless tabId is given) in a new group below.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
-    [REOPEN_WITH_COMMAND]: {title: title("用其它编辑器重新打开", "Reopen Editor With"), category: EDITOR, description: "Reopen the active tab with another editor, given by id; without an editor, pick one from the editors that can open the file.", args: REOPEN_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
-    [OPEN_PREVIEW_COMMAND]: {title: title("打开预览", "Open Preview"), category: EDITOR, description: "Open the preview of the active file (for example an HTML page) in the active group, or with side true in the group to the right.", args: OPEN_PREVIEW_ARGS, effect: "read", when: when("hasPreview"), expose: {agent: "auto"}},
-    [CHANGE_LANGUAGE_COMMAND]: {title: title("更改语言模式", "Change Language Mode"), category: EDITOR, description: "Change the language (syntax highlighting and editing rules) of the active source editor, given by language id; without a language, pick one from the registered languages. The choice is remembered on the tab.", args: CHANGE_LANGUAGE_ARGS, effect: "read", when: when("hasLanguage"), expose: {agent: "auto"}},
+    [COPY_PATH_COMMAND]: {category: EDITOR, description: "Copy the absolute path (on the server machine) of a file tab (the active one unless tabId is given) to the system clipboard.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "never"}},
+    [COPY_RELATIVE_PATH_COMMAND]: {category: EDITOR, description: "Copy the path of a file tab (the active one unless tabId is given) relative to its root to the system clipboard.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "never"}},
+    [SPLIT_RIGHT_COMMAND]: {category: EDITOR, description: "Open the tab's document (the active tab unless tabId is given) in a new group to the right.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [SPLIT_DOWN_COMMAND]: {category: EDITOR, description: "Open the tab's document (the active tab unless tabId is given) in a new group below.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [REOPEN_WITH_COMMAND]: {category: EDITOR, description: "Reopen the active tab with another editor, given by id; without an editor, pick one from the editors that can open the file.", args: REOPEN_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [OPEN_PREVIEW_COMMAND]: {category: EDITOR, description: "Open the preview of the active file (for example an HTML page) in the active group, or with side true in the group to the right.", args: OPEN_PREVIEW_ARGS, effect: "read", when: when("hasPreview"), expose: {agent: "auto"}},
+    [CHANGE_LANGUAGE_COMMAND]: {category: EDITOR, description: "Change the language (syntax highlighting and editing rules) of the active source editor, given by language id; without a language, pick one from the registered languages. The choice is remembered on the tab.", args: CHANGE_LANGUAGE_ARGS, effect: "read", when: when("hasLanguage"), expose: {agent: "auto"}},
     // 只移动键盘焦点：Agent 不需要。
-    [FOCUS_BREADCRUMBS_COMMAND]: {title: title("聚焦面包屑", "Focus Breadcrumbs"), category: EDITOR, description: "Move keyboard focus to the breadcrumbs of the active editor group.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "never"}},
-    [FOCUS_COMMAND]: {title: title("聚焦编辑器", "Focus Editor"), category: EDITOR, description: "Focus the active editor.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
-    [UNDO_COMMAND]: {title: title("撤销", "Undo"), category: EDIT, description: "Undo the latest edit in the active editor.", args: NO_ARGS, effect: "write", when: when("active", "writable"), expose: {agent: "confirm"}},
-    [REDO_COMMAND]: {title: title("重做", "Redo"), category: EDIT, description: "Redo the latest undone edit in the active editor.", args: NO_ARGS, effect: "write", when: when("active", "writable"), expose: {agent: "never"}},
+    [FOCUS_BREADCRUMBS_COMMAND]: {category: EDITOR, description: "Move keyboard focus to the breadcrumbs of the active editor group.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "never"}},
+    [FOCUS_COMMAND]: {category: EDITOR, description: "Focus the active editor.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [UNDO_COMMAND]: {category: EDIT, description: "Undo the latest edit in the active editor.", args: NO_ARGS, effect: "write", when: when("active", "writable"), expose: {agent: "confirm"}},
+    [REDO_COMMAND]: {category: EDIT, description: "Redo the latest undone edit in the active editor.", args: NO_ARGS, effect: "write", when: when("active", "writable"), expose: {agent: "never"}},
     // 参数由面板的 `:N` 合成，不在候选里摆一个要手写 JSON 的半成品动作。
-    [GO_TO_LINE_COMMAND]: {title: title("跳转到行", "Go to Line"), category: EDITOR, description: "Move the caret to a one-based line in the specified active document.", args: GO_TO_LINE_ARGS, effect: "read", when: when("active", "lineNavigation"), expose: {human: false, agent: "auto"}},
+    [GO_TO_LINE_COMMAND]: {category: EDITOR, description: "Move the caret to a one-based line in the specified active document.", args: GO_TO_LINE_ARGS, effect: "read", when: when("active", "lineNavigation"), expose: {human: false, agent: "auto"}},
 };
 
 const unavailable = (reason: string): CommandResult<unknown> => ({ok: false, code: "unavailable", reason});
@@ -212,9 +212,9 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, so
             // 当前的那个也列出（标“当前”），选它等于不换。
             const ids = candidatesFor(sources.editors, tab.address);
             const picked = await sources.pick.pick({
-                title: {"zh-CN": "用其它编辑器重新打开", "en-US": "Reopen Editor With"},
-                placeholder: {"zh-CN": "选择打开这个文件的编辑器", "en-US": "Select an editor for this file"},
-                items: ids.map((id) => ({id, label: sources.editors.declaration(id)?.title ?? id, ...(id === tab.editor ? {detail: {"zh-CN": "当前", "en-US": "Current"}} : {})})),
+                title: editorText("quickPick.reopenWith.title"),
+                placeholder: editorText("quickPick.reopenWith.placeholder"),
+                items: ids.map((id) => ({id, label: sources.editors.declaration(id)?.title ?? id, ...(id === tab.editor ? {detail: editorText("quickPick.reopenWith.current")} : {})})),
             });
             if (picked.kind === "unavailable") return unavailable(picked.reason);
             if (picked.kind !== "item") return {ok: true, value: null};
@@ -236,9 +236,9 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, so
             }
             if (sources.pick === null) return unavailable("没有选择服务，请给出 language 参数");
             const picked = await sources.pick.pick({
-                title: {"zh-CN": "更改语言模式", "en-US": "Change Language Mode"},
-                placeholder: {"zh-CN": "选择语言", "en-US": "Select a language"},
-                items: sources.languages.list().map((id) => ({id, label: sources.languages.name(id), detail: id === shown ? {"zh-CN": `${id}（当前）`, "en-US": `${id} (current)`} : id})),
+                title: editorText("quickPick.changeLanguage.title"),
+                placeholder: editorText("quickPick.changeLanguage.placeholder"),
+                items: sources.languages.list().map((id) => ({id, label: sources.languages.name(id), detail: id === shown ? editorText("quickPick.changeLanguage.current", {id}) : id})),
             });
             if (picked.kind === "unavailable") return unavailable(picked.reason);
             if (picked.kind !== "item") return {ok: true, value: null};

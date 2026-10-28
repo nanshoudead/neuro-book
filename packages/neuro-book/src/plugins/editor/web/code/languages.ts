@@ -15,6 +15,7 @@ import type {DisplayText} from "nbook/shared/localized-text";
 
 import {EDITOR_LANGUAGES_POINT, SOURCE_EDITOR_LANGUAGE_IDS} from "../../shared/contracts";
 import type {LanguageDeclaration, LanguageDefinition, LanguageImplementation} from "../../shared/contracts";
+import {editorText} from "../../shared/text";
 
 /** 与 `load-monaco.ts` 的同名类型相同；不从那里引：它带着浏览器全局与 worker 模块，后端的类型检查看不懂。 */
 type MonacoApi = typeof import("monaco-editor/esm/vs/editor/editor.api.js");
@@ -38,7 +39,7 @@ export function monacoLanguageImplementation(entry: MonacoLanguageEntry): Langua
 
 /** 源码编辑器自带、不经贡献点的语言（`SOURCE_EDITOR_LANGUAGE_IDS`）显示的名字。 */
 const SOURCE_EDITOR_LANGUAGE_NAMES: ReadonlyMap<string, DisplayText> = new Map<string, DisplayText>([
-    ["plaintext", {"zh-CN": "纯文本", "en-US": "Plain Text"}],
+    ["plaintext", editorText("languages.plaintext")],
     ["json", "JSON"],
 ]);
 
