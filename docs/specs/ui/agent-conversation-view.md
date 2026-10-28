@@ -68,8 +68,8 @@ type AgentConversationViewProps = {
     viewMode?: "turns" | "raw";
     /** 弹窗与浮层的渲染目标；false 表示就地渲染（Lab 使用）。 */
     teleportTarget?: string | false;
-    /** 界面语言："zh-CN" 或 "en-US"。 */
-    locale: "zh-CN" | "en-US";
+    /** 界面语言，只在宿主没有注入翻译端口时起作用；缺省 "zh-CN"（见“边界与兼容”）。 */
+    locale?: "zh-CN" | "en-US";
     /** 宿主注入的渲染组件；缺哪个用包内的缺省实现（见“失败与恢复”）。 */
     renderers?: {markdown?: Component; promptEditor?: Component; promptTextView?: Component};
     /** 是否显示顶栏；缺省 true。宿主页面自有标题时传 false（见“顶栏”）。 */
@@ -165,7 +165,7 @@ type ToolCallView = {
 
 工具名匹配：精确工具名优先于名称前缀；前缀互相包含时取最长的那个，与登记顺序无关。两个渲染器声明相同的工具名或相同的前缀、两个条目渲染器声明相同的 `customType` 时构造失败（见“失败与恢复”）。
 
-宿主组件收到 `ctx`、`services`、`locale` 与各自的数据（工具组件是这次调用，条目组件是这条附注与它所在的消息），只发出 `action`，由视图原样交给宿主。
+宿主组件收到 `ctx`、`services`、`locale`（当前界面语言）与各自的数据（工具组件是这次调用，条目组件是这条附注与它所在的消息），只发出 `action`，由视图原样交给宿主。
 
 宿主注入的渲染组件之外，还可以注入 `markdownPreview(text)`：Markdown 文字折叠时露出的那一行纯文字怎么取。不注入时用包内的缺省规则，只去掉常见的强调、代码、链接与块标记，强调按 CommonMark 的写法认（与展开后的显示一致）。注入的函数出错时这一行按缺省规则显示。
 
@@ -300,7 +300,7 @@ type AgentSessionListItem = {
     status: "idle" | "running" | "interrupted" | "error";   // 宿主按自己的状态映射
     note?: {text: string; icon?: string};                   // 需要注意的一句，提醒色，在说明那一行的右侧
 };
-// 属性：items、selectedId、state（"ready" | "loading" | "error"，缺省 ready）、errorMessage?、now、locale、
+// 属性：items、selectedId、state（"ready" | "loading" | "error"，缺省 ready）、errorMessage?、now、locale?（同视图）、
 // header?（是否显示标题行与新建按钮，缺省显示）、labels?（覆盖标题、新建、加载中、空、出错、重试、未命名的文字）
 ```
 
@@ -373,6 +373,7 @@ type AgentSessionListItem = {
 - 工具没有匹配的渲染器：使用通用渲染器，类别为 `other`。
 - ctx 中引用了不存在的数据（例如 `branches` 指向不存在的消息）：忽略该引用，不报错。
 - 宿主没有注入 Markdown 显示组件或提示词编辑器：用包内的缺省实现，Markdown 按纯文字显示，输入框退化为普通文本框（没有标签、附件与粘贴块）。
+- 宿主注入了翻译端口却没有登记本包的目录：本包的文字显示为键名，由宿主的翻译引擎报缺键；不悄悄换成包内的中文。
 - `services.resolveAttachmentUrl` 返回空或没有提供：附件显示“不可用”占位，不发起请求。
 - `availability` 为 `load-error` 或 `profile-unavailable`：显示说明和恢复动作，消息流仍可阅读，输入框只读。
 - 提交后宿主一直没有提供新版本草稿：输入框保持原文，由宿主通过 `availability` 或消息的 `delivery` 状态告知结果。
@@ -384,7 +385,7 @@ type AgentSessionListItem = {
 - 顶层视图的能力标签只有 `state:local`、`state:inject`（宿主注入的渲染组件）与 `env:portal`；各渲染器与子组件的标签为空或只有 `state:local`，符合[组件规范](../../standards/code/components.md)。
 - 视觉取值遵循 [nb-ui 设计语言](../../../packages/nb-ui/docs/design-language.md)与 [UI 开发规范](../../../packages/nb-ui/docs/ui-development-spec.md)，明暗两种主题都要满足对比度要求。
 - 注册表中对插件稳定的部分，在 `runtime.plugins` 定型后另行确认；在此之前，注册表形状可以随内置需要调整。
-- 界面文字是包内的中英两份，按宿主给的 `locale` 显示；宿主与插件登记的文字同样写中英两份。
+- 界面文字在本包自带的消息目录里（命名空间 `nb-agent-ui`，源语言 zh-CN，经 `@notnotype/nb-agent-ui/locales` 导出），按[界面语言与消息目录](i18n.md)显示：宿主注入了翻译端口时登记这份目录，语言以端口为准，`locale` 属性不起作用；没有注入时视图、会话列表与模型目录按 `locale`（缺省 zh-CN）用包内的缺省端口，单独挂载的内部零件用中文。分轮规则、注册表与 harness 适配器产出的文字是文字引用，显示时才翻译。宿主与插件登记的文字写中英两份或文字引用。
 - 折叠的思维链不渲染其内部步骤，保证长会话的渲染开销与展开的内容量成正比。
 
 ## 验收与 Smoke
@@ -424,8 +425,9 @@ type AgentSessionListItem = {
 32. Given 单行版式、带“插入引用”前置按钮（触发字符 `@`）的输入框，When 显示，Then 前置按钮在正文前、控件在同一行；正文以中文结尾时点按钮，Then 正文变成“原文 @”且引用菜单打开，没有发出插件 action；允许登记附件时退回两层。上下文用量 21%、75%、95%、120% 依次是普通、警告、危险、危险（写 120%），没有用量或不知道上限时不画。
 33. Given 模型下拉里有两家的同名模型、其中一家用不了，`canManageModels` 为真，When 打开，Then 两项右侧各写服务商，用不了的那项灰掉并写原因，末尾“管理模型…”发出 `model.manage`。
 34. Given 模型目录（能用、没值、要登录、云凭据链的服务商各一），When 打开，Then 左栏分两段；搜 `gpt` 只剩命中，勾两个后“加入候选”按勾选先后交回引用并关闭；已选过的写“已添加”不能勾；点要登录的服务商右栏写明要设的变量。
+35. Given 宿主注入了英文的翻译端口、视图的 `locale` 是 zh-CN，When 显示，Then 视图与其中的 nb-ui 控件都是英文；端口换成中文后不重新挂载就变成中文。没有注入时 `locale` 为 en-US 显示英文，不传显示中文；单独挂载的内部零件显示中文。
 
-Smoke：分轮、摘要、发送规则与注册表有单元测试（`packages/nb-agent-ui` 的 `bun run test`，第 13、14、15、20、23、25、28 到 31、34 条的搜索）；第 21、22、24、26 到 29、32 到 34 条另有挂载测试（`*.dom.test.ts`）与 e2e；消息流随时间变化的行为与输入框由新应用的 `bun run test:e2e -- lab-agent-ui` 覆盖（第 4、7、9、10、11 条及“历史与滚动”），全部 Lab 场景的手机宽度巡检在 `lab-scenes.e2e.ts`。其余条目随后续切片补充。
+Smoke：分轮、摘要、发送规则与注册表有单元测试（`packages/nb-agent-ui` 的 `bun run test`，第 13、14、15、20、23、25、28 到 31、34 条的搜索）；第 21、22、24、26 到 29、32 到 35 条另有挂载测试（`*.dom.test.ts`）与 e2e；消息流随时间变化的行为与输入框由新应用的 `bun run test:e2e -- lab-agent-ui` 覆盖（第 4、7、9、10、11 条及“历史与滚动”），全部 Lab 场景的手机宽度巡检在 `lab-scenes.e2e.ts`。其余条目随后续切片补充。
 
 ## 实现合同
 

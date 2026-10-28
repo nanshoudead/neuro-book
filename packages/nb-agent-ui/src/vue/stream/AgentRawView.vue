@@ -64,7 +64,7 @@ function fields(message: MessageView): string[] {
                 (message.annotations?.length ?? 0) > 0 ? `annotations: ${message.annotations!.map((annotation) => annotation.customType).join(", ")}` : "",
             ].filter(Boolean);
         case "system":
-            return [message.label];
+            return [text(message.label)];
         case "error":
             return message.retryable ? ["retryable"] : [];
     }
@@ -157,7 +157,7 @@ function usageLine(message: AssistantMessageView): string {
 
             <p v-else-if="message.kind === 'system'" class="acv-raw__text">{{ message.text }}</p>
 
-            <p v-else class="acv-raw__text acv-raw__text--danger">{{ message.message }}</p>
+            <p v-else class="acv-raw__text acv-raw__text--danger">{{ text(message.message) }}</p>
         </article>
     </div>
 </template>

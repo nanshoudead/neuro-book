@@ -54,7 +54,12 @@ export function createMinimalTranslator(options: MinimalTranslatorOptions): Mini
         let message: string | undefined;
         if (typeof count === "number") {
             // 输出 5：先按当前语言的复数类别取，再取 `_other`，最后才取不带后缀的键。
-            message = lookup(ns, `${key}_${new Intl.PluralRules(locale).select(count)}`, locales) ?? lookup(ns, `${key}_other`, locales) ?? lookup(ns, key, locales);
+            // 逐个语言走完整的三级：中文目录只写裸键时，不能先被回退链后面的英文 `_other` 抢走。复数类别按当前语言算。
+            const category = new Intl.PluralRules(locale).select(count);
+            for (const candidate of locales) {
+                message = lookup(ns, `${key}_${category}`, [candidate]) ?? lookup(ns, `${key}_other`, [candidate]) ?? lookup(ns, key, [candidate]);
+                if (message !== undefined) break;
+            }
         } else {
             if (rawParams !== undefined && "count" in rawParams) report({kind: "param-dropped", ns, key, param: "count"});
             message = lookup(ns, key, locales);

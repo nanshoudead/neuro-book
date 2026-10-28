@@ -1,14 +1,14 @@
 <script setup lang="ts">
 /**
- * 会话列表（docs/specs/ui/agent-conversation-view.md“会话列表”）。挂在对话视图之外，宿主决定放在左栏、下拉还是弹窗里，
- * 所以不 inject：语言与数据都经属性给，发出的 action 与视图同一套，宿主可以交给同一个处理函数。不持有状态：选中由
- * `selectedId` 受控，放在下拉里时由宿主收到 action 后关下拉。
+ * 会话列表（docs/specs/ui/agent-conversation-view.md“会话列表”）。挂在对话视图之外，宿主决定放在左栏、下拉还是弹窗里：
+ * 数据都经属性给，文字经翻译端口取（与视图同一条规则，见 `text.ts`），发出的 action 与视图同一套，宿主可以交给同一个
+ * 处理函数。不持有状态：选中由 `selectedId` 受控，放在下拉里时由宿主收到 action 后关下拉。
  */
 import {Badge, Button, EmptyState, IconButton, ScrollArea, Spinner} from "@notnotype/nb-ui/components";
 
 import {formatListTime} from "../format";
-import {agentText} from "../messages";
 import type {AgentLocale, AgentSessionListItem, AgentSessionListState, AgentViewAction} from "../types";
+import {provideAgentText} from "./text";
 
 type LabelKey = "title" | "create" | "loading" | "empty" | "error" | "retry" | "untitled";
 
@@ -20,12 +20,13 @@ const props = withDefaults(defineProps<{
     errorMessage?: string;
     /** 宿主给的当前时间；时间列按它写，宿主要定期更新（例如每分钟），否则过了午夜“今天”的行不会变成“昨天”。 */
     now: number;
-    locale: AgentLocale;
+    /** 没有宿主注入翻译端口时的界面语言，缺省 zh-CN；有注入时以端口为准。时间列也按生效的语言写。 */
+    locale?: AgentLocale;
     /** 是否显示标题行（标题与新建按钮）；放进宿主自有新建入口的下拉时传 false。 */
     header?: boolean;
     /** 覆盖包内文字：宿主把会话叫成别的（例如“对话”）时给整句，英文也由宿主给。 */
     labels?: Partial<Record<LabelKey, string>>;
-}>(), {state: "ready", errorMessage: undefined, header: true, labels: () => ({})});
+}>(), {state: "ready", errorMessage: undefined, locale: undefined, header: true, labels: () => ({})});
 
 const emit = defineEmits<{action: [action: AgentViewAction]}>();
 
@@ -34,8 +35,10 @@ const DEFAULT_KEYS = {
     error: "sessions.error", retry: "sessions.retry", untitled: "header.untitled",
 } as const;
 
+const {t, locale} = provideAgentText(() => props.locale);
+
 function label(key: LabelKey): string {
-    return props.labels[key] ?? agentText(props.locale, DEFAULT_KEYS[key]);
+    return props.labels[key] ?? t(DEFAULT_KEYS[key]);
 }
 </script>
 
@@ -68,7 +71,7 @@ function label(key: LabelKey): string {
                     >
                         <span class="acv-sessions__line">
                             <span class="acv-sessions__name" :title="item.title === '' ? undefined : item.title">{{ item.title === "" ? label("untitled") : item.title }}</span>
-                            <time class="acv-sessions__time" :datetime="new Date(item.updatedAt).toISOString()">{{ formatListTime(item.updatedAt, props.now, props.locale) }}</time>
+                            <time class="acv-sessions__time" :datetime="new Date(item.updatedAt).toISOString()">{{ formatListTime(item.updatedAt, props.now, locale) }}</time>
                         </span>
                         <!-- 第二行总在：没有说明、状态与提醒的行也和别的行一样高（同一列表的行等高）。 -->
                         <span class="acv-sessions__line acv-sessions__meta">
@@ -77,9 +80,9 @@ function label(key: LabelKey): string {
                                 <span :class="item.note.icon ?? 'i-lucide-circle-alert'" class="acv-sessions__note-icon" aria-hidden="true" /><span class="acv-sessions__note-text">{{ item.note.text }}</span>
                             </span>
                             <!-- 旁边已有文字，转圈不再报一遍（整行是按钮，名称由内容拼出）。 -->
-                            <span v-if="item.status === 'running'" class="acv-sessions__running"><span aria-hidden="true"><Spinner size="sm" /></span>{{ agentText(props.locale, "sessions.running") }}</span>
-                            <Badge v-else-if="item.status === 'interrupted'" size="sm" variant="soft">{{ agentText(props.locale, "sessions.interrupted") }}</Badge>
-                            <Badge v-else-if="item.status === 'error'" size="sm" variant="soft" tone="danger">{{ agentText(props.locale, "sessions.failed") }}</Badge>
+                            <span v-if="item.status === 'running'" class="acv-sessions__running"><span aria-hidden="true"><Spinner size="sm" /></span>{{ t("sessions.running") }}</span>
+                            <Badge v-else-if="item.status === 'interrupted'" size="sm" variant="soft">{{ t("sessions.interrupted") }}</Badge>
+                            <Badge v-else-if="item.status === 'error'" size="sm" variant="soft" tone="danger">{{ t("sessions.failed") }}</Badge>
                         </span>
                     </button>
                 </li>

@@ -2,6 +2,7 @@ import {describe, expect, it} from "bun:test";
 import type {AssistantMessageView, MessageView, RunView, ToolCallView, UserMessageView} from "./types";
 import {createAgentViewRegistry} from "./registry";
 import {builtinToolRenderers} from "./builtin-tools";
+import {agentRef} from "./text";
 import {assignTurnKeys, buildTurns, defaultTurnExpanded, reuseTurnGroups, splitIntoTurnGroups, type BuildTurnsInput, type ChainBlock, type ConversationTurn, type ToolGroupStep, type TurnBlock} from "./conversation-turns";
 
 const builtinToolsContribution = {source: "builtin:tools", tools: builtinToolRenderers};
@@ -195,8 +196,8 @@ describe("buildTurns 探查工具分组", () => {
         expect(group.tools.map((step) => step.id)).toEqual(["r1", "r2", "s1"]);
         expect(group.items.map((item) => item.kind)).toEqual(["tool", "boundary", "thinking", "tool", "tool"]);
         expect(group.phrases).toEqual([
-            {key: "toolGroup.read", params: {count: 2}},
-            {key: "toolGroup.search", params: {count: 1}},
+            agentRef("toolGroup.read", {count: 2}),
+            agentRef("toolGroup.search", {count: 1}),
         ]);
     });
 
@@ -213,7 +214,7 @@ describe("buildTurns 探查工具分组", () => {
     it("插件登记的探查工具与内置读取并入同一组", () => {
         const withPlugin = createAgentViewRegistry([builtinToolsContribution, {
             source: "plugin:atlas",
-            tools: [{id: "atlas_lookup", toolNames: ["atlas_lookup"], category: "explore", icon: "i-lucide-map", label: "查地图", summary: () => "", groupPhrase: (calls) => ({key: "toolGroup.lookup", params: {count: calls.length}}), presentation: "line"}],
+            tools: [{id: "atlas_lookup", toolNames: ["atlas_lookup"], category: "explore", icon: "i-lucide-map", label: "查地图", summary: () => "", groupPhrase: (calls) => (agentRef("toolGroup.lookup", {count: calls.length})), presentation: "line"}],
         }]);
         const turns = buildTurns(input([
             user("u1", "查"),
@@ -248,7 +249,7 @@ describe("buildTurns 探查工具分组", () => {
 
         const group = chains(turns[0]!)[0]!.entries[0] as ToolGroupStep;
         expect(received.at(-1)).toEqual(["s1:success", "s2:error", "s3:success", "s4:running"]);
-        expect(group.phrases).toEqual(["读了第 33–37 章", {key: "toolGroup.read", params: {count: 1}}]);
+        expect(group.phrases).toEqual(["读了第 33–37 章", agentRef("toolGroup.read", {count: 1})]);
     });
 
     it("运行中的组记录当前执行项，出错项单独列出；思维链统计失败次数", () => {

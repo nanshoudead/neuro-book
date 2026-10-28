@@ -1,23 +1,26 @@
 /**
- * 宿主交给对话视图的两样东西：界面语言与渲染组件（Markdown 显示、提示词编辑器、已发送文字的静态显示）。
- * `AgentConversationView` 收到属性后 provide 给子组件；零件单独挂载时（Lab、宿主自己拼装）用 `provideAgentView`。
+ * 宿主交给对话视图的渲染组件（Markdown 显示、提示词编辑器、已发送文字的静态显示），以及没有注入翻译端口时用的语言
+ * （见 `text.ts`）。`AgentConversationView` 收到属性后 provide 给子组件；零件单独挂载时（Lab、宿主自己拼装）用
+ * `provideAgentView`。
  *
- * 没有提供方时语言是中文、渲染组件用包内的缺省实现：零件在任何地方都能挂上，只是 Markdown 按纯文字显示、输入框
- * 退化为普通文本框（docs/specs/ui/agent-conversation-view.md“失败与恢复”）。值用 getter 传，宿主切换语言或换组件时
- * 子组件跟着变。
+ * 没有提供方时渲染组件用包内的缺省实现：零件在任何地方都能挂上，只是 Markdown 按纯文字显示、输入框退化为普通文本框
+ * （docs/specs/ui/agent-conversation-view.md“失败与恢复”）。值用 getter 传，宿主换组件时子组件跟着变。
  */
 
 import type {Component, ComputedRef, InjectionKey} from "vue";
 import {computed, inject, provide} from "vue";
 
-import {agentText, textOf} from "../messages";
-import type {AgentTextKey} from "../messages";
-import type {AgentLocale, ViewText} from "../types";
+import type {AgentLocale} from "../types";
 import {firstLine, markdownPreviewLine} from "../format";
 import type {MarkdownPreviewPort} from "../ports";
 import PlainMarkdown from "./fallback/PlainMarkdown.vue";
 import PlainPromptEditor from "./fallback/PlainPromptEditor.vue";
 import PlainPromptTextView from "./fallback/PlainPromptTextView.vue";
+import {provideAgentText} from "./text";
+import type {AgentTextApi} from "./text";
+
+export {useAgentText} from "./text";
+export type {AgentTextApi} from "./text";
 
 /** 宿主注入的渲染组件与 Markdown 预览函数；形状见核心的 `ports.ts`。缺哪个用包内的缺省实现。 */
 export type AgentViewRenderers = {
@@ -28,43 +31,20 @@ export type AgentViewRenderers = {
 };
 
 type AgentViewHost = {
-    locale: () => AgentLocale;
     renderers: () => AgentViewRenderers;
 };
 
 const hostKey: InjectionKey<AgentViewHost> = Symbol("nb-agent-ui/host");
 
-const FALLBACK_HOST: AgentViewHost = {locale: () => "zh-CN", renderers: () => ({})};
+const FALLBACK_HOST: AgentViewHost = {renderers: () => ({})};
 
 /**
- * 交出语言与渲染组件。返回提供方自己用的文字函数：Vue 的 `inject` 只看祖先提供的值，提供方自己调用 `useAgentText`
- * 拿到的是缺省中文。
+ * 交出渲染组件；没有注入翻译端口时按 `locale`（缺省 zh-CN）建包内的缺省端口一并交出（`provideAgentText`）。返回提供方
+ * 自己用的文字函数：Vue 的 `inject` 只看祖先提供的值。
  */
-export function provideAgentView(options: {locale: () => AgentLocale; renderers?: () => AgentViewRenderers}): AgentTextApi {
-    const host: AgentViewHost = {locale: options.locale, renderers: options.renderers ?? (() => ({}))};
-    provide(hostKey, host);
-    return textApi(host);
-}
-
-export type AgentTextApi = {
-    locale: ComputedRef<AgentLocale>;
-    /** 本包文字表里的一条。 */
-    t: (key: AgentTextKey, params?: Readonly<Record<string, string | number>>) => string;
-    /** 注册表、纯逻辑层或宿主给的文字。 */
-    text: (value: ViewText) => string;
-};
-
-export function useAgentText(): AgentTextApi {
-    return textApi(inject(hostKey, FALLBACK_HOST));
-}
-
-function textApi(host: AgentViewHost): AgentTextApi {
-    const locale = computed(() => host.locale());
-    return {
-        locale,
-        t: (key, params) => agentText(locale.value, key, params),
-        text: (value) => textOf(value, locale.value),
-    };
+export function provideAgentView(options: {locale?: () => AgentLocale | undefined; renderers?: () => AgentViewRenderers}): AgentTextApi {
+    provide(hostKey, {renderers: options.renderers ?? (() => ({}))});
+    return provideAgentText(options.locale ?? (() => undefined));
 }
 
 export type ResolvedRenderers = {

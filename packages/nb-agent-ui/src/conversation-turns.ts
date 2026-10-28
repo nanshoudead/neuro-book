@@ -14,6 +14,8 @@
  * 轮次从一条普通用户消息开始，到下一条普通用户消息之前结束；steer 不开启新轮次。
  * 最终回复是本轮最后一条正文非空、自身不调用工具、且其后再无工具调用的 assistant 消息。
  */
+import type {Text} from "@notnotype/nb-ui/text";
+
 import type {
     AssistantMessageView,
     HistoryView,
@@ -22,9 +24,9 @@ import type {
     SystemMessageView,
     ToolCallView,
     UserMessageView,
-    ViewText,
 } from "./types";
 import type {AgentViewRegistry, FileChangeView, ToolEffects, ToolRendererEntry} from "./registry";
+import {agentRef} from "./text";
 import {toolCallPhase} from "./tool-status";
 
 export type TurnStatus = "running" | "waiting" | "done" | "error" | "stopped";
@@ -56,7 +58,7 @@ export type ToolGroupStep = {
     items: ToolGroupItem[];
     tools: ToolStep[];
     /** 合并摘要的各段，例如“读取 5 个文件”“搜索 2 次”，按首次出现排序。 */
-    phrases: ViewText[];
+    phrases: Text[];
     /** 正在执行的那一项；组头实时显示它。 */
     active: ToolStep | null;
     /** 出错的项；组折叠时仍单独露出。 */
@@ -100,7 +102,7 @@ export type TurnBlock =
     | {kind: "annotations"; id: string; message: AssistantMessageView}
     | {kind: "divider"; id: string; message: SystemMessageView}
     | {kind: "steer"; id: string; message: UserMessageView}
-    | {kind: "error"; id: string; message: string};
+    | {kind: "error"; id: string; message: Text};
 
 export type TurnMetrics = {
     /** 开头不完整的轮次不知道起点，为 null。 */
@@ -526,10 +528,10 @@ function makeToolGroup(items: ToolGroupItem[], tools: ToolStep[], registry: Agen
         if (calls === undefined) callsByRenderer.set(renderer, [tool.call]);
         else calls.push(tool.call);
     }
-    const phrases: ViewText[] = [];
+    const phrases: Text[] = [];
     for (const [renderer, calls] of callsByRenderer) {
         // 类型要求 explore 都给 groupPhrase；回退留给不经类型检查的 JS 宿主，不是死代码。
-        phrases.push(renderer.groupPhrase?.(calls) ?? {key: "toolGroup.generic", params: {count: calls.length}});
+        phrases.push(renderer.groupPhrase?.(calls) ?? agentRef("toolGroup.generic", {count: calls.length}));
     }
     const active = tools.findLast(isActive) ?? null;
     return {

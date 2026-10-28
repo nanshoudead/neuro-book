@@ -27,7 +27,8 @@ const props = withDefaults(defineProps<{
     registry: AgentViewRegistry;
     viewMode?: AgentViewMode;
     teleportTarget?: string | false;
-    locale: AgentLocale;
+    /** 没有宿主注入翻译端口时的界面语言，缺省 zh-CN；有注入时以端口为准（见 `text.ts`）。 */
+    locale?: AgentLocale;
     renderers?: AgentViewRenderers;
     /** 是否显示顶栏；宿主页面自有标题时传 false，原始视图的切换入口随之没有，用 viewMode 控制。 */
     header?: boolean;
@@ -38,6 +39,7 @@ const props = withDefaults(defineProps<{
 }>(), {
     viewMode: undefined,
     teleportTarget: false,
+    locale: undefined,
     renderers: () => ({}),
     header: true,
     processDisclosure: "collapsed",

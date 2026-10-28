@@ -20,12 +20,15 @@ import LabFixtureControls from "../../LabFixtureControls.vue";
 import {Button} from "@notnotype/nb-ui/components";
 import {longConversationMessages} from "./data";
 import {useLabComposerHost} from "./composer-host";
+import {agentSceneLocale, provideAgentSceneText} from "./agent-text";
 import {labAgentRegistry, labAgentRenderers, labAgentServices, provideLabMarkdown} from "./host";
 
 const props = defineProps<LabFixtureProps>();
 
 provideLabMarkdown();
 const subject = useLabSubject<typeof AgentConversationView>(() => props.input, ["action"]);
+/** 视图的文字经注入的端口取，语言由场景输入的 `locale` 决定（`agent-text.ts`）。 */
+provideAgentSceneText(() => agentSceneLocale(subject.bindings.value.locale));
 
 const registry = labAgentRegistry();
 /** 场景“缺省实现”不注入渲染组件，看纯文字回复与普通文本框的样子。 */

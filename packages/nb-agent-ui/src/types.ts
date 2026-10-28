@@ -5,7 +5,8 @@
  * 这样 Lab 的数据 tab 可以直接编辑它，时间线也能确定性回放；函数只允许出现在 services 与注册表里。
  */
 
-import type {AgentTextKey} from "./messages";
+import type {Text} from "@notnotype/nb-ui/text";
+
 import type {MarkdownAssetResolver, PromptAttachment, PromptLocale, PromptMenu, PromptMenuContext, PromptMenuItem, PromptPastePolicy} from "./ports";
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | {[key: string]: JsonValue};
@@ -13,14 +14,8 @@ export type JsonValue = null | boolean | number | string | JsonValue[] | {[key: 
 /** 视图与注入的渲染组件用同一组语言。 */
 export type AgentLocale = PromptLocale;
 
-/** 中英两份文字。 */
+/** 中英两份文字（`LocaleMap` 的特例）。 */
 export type LocalizedText = {readonly "zh-CN": string; readonly "en-US": string};
-
-/**
- * 界面文字：与语言无关的字符串（路径、名称）、宿主与插件给的中英两份（带参数时先用 `formatText` 代入），或本包文字表
- * 的键加参数。纯逻辑层（分轮规则、注册表、过程摘要）拿不到语言，只产出这个描述，由组件按 `locale` 取（`textOf`）。
- */
-export type ViewText = string | LocalizedText | {key: AgentTextKey; params?: {[name: string]: string | number}};
 
 // ─── 消息 ───────────────────────────────────────────────────────────────
 
@@ -115,7 +110,8 @@ export type SystemMessageView = {
     id: string;
     timestamp: number;
     source: SystemMessageSource;
-    label: string;
+    /** 条目的名称（例如“上下文已压缩”）；适配器给的是本包目录的引用。 */
+    label: Text;
     text: string;
 };
 
@@ -123,7 +119,8 @@ export type ErrorMessageView = {
     kind: "error";
     id: string;
     timestamp: number;
-    message: string;
+    /** 用户可读的错误说明；适配器给的是本包目录的引用，宿主也可以给自己的文字。 */
+    message: Text;
     retryable: boolean;
 };
 

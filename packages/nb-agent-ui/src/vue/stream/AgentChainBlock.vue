@@ -168,7 +168,7 @@ function cardStatus(step: ToolStep): "running" | "waiting" | "success" | "error"
                 <AgentTextStepRow
                     v-else-if="entry.kind === 'prompt'"
                     icon="i-lucide-scroll-text"
-                    :label="entry.message.label"
+                    :label="text(entry.message.label)"
                     :text="entry.message.text"
                     :services="props.services"
                     :expanded="openSet.isOpen(entry.id)"

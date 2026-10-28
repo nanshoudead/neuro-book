@@ -2,7 +2,7 @@
  * 输入框的纯逻辑：编辑器发出 submit 时该发什么、模式怎么循环、`/` 命令菜单怎么列。
  * 放在组件外是为了单测能逐条覆盖“空闲、运行中 × 回车、Ctrl/⌘+回车 × 命令”这些组合。
  */
-import type {AgentTextKey} from "./messages";
+import type {AgentTextKey} from "./text";
 import type {PromptAttachment, PromptMenu, PromptMenuItem} from "./ports";
 import type {AgentViewAction, ComposerModeView, ComposerView, SubmitDelivery} from "./types";
 import type {ComposerCommandEntry} from "./registry";
@@ -53,7 +53,7 @@ export function nextMode(modes: readonly ComposerModeView[], current: string): s
 
 /**
  * `/` 位于正文开头时的菜单：登记的命令按名称过滤，名称以查询开头的排在前面。
- * 说明与参数提示由调用方翻译好传进来（ViewText 要 i18n 运行时）。
+ * 说明与参数提示由调用方翻译好传进来（文字引用要翻译端口）。
  */
 export function commandMenu(
     commands: ReadonlyArray<Pick<ComposerCommandEntry, "id" | "name"> & {description: string; argsHint: string | null}>,
@@ -74,7 +74,7 @@ export function commandMenu(
     return {title: labels.title, items, emptyText: labels.empty};
 }
 
-/** 常见思考档位在本包文字表里的键；其他取值原样显示。 */
+/** 常见思考档位在本包目录里的键；其他取值原样显示。 */
 export const THINKING_LEVEL_KEYS: Readonly<Record<string, AgentTextKey>> = {
     off: "composer.thinking.off",
     minimal: "composer.thinking.minimal",

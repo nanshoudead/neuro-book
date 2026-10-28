@@ -54,6 +54,12 @@ describe("输出 4 到 7：最小实现翻译引用", () => {
     const problems: TextProblem[] = [];
     const translator = createMinimalTranslator({catalogs, sources: {"en-source": "en-US"}, report: (problem) => problems.push(problem)});
 
+    it("复数回退逐个语言走完三级：中文只写裸键时不被回退链后面的英文 _other 抢走", () => {
+        const bare = createMinimalTranslator({catalogs: {x: {"zh-CN": {n: "{{count}} 条"}, "en-US": {n_one: "{{count}} item", n_other: "{{count}} items"}}}});
+        expect(bare.translate(textRef("n", {count: 2}, "x"), "zh-CN")).toBe("2 条");
+        expect(bare.translate(textRef("n", {count: 1}, "x"), "en-US")).toBe("1 item");
+    });
+
     it("复数按当前语言选后缀，中文只写 _other 时 count 为 1 也取得到", () => {
         expect(translator.translate(textRef("files.count", {count: 1}, "own"), "en-US")).toBe("1 file");
         expect(translator.translate(textRef("files.count", {count: 2}, "own"), "en-US")).toBe("2 files");

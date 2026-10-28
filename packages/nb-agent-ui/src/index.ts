@@ -1,6 +1,6 @@
 /**
- * nb-agent-ui 的核心入口：视图合同（ctx、services、action）、注册表、界面文字与宿主注入组件的形状，都是纯 TS，不依赖
- * Vue 与 DOM。行为合同是 docs/specs/ui/agent-conversation-view.md；渲染层在 `@notnotype/nb-agent-ui/vue`。
+ * nb-agent-ui 的核心入口：视图合同（ctx、services、action）、注册表、界面文字的引用与宿主注入组件的形状，都是纯 TS，不依赖
+ * Vue 与 DOM。本包的目录在 `./locales` 子路径。行为合同是 docs/specs/ui/agent-conversation-view.md；渲染层在 `@notnotype/nb-agent-ui/vue`。
  *
  * 分轮、摘要等纯逻辑只给渲染层用，不导出；宿主起步用的 `createAgentContext`、输入框动作与 harness 适配器在这里。
  */
@@ -12,7 +12,7 @@ export type {
     ComposerModelView, ComposerModeView, ComposerView, ConnectionView, ContentBlockView, EditingView, ErrorMessageView, HistoryView,
     InteractionView, JsonValue, LocalizedText, MessageAnnotationView, MessageView, PanelsView, PendingInputView, PendingQuestionView, PluginAgentViewAction,
     RunStatus, RunView, SessionView, SubmitDelivery, SystemMessageSource, SystemMessageView, ToolCallStatus, ToolCallView,
-    ToolResultView, TriggerMenu, TriggerMenuContext, TriggerMenuItem, UsageSummaryView, UsageView, UserMessageView, ViewText,
+    ToolResultView, TriggerMenu, TriggerMenuContext, TriggerMenuItem, UsageSummaryView, UsageView, UserMessageView,
     WorkflowView, WorkspaceChangeGroupView, WorkspaceChangesView,
 } from "./types";
 export type {
@@ -28,13 +28,15 @@ export type {
 } from "./registry";
 export {argArray, argNumber, argString, countLines, objectString} from "./tool-args";
 export type {CodeLine} from "./tool-detail-lines";
-export {formatText, textOf} from "./messages";
+// 文字值的类型在 nb-ui 的纯数据层；视图合同的文字字段都是 `Text`，转出来给宿主写类型时用。
+export type {LocaleMap, Text, TextRef} from "@notnotype/nb-ui/text";
+export {agentRef, formatText} from "./text";
 export {formatListTime, markdownPreviewLine} from "./format";
-export type {AgentTextKey} from "./messages";
+export type {AgentTextKey} from "./text";
 export {acceptSubmission, applyComposerAction, nextMode} from "./composer-actions";
 export {createAgentContext} from "./context";
 export type {AgentContextPatch} from "./context";
 export {createHarnessTranscript, logSeqOf} from "./harness";
-export type {HarnessTranscript, HarnessTranscriptOptions, TranscriptProblem} from "./harness";
+export type {HarnessTranscript, TranscriptProblem} from "./harness";
 export {catalogRef, providerSelectable} from "./model-catalog";
 export type {CatalogAccess, CatalogModelView, CatalogProviderView} from "./model-catalog";

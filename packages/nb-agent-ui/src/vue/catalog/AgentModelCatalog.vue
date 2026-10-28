@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
 import {Button, Checkbox, Dialog, Input, Select} from "@notnotype/nb-ui/components";
-import {agentText, type AgentTextKey} from "../../messages";
 import {hitCounts, orderCatalog, orderProviders, providerSelectable, searchCatalog, type CatalogHit, type CatalogModelView, type CatalogProviderView} from "../../model-catalog";
 import type {AgentLocale} from "../../types";
+import {provideAgentText} from "../text";
 
 const props = defineProps<{
     open: boolean;
     providers: readonly CatalogProviderView[];
     chosen: readonly string[];
-    locale: AgentLocale;
+    /** 没有宿主注入翻译端口时的界面语言，缺省 zh-CN；有注入时以端口为准（见 `../text.ts`）。 */
+    locale?: AgentLocale;
 }>();
 
 const emit = defineEmits<{
@@ -20,7 +21,7 @@ const emit = defineEmits<{
 
 defineOptions({inheritAttrs: false});
 
-const t = (key: AgentTextKey, params?: Record<string, string | number>) => agentText(props.locale, key, params);
+const {t} = provideAgentText(() => props.locale);
 
 /** 一次最多画这么多行：OpenRouter 一家就有五百多个模型，全画出来表格会卡。 */
 const ROW_LIMIT = 200;

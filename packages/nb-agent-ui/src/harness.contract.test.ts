@@ -18,6 +18,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {Type} from "typebox";
 
 import {createHarnessTranscript} from "./harness";
+import {agentRef} from "./text";
 import {builtinToolRenderers} from "./builtin-tools";
 import {buildTurns} from "./conversation-turns";
 import {createAgentViewRegistry} from "./registry";
@@ -161,7 +162,7 @@ describe("harness 适配器与真实 harness", () => {
         const {events, entries} = await run({steps: ["不会到"], missingKey: true});
         expect(events).toEqual([]);
         const {messages} = fromLog(entries);
-        expect(messages).toEqual([expect.objectContaining({kind: "error", message: "模型服务的密钥缺失或无效，请检查设置。", retryable: false})]);
+        expect(messages).toEqual([expect.objectContaining({kind: "error", message: agentRef("harness.error.auth"), retryable: false})]);
     });
 
     it("中途停止：没有错误条目，这一轮末尾是一条已停止的回复（模型还没开口时补一条空的）", async () => {

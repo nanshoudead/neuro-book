@@ -7,7 +7,7 @@
  * 答案卡片组件由问答页传进来：这个文件保持纯 TS，单测不用编译 .vue。
  */
 
-import {argNumber, argString, type AgentViewContribution, type ToolCallView, type ToolRendererEntry, type ViewText} from "@notnotype/nb-agent-ui";
+import {argNumber, argString, type AgentViewContribution, type ToolCallView, type Text, type ToolRendererEntry} from "@notnotype/nb-agent-ui";
 import type {Component} from "vue";
 
 function position(value: unknown): string {
@@ -60,7 +60,7 @@ export function chaptersPhrase(calls: readonly ToolCallView[]): string {
 
 const entity = (call: ToolCallView) => argString(call, "entity");
 
-type Query = {names: string[]; label: string; icon: string; summary: (call: ToolCallView) => string; phrase: (calls: readonly ToolCallView[]) => ViewText};
+type Query = {names: string[]; label: string; icon: string; summary: (call: ToolCallView) => string; phrase: (calls: readonly ToolCallView[]) => Text};
 const QUERIES: Query[] = [
     {names: ["read"], label: "读原文", icon: "i-lucide-book-open", summary: readSummary, phrase: chaptersPhrase},
     {names: ["para"], label: "这一段的记录", icon: "i-lucide-pilcrow", summary: call => `${argNumber(call, "chapter") ?? "?"}.${argNumber(call, "paragraph") ?? "?"}`, phrase: calls => `查了 ${calls.length} 段的记录`},

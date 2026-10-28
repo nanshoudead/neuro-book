@@ -1,11 +1,17 @@
 import {describe, expect, it} from "vitest";
 import {flushPromises, mount} from "@vue/test-utils";
-import {defineComponent, h} from "vue";
+import {defineComponent, h, nextTick, ref} from "vue";
+
+import {NB_UI_CATALOGS, NB_UI_NAMESPACE} from "@notnotype/nb-ui/locales";
+import {createMinimalTranslator} from "@notnotype/nb-ui/text/minimal";
+import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
+import type {TextPort} from "@notnotype/nb-ui/text-port";
 
 import type {AgentViewContribution} from "../registry";
 
 import type {MarkdownActivation} from "../ports";
 import {createAgentViewRegistry} from "../registry";
+import {NB_AGENT_UI_CATALOGS, NB_AGENT_UI_NAMESPACE} from "../locales";
 import type {AgentConversationContext, AgentConversationServices, AgentLocale} from "../types";
 import AgentConversationView from "./AgentConversationView.vue";
 import PlainPromptEditor from "./fallback/PlainPromptEditor.vue";
@@ -63,8 +69,9 @@ function controllableResolver() {
     return {requests, resolveMarkdownAsset};
 }
 
-function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean; header?: boolean; processDisclosure?: "collapsed" | "live"; bareServices?: boolean; markdownPreview?: (text: string) => string} = {}) {
+function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean; header?: boolean; processDisclosure?: "collapsed" | "live"; bareServices?: boolean; markdownPreview?: (text: string) => string; port?: TextPort} = {}) {
     return mount(AgentConversationView, {
+        ...(options.port === undefined ? {} : {global: {provide: {[TEXT_PORT_KEY as symbol]: options.port}}}),
         props: {
             ...(options.header === undefined ? {} : {header: options.header}),
             ...(options.processDisclosure === undefined ? {} : {processDisclosure: options.processDisclosure}),
@@ -83,6 +90,18 @@ describe("AgentConversationView", () => {
         const view = mountView("en-US");
         expect(view.find("[aria-label='More actions']").exists()).toBe(true);
         expect(view.find("[aria-label='更多操作']").exists()).toBe(false);
+        view.unmount();
+    });
+
+    it("宿主注入了翻译端口时语言以端口为准，locale 不起作用；端口换语言，不重新挂载就跟着换", async () => {
+        const translator = createMinimalTranslator({catalogs: {[NB_UI_NAMESPACE]: NB_UI_CATALOGS, [NB_AGENT_UI_NAMESPACE]: NB_AGENT_UI_CATALOGS}, strict: true});
+        const locale = ref("en-US");
+        const port: TextPort = {locale, t: (text) => translator.translate(text, locale.value), variants: (text) => translator.variants(text)};
+        const view = mountView("zh-CN", {}, {port});
+        expect(view.find("[aria-label='More actions']").exists()).toBe(true);
+        locale.value = "zh-CN";
+        await nextTick();
+        expect(view.find("[aria-label='更多操作']").exists()).toBe(true);
         view.unmount();
     });
 

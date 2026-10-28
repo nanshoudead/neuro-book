@@ -23,6 +23,7 @@ import {PromptEditor, PromptTextView} from "@notnotype/nb-markdown/prompt";
 
 import {nbookMarkdownHost} from "nbook/plugins/markdown/web/host";
 
+import {provideAgentSceneText} from "./agent-text";
 import {labAttachmentUrls} from "./data";
 import {labDomainToolsContribution} from "./domain-tools";
 
@@ -36,7 +37,7 @@ export function provideLabMarkdown(): void {
     provideMarkdownHost(nbookMarkdownHost({}));
 }
 
-/** 单独挂载的零件：先交出方言目录、语言与渲染组件，再渲染零件本身。 */
+/** 单独挂载的零件：先交出方言目录、翻译端口与渲染组件，再渲染零件本身。 */
 export function withAgentHost(inner: Component, options: {plain?: boolean} = {}): Component {
     return defineComponent({
         name: "LabAgentHost",
@@ -53,10 +54,11 @@ export function agentSubject(name: keyof typeof nbAgentUiLab, options: {plain?: 
     return {default: withAgentHost(nbAgentUiLab[name] as Component, options)};
 }
 
-/** 零件夹具在 setup 里调用：交出方言目录、语言与 Lab 的渲染组件。 */
+/** 零件夹具在 setup 里调用：交出方言目录、中文的翻译端口（`agent-text.ts`）与 Lab 的渲染组件。 */
 export function provideLabAgentHost(options: {plain?: boolean} = {}): void {
     provideLabMarkdown();
-    nbAgentUiLab.provideAgentView({locale: () => "zh-CN", renderers: () => (options.plain === true ? {} : labAgentRenderers)});
+    provideAgentSceneText(() => "zh-CN");
+    nbAgentUiLab.provideAgentView({renderers: () => (options.plain === true ? {} : labAgentRenderers)});
 }
 
 const PICTURE = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240"><rect width="640" height="240" fill="#7287fd"/><text x="320" y="132" font-size="32" text-anchor="middle" fill="white">示意图</text></svg>')}`;
