@@ -39,6 +39,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | [t05](tasks/t05-profile/README.md) | Profile：定义、存放层次、钩子与设置 | t02、t04 |
 | [t06](tasks/t06-approval/README.md) | 审批、提问与 Agent 模式 | t03、t04 |
 | [t07](tasks/t07-run-control/README.md) | 运行控制：插话、排队与中止 | t03、t06 |
+| [t20](tasks/t20-hooks/README.md) | 钩子：钩子点、读写能力、顺序与按 Profile 开关（从 t05 拆出） | t05、t06、t07 |
 | [t08](tasks/t08-resources-home/README.md) | 资源地址与 home：会话、Profile、Agent 三层与文档 | t03、t05 |
 | [t09](tasks/t09-models/README.md) | 模型服务与模型角色 | t02 |
 | [t10](tasks/t10-agent-plugin/README.md) | Agent 插件骨架与贡献点 | t02 到 t09 |
