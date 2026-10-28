@@ -40,3 +40,4 @@ autonomous-delivery 推进时照推荐做了、本该由开发者决定的点，
 - 2026-10-27 [t30](tasks/t30-qa-unextracted-books/README.md)：问答读未抽取章的原文（位置可选到尾部章，图只到抽取进度）。
 - 2026-10-27 [t28](tasks/t28-graph-tiering/README.md)：图分级的小实验，脚本与计划已备好、干跑通过，卡在模型密钥（环境里没有）。
 - 2026-10-28 [t32](tasks/t32-record-tiers/README.md) 完成并合入：记录分级（模型先验加程序后验），查看器默认折叠 3 级，命令行 `--tiers`、`--max-tier`、`why`；待确认的几条默认追认。
+- 2026-10-28 [t33](tasks/t33-graph-issue-reports/README.md)：抽取时顺带报告图问题、另一个 agent 修复的实验（gpt-6-luna，约 ¥2.55）。逐章顺带报告只报得出马甲没连这一类、准确率低；事后扫描召回好但噪声大；修订都不能自动套用。建议与待开发者定的后续见 t33 README。
