@@ -20,6 +20,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-10-28 | 开发者：插件给所有 Profile 加工具时，一起考虑工具发现（t04） |
 | 2026-10-28 | 开发者：先建 Task 草稿，按先后关系逐个讨论设计 |
 | 2026-10-28 | t02 定稿：合同以 master 为准、代码以分支为主体；一个包子路径导出；分工按“离开 NeuroBook 还能不能用”；升最新 OMP；分支 Spec 随代码搬来（[t02](tasks/t02-harness-baseline/README.md)） |
+| 2026-10-28 | t03 定稿：条目树加当前叶子；会话放状态根、不随书走；不加租约；旧格式不在读取时转换，另给一次性迁移脚本（[t03](tasks/t03-session-model/README.md)） |
 
 ## 调研
 
