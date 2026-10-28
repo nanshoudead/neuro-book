@@ -115,8 +115,30 @@
 
 `~/.claude/skills/<名>/SKILL.md`，可附 `references/`、`scripts/`；frontmatter 都有 name 与 description，另见 metadata、disable-model-invocation、license、argument-hint、allowed-tools 等（本机 29 个 Skill 的前 12 行统计，粗略）。omp 与 DeepSeek Harness 都读同一套目录约定。
 
+## 7. 上下文压缩（2026-10-28）
+
+### 7.1 omp 18.12.3 与 OMP 包族（源码核实，本机全局安装的 `@oh-my-pi/pi-coding-agent`、`pi-agent-core`）
+
+- **方法与顺序**：五种方法 remote（服务商原生压缩）、snapcompact（把历史画成高密度图片给有视觉能力的模型读，不调模型）、handoff（写交接文档）、soft（摘要）、shake（原地丢掉能找回的大块内容：旧图片、旧思考块、能重新读到的工具结果，不调模型）；缺省顺序 remote → snapcompact → handoff → shake → soft，不可用或失败就换下一个（`session/compaction-methods.ts`）。字节太大被拒（413）时跳过 snapcompact。shake 保护当前计划文件的读取结果。
+- **触发阈值**：缺省按预留量算，触发点 = 窗口 − max(窗口的 15%, 16,384)；可以全局改为百分比或固定 token 数；另有按模型的 `compaction.modelThresholds`：给一个 token 基数（例如 1M 窗口的模型按 400K 算，85% 即 340K 触发）、一个百分比，或固定触发点（`f90000`），键可以用前缀通配（`pi-agent-core/src/compaction/compaction.ts` 的 `effectiveReserveTokens`、`resolveThresholdTokens`；`pi-coding-agent/src/config/compaction-threshold.ts`、`session/model-compaction-threshold.ts`）。缺省在运行中途、下一次请求前也检查（`compaction.midTurnEnabled`，子代理一律检查）。保留最近 20,000 token；摘要上限 16,384 token（窗口越大越容易“抄写而不是压缩”）。
+- **溢出**：服务商报上下文溢出或载荷被拒时，先走压缩再自动接着跑（`session/agent-session.ts`）。
+- **soft 用哪个模型**：依次取模型目录里给当前模型配的 `compactionModel`、当前会话的模型、各个角色的模型、上下文最大的模型（`session-maintenance.ts` 的 `resolveCompactionModelCandidates`）。soft 把对话**序列化成文字**、用单独的摘要系统提示词请求（`generateSummary`），所以即使是同一个模型也吃不到对话的提示词缓存。
+- **吃得到缓存的是 handoff**：handoff 用会话原样的系统提示词、工具列表与消息，末尾追加一条“写交接文档”的请求，`toolChoice: "none"`，并沿用主循环的缓存路由（`generateHandoffFromContext`，注释写明是为了读到主循环已写入的提示词缓存）。
+- **摘要格式**（`pi-agent-core/src/compaction/prompts/`）：soft 的固定小节为 Goal、Constraints & Preferences、Progress（Done、In Progress、Blocked）、Key Decisions、Next Steps、Critical Context、Additional Notes；再次压缩用“更新已有摘要”的提示词，要求保留旧摘要的全部信息并移动进度。handoff 的小节类似（Progress 多 Pending），要求用祈使句写给“另一个自己”。压缩后摘要以“先前的工作与工具状态可用，在其上继续、不要重做”的上下文消息放回。摘要后附 `<files>`：从工具调用算出的“读过”“改过”的文件列表（只列路径，不重新读；带 `scheme://` 的地址与网址不进列表）。另有 `compaction-turn-prefix.md`：一轮本身太大时只摘要这一轮的前半段。
+
+### 7.2 Claude Code 2.1.312（本机二进制里的字符串，核实）
+
+- **就地压缩**：压缩请求追加在当前对话末尾（“Your reply replaces everything above”“Tool calls will be rejected”），用的是会话的模型与原样上下文。
+- **摘要格式**：九节——Primary Request and Intent、Key Technical Concepts、Files and Code Sections（含代码片段与为什么重要）、Errors and fixes（含用户的纠正）、Problem Solving、All user messages（列出全部非工具结果的用户消息，安全相关的约束原文保留）、Pending Tasks、Current Work、Optional Next Step（引用最近对话的原话，防止跑偏），包在 `<summary>` 里。提示词有多个变体：先写 `<analysis>` 再写摘要、限 2000 词、再次压缩时“原样抄录旧摘要里用户要求的部分、只重写工作记录”、一句话的简短版本；用户可以在项目说明里写“压缩时关注什么”（`## Compact Instructions`），提示词要求遵守。
+- **压缩后还放回什么**：系统提示词、项目说明与记忆文件原样；最近读过的至多五个文件从磁盘重新读入（长的截断）；计划、加载过的 Skill、后台代理与命令的状态；完整对话记录在磁盘上的路径（需要原文时去读）。提示词据此要求摘要“能再取到的细节只留一个指针（路径、命令、名称）”。
+
+### 7.3 phistory
+
+[WEIFENG2333/phistory](https://github.com/WEIFENG2333/phistory) 按版本存各家 CLI（Claude Code、Codex、omp、DeepSeek Harness 等）第一次请求的完整系统提示词（`captures/<工具>/<版本>/variants/<变体>/prompt.md`）；压缩请求不在其中（2026-10-28 浅克隆检索，Claude Code 只有 default、sdk 两个变体）。
+
 ## 未验证边界
 
 - omp 18.12.3 与仓库锁定的 18.2.5 之间，`pi-coding-agent` 以外的包是否有与本文相关的变化，没有对照。
 - 两家模型接口的工具搜索没有实测；OpenAI 的模型范围来自第三方资料。
+- Claude Code 的压缩提示词是二进制里的字符串，哪个变体是线上缺省没有查明（有 A/B 变体表）。
 - omp 包内 `docs/*.md` 的正文（打包在 `dist/docs-index.generated.txt`，经压缩编码）没有解码阅读。
