@@ -1,0 +1,17 @@
+{
+    "editors": {
+        "image": {
+            "title": "Image Viewer"
+        }
+    },
+    "loading": "Reading…",
+    "retry": "Retry",
+    "failures": {
+        "not-found": "{{name}} no longer exists.",
+        "generation-gone": "The work is closed; {{name}} cannot be read.",
+        "too-large": "{{name}} is too large to show here.",
+        "undecodable": "This image cannot be shown: {{name}}.",
+        "no-project": "Only files in the work can be shown.",
+        "failed": "Cannot read {{name}} ({{reason}})."
+    }
+}

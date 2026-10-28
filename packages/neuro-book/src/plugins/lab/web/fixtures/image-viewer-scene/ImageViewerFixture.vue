@@ -3,12 +3,17 @@
  * ImageViewer 的 Lab 场景（docs/specs/workbench/image-viewer.md，同名 .md）：字节绑定由夹具给出，图片在浏览器里用 canvas
  * 生成（同源的 blob 地址，与产品里同源的字节地址一样能 `fetch`）。场景 `large` 是比舞台大的图（适应与滚动），`svg` 带透明
  * 部分（棋盘格），`broken` 不是图片。“外部改写”换一张图并让 `version` 加一，与产品里文件变化时一样。
+ * 控件的文字经翻译端口取，Lab 窗口的端口不登记本插件的目录，所以这里另建一个宿主引擎注入；语言取场景输入的 `locale`，
+ * 控件的 `locale`（只管大小的数字格式）也用它。
  */
-import {computed, onBeforeUnmount, ref, shallowRef, watch} from "vue";
+import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
+import {computed, onBeforeUnmount, provide, ref, shallowRef, watch} from "vue";
 
 import type {BytesEditorBinding, ViewStateSlot} from "nbook/plugins/editor/shared/contracts";
 import ImageViewer from "nbook/plugins/image-viewer/web/components/ImageViewer.vue";
+import {imageViewerCatalogs} from "nbook/plugins/image-viewer/web/text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
+import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import {useLabEventSink} from "../../lab-event-sink";
 import type {LabFixtureProps} from "../../lab-subject";
@@ -17,6 +22,10 @@ import LabFixtureControls from "../../LabFixtureControls.vue";
 const props = defineProps<LabFixtureProps>();
 const record = useLabEventSink();
 const locale = computed((): DisplayLocale => (props.input?.props?.locale === "en-US" ? "en-US" : "zh-CN"));
+const text = createHostTextEngine({locale: locale.value});
+text.register("nbook.image-viewer", imageViewerCatalogs.catalogs, imageViewerCatalogs.source);
+provide(TEXT_PORT_KEY, text.port);
+watch(locale, (next) => text.setLocale(next));
 const label = computed(() => (typeof props.input?.props?.label === "string" ? props.input.props.label : "插图.png"));
 
 const urls: string[] = [];

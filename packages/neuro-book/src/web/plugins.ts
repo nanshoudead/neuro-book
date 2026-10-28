@@ -16,7 +16,9 @@ import {createBrowserDiagnosticsPlugin} from "nbook/plugins/diagnostics/web/plug
 import {editorBrowserPlugin} from "nbook/plugins/editor/web/plugin";
 import {editorCatalogs} from "nbook/plugins/editor/web/text";
 import {htmlPreviewBrowserPlugin} from "nbook/plugins/html-preview/web/plugin";
+import {htmlPreviewCatalogs} from "nbook/plugins/html-preview/web/text";
 import {imageViewerBrowserPlugin} from "nbook/plugins/image-viewer/web/plugin";
+import {imageViewerCatalogs} from "nbook/plugins/image-viewer/web/text";
 import {markdownBrowserPlugin} from "nbook/plugins/markdown/web/plugin";
 import {explorerBrowserPlugin} from "nbook/plugins/explorer/web/plugin";
 import {explorerCatalogs} from "nbook/plugins/explorer/web/text";
@@ -83,6 +85,8 @@ export interface BuiltinCatalogs {
 export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = {
     "nbook.editor": editorCatalogs,
     "nbook.explorer": explorerCatalogs,
+    "nbook.html-preview": htmlPreviewCatalogs,
+    "nbook.image-viewer": imageViewerCatalogs,
     "nbook.plugins": pluginsCatalogs,
     "nbook.projects": projectsCatalogs,
     "nbook.settings": settingsCatalogs,

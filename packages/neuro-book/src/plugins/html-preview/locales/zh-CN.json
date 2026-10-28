@@ -1,0 +1,34 @@
+{
+    "editors": {
+        "html": {
+            "title": "HTML 预览"
+        }
+    },
+    "categories": {
+        "preview": "HTML 预览"
+    },
+    "commands": {
+        "nbook": {
+            "editor": {
+                "toggle-preview-network": {
+                    "title": "预览：允许联网"
+                }
+            }
+        }
+    },
+    "state": {
+        "active": {
+            "reason": "活动的不是 HTML 预览"
+        }
+    },
+    "titleItems": {
+        "network": "允许联网"
+    },
+    "failures": {
+        "notProject": "只能预览作品里的文件。",
+        "no-project": "这个窗口没有打开作品，预览读不到文件。",
+        "closed": "作品已经关闭，预览读不到它的文件。",
+        "unreachable": "暂时连不上服务端，预览打不开。"
+    },
+    "retry": "重试"
+}

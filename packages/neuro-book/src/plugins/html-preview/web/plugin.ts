@@ -12,41 +12,39 @@ import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, menuImplementations} from "nbook/plugins/commands/shared/contracts";
-import type {CommandDeclaration} from "nbook/plugins/commands/shared/contracts";
+import type {WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {EDITOR_EDITORS_POINT, EDITOR_TITLE_POINT} from "nbook/plugins/editor/shared/contracts";
 import type {EditorDeclaration, EditorTitleItemDeclaration} from "nbook/plugins/editor/shared/contracts";
 import {filesPreviewContract} from "nbook/plugins/files/shared/contracts";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
+import type {Written} from "nbook/shared/convention-keys";
 import {clockKey, windowNavigationKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
 import type {PreviewAccess} from "./access";
+import {htmlPreviewText} from "./text";
 
 export const HTML_PREVIEW_EDITOR = "nbook.html-preview.html";
 /** 内置命令的 id 第二段是功能域（docs/specs/workbench/commands.md 的“命令身份”），不是提供方插件：预览归 `editor` 域。 */
 export const TOGGLE_NETWORK_COMMAND = "nbook.editor.toggle-preview-network";
 
-const DECLARATION: EditorDeclaration = {
-    title: {"zh-CN": "HTML 预览", "en-US": "HTML Preview"},
+const DECLARATION: Written<EditorDeclaration, "title"> = {
     selector: {extensions: ["html", "htm"]},
     priority: "option",
     input: "text",
     role: "preview",
 };
 
-const reason = (zh: string, en: string) => ({"zh-CN": zh, "en-US": en});
-
 const previewState = definePublicState("nbook.html-preview", {
     // 活动标签是 HTML 的预览视图：开关按钮只在这时出现。
-    active: {type: "boolean", unready: false, reason: reason("活动的不是 HTML 预览", "The active editor is not an HTML preview")},
+    active: {type: "boolean", unready: false, reason: htmlPreviewText("state.active.reason")},
     networkAllowed: {type: "boolean", unready: false},
 });
 
-const TOGGLE: CommandDeclaration = {
-    title: {"zh-CN": "预览：允许联网", "en-US": "Preview: Allow Network Access"},
-    category: {"zh-CN": "HTML 预览", "en-US": "HTML Preview"},
+const TOGGLE: WrittenCommandDeclaration = {
+    category: htmlPreviewText("categories.preview"),
     description: "Allow or forbid network access for the active HTML preview; network access is allowed by default, and when forbidden the preview can only read files in the work.",
     args: Type.Object({}, {additionalProperties: false}),
     effect: "read",
@@ -56,7 +54,7 @@ const TOGGLE: CommandDeclaration = {
 };
 
 const TITLE_ITEMS: ReadonlyArray<{readonly id: string; readonly declaration: EditorTitleItemDeclaration}> = [
-    {id: "nbook.html-preview.network", declaration: {section: "1", command: TOGGLE_NETWORK_COMMAND, icon: "i-lucide-globe", label: {"zh-CN": "允许联网", "en-US": "Allow Network Access"}, toggled: previewState.key("networkAllowed"), when: {requires: [previewState.key("active")]}}},
+    {id: "nbook.html-preview.network", declaration: {section: "1", command: TOGGLE_NETWORK_COMMAND, icon: "i-lucide-globe", label: htmlPreviewText("titleItems.network"), toggled: previewState.key("networkAllowed"), when: {requires: [previewState.key("active")]}}},
 ];
 
 export const htmlPreviewBrowserPlugin: PluginDefinition = {
@@ -118,6 +116,8 @@ export const htmlPreviewBrowserPlugin: PluginDefinition = {
                         return defineComponent({
                             name: "HtmlPreviewHost",
                             inheritAttrs: false,
+                            // 控件合同（EditorControlProps）的 `locale` 本控件不用，声明成属性是为了不让它混进 attrs 落到 DOM 上。
+                            props: {locale: {type: String, default: undefined}},
                             setup: (_props, {attrs}) => () => h(HtmlPreview, {...attrs, access, clock, network} as never),
                         });
                     }}},

@@ -8,13 +8,13 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {EDITOR_EDITORS_POINT} from "nbook/plugins/editor/shared/contracts";
 import type {EditorDeclaration} from "nbook/plugins/editor/shared/contracts";
+import type {Written} from "nbook/shared/convention-keys";
 
 import {descriptor} from "../plugin";
 
 export const IMAGE_EDITOR = "nbook.image-viewer.image";
 
-const DECLARATION: EditorDeclaration = {
-    title: {"zh-CN": "图片查看器", "en-US": "Image Viewer"},
+const DECLARATION: Written<EditorDeclaration, "title"> = {
     selector: {extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"]},
     priority: "default",
     input: "bytes",

@@ -1,0 +1,17 @@
+{
+    "editors": {
+        "image": {
+            "title": "图片查看器"
+        }
+    },
+    "loading": "正在读取…",
+    "retry": "重试",
+    "failures": {
+        "not-found": "{{name}} 不在了。",
+        "generation-gone": "作品已经关闭，读不到 {{name}}。",
+        "too-large": "{{name}} 太大，不能在这里显示。",
+        "undecodable": "无法显示这个图片：{{name}}。",
+        "no-project": "只能显示作品里的文件。",
+        "failed": "读不到 {{name}}（{{reason}}）。"
+    }
+}

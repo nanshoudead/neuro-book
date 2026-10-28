@@ -1,27 +1,21 @@
 <script setup lang="ts">
 /** 图片查看器的控件（同名 .md）：按字节绑定读取图片并显示，只看不改。 */
 import {Button} from "@notnotype/nb-ui/components";
+import type {TextParams} from "@notnotype/nb-ui/text";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 
 import type {BytesEditorBinding, EditorControlHandle, ViewStateSlot} from "nbook/plugins/editor/shared/contracts";
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import type {DisplayLocale} from "nbook/shared/localized-text";
+
+import {imageViewerText} from "../text";
+import type {ImageViewerTextKey} from "../text";
 
 const props = defineProps<{binding: BytesEditorBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; locale: DisplayLocale}>();
 const emit = defineEmits<{(event: "ready", handle: EditorControlHandle | null): void; (event: "focus", focused: boolean): void}>();
 
-const TEXT = {
-    loading: {"zh-CN": "正在读取…", "en-US": "Reading…"},
-    retry: {"zh-CN": "重试", "en-US": "Retry"},
-    "not-found": {"zh-CN": "{name} 不在了。", "en-US": "{name} no longer exists."},
-    "generation-gone": {"zh-CN": "作品已经关闭，读不到 {name}。", "en-US": "The work is closed; {name} cannot be read."},
-    "too-large": {"zh-CN": "{name} 太大，不能在这里显示。", "en-US": "{name} is too large to show here."},
-    undecodable: {"zh-CN": "无法显示这个图片：{name}。", "en-US": "This image cannot be shown: {name}."},
-    "no-project": {"zh-CN": "只能显示作品里的文件。", "en-US": "Only files in the work can be shown."},
-    failed: {"zh-CN": "读不到 {name}（{reason}）。", "en-US": "Cannot read {name} ({reason})."},
-} satisfies Record<string, LocalizedText>;
-
-const say = (key: keyof typeof TEXT, values: Readonly<Record<string, string>> = {}): string => localize(formatText(TEXT[key], values), props.locale);
+const port = useText();
+const text = (key: ImageViewerTextKey, params?: TextParams): string => port.t(imageViewerText(key, params));
 
 /** 比例的上下限（docs/specs/workbench/image-viewer.md 输出 4）。 */
 const MIN_SCALE = 0.1;
@@ -53,10 +47,10 @@ const replaceShown = (next: typeof shown.value): void => {
 
 /** HTTP 状态对应的说明（docs/specs/workspace/files.md 的“按地址读取字节”）。 */
 const problemOf = (status: number, name: string): string => {
-    if (status === 404) return say("not-found", {name});
-    if (status === 410) return say("generation-gone", {name});
-    if (status === 413) return say("too-large", {name});
-    return say("failed", {name, reason: String(status)});
+    if (status === 404) return text("failures.not-found", {name});
+    if (status === 410) return text("failures.generation-gone", {name});
+    if (status === 413) return text("failures.too-large", {name});
+    return text("failures.failed", {name, reason: String(status)});
 };
 
 /**
@@ -74,7 +68,7 @@ const load = async (): Promise<void> => {
     if (url === null) {
         controller = null;
         replaceShown(null);
-        problem.value = say("no-project");
+        problem.value = text("failures.no-project");
         phase.value = "failed";
         return;
     }
@@ -100,7 +94,7 @@ const load = async (): Promise<void> => {
             URL.revokeObjectURL(objectUrl);
             if (current.signal.aborted) return;
             replaceShown(null);
-            problem.value = say("undecodable", {name: props.label});
+            problem.value = text("failures.undecodable", {name: props.label});
             phase.value = "failed";
             return;
         }
@@ -120,7 +114,7 @@ const load = async (): Promise<void> => {
         // 取消是换绑定或卸载造成的，不是失败。
         if (current.signal.aborted) return;
         replaceShown(null);
-        problem.value = say("failed", {name: props.label, reason: error instanceof Error ? error.message : String(error)});
+        problem.value = text("failures.failed", {name: props.label, reason: error instanceof Error ? error.message : String(error)});
         phase.value = "failed";
     }
 };
@@ -252,10 +246,10 @@ onBeforeUnmount(() => {
                 @click="toggle"
             />
         </div>
-        <p v-else-if="phase === 'loading'" class="image-viewer__pending" role="status">{{ say("loading") }}</p>
+        <p v-else-if="phase === 'loading'" class="image-viewer__pending" role="status">{{ text('loading') }}</p>
         <div v-else-if="phase === 'failed'" class="flex flex-col items-start gap-2 p-6 text-sm" role="alert" data-image-viewer-failure>
             <p>{{ problem }}</p>
-            <Button v-if="binding?.url.value !== null" size="sm" variant="secondary" @click="load()">{{ say("retry") }}</Button>
+            <Button v-if="binding?.url.value !== null" size="sm" variant="secondary" @click="load()">{{ text('retry') }}</Button>
         </div>
     </div>
 </template>

@@ -1,29 +1,30 @@
 <script setup lang="ts">
 /** HTML 预览的控件（同名 .md）：正文拼成 `srcdoc` 放进沙箱 iframe，相对引用经预览令牌读作品里的文件。 */
 import {Button} from "@notnotype/nb-ui/components";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
 import type {EditorControlHandle, TextEditorBinding, ViewStateSlot} from "nbook/plugins/editor/shared/contracts";
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
-import type {PreviewAccess} from "../access";
+import type {PreviewAccess, PreviewDenial} from "../access";
 import {composePreview, PREVIEW_DELAY_MS} from "../compose";
+import {htmlPreviewText} from "../text";
+import type {HtmlPreviewTextKey} from "../text";
 
-const props = defineProps<{binding: TextEditorBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; locale: DisplayLocale; access: PreviewAccess; clock: RuntimeClock; network: (address: string) => boolean}>();
+const props = defineProps<{binding: TextEditorBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; access: PreviewAccess; clock: RuntimeClock; network: (address: string) => boolean}>();
 const emit = defineEmits<{(event: "ready", handle: EditorControlHandle | null): void; (event: "focus", focused: boolean): void}>();
 
-const TEXT = {
-    notProject: {"zh-CN": "只能预览作品里的文件。", "en-US": "Only files in the work can be previewed."},
-    "no-project": {"zh-CN": "这个窗口没有打开作品，预览读不到文件。", "en-US": "No work is open in this window, so the preview cannot read files."},
-    "closed": {"zh-CN": "作品已经关闭，预览读不到它的文件。", "en-US": "The work is closed, so the preview cannot read its files."},
-    "unreachable": {"zh-CN": "暂时连不上服务端，预览打不开。", "en-US": "Cannot reach the server, so the preview cannot be opened."},
-    retry: {"zh-CN": "重试", "en-US": "Retry"},
-} satisfies Record<string, LocalizedText>;
+const port = useText();
+const text = (key: HtmlPreviewTextKey): string => port.t(htmlPreviewText(key));
 
-const say = (key: keyof typeof TEXT, values: Readonly<Record<string, string>> = {}): string => localize(formatText(TEXT[key], values), props.locale);
+/** 申请失败的种类对应的说明（`PreviewDenial` 加一个键，这里编译不过）。 */
+const DENIAL_KEYS = {
+    "no-project": "failures.no-project",
+    closed: "failures.closed",
+    unreachable: "failures.unreachable",
+} as const satisfies Record<PreviewDenial, HtmlPreviewTextKey>;
 
 const frame = ref<HTMLIFrameElement | null>(null);
 /** 当前绑定的令牌与它放不放行外网；换绑定、不可见、切换联网时作废。 */
@@ -64,7 +65,7 @@ const acquire = async (binding: TextEditorBinding): Promise<void> => {
         return;
     }
     if (!result.ok) {
-        problem.value = say(result.denial);
+        problem.value = text(DENIAL_KEYS[result.denial]);
         return;
     }
     // 申请期间开关又变了：这个令牌的网络限制已经不对，换一个。
@@ -88,7 +89,7 @@ const sync = (): void => {
         return;
     }
     if (pathOf(binding.address.value) === null) {
-        problem.value = say("notProject");
+        problem.value = text("failures.notProject");
         page.value = null;
         return;
     }
@@ -163,7 +164,7 @@ const showRetry = computed(() => problem.value !== null && props.binding !== nul
         ></iframe>
         <div v-else-if="problem !== null" class="flex flex-col items-start gap-2 p-6 text-sm" role="alert" data-html-preview-failure>
             <p>{{ problem }}</p>
-            <Button v-if="showRetry" size="sm" variant="secondary" @click="retry">{{ say("retry") }}</Button>
+            <Button v-if="showRetry" size="sm" variant="secondary" @click="retry">{{ text('retry') }}</Button>
         </div>
     </div>
 </template>
