@@ -32,6 +32,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-10-28 | 提示词语言照 ADR 0034（领域与新写的基础设施提示词用中文）；长期目标是 i18n、现在用中文是为了方便（补进 `common.md`）；w00031 t05 评测继续搁置 |
 | 2026-10-28 | t12 定稿：第一批工具 read、write、edit、grep、glob、shell、todo；shell 的洞第一版不补；网页工具另做插件；外部命令行发布时做；eval 开 t21、后台工作开 t22，都搁置（[t12](tasks/t12-builtin-tools/README.md)） |
 | 2026-10-28 | t13 方向已讨论、优先级不高，排到末尾：归属 `nbook.history`；插件写入也记来源；收件箱不挡流程、参考旧组件迁移；会话回退与文件回退分开（[t13](tasks/t13-history/README.md)） |
+| 2026-10-28 | t20：harness 以事件模型为骨架（日志 → 折叠 → 状态 → 视图 → 请求 → 副作用 → 日志），写成提案 [agent-harness-event-model](../../../docs/proposals/agent-harness-event-model.md) 待讨论 |
 
 ## 调研
 
