@@ -40,6 +40,10 @@ export const NEXT_STEP: Partial<Record<StoryErrorCode, string>> = {
     beyond_position: "把 --at 往后拨",
     cursor_invalid: "去掉 --cursor 从第一页重新取",
     position_out_of_range: "改正 --at",
+    revision_target_not_found: "用 nbstory revisions list 或 nbstory find 查正确的说法或对象",
+    revision_not_candidate: "只有候选身份说法能确认或驳回；用 nbstory revisions list --state pending 查",
+    revision_not_found: "用 nbstory revisions list 查修订编号",
+    evidence_invalid: "依据位置要写成已抽取的“章.段”，例如 5.75",
     record_not_found: "用 nbstory statements <对象> --tiers 或 nbstory episodes --tiers 列出这个位置的记录，从里面取 id；位置之后的记录要把 --at 往后拨",
 };
 
@@ -133,6 +137,10 @@ export async function main(argv: readonly string[], io: CliIo = processIo): Prom
     if (spec.name === "ingest") {
         const {ingestCommand} = await import("./ingest");
         return ingestCommand({library, params, json: parsed.json}, io);
+    }
+    if (spec.name === "revisions") {
+        const {revisionsCommand} = await import("./revisions");
+        return revisionsCommand({library, params, json: parsed.json}, io);
     }
     if (spec.name === "qa") {
         const {qaCommand} = await import("./qa");

@@ -29,6 +29,7 @@
 | `search <文字> [--kinds entity,statement,source]` | 搜对象、说法、原文 | `nbstory search 神典石 --at 38.57` |
 | `read <章[.段[-段]]>` | 读原文：一章、一段或一个范围（`38.48-81`） | `nbstory read 38.30-40 --at 38` |
 | `para <章.段>` | 引用某一段的记录 | `nbstory para 38.36 --at 38` |
+| `revisions list [--state pending\|adopted\|rejected\|closed\|stale]` | 对图的修订：待确认的候选身份、已确认与已驳回的、用户自己的改动。**确认、驳回与改动是用户的决定，Agent 只列出，不替用户做** | `nbstory revisions list --state pending --at 38` |
 | `serve [--port <端口>] [--open]` | 启动查看器的独立服务，打印登录链接 | `nbstory serve --open` |
 
 退出码：0 成功；1 查询失败（错误码见 `--json` 输出）；2 用法错误；3 `serve` 启动失败（例如这个书库已有服务）。

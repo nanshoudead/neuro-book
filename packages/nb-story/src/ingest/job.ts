@@ -16,6 +16,7 @@ import {featuresOf, type Dataset, type SourceChapter} from "../core/dataset";
 import {StoryError} from "../core/errors";
 import type {Library} from "../core/library";
 import {consolidate, extractChapter, IngestBadReply, STEP_NAMES, type ChapterRun, type RecallSource, type Step} from "./chapter";
+import {tagPersonaOrigins} from "./persona-check";
 import type {PersonaHistory, PersonaOutcome} from "./persona-check";
 import {compile} from "./compile";
 import type {RawDraft} from "./draft-tools";
@@ -193,11 +194,12 @@ async function extractAll(options: JobOptions, ledger: Ledger, markChapter: (cha
         await ledger.settle();
         checkStop();
         const next: ExtractionData = {through: chapter, drafts, consolidations, chapters: [...data.chapters, {chapter, dropped: result.dropped, problems, recall: result.recall, ...(result.personas ? {personas: result.personas} : {})}]};
-        const commit = await library.commitExtraction({id: store.id, title: source.title, generation, dataset, through: chapter, extraction: JSON.stringify(next)});
+        const tagged = tagPersonaOrigins(dataset, next.chapters);
+        const commit = await library.commitExtraction({id: store.id, title: source.title, generation, dataset: tagged, through: chapter, extraction: JSON.stringify(next)});
         markChapter(null, "committed");
         generation = commit.generation;
         data = next;
-        prior = dataset;
+        prior = tagged;
         options.onEvent({type: "committed", chapter, total, dropped: result.dropped, generation: commit.generation, revision: commit.revision});
     }
 }

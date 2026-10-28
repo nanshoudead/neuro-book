@@ -31,6 +31,8 @@ export interface PersonaOutcome {
     asked: string[];
     linked: string[];
     notPersona: string[];
+    /** 写下的候选身份说法的编号：编出的书里这些说法带 `origin: "persona-check"`（输出 20 的来源标记）。较早记下的没有这一项。 */
+    statements?: string[];
 }
 
 export const EMPTY_HISTORY: PersonaHistory = {lastAsked: new Map(), notPersona: new Set()};
@@ -167,4 +169,11 @@ export function toStatement(dataset: Dataset, persona: Entity, verdict: Verdict,
 export function nextStatementId(statements: readonly {id?: unknown}[], chapter: number): string {
     const used = statements.map(item => (typeof item.id === "string" ? /^s(\d+)-(\d+)$/u.exec(item.id) : null)).filter((match): match is RegExpExecArray => match !== null && Number(match[1]) === chapter).map(match => Number(match[2]));
     return `s${chapter}-${(used.length ? Math.max(...used) : 0) + 1}`;
+}
+
+/** 给马甲核对写下的说法标上来源（输出 20 的来源标记）；草稿结构与发给模型的文字不变，所以编出书之后再标。没有要标的原样返回。 */
+export function tagPersonaOrigins(dataset: Dataset, chapters: readonly {personas?: PersonaOutcome}[]): Dataset {
+    const ids = new Set(chapters.flatMap(chapter => chapter.personas?.statements ?? []));
+    if (ids.size === 0) return dataset;
+    return {...dataset, statements: dataset.statements.map(statement => (ids.has(statement.id) ? {...statement, origin: "persona-check" as const} : statement))};
 }

@@ -700,6 +700,13 @@ describe("马甲核对（输出 20）", () => {
         expect(data.chapters[2]!.personas?.linked).toEqual(["e3-2"]);
         const written = data.drafts.flatMap(draft => (draft.statements ?? []) as {family: string; about: string[]; certainty?: string}[]).filter(item => item.family === "identity" && item.about.includes("e3-2") && item.about.includes("e1-1"));
         expect(written.map(item => item.certainty)).toEqual(["candidate"]);
+        // 编出的书里这条说法带来源标记（story.revisions 的待确认列表据此区分来源），草稿里不带。
+        expect(data.chapters[2]!.personas?.statements).toHaveLength(1);
+        const pinned = await env.library.pinBook(first.plan.id);
+        const dataset = await pinned.readDataset();
+        await pinned.release();
+        expect(dataset.statements.filter(item => item.origin === "persona-check").map(item => item.id)).toEqual(data.chapters[2]!.personas!.statements!);
+        expect(written.every(item => !("origin" in item))).toBe(true);
         // 每次核对请求都记了一行结算，步骤是 persona（第 3 章作废的那一次中止，也记了）。
         const usage = await new IngestStore(env.library, first.plan.id).readUsage();
         expect(usage.filter(line => line.kind === "end" && line.step === "persona" && line.chapter === 3).length).toBeGreaterThanOrEqual(2);

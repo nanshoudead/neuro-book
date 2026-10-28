@@ -9,6 +9,7 @@
 import {readFile, stat} from "node:fs/promises";
 import {basename, extname} from "node:path";
 
+import {createStoryApi} from "../core/api";
 import {StoryError} from "../core/errors";
 import {coordinatedLibrary, runnerTable} from "../ingest/coordinator";
 import type {IngestEvent, JobOutcome} from "../ingest/job";
@@ -280,10 +281,18 @@ async function run(
     }
 
     const status = await ingestStatus(library, plan.id);
-    const summary = {id: plan.id, action: plan.action, outcome: outcome.kind, committed: status?.committed ?? 0, total: status?.total ?? plan.chapters.length, thisRun: status?.thisRun ?? null};
-    const summaryText = `书 ${plan.id}（${plan.title}）：提交到第 ${summary.committed} 章，共 ${summary.total} 章；这次${status ? usageText(status.thisRun) : ""}`;
+    // 待确认的修订（story.revisions 输出 12）：按全书算，有才写；这是提示，查不出来不影响抽取的结果。
+    const pending = await pendingRevisions(library, plan.id);
+    const summary = {id: plan.id, action: plan.action, outcome: outcome.kind, committed: status?.committed ?? 0, total: status?.total ?? plan.chapters.length, thisRun: status?.thisRun ?? null, pendingRevisions: pending};
+    const summaryText = `书 ${plan.id}（${plan.title}）：提交到第 ${summary.committed} 章，共 ${summary.total} 章；这次${status ? usageText(status.thisRun) : ""}${pending > 0 ? `\n${pending} 条待确认的修订（nbstory revisions list --book ${plan.id}）` : ""}`;
     if (outcome.kind === "done") return done(summary, summaryText);
     if (!json) io.stdout(summaryText);
     if (outcome.kind === "stopped") return fail("cancelled", "已停下；再运行同一条命令（或 nbstory ingest --book）接着抽", EXIT_STOPPED);
     return fail(outcome.code, `${outcome.message}；已提交的章都保留，处理后再运行同一条命令接着抽`, INGEST_FAILURES.has(outcome.code) ? EXIT_FAILED : EXIT_LIBRARY, outcome.errorKind);
+}
+
+/** 这本书全书范围待确认的修订数；查询失败时为 0。 */
+async function pendingRevisions(library: Library, book: string): Promise<number> {
+    const outcome = await createStoryApi({library}).call("revisions.list", {book, state: "pending", limit: 1}).catch(() => null);
+    return outcome?.ok ? outcome.value.counts.pending : 0;
 }

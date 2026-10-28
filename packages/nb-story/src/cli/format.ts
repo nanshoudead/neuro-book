@@ -69,14 +69,32 @@ function explainLines(result: StoryResult<"tier.explain">): string[] {
     return lines;
 }
 
+const REVISION_STATE_WORDS = {pending: "待确认", adopted: "已采纳", rejected: "已驳回", closed: "后文已确认", stale: "对不上", withdrawn: "已撤销"} as const;
+const REVISION_SOURCE_WORDS = {"persona-check": "马甲核对", extraction: "抽取候选", user: "我的", scan: "扫描"} as const;
+
+const writtenRevision = (result: StoryResult<"revisions.confirm">): string[] => [`${REVISION_STATE_WORDS[result.revision.state]}：${result.revision.summary}（${result.revision.id}，依据 ${result.revision.evidence}）`];
+
 const FORMATTERS: {[M in StoryMethod]?: Formatter<M>} = {
     "books.list": result => (result.books.length === 0 ? ["书库里还没有书"] : result.books.map(book => `${book.id}  ${book.title}  ${book.chapters} 章，抽取到 ${book.extractedThrough.chapter}.${book.extractedThrough.paragraph}`)),
+    "revisions.list": (result, style) => [
+        ...(result.items.length === 0 ? ["没有符合的修订"] : result.items.map(item => `${item.id}  ${REVISION_STATE_WORDS[item.state]}  ${REVISION_SOURCE_WORDS[item.source]}  ${item.summary}〔${item.evidence}〕`)),
+        `待确认 ${result.counts.pending}，已采纳 ${result.counts.adopted}，已驳回 ${result.counts.rejected}，后文已确认 ${result.counts.closed}，对不上 ${result.counts.stale}`,
+        ...pageFooter(result, style),
+    ],
+    "revisions.evidence": (result, style) => [...result.items.map(item => `${item.ref}  ${item.text.length > 60 ? `${item.text.slice(0, 60)}…` : item.text}`), ...pageFooter(result, style)],
+    "revisions.confirm": writtenRevision,
+    "revisions.reject": writtenRevision,
+    "revisions.link": writtenRevision,
+    "revisions.kind": writtenRevision,
+    "revisions.moveName": writtenRevision,
+    "revisions.undo": writtenRevision,
     "book.import": result => [`已导入：${result.id}`],
     "book.remove": () => ["已删除"],
     "book.info": result => [
         `${result.title}（${result.id}）`,
         `来源：${result.source.title}，${result.source.file}`,
         `共 ${result.chapters} 章，抽取到 ${result.extractedThrough.chapter}.${result.extractedThrough.paragraph}；阅读位置 ${result.at.chapter}.${result.at.paragraph}`,
+        ...(result.revisions.pending + result.revisions.stale > 0 ? [`待确认的修订：${result.revisions.pending} 条${result.revisions.stale > 0 ? `，对不上的 ${result.revisions.stale} 条` : ""}（nbstory revisions list）`] : []),
         "目录：",
         ...result.toc.map(item => `  ${item.chapter}  ${item.title ?? "（未读）"}`),
     ],

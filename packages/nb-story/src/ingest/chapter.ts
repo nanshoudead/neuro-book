@@ -283,7 +283,7 @@ export async function extractChapter(input: ChapterInput, run: ChapterRun): Prom
      * 一个马甲的回复两次不成形只跳过它，不让这一章失败；渠道失败与停止照常往外抛（输出 9、11）。
      */
     async function checkPersonas(): Promise<{outcome: PersonaOutcome; compiled: CompileResult}> {
-        const outcome: PersonaOutcome = {asked: [], linked: [], notPersona: []};
+        const outcome: PersonaOutcome = {asked: [], linked: [], notPersona: [], statements: []};
         let current = input.compileWith(draft);
         const view = current.dataset;
         const picked = pickPersonas(view, chapter, paragraphs, run.personaCheck!);
@@ -320,6 +320,7 @@ export async function extractChapter(input: ChapterInput, run: ChapterRun): Prom
             draft = candidate;
             current = compiled;
             outcome.linked.push(persona.id);
+            outcome.statements!.push(made.draft.id as string);
         }
         return {outcome, compiled: current};
     }
