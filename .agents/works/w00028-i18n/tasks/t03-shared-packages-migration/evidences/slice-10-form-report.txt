@@ -1,0 +1,99 @@
+# w00028 t03 第 10 片：nb-form 接入文字值与消息目录 —— 交付报告
+
+工作区：/home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n（分支 feat/w00028-i18n，HEAD 452ae72bf），未提交、未切分支、未 stash。
+
+## 进度
+- [x] 1 核心与边界（FormText = nb-ui Text，接受 TextRef；核心只 import type 自 @notnotype/nb-ui/text）
+- [x] 2 目录与“文字没变”测试
+- [x] 3 Vue 层改经端口取文字（删 src/vue/messages.ts）
+- [x] 4 应用引擎登记、调用方、Lab
+- [x] 5 两处遗留（settings 的四条“无法加载选项”、editor 的 ui.unit）
+- [x] 6 文档与 Spec
+- [x] 7 全量验证（见文末）
+
+## 改动
+
+nb-form 核心
+- src/text.ts：`FormText = Text`（nb-ui 的 string | TextRef | LocaleMap）；`FormTextSchema` 三支（字符串、TextRef，形状同应用的 TextRefSchema；语言映射一支照旧宽松，不核对语言标签）；编译期断言 schema 推出的类型就是 `Text`。`resolveText` 对 TextRef 返回键名作兜底（核心没有目录），语言映射回退不变（当前 → en-US → 第一项）。新增 `isFormTextRef`。
+- src/builtin-text.ts（新）：本包目录键的类型 `FormTextKey`、`formRef(key, params)`、按码写问题的静态码表与 `issueWording(issue): FormText`（核心只产出 TextRef，Vue 层翻译）。
+- src/model.ts：`fitsSegment` 遇到 TextRef 名字按“长名字”处理（核心量不出长度），即不排成分段控件。
+- src/boundary.test.ts：核心规则加 `typeOnly: [/^@notnotype\/nb-ui\/text$/u]`；新测试：值导入是违规、类型导入不是。
+- AGENTS.md：核心边界一行改为“只依赖 typebox，另可 import type 自 @notnotype/nb-ui/text，不用 i18next”。
+- package.json：exports 加 `"./locales": "./src/locales/index.ts"`。version 未改。
+
+nb-form 目录
+- src/locales/{zh-CN,en-US,index}.ts（新）：命名空间 `nb-form`、源语言 zh-CN、`NB_FORM_CATALOGS`。键名沿用旧 Messages 的字段名；问题码在 `codes.*` 下，另拆出 `codes.minimum-exclusive`、`codes.maximum-exclusive`、`codes.additional-property-unnamed`（旧代码是函数里的分支）。带数量的 `issueCount`、`items`、`containsIssues` 中文 `_other`、英文 `_one/_other`。
+- src/locales.test.ts（新）：“文字没变”——把 HEAD（452ae72bf）`src/vue/messages.ts` 的旧表原样嵌入，逐条用严格模式的最小翻译器翻新目录，与旧函数输出逐字比较（数量取 1 与 2；每个问题码 × 参数样本，含 fallback 与调用方 message 直通），两边覆盖互查。
+- src/text.test.ts（新）：resolveText / isFormText。
+- src/check.test.ts、src/model.test.ts：TextRef 在提示、选项、布局分组标题中合法；坏参数的 TextRef 报 bad-hint / layout-bad-label；TextRef 名字的单选不排分段控件。
+
+nb-form Vue 层
+- src/vue/text.ts（新）：包内缺省端口（nb-ui + nb-form 目录的最小翻译器）、`FormTextApi {locale, t(key, params), text(value)}`、`provideFormText(locale)`（根用）、`useFormText()`、`issueText`。端口先后：注入的端口 → 根按 `locale`（缺省 zh-CN）建的包内端口并 provide 给子树（嵌套 nb-ui 控件也拿到）→ 根之外的包内缺省端口（zh-CN）。
+- 删除 src/vue/messages.ts（工作区显示为未暂存的 D）。
+- SchemaForm/SchemaField：`locale` 改为可选（缺省 undefined → zh-CN），只在没有注入时起作用；scope 的 locale 取端口的语言。
+- NodeField、IssueSummary、LayoutItem、FieldShell（去掉 locale 属性）、ViewValue（去掉 locale 属性）、list.ts（去掉 locale 选项）、各控件（Boolean/Object/Choice/Text/Number/List/MasterDetail/ListActions，ListActions 去掉 locale 属性）全部经 `useFormText()` 取文字；nb-ui 控件的读屏名称覆盖（增加、减少、清空输入、展开选项）照旧，改用目录键。
+- order.ts：`describeIssues(schema, value, issues, text: FormTextApi, hints?)`（原第 4 参数是 locale）；`itemTitle`、`fieldLabel` 同改。choices.ts、placeholder.ts 同改。
+- index.ts 导出 `useFormText` 与 `type FormTextApi`。
+- 测试：SchemaForm.dom.test（问题码文字改用最小翻译器 + issueWording 生成期望）、SchemaField.dom.test（describeIssues 在挂载的组件里取 useFormText）、FieldShell.dom.test（去 locale 属性）、新 text.dom.test.ts（根外缺省中文；根按 locale 建端口且子组件与嵌套 nb-ui 控件同一个、locale 变跟着变；注入端口优先、表单 locale 不起作用、端口换语言不重挂就换；描述里写插件目录键的标签与单位经端口翻译）。
+
+应用（packages/neuro-book）
+- web/host/text-engine.ts：登记 `NB_FORM_CATALOGS`（命名空间 nb-form，源语言 zh-CN）。text-engine.test.ts 新增“输出 9：nb-form 自带目录在宿主引擎与最小实现下一致”（每个键、全部占位符、count 1 与 2）。
+- shared/testing/text-port.ts：注释补 nb-form。
+- plugins/settings/web/components/SettingsListSection.vue：describeIssues 改传 `useFormText()`；SchemaField 去掉 `:locale`。SettingsListSection.md 的 state:inject 段补一句。
+- plugins/settings/web/setting-form.ts：只改注释（原“表单的文字只认字符串与语言映射”已不成立；保留选项名预翻译的真实理由：排法按名字长度定，核心量不出 TextRef 的长度）。
+- shared/settings.ts：`SettingUiHints.placeholder/unit` 的 TS 类型从 `LocalizedText` 放宽到 `Text`，与它已有的运行期 schema（TextSchema）一致；去掉不再用的 LocalizedText 导入。不放宽的话 editor 的 unit 改 TextRef 编译不过。
+- Lab：SettingsRowFixture.vue、settings-scene/SampleModelsPage.vue 去掉只为文字的 locale；SampleModelsPage 的 describeIssues 改传 useFormText()。新 fixtures/nb-form-text.ts：`withFormSceneText(inner)` 按场景输入 `locale` 建宿主引擎端口并 provide（做法同 nb-agent-ui 的 agent-text.ts），fixtures/nb-form.ts 的 nbFormSubject 用它包一层；场景输入仍有 locale，现在驱动的是场景语言。
+
+两处遗留
+- settings/web/choices.ts：四条“无法加载选项”原因迁入 settings 目录 `choices.missing / unavailable / stopped / notActivatable`（zh、en 各 4 键，占位符 {{id}}/{{reason}}/{{plugin}}），`unavailable()` 返回 `settingsText(key, params)` 的 TextRef；去掉 TEXT 表与 formatText/LocalizedText 导入。settings/locales.test.ts 的 LEGACY 表加这 4 条（注明抄自 452ae72bf 的 web/choices.ts）。choices.test.ts 的 reasonOf 改为用 testTextPort（宿主引擎、严格模式、登记 settings 目录）把 TextRef 分别翻成中英，断言的文字一字未改。
+- editor/shared/settings.ts：`ui: {unit: editorText("settings.code.fontSize.unit")}`，删去过时的注释；editor 目录加 `settings.code.fontSize.unit`（像素 / px）；editor/locales.test.ts 的 LEGACY 表加一条（注明出处）。
+
+文档与 Spec
+- docs/specs/ui/forms.md：FormText 定义（Text 三种，映射回退不变、不核对标签，TextRef 由渲染层经端口翻译，核心不翻译）；接口 `:locale?`、新 `useFormText()`、`describeIssues(schema, value, issues, text: FormTextApi, hints?)`；输出 22 说明自定义控件收到的 locale 是表单当前语言；输出 24 改写（自带目录、命名空间、端口先后、根外中文、缺省端口里没有的语言按源语言显示中文、读屏名称覆盖、注入端口但没登记目录时显示键名）；边界与兼容的依赖一行（核心另从 nb-ui/text 只取类型）；新增验收 9（界面语言），Smoke 补一句。Spec 没有引用 Task。
+- packages/nb-form/README.md：示例去掉 locale；新增“文字与语言”一节（有宿主、没有宿主、核心 resolveText 的兜底、describeIssues 取 useFormText）。
+- SchemaForm.md、SchemaField.md：locale 可选及含义；state:inject 理由补“读宿主注入的翻译端口，没有时按 locale 建一个提供给子树”；describeIssues 新签名。
+
+## 键数
+- nb-form 目录：79 个键（基键）。叶子数 zh-CN 79、en-US 82（英文 3 个带数量的键各多一个 `_one`）。
+- settings 目录：+4 键（两种语言各 4 叶）。
+- editor 目录：+1 键（两种语言各 1 叶）。
+
+## 设计取舍
+1. 语言映射在 Vue 层用 `resolveText` 本地解析，不交给端口：FormText 的映射一支不核对语言标签（以前合法的描述仍合法），而端口只认标签合法的映射，交给它会让以前能显示的映射变空。标签合法时两边回退相同。
+2. 核心只 import type 自 nb-ui/text，TextRef 的判别与 schema 在核心里各写一份（与 nb-agent-ui 的做法一致），`formRef` 直接写对象字面量而不调 nb-ui 的 `textRef`。
+3. 问题码的分支（exclusive、未命名的 additional-property）拆成独立的键，而不是在文字里用条件；参数照旧 `String(...)`，缺参数时显示与旧代码一致（例如 "undefined"），不在严格模式抛错。
+4. 拼接用的全角标点仍留在代码里，与迁移前一致：IssueSummary/describeIssues 的“：”，FieldShell 的“；”与“（必填）”的拼法，ListActions 的“：”，choices 的“（已不存在）”拼法，issueText 的“（at）”。这些是界面文字的结构，英文界面下也是全角（迁移前也是）；没有在这一片改（“不改文字内容”）。
+5. Lab 的 nb-form-text.ts 与 nb-agent-ui 的 agent-text.ts 写法几乎相同（各自按场景 locale 建宿主引擎端口并 provide），没有合并，避免动上一片的文件。
+6. 行为变化：包内缺省端口里，zh/en 以外的语言现在回退到源语言中文；迁移前 `messagesFor` 回退到英文。原因：最小翻译器的回退链是“当前 → 命名空间源语言（zh-CN）→ en-US”，同一端口里 nb-ui 的文字也按这条链，若只给 nb-form 换成英文会让表单与嵌套 nb-ui 控件语言不一致。应用只用 HOST_LOCALES，不受影响；nbdev、nb-story 传的是 zh-CN。语言映射的回退不变。
+7. 公开接口变化（版本未改，这一片不改 version）：describeIssues 第 4 参数由 locale 改为 FormTextApi；SchemaForm/SchemaField 的 locale 改可选；新增 useFormText / FormTextApi、`./locales` 子路径；FormText 类型放宽（加 TextRef）；FieldShell、ViewValue、ListActions 的 locale 属性去掉（内部组件）。自定义控件仍收到 locale（输出 22 的合同不变，值为端口当前语言）。
+
+## 没把握的与待决定
+1. Agent 策略下描述里出现 TextRef：现在 FormTextSchema 接受 TextRef，checkDescription 的 agent 策略也就接受了；模型生成的描述写目录键没有意义（只会显示键名或命中任意命名空间的文字）。是否要在 agent 策略里拒绝 TextRef，需要开发者决定；这一片没改 agent 策略。“每段文字至多 2000 字符”的检查递归走遍描述里的全部字符串，TextRef 的键与参数也在其中（src/check.ts 的 longText，读代码确认）。
+2. `scripts/ci/message-catalogs.ts` 只查 JSON 目录与清单登记的目录，nb-form（以及上一片的 nb-agent-ui、nb-ui）的 .ts 目录不在其中；本包由 locales.test.ts 自查键集与复数形。是否把 .ts 目录纳入 CI 检查待定。
+3. Lab 的两个场景语言包装（nb-form-text.ts 与 nb-agent-ui/agent-text.ts）是否合并成一个通用助手待定。
+4. setting-form.ts 对字面量选项名的预翻译仍保留（让分段控件的名字长度判定能量到真实文字）；若以后核心能量 TextRef 长度或改为渲染层判定，可去掉。
+5. 设置声明的 `ui.placeholder/unit` 写不带命名空间的 TextRef 时，登记补全（completeSettingDeclaration）只给 title 与 choices 补命名空间，不给 ui 补（从代码推断）；editor 这里用 editorText 自带命名空间，不受影响。是否让补全覆盖 ui 待定。
+6. Lab e2e（lab-nb-form.e2e.ts、settings.e2e.ts）没有跑（简报的验证不含 e2e；本机内存紧，且需要先构建三份产物）。Lab 场景的 locale 输入现在经宿主引擎端口切换语言，从代码推断与之前显示相同。
+7. 其它同类遗留（代码里仍写双语字面量的地方，非 nb-form 相关、不在本片范围）：plugins/commands/shared/plugin.ts 的 when 原因三条（undeclared、notBoolean、notTrue）；plugins/markdown/web/host.ts 的 `NBOOK_IMAGE_MISSING`；plugins/workbench/web/titlebar/menu-items.ts 的四个菜单项 label（侧栏、右栏、活动栏、面板）。settings/web/choices.ts 里只有中文的诊断原因（shapeProblem、entryReason 的拼接、“交出的实现没有 source()”等）是诊断文字，作为 `{{reason}}` 参数原样进入，未迁移。
+8. nb-story 的 SettingsPage.vue 仍给 SchemaForm 传 `locale="zh-CN"`、也不注入端口：行为不变（缺省端口中文），未改（不在应用里）。
+
+9. `SettingUiHints` 的放宽会被插件看到：SDK 的 `setting()`（packages/neuro-book/src/sdk/settings-helpers.ts）参数类型来自 `SettingOptions`，`ui`也在其中。所以插件作者现在在类型层面就能给 `ui.placeholder`、`ui.unit` 写 TextRef；运行期 schema 本来就接受。由于第 5 条，他们得用带命名空间的 pluginText 引用。SDK 文档里没找到把这两项写成语言映射的说明，没有改。
+10. docs/modules/monorepo-boundaries.md 中 nb-form 那一行写着“核心（`.`，只依赖 TypeBox）”，没改：运行期依赖仍然只有 TypeBox。那一行也没有提新的 `./locales` 子路径。要不要补，由主会话决定。
+11. 已核对：Lab 不读主体组件的 props 或 emits 定义（subject-fixture.ts、component-index.ts），所以外面包的那层不会遮住 SchemaForm 的属性。`@notnotype/nb-form/vue` 的入口没有删除任何导出，messages.ts 原本就没有从入口导出。docs/specs/ui/i18n.md 没有列举自带目录的共享包，不用改。
+## 验证结果
+日志都在 /tmp/w00028-t03/10-*.log。
+- packages/nb-form：`bun run typecheck && bun run test` 通过，退出码 0。bun test 112 pass、0 fail；vitest 6 个文件、92 个测试全部通过。日志 10-nbform-verify.log。
+- packages/neuro-book：
+  - `bun run typecheck`（tsc 加两次 vue-tsc）通过。第一次跑出过一条 TS2739：editor 的 unit 改成 TextRef 后，`SettingUiHints.unit` 的 TS 类型还是 LocalizedText。已把类型放宽到 Text（见“改动”），之后通过。
+  - `bun run test:bun`：1610 pass、1 fail。失败的是 src/plugins/explorer/browse.test.ts 的“展开的目录改名：子树在新地址继续展开，选择跟随”，断言选择跟随时拿到空数组。这个文件我没有改，也不依赖 nb-form。单独连跑 3 次结果是 pass、fail、pass，所以判断为时序不稳定的旧问题，与本片无关。没有在干净的 HEAD 上对照，属于推断。
+  - `bunx vitest run --testTimeout=30000`：68 个文件、396 个测试全部通过。
+  - 日志 10-neurobook-verify.log。
+- nb-agent-ui：typecheck 通过；test 中 bun 189 pass，vitest 55 通过。
+- nb-story：
+  - bun test 544 pass、0 fail。
+  - typecheck 只有已知的 StoryNetwork.vue TS2307，与基线 9-nbstory-typecheck-baseline.log 相同。它出现在 `tsc --noEmit` 和 `tsconfig.web-test.json` 两步。
+  - 因为包脚本用 `&&` 串联、第一步失败后不再往下跑，我把其余几步逐个单独跑了：core、web（vue-tsc）、e2e 都是 0 错误。
+- dev-panel：typecheck 通过；`bun test --isolate` 461 pass、0 fail。
+- 仓库根：`bun run docs:check`、`bun run governance:check`、`bun scripts/ci/message-catalogs.ts` 退出码都是 0，最后一次在全部改动之后跑。governance 本次改动范围内没有警告；另有 296 条存量警告不在范围内。
+- 没跑：Lab 与设置的 e2e（lab-nb-form.e2e.ts、settings.e2e.ts），简报的验证里没有要求。
+- git 状态：没有暂存任何文件。共 54 个已跟踪文件有改动（其中一个是删除的 messages.ts），另有 7 个新的未跟踪路径（见上面的“改动”）。
