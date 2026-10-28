@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t37-overlay-revisions-design
-status: active
+status: done
 updated: 2026-10-28
 ---
 
