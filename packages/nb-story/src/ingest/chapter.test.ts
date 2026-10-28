@@ -25,6 +25,7 @@ import {compile, sourceChapter} from "./compile";
 import {recallCandidates, renderContext} from "./context";
 import {stripDisabled, type RawDraft} from "./draft-tools";
 import {ModelAborted, ModelError, RETRY_DELAYS_MS, type Attempt} from "./model";
+import {EMPTY_HISTORY} from "./persona-check";
 import {RECALL_LIMIT} from "./recall";
 
 const FIXTURES = join(import.meta.dir, "..", "..", "tests", "fixtures", "ingest");
@@ -633,4 +634,53 @@ describe("增量整理稿的清理（输出 7）", () => {
         ]);
         expect(outcome.dataset.arcs.filter(arc => arc.through === 3).map(arc => [arc.id, arc.status, arc.episodes])).toEqual([["a2-1", "closed", ["p1-1", "p2-1"]], ["a3-1", "ongoing", ["p3-1"]]]);
     });
+});
+
+describe("马甲核对（输出 20）", () => {
+    /** 回放抽前 3 章、打开马甲核对；第 3 章的风信子（e3-2）是新建的、还没连上任何人的马甲。`answer` 给马甲核对每次的回复。 */
+    async function throughThree(answer: ((key: ReplayKey, nth: number) => EndpointReply | undefined) | null) {
+        const sample = await sampleDataset();
+        const played = replay(await loadReplay(), (key, nth) => (key.step === "persona" && answer ? answer(key, nth) : undefined));
+        const served = serve(played.responder, () => played.seen.at(-1));
+        const run: ChapterRun = answer ? {...served.run, personaCheck: EMPTY_HISTORY} : served.run;
+        const book = await extractBook(sample, 3, run);
+        const last = sample.sources[2]!.paragraphs.length;
+        const dataset = compile(sample.book, sample.sources.slice(0, 3), book.drafts).dataset;
+        return {...book, played, last, dataset, asked: played.seen.filter(key => key.step === "persona")};
+    }
+    const json = (value: unknown): EndpointReply => ({kind: "text", text: JSON.stringify(value)});
+
+    test("答出是同一个人、但本章依据不是段号：问了这个马甲，不写，说明里记一句", async () => {
+        const run = await throughThree(key => json(key.subject === "e3-2" ? {verdict: "same", entity: "e1-1", certainty: "certain", evidence: ["3.LAST"], current: ["3.LAST"], reason: "测试"} : {verdict: "unknown"}));
+        expect(run.asked.some(key => key.chapter === 3 && key.subject === "e3-2")).toBe(true);
+        expect(run.played.unknown).toEqual([]);
+        expect(run.results[2]!.personas?.linked).toEqual([]);
+        expect(run.results[2]!.notes.some(note => note.includes("e3-2") && note.includes("没有给出本章的依据"))).toBe(true);
+    }, 60_000);
+
+    test("依据在本章：写下一条候选身份说法（模型写的 certain 也只写候选），位置与文字取依据那一段", async () => {
+        const sample = await sampleDataset();
+        const last = sample.sources[2]!.paragraphs.length;
+        const run = await throughThree(key => json(key.subject === "e3-2" ? {verdict: "same", entity: "e1-1", certainty: "certain", evidence: [`3.${last}`], current: [`3.${last}`], reason: "测试"} : {verdict: "unknown"}));
+        expect(run.results[2]!.personas?.linked).toEqual(["e3-2"]);
+        const added = run.dataset.statements.filter(item => item.family === "identity" && item.about.includes("e3-2") && item.about.includes("e1-1"));
+        expect(added.map(item => ({certainty: item.certainty, at: item.at, text: item.text}))).toEqual([{certainty: "candidate", at: {chapter: 3, paragraph: last}, text: "风信子可能就是苏天晴。"}]);
+    }, 60_000);
+
+    test("答不是马甲：数据不变，说明里记一句；回复两次不成形：这一章照常抽完，问题记进这一章", async () => {
+        const notPersona = await throughThree(key => json(key.subject === "e3-2" ? {verdict: "not-persona"} : {verdict: "unknown"}));
+        expect(notPersona.results[2]!.personas?.notPersona).toEqual(["e3-2"]);
+        expect(notPersona.results[2]!.notes.some(note => note.includes("e3-2") && note.includes("可能不是马甲"))).toBe(true);
+        const broken = await throughThree(key => (key.subject === "e3-2" ? {kind: "text", text: "好的。"} : json({verdict: "unknown"})));
+        expect(broken.asked.filter(key => key.subject === "e3-2").length).toBe(2);
+        expect(broken.results[2]!.notes.some(note => note.includes("核对马甲") && note.includes("e3-2"))).toBe(true);
+        expect(broken.results[2]!.personas?.linked).toEqual([]);
+    }, 60_000);
+
+    test("关着：不发这一步的请求", async () => {
+        const run = await throughThree(null);
+        expect(run.asked).toEqual([]);
+        expect(run.results.every(result => result.personas === null)).toBe(true);
+        expect(run.played.unknown).toEqual([]);
+    }, 60_000);
 });

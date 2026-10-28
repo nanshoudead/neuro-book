@@ -9,7 +9,7 @@ type Step = NonNullable<NonNullable<IngestStatusView["current"]>["step"]>;
 
 /** 进度页的四步；整理在第 5 的倍数章与末章另有一步。 */
 export const STEPS: readonly Step[] = ["beats", "draft", "review", "repair"];
-export const STEP_LABELS: Record<Step, string> = {recall: "挑相关说法", beats: "时间点与段落块", draft: "其余记录", review: "核对补漏", repair: "修复", consolidation: "整理"};
+export const STEP_LABELS: Record<Step, string> = {recall: "挑相关说法", beats: "时间点与段落块", draft: "其余记录", review: "核对补漏", repair: "修复", persona: "核对马甲", consolidation: "整理"};
 
 export type BadgeTone = "accent" | "neutral" | "danger";
 
