@@ -3,7 +3,8 @@
  * 抽屉里的人物卡（viewer 输出 10）：名字、称呼、同一身份；概况、关系、记录、情节四个页签，带条数。
  * 页签停在哪由会话决定（从关系图点进来停在关系），切页签写回会话，所以地址与保存都跟着变。
  */
-import {Badge, Input, IconButton, SegmentedControl, Tabs} from "@notnotype/nb-ui/components";
+import {Badge, DropdownMenu, Input, IconButton, SegmentedControl, Tabs} from "@notnotype/nb-ui/components";
+import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import {computed, ref, watch} from "vue";
 
 import {useBook, type Tab} from "../host/book";
@@ -11,6 +12,7 @@ import {useLayoutMotion} from "../host/motion";
 import {usePagedQuery, useStoryQuery} from "../host/query";
 import PagedList from "../parts/PagedList.vue";
 import PageState from "../parts/PageState.vue";
+import CandidateBlock from "../parts/CandidateBlock.vue";
 import FoldedBar from "../parts/FoldedBar.vue";
 import RecordTags from "../parts/RecordTags.vue";
 import RefLink from "../parts/RefLink.vue";
@@ -19,6 +21,7 @@ import TierBadge from "../parts/TierBadge.vue";
 import {FLAG_WORDS} from "../parts/tier-words";
 import {useMinorCount, useShowMinorRecords} from "../host/show-minor";
 import CardRelations from "./CardRelations.vue";
+import ReviseDialog from "./ReviseDialog.vue";
 
 const props = defineProps<{entity: string; tab: Tab}>();
 const book = useBook();
@@ -39,6 +42,20 @@ watch(motion, moving => {
     if (!moving) settled.value = true;
 });
 const allNames = ref(false);
+/** “⋯”菜单与它打开的修订对话框（输出 60）。 */
+const reviseMode = ref<"link" | "kind" | "name" | null>(null);
+const reviseOpen = computed({get: () => reviseMode.value !== null, set: open => (open ? undefined : (reviseMode.value = null))});
+const reviseItems: DropdownMenuItemData[] = [
+    {value: "link", label: "连到另一个对象……", iconClass: "i-lucide-link-2"},
+    {value: "kind", label: "改对象种类……", iconClass: "i-lucide-user-round"},
+    {value: "name", label: "某个称呼属于别的对象……", iconClass: "i-lucide-tag"},
+    {value: "sep-1", label: "", separator: true},
+    {value: "list", label: "这个对象的修订", iconClass: "i-lucide-history"},
+];
+function onRevise(value: string): void {
+    if (value === "list") book.goPage("revisions");
+    else reviseMode.value = value as "link" | "kind" | "name";
+}
 const recordKind = ref<"knowledge" | "statements">("knowledge");
 const stateFilter = ref("");
 const recordQuery = ref("");
@@ -87,16 +104,21 @@ const FAMILY_WORD: Record<string, string> = {
             <header class="flex flex-col gap-1 border-b border-[var(--divider)] px-3 pb-2 pt-3">
                 <div class="flex items-center gap-2">
                     <h2 class="text-[length:var(--text-lg)] font-[var(--weight-strong)]" data-testid="card-name">{{ card.data.value.label }}</h2>
-                    <IconButton class="ml-auto" size="xs" icon-class="i-lucide-x" aria-label="关闭" @click="book.closeDrawer()" />
+                    <span class="ml-auto flex items-center gap-0.5">
+                        <DropdownMenu :items="reviseItems" align="end" menu-class="min-w-[220px]" @select="onRevise"><IconButton size="xs" icon-class="i-lucide-ellipsis" aria-label="修改" data-testid="card-revise-menu" /></DropdownMenu>
+                        <IconButton size="xs" icon-class="i-lucide-x" aria-label="关闭" @click="book.closeDrawer()" />
+                    </span>
                 </div>
                 <p class="text-[length:var(--text-sm)] text-[var(--text-secondary)]" data-testid="card-names">
                     称呼：<template v-for="(name, index) in (allNames ? card.data.value.names : card.data.value.names.slice(0, NAMES_SHOWN))" :key="name.text">{{ index ? "、" : "" }}{{ name.text }}</template>
                     <button v-if="card.data.value.names.length > NAMES_SHOWN" type="button" class="ml-1 text-[var(--accent-text)]" @click="allNames = !allNames">{{ allNames ? "收起" : `等 ${card.data.value.names.length} 个` }}</button>
                 </p>
+                <CandidateBlock :entity="props.entity" />
                 <p v-if="card.data.value.identities.length" class="text-[length:var(--text-sm)]" data-testid="card-identities">
                     同一身份：<span v-for="item in card.data.value.identities" :key="item.id" class="mr-2">{{ item.label }} <RefLink :ref-text="item.ref" /></span>
                 </p>
             </header>
+            <ReviseDialog v-if="reviseMode" v-model:open="reviseOpen" :mode="reviseMode" :entity="card.data.value.id" :label="card.data.value.label" :kind="card.data.value.kind" :names="card.data.value.names.map(item => item.text)" />
             <Tabs class="px-3" size="sm" :model-value="tab" :items="tabs" aria-label="人物卡" @update:model-value="setTab" />
             <div class="story-scroll-y min-h-0 flex-1 px-3 pb-2">
                 <template v-if="tab === 'summary'">

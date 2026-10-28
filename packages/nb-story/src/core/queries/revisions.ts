@@ -30,7 +30,9 @@ export function revisionCounts(index: BookIndex, at: Position): {pending: number
 
 export function revisionsList(ctx: QueryContext, params: StoryParams<"revisions.list">): StoryResult<"revisions.list"> {
     const {items, counts} = revisionItems(ctx.index, ctx.view.at);
-    const rows = items.filter(item => (params.state === undefined || item.state === params.state) && (params.source === undefined || item.source === params.source));
+    // 给了 entity：只留涉及这个对象（读者视角下合成一个点的各个对象都算）的项，给人物卡用；counts 仍是全书的。
+    const members = params.entity === undefined ? null : new Set(ctx.grouping.members.get(ctx.resolveEntity(params.entity)) ?? []);
+    const rows = items.filter(item => (params.state === undefined || item.state === params.state) && (params.source === undefined || item.source === params.source) && (members === null || item.entities.some(id => members.has(id))));
     return {...ctx.page(rows), counts};
 }
 

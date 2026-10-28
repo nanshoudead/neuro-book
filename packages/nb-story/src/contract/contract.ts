@@ -411,7 +411,11 @@ export const RevisionItemSchema = Type.Object({
     source: RevisionSource,
     by: Type.Union([Type.Literal("user"), Type.Literal("auto"), Type.Null()]),
     summary: Type.String(),
+    /** 涉及的对象编号：候选与连接是两个，改种类是一个，挪称呼是 from 与 to。 */
+    entities: Type.Array(Type.String()),
     evidence: RefSchema,
+    /** 依据那一段原文（截到 120 字）。 */
+    quote: Type.String(),
     refs: Type.Array(RefSchema),
     decidedAt: Type.Union([Type.String(), Type.Null()]),
     undoable: Type.Boolean(),
@@ -555,7 +559,7 @@ export const STORY_METHODS = {
     },
     "graph.storyline": {input: Type.Object({...BookParams}, strict), output: Storyline, effect: "read", errors: BookErrors},
     "revisions.list": {
-        input: Type.Object({...BookParams, ...PageParams, state: Type.Optional(oneOf(["pending", "adopted", "rejected", "closed", "stale"] as const)), source: Type.Optional(RevisionSource)}, strict),
+        input: Type.Object({...BookParams, ...PageParams, state: Type.Optional(oneOf(["pending", "adopted", "rejected", "closed", "stale"] as const)), source: Type.Optional(RevisionSource), entity: Type.Optional(Type.String({minLength: 1}))}, strict),
         output: Type.Object({items: Type.Array(RevisionItemSchema), total: Type.Integer(), next: Type.Union([Type.String(), Type.Null()]), counts: RevisionCounts}),
         effect: "read",
         errors: {...BookErrors, ...PageErrors},

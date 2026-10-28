@@ -22,7 +22,11 @@ export interface RevisionItem {
     source: RevisionSource;
     by: "user" | "auto" | null;
     summary: string;
+    /** 这一项涉及的对象编号（候选与连接是两个，改种类是一个，挪称呼是 from 与 to），给人物卡按对象找自己的项。 */
+    entities: string[];
     evidence: string;
+    /** 依据那一段原文（截到 120 字）：列表直接显示，不用再取原文。 */
+    quote: string;
     refs: string[];
     decidedAt: string | null;
     /** 能不能 `revisions.undo`：有决定的与用户自己的修订可以；待确认与自动关闭的不用。 */
@@ -55,10 +59,17 @@ function isCertainIdentity(statement: Statement): boolean {
     return statement.family === "identity" && !statement.neg && statement.certainty === "certain" && (statement.kind === "fact" || statement.kind === "belief") && statement.about.length === 2 && statement.about[0] !== statement.about[1];
 }
 
+const QUOTE_LIMIT = 120;
+
 const KIND_WORD: Record<Entity["kind"], string> = {person: "人物", persona: "马甲", group: "组织", place: "地点", item: "物品", concept: "概念", task: "任务", other: "其他"};
 
 export function listItems(dataset: Dataset, file: OverlayFile | null, resolved: ReadonlyMap<string, Applied>, at: Position): ItemList {
     const entities = new Map(dataset.entities.map(entity => [entity.id, entity]));
+    const paragraphs = new Map(dataset.sources.map(source => [source.chapter, source.paragraphs]));
+    const quoteAt = (position: Position): string => {
+        const text = paragraphs.get(position.chapter)?.[position.paragraph - 1] ?? "";
+        return text.length > QUOTE_LIMIT ? `${text.slice(0, QUOTE_LIMIT)}…` : text;
+    };
     const nameAt = (id: string, position: Position, fallback = id): string => {
         const entity = entities.get(id);
         return entity ? displayName(entity, position) : fallback;
@@ -78,7 +89,7 @@ export function listItems(dataset: Dataset, file: OverlayFile | null, resolved: 
         if (!isCandidateIdentity(statement) || !visibleAt(settledAt(statement), at)) continue;
         candidateIds.add(statement.id);
         const decision = decided.get(statement.id);
-        const base = {source: sourceOf(statement), summary: statement.text, evidence: formatPosition(settledAt(statement)), refs: statement.source.evidence.map(formatSpan)};
+        const base = {source: sourceOf(statement), summary: statement.text, entities: [...statement.about], evidence: formatPosition(settledAt(statement)), quote: quoteAt(settledAt(statement)), refs: statement.source.evidence.map(formatSpan)};
         if (decision) items.push({...base, id: decision.id, op: decision.op, state: decision.op === "identity.confirm" ? "adopted" : "rejected", by: decision.by, decidedAt: decision.decidedAt, undoable: true});
         else if (certainPairs.has(pairKey(statement))) items.push({...base, id: `st:${statement.id}`, op: "identity.candidate", state: "closed", by: null, decidedAt: null, undoable: false});
         else items.push({...base, id: `st:${statement.id}`, op: "identity.candidate", state: "pending", by: null, decidedAt: null, undoable: false});
@@ -90,7 +101,7 @@ export function listItems(dataset: Dataset, file: OverlayFile | null, resolved: 
         if (!visibleAt(revision.evidence, at)) continue;
         const isDecision = revision.op === "identity.confirm" || revision.op === "identity.reject";
         if (isDecision && outcome !== "stale") continue; // 已在候选循环里列出（所指候选不可见时它的证据位置也不可见）
-        const base = {id: revision.id, op: revision.op, source: revision.source, by: revision.by, evidence: formatPosition(revision.evidence), refs: [formatPosition(revision.evidence)], decidedAt: revision.decidedAt, undoable: true};
+        const base = {id: revision.id, op: revision.op, source: revision.source, by: revision.by, entities: entitiesOf(revision), evidence: formatPosition(revision.evidence), quote: quoteAt(revision.evidence), refs: [formatPosition(revision.evidence)], decidedAt: revision.decidedAt, undoable: true};
         const state: ItemState = outcome === "stale" ? "stale" : revision.state === "rejected" ? "rejected" : "adopted";
         items.push({...base, state, summary: summaryOf(revision, nameAt)});
     }
@@ -107,6 +118,20 @@ function compareRef(a: string, b: string): number {
     const [ac = 0, ap = 0] = a.split(".").map(Number);
     const [bc = 0, bp = 0] = b.split(".").map(Number);
     return ac - bc || ap - bp;
+}
+
+function entitiesOf(revision: Revision): string[] {
+    switch (revision.op) {
+        case "identity.confirm":
+        case "identity.reject":
+            return [];
+        case "identity.link":
+            return [revision.params.a, revision.params.b];
+        case "kind.set":
+            return [revision.params.entity];
+        case "name.move":
+            return [revision.params.from, revision.params.to];
+    }
 }
 
 export function summaryOf(revision: Revision, nameAt: (id: string, at: Position, fallback?: string) => string): string {

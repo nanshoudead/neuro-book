@@ -20,7 +20,7 @@ import type {Router} from "vue-router";
 import type {IngestStatusView, PositionInput, StoryResult} from "../../contract/contract";
 import {sendKeepalive, StoryCallError, type StoryClient} from "./client";
 
-export const PAGES = ["overview", "relations", "book-graph", "roster", "secrets", "ledger", "questions", "timeline", "episodes", "source", "qa", "stats"] as const;
+export const PAGES = ["overview", "relations", "book-graph", "roster", "secrets", "ledger", "questions", "timeline", "episodes", "source", "qa", "revisions", "stats"] as const;
 export type Page = (typeof PAGES)[number];
 /** 只在这本书记这一类时才有的页（docs/specs/story/viewer.md 输出 2；开关见 ingest.md 输出 18）。 */
 const PAGE_FEATURE: Partial<Record<Page, {feature: keyof Features; missing: string}>> = {

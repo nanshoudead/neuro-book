@@ -37,6 +37,15 @@ describe("待确认列表与计数", () => {
         expect((await book.ok("book.info", {at: {chapter: 30, paragraph: 60}})).revisions).toEqual({pending: 0, stale: 0});
     });
 
+    test("按对象筛（人物卡用）：只留涉及它的项，项带依据原文与涉及的对象；计数仍是全书的", async () => {
+        const mine = await book.ok("revisions.list", {at: AT, entity: "e30-1"});
+        expect(mine.items.map(item => item.id)).toEqual(["st:s30-13"]);
+        expect(mine.items[0]).toMatchObject({entities: ["e30-1", "e10-1"], evidence: "30.61"});
+        expect(mine.items[0]!.quote.length).toBeGreaterThan(0);
+        expect(mine.counts.closed).toBe(2);
+        expect((await book.ok("revisions.list", {at: AT, entity: "e3-2"})).items).toEqual([]);
+    });
+
     test("依据段：对象在阅读位置之前出现的段，按位置从近到远，只含称呼出现的段", async () => {
         const page = await book.ok("revisions.evidence", {at: {chapter: 10, paragraph: 1}, entity: "e3-2", limit: 5});
         expect(page.items.length).toBeGreaterThan(0);

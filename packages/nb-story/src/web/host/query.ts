@@ -90,7 +90,7 @@ export interface PagedState<T, E = object> {
     reload(): void;
 }
 
-type PagedMethod = "entities.list" | "entity.knowledge" | "entity.statements" | "entity.episodes" | "questions.list" | "episodes.list" | "search";
+type PagedMethod = "entities.list" | "entity.knowledge" | "entity.statements" | "entity.episodes" | "questions.list" | "episodes.list" | "search" | "revisions.list" | "revisions.evidence";
 type PageItem<M extends PagedMethod> = StoryResult<M>["items"][number];
 type PageExtra<M extends PagedMethod> = Omit<StoryResult<M>, "items" | "total" | "next">;
 

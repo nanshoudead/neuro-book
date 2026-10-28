@@ -162,7 +162,7 @@ async function describe(index: BookIndex, original: Dataset, file: OverlayFile, 
         if (back) return back;
         const fallback = listed.items.find(item => item.id === target.id);
         if (fallback) return {...fallback, state: "withdrawn", undoable: false};
-        return {id: target.id, op: target.op, state: "withdrawn", source: target.source, by: target.by, summary: "", evidence: formatPosition(target.evidence), refs: [formatPosition(target.evidence)], decidedAt: target.decidedAt, undoable: false};
+        return {id: target.id, op: target.op, state: "withdrawn", source: target.source, by: target.by, summary: "", entities: [], evidence: formatPosition(target.evidence), quote: "", refs: [formatPosition(target.evidence)], decidedAt: target.decidedAt, undoable: false};
     }
     const mine = listed.items.find(item => item.id === touched?.id) ?? listed.items.find(item => item.id === `st:${(touched?.params as {statement?: string} | undefined)?.statement ?? ""}`);
     if (!mine) throw new Error(`写入的修订 ${touched?.id ?? "?"} 没有出现在列表里`);
