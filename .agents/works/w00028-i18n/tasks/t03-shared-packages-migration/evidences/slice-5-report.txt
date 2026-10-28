@@ -1,0 +1,121 @@
+# w00028 t03 第 5 片交付报告（目录交付、清单 l10n、引导协议 v5、registry v5）
+
+工作区：/home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n（未提交）
+
+## 进度（每块做完追加）
+
+
+### 块 1：nb-runtime 清单 l10n 与目录校验（完成）
+- 新增 packages/nb-runtime/src/plugin-manifest/catalog.ts：catalogFile、canonicalLocaleTag、localeTagProblem、catalogProblems、parseCatalog（显式栈，不递归）。
+- schema.ts 加 L10nSchema（source、locales，minItems 1，不收多余字段）；PluginManifest.l10n（没写为 null）。
+- read.ts 校验 locales 每项是规范写法的语言标签、不重复；source 是规范写法且在 locales 里。
+- build.ts 的 ManifestSource 收 l10n 并原样写出；plugin-manifest.ts 导出上述函数与类型。
+- 测试：plugin-manifest.test.ts 新增 describe「消息目录（l10n 与目录内容）」四条。nb-runtime typecheck 通过，bun run test 405 pass。
+
+### 块 2：安装与预览 catalog-invalid、registry v5（代码完成，测试待写）
+- 新增 packages/neuro-book/src/plugin-platform/backend/catalogs.ts：catalogProblemsIn(目录, 清单) 逐个读 l10n.locales 的 locales/<语言>.json（拒符号链接、非普通文件、超过 4 MB），用 nb-runtime parseCatalog 检查，问题写成“locales/en-US.json：menu.open：……”。
+- inventory.ts：prepare（预览与安装共用）查安装源；install 在入口文件核对之后查准备目录（files 漏了目录只有这一步能发现）；失败码 catalog-invalid，detail 写第一处，problems 逐条。启动盘点不查目录（场景 ④ 要求插件照常登记）。
+- shared/types.ts：installFailureDetails 加 catalog-invalid（与 manifest-invalid 同一种 detail+problems）；PluginProblemSchema 加 catalog-unavailable（plugin、location、locale、reason: not-found/invalid/fetch-failed、detail），只由窗口产生。
+- shared/problems.ts：KIND_ORDER 加新种类；排序抽成导出的 comparePluginProblems，窗口并入目录问题时同一顺序。
+- plugins/shared/contracts.ts：nbook.plugins/registry 版本 4 → 5。backend/plugin.ts：catalog-invalid 也带 problems。
+- PluginsPage.vue/.md：catalog-invalid 失败文字、详情码；目录问题一行文字与警告色徽标（data-plugin-problems="catalogs"）；入口问题计数只数 entry-failed/entry-blocked。
+- cli/plugin.ts：catalog-invalid 时说明写“消息目录有 N 处错误”（按码分支）。
+
+### 块 3：引导协议 v5、目录索引、修订号、目录端点（代码完成）
+- shared/browser-bootstrap.ts：BROWSER_PROTOCOL_VERSION 4 → 5；必填 catalogs: [{plugin, source, locales, digest, prefix}]。prefix 是目录端点的 URL 前缀（与 plugins[].files 同一种做法：地址由服务端给，窗口不拼挂载前缀）。
+- server/browser-bootstrap.ts：目录索引取自全部有效安装的第三方插件（installed，不只是浏览器登记集合），按 id 排序；修订号另并入 catalog:<id>#<摘要>:<源语言>:<语言列表> 各行（只有后端入口的插件不在 plugins 里，靠这几行让它的目录变化也改修订号）。内置插件的目录随构建，不进索引。
+- shared/plugin-files.ts：PLUGIN_CATALOGS_ROUTE = /plugins/:plugin/catalogs/:digest/:file、pluginCatalogsPrefix、pluginCatalogUrl、parsePluginCatalogPath。
+- backend/plugin-files.ts：pluginCatalogHandler(installed, format, record)：只服务清单 l10n.locales 列出的语言、当前摘要；原样返回文件（不检查内容，窗口检查），404 not-found，读失败 500 并记诊断；与插件文件端点同样的安全头与长期缓存。server/plugin-files.ts 加 createPluginCatalogsRoute，server/plugins.ts 挂上。
+
+### 块 4：窗口取目录与问题通道（代码完成）
+- web/host/connection.ts：Connection 加 catalog(path)，返回正文；失败抛 ConnectionError（404 时 status=404）。
+- web/plugins.ts：BuiltinCatalogs 类型与 builtinPluginCatalogs 表（按插件 id，当前为空；内置插件在自己的模块里静态导入 locales/*.json 后登一项，只有后端入口的内置插件也登在这里）。
+- web/host/window.ts：选项 builtinCatalogs；首连之后、登记插件之前 loadCatalogs：登记内置目录；按索引并行取各插件各语言，parseCatalog 检查；取到几种登记几种（一种没取到不登记）；没取到的成为 catalog-unavailable 问题（404 → not-found，不合规 → invalid 带第一处问题，其余连接错误 → fetch-failed），每条记 browser-host.plugin.catalog-failed 诊断；只接住 ConnectionError，别的照常抛。
+- web/host/window-plugins.ts：feed 加 catalogProblems(problems)，problems() 把它们与内核目录的问题并在一起按 comparePluginProblems 排序，运行实例建立之前也查得到。shared/host.ts 的注释同改。
+- 测试桩：window.test.ts 14 处引导桩加 catalogs: []；mount.dom.test.ts 的假连接加 catalog（索引为空不会被调用，调用时按 404 回答）。
+- 既有测试 bun test src/web/host src/server src/plugin-platform src/plugins/plugins src/cli：274 pass。
+
+### 块 5：测试（场景 ②③④⑤⑥ 与修订号）
+- plugin-platform/backend/plugins.test.ts 新增 describe「消息目录（catalog-invalid）」三条：好目录随复制范围装进版本目录、装好后坏了重启照常登记；五种坏目录（非字符串叶子、非法 JSON、缺源语言文件、键含冒号、值含 $t(）预览与安装都返回 catalog-invalid 且不留文件与记录（场景 ②）；files 漏了目录时预览通过、安装拒绝、不留版本目录与登记（场景 ③）。
+- plugins/plugins.test.ts：经 nbook.plugins/registry v5 往返，预览与安装都得到 catalog-invalid 与逐条问题（合同 errors 表收 problems）。
+- plugins/web/components/PluginsPage.dom.test.ts：既有两条用例里补上目录问题徽标与文字、catalog-invalid 失败文字与逐条问题。
+- server/browser-bootstrap.test.ts 新增一条：目录索引含只有后端入口的插件、不含没写 l10n 的；排序无关；只有后端入口插件的摘要、语言列表变化或被移除都改变修订号。
+- 新增 web/host/window-catalogs.test.ts（真实安装、真实启动准备、同进程真实后端、真实 fetch 与 WebSocket）三条：
+  - 场景 ⑥ 与内置载体：只有后端入口的 example.worker 不在引导 plugins 里，目录在索引里且窗口翻得出；测试内置插件 test.notes-owner 经 builtinCatalogs 选项登记随构建的目录；端点对未列出的语言 404、非 .json 路径 400。
+  - 场景 ④：安装后把 zh-CN.json 改坏、删掉 en-US.json；窗口 ready，第三方插件的顶层声明照常登记，window.plugins 的问题里有 en-US not-found 与 zh-CN invalid 两条。
+  - 场景 ⑤：v1 运行中安装 v2，运行中的服务端引导摘要不变、窗口仍是 v1 文字；重启后摘要变了、窗口是 v2 文字，旧摘要地址 404（no-store），新地址 200（长期缓存）。
+
+### 块 6：SDK 构建（完成）
+- src/plugin-platform/build/build-plugin.ts（plugin-sdk/build.ts 的实现）：作者 package.json 写 l10n: {source}，目录放 locales/<语言>.json，语言列表由文件得出（源语言在前，其余按标签排序）。检查：有 locales/ 却没写 l10n；l10n 多写字段；源语言不是规范标签；没有 locales/；locales/ 里有非 .json 或非普通文件；文件名不是规范标签；内容不合目录规则（parseCatalog，与安装同一份）；缺源语言目录；有目录时 package.json 还写 displayName/description；manifest.displayName/description 不是字符串。任何一处让构建失败（PluginBuildError「消息目录不合格」）。通过时把 l10n、从源语言目录摘出的 displayName/description 交给清单格式生成清单，目录原样复制进 dist/locales/ 并列入结果的 files。
+- 测试：plugin-sdk/build-plugin.test.ts 新增 describe「消息目录（locales/）」三条：好目录复制、清单 l10n、显示名摘出、产物用真实 inventory 安装成功；缺源语言、非法 JSON、非字符串叶子构建失败（场景 ①）；文件名小写、缺 l10n、l10n 多字段、显示名重复写构建失败。
+
+== 7. Spec ==
+- docs/specs/runtime/plugin-manifest.md：displayName/description 行说明有目录时从源语言目录 manifest.* 摘出；新增 l10n 行；输出 12“消息目录的规则”；清单无效列表加 l10n 问题；验收 18“消息目录的构建”；Smoke 改 1–18；证据引用提案。
+- docs/specs/runtime/plugin-install.md：复制范围要求包含 l10n.locales 的目录文件；输出 2.1 写预览与安装检查源文件夹、安装再查复制结果（files 漏目录时只有安装能发现）、启动不再查；失败码 catalog-invalid 加入预览/安装那一组与码表；验收 17；证据引用提案。
+- docs/specs/runtime/plugin-code-loading.md：术语“消息目录端点”；输出 10（集合、摘要、语言三重限定，原样返回、不执行插件代码、只有后端入口的插件也取得到，400/404/500 语义，内容检查归取目录方）；副作用：成功响应长期缓存，失败不缓存；验收 10；证据引用提案。
+- docs/specs/runtime/browser-host.md：输出 2 加目录索引（覆盖范围、每项字段）；输出 8 写首连后登记插件前取齐、内置随构建、按语言部分登记、catalog-unavailable 三种原因、诊断、窗口照常；window.plugins.problems() 列出目录问题；安全清单与兼容（协议 5、目录索引并入修订号）；验收 14；合同测试列 window-catalogs.test.ts；证据引用提案。
+- docs/specs/runtime/plugin-hot-plug.md（planned）：输出 9 安装即时生效时目录随之登记；输出 10.3 热升级时按新摘要整体替换命名空间目录、取不到不回滚；没有热插拔时随重启生效；证据引用提案。
+- docs/specs/ui/i18n.md：不承诺清单加 browser-host；输出 11“插件目录进入引擎之前已检查”；失败表加“插件某种语言的目录取不到或不合规则”。
+- 新增 Spec 文字都不引用 Task（证据一节只引用提案）。
+
+== 8. 各验收场景对应的测试 ==
+- ① SDK 缺源语言、非法 JSON、非字符串叶子构建失败：packages/neuro-book/plugin-sdk/build-plugin.test.ts，describe「消息目录（locales/）」第二条（另一条覆盖文件名非规范、缺 l10n、l10n 多字段、显示名重复写）。
+- ② 坏目录让预览与安装都返回 catalog-invalid：packages/neuro-book/src/plugin-platform/backend/plugins.test.ts，describe「消息目录（catalog-invalid）」第二条（五种坏法）；经 registry v5 的往返在 src/plugins/plugins/plugins.test.ts。
+- ③ files 漏目录时安装拒绝、不留安装目录与登记：同上 describe 第三条（预览通过、安装拒绝）。
+- ④ 安装后目录损坏或 404，插件照常、窗口有目录问题：src/web/host/window-catalogs.test.ts 第二条；“装好后坏了重启照常登记”另在 plugins.test.ts 第一条。
+- ⑤ 升级后新目录重启才生效，核对新旧摘要：window-catalogs.test.ts 第三条。
+- ⑥ 只有后端入口的插件不进浏览器登记集合但目录取得到：window-catalogs.test.ts 第一条（同条验证内置插件随构建的目录与端点 404/400）；索引覆盖与修订号在 src/server/browser-bootstrap.test.ts。
+- 都用真实安装流程、真实启动准备、同进程真实后端与真实 fetch/WebSocket；没有 mock、spy、假计时器、固定等待。
+
+== 9. 设计取舍 ==
+- 校验函数放 nb-runtime plugin-manifest（catalog.ts）：plugin-platform 按架构规则只能依赖 @notnotype/nb-runtime/*，不能依赖 nb-ui；nb-runtime 只依赖 TypeBox，这段规则是纯数据，放这里依赖方向最顺。SDK 构建、安装、窗口三处共用。
+- 语言标签要求规范写法（Intl.getCanonicalLocales 结果与原文相同）：zh-cn 也是合法 BCP47，但登记进引擎的标签与界面语言 zh-CN 对不上，宁可在构建与安装时拒绝。
+- 目录端点原样返回文件、不检查内容；窗口取到后检查。安装时已检查过，端点只管“给谁、给哪份”，检查与登记放在同一处。
+- 每个插件每种语言一个请求，请求之间并行；整组在首连之后、登记插件之前一次等齐（多一个本机往返，换来入口激活与界面挂载时文字已在引擎里，不需要登记后再刷新）。
+- 一个插件取到几种语言就登记几种，取不到的语言成为问题，文字按回退链显示。
+- 预览只查源文件夹，看不出 files 漏目录（与 entry-missing 同样的分工）；安装在复制后再查一次。
+- 启动盘点不查目录：安装后目录坏了，插件照常登记，由窗口报告问题（场景 ④ 的要求）。
+- 引导索引带 prefix（服务端给出端点地址前缀），与 plugins[].files 同一种做法，窗口不拼挂载前缀。
+- 修订号并入每个目录项（id、摘要、源语言、语言列表）：只有后端入口的插件不在 plugins 里，不这样它的目录变化不会改修订号。
+- 内置插件目录：src/web/plugins.ts 的 builtinPluginCatalogs 表（按插件 id 登记静态导入的 locales/*.json），当前为空；窗口选项 builtinCatalogs 可替换它，测试用一个测试内置插件验证。没有给真实内置插件造空目录。
+
+== 10. 待决定（均已按推荐实现）==
+1. 语言标签检查有两份：nb-runtime 的 localeTagProblem（规范写法）与 nb-ui text 的 isLocaleTag。推荐：本片保持两份（依赖方向不允许 plugin-platform 用 nb-ui；nb-ui 判别 LocaleMap 只需“是不是标签”，不要求规范写法），之后若 nb-ui 也要求规范写法再考虑让 nb-ui 依赖 nb-runtime 的这一份。
+2. SDK：有目录时 package.json 再写 displayName/description 就构建失败（名称只来自源语言目录的 manifest.*）。推荐：严格（两处都写时以哪处为准没有好答案）。替代：允许 package.json 写、目录优先。
+3. SDK：locales/ 里有非 .json 文件或子目录就构建失败。推荐：严格（作者多半是放错了位置）。替代：忽略并给警告。
+4. 插件页还不按界面语言显示目录里的第三方/内置插件名称（列表里的 displayName 仍是源语言摘出的那份）。推荐：留给后续片（需要插件页从引擎取 `manifest.displayName` 键），本片不做。
+5. 引导索引的 prefix 字段（与 digest 冗余）。推荐：保留，理由同 plugins[].files，窗口不需要知道挂载前缀。
+6. 目录取回放在首连之后、登记之前一次等齐 vs 与首连并行。推荐：首连之后（多一个本机往返，避免与首连失败路径交织出未处理的 rejection）。
+7. 取目录没有单独的超时（沿用连接对象的请求行为）。推荐：本片不加；端点只读本机文件。
+8. 内置目录的载体：计划写“内置插件定义静态导入目录”，提案写“目录由插件定义模块静态导入，随前端构建进包”。现在的做法是插件模块静态导入 locales/*.json 后登进 src/web/plugins.ts 的 builtinPluginCatalogs 表（按插件 id），不在 PluginDefinition 上加字段。理由：PluginDefinition 是 nb-runtime 内核类型，加目录字段要改内核合同；只有服务端入口的内置插件在前端构建里没有浏览器定义可挂，但它的声明文字照样要在窗口显示。代价：新增一个带目录的内置插件要改两处（模块导入与表项）。推荐：保持表；替代：在定义上加可选的 l10n 字段。
+
+== 11. 没做的与没把握的 ==
+- 热插拔下的目录在线替换只写进 planned 的 plugin-hot-plug Spec，没有实现（提案定为随热插拔）。
+- 插件页按界面语言显示插件名称没做（见待决定 4）。
+- 没有真实内置插件带目录，内置载体只由测试内置插件验证；第一个真实内置插件带目录时，要在它的模块里静态导入 locales/*.json 并登进 builtinPluginCatalogs。
+- 没跑 e2e（本片没有改 e2e 外壳；window-catalogs.test.ts 在同进程真实后端上覆盖窗口行为）。已 grep packages/neuro-book/e2e 与 src/web/testing：没有手写的 v4 引导响应或 registry 版本字面量，只有 browser-host.e2e.ts 的 protocolVersion: 999（协议不兼容用例，与版本号无关）。
+
+== 12. 验证结果（2026-10-28，本 worktree，未提交）==
+- packages/neuro-book：bun run typecheck && bun run test:bun && bunx vitest run --testTimeout=30000 → EXIT 0；test:bun 1568 pass / 0 fail（172 文件）；vitest 65 文件 379 pass。日志 /tmp/w00028-t03/verify-5-neuro-book.log。
+- packages/neuro-book：bun test plugin-sdk → 76 pass / 0 fail（11 文件）。
+- packages/nb-runtime：bun run typecheck 通过；bun run test → 405 pass / 0 fail。
+- 仓库根：bun run docs:check → failures []、warnings []；bun run governance:check → failures []、warnings []（存量警告不在本次范围）。
+- 没跑 e2e。
+
+== 13. 禁止清单自查 ==
+- 不按错误文案分支：窗口按 ConnectionError.status（404）与 parseCatalog 的 ok 标签分 not-found/invalid/fetch-failed；CLI 与插件页按失败码 catalog-invalid 分支。通过。
+- 不静默吞错：端点读失败记 plugins.catalogs.read-failed，清单读不了记 plugins.catalogs.manifest-unreadable，窗口每条目录问题记 browser-host.plugin.catalog-failed 并进 window.plugins.problems()；canonicalLocaleTag 只接住 RangeError、parseCatalog 只接住 SyntaxError，其余照抛。新增代码没有空 catch（diff 里两处 `catch {` 都是原有代码）。通过。
+- 不放宽断言、不跳过测试、不加测试专用分支：既有测试只补了引导桩的 catalogs: [] 与假连接的 catalog()，断言未放宽；window 的 builtinCatalogs 选项与 builtin/definitions 选项同一种注入做法，产品默认取 builtinPluginCatalogs。通过。
+- 不删改任务外代码、配置、注释：git status 只有本片文件；改动的注释都是描述被本片改变的行为（协议版本历史、作者合同、端点说明）。通过。
+- 不跨包深导入：neuro-book 只经 @notnotype/nb-runtime/plugin-manifest 公开入口取 parseCatalog 等；plugin-sdk 测试导入同包 src。governance 与架构测试通过。
+- 不确定时先找现有做法：目录端点照插件文件端点（摘要寻址、安全头、长期缓存、regularFile）；索引 prefix 照 plugins[].files；问题通道照 window.plugins feed。
+- 保留清理收口：install 失败路径仍走原有的准备目录删除；窗口 loadCatalogs 后补 closed 检查并 current.close()，与相邻步骤一致。
+- nb-runtime 只依赖 TypeBox：catalog.ts 只用标准库 Intl 与 JSON。
+- 未 commit、push、stash、切分支；未用 rm -rf。
+
+== 14. 交付前复核后的修正（只改文档与注释）==
+- plugin-code-loading.md 新输出 10 原来插在 9 前面，已挪到 9 之后。
+- plugin-install 输出 2.1 与 plugin-code-loading 输出 10 指向 browser-host 的“输出 2”改为“输出 8”（目录检查与问题写在输出 8）。
+- browser-host 验收 14 的“入口照常激活”改为与测试一致的“顶层声明照常登记”。
+- nb-runtime catalog.ts 头部注释改为“三处检查内容，端点只用路径规则”。
+- 改后重跑 docs:check 与 governance:check：failures []、warnings []。
