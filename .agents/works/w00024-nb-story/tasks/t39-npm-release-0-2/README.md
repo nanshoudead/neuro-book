@@ -31,9 +31,10 @@ updated: 2026-10-28
 - 从 registry 装 nb-story 0.2.0 的冒烟失败：它依赖 `nb-runtime ^0.1.0`（应为 `^0.2.0`）。原因：`bun publish` 改写 `workspace:^` 用的是 `bun.lock` 里记的工作区版本，升版本号后没跑 `bun install` 刷新锁文件；打包冒烟用 file: 的 tarball 覆盖了依赖，查不出。0.2.0 能用（`nbstory`、`serve`、RPC 在 runtime 0.1.0 上都正常），只是依赖范围不对。
 - 修：`release:check` 加 `lockfile_version`（锁文件里的工作区版本要与 `package.json` 一致，有测试、做过变异检查）；刷新锁文件，nb-story 升 0.2.1（`af4a3a288`）。打包冒烟通过，tarball 的依赖是 `nb-runtime ^0.2.0`、`nb-harness ^0.1.1`。
 
-## 下一步（开发者）
+- 2026-10-28 开发者发布了 nb-story 0.2.1。`bun run release:smoke --from registry` 通过（装到 nb-harness 0.1.1、nb-runtime 0.2.0、nb-story 0.2.1；命令行、Skill、`serve`、Vite 宿主、应用与 SDK 都通过）：[证据](evidences/smoke-registry-0.2.1.txt)。
 
-0. （已做）清掉上面的未跟踪文件（`release:publish` 要求会发布的目录干净）。
-1. `git push origin master`（README 图片与发布门禁要用 origin/master）。
-2. `npm login`，在 master 上 `bun run release:publish`（先不带 `--yes` 看清单，再带 `--yes --auth-type web`）。现在只会发 nb-story 0.2.1。
-3. 发布后在发布用的提交上 `bun run release:smoke --from registry`，把结果记进本 Task 的证据。
+## 结果与遗留
+
+- registry 现状：nb-runtime 0.2.0、nb-harness 0.1.1、nb-story 0.2.1（`latest`）；nb-story 0.2.0 依赖范围写旧（`nb-runtime ^0.1.0`），能用，要不要 `npm deprecate` 由开发者定。
+- nb-agent-ui 的源码自上次发布以来改过（w00028）、应用与插件 SDK 的源码也改过，都没提版本号，这次没发；下次发布前提版本号。
+- 经验：升版本号后先跑 `bun install` 刷新锁文件；`release:check` 现在会查。
