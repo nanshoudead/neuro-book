@@ -1,0 +1,58 @@
+## 1. 后续马甲请求绕过停止检查
+
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`packages/nb-story/src/ingest/chapter.ts:133-144,282-287`；`packages/nb-story/src/ingest/job.ts:229-243`
+- **现象**：`checkPersonas()` 只有第一个马甲以 `announce: true` 调用 `ask`；后续马甲传 `announce: false`，`asker` 因此不调用 `run.onStep`。而实际的 `checkStop` 只挂在 `chapterRun().onStep` 上。后续马甲请求发出前没有停止检查。
+- **为什么是问题**：用户在第一个马甲完成、第二个及以后尚未发出时停止，停止标志已经设置但流程仍会继续发送后续请求；若渠道快速返回，还可能连续发完其余最多 4 个马甲，浪费费用并违反“等待期间收到停止立即生效”和停止前不再发请求的不变量。只给步骤事件去重，不能去掉每个请求前的停止检查。
+- **如何核实**：静态追踪 `asker` 的 `announce` 分支与 `job.ts` 的 `onStep -> checkStop`；在实现 worktree 运行现有 `runner.test.ts` 的停止场景只能证明第一个请求中止，未覆盖第二个马甲前置停止，因此该缺口仍需新增真实 runner 场景复现。
+- **建议改法**：保留步骤事件只报一次，但每个 persona 请求仍调用一个不产生重复步骤事件的停止检查；例如把 `checkStop` 作为独立的每请求钩子传入 `ChapterRun`/`Ask`，或让 `onStep` 支持“静默但仍检查”的调用。停止检查应发生在每次 `callModel` 之前。
+
+## 2. 请求把本章才成立的称呼匹配到前章材料
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-story/src/ingest/persona-check.ts:44,83-94`
+- **现象**：`personaRequest` 先取对象截至本章的全部称呼，再用这些称呼扫描所有 `source.chapter < chapter` 的原文；没有要求称呼的成立位置不晚于被扫描的章。于是本章才登记的称呼，只要同样字符串碰巧出现在前章原文（例如章标题），就会被当成这个马甲此前的称呼出处并放进“本章之前提到它的段落”。
+- **为什么是问题**：模型会收到对象在其名称成立前已经以该称呼出现的伪材料，破坏“本章之前它的称呼出现过”的时间合同，可能让它把无关前文当作身份线索并写下错误候选；同时材料与编译的阅读位置不一致。
+- **如何核实**：在审查 worktree 执行 `bun /tmp/review-t35-impl/exp/check-request-name-origin.ts`。脚本把 `e3-2` 的新称呼设为第 3 章第 1 段的“第1章 反派魔法少女”，真实 `personaRequest(..., 3)` 输出的前章片段包含 `1.1`，尽管该称呼在第 3 章才成立。
+- **建议改法**：扫描每个历史 `source` 时只使用 `name.at` 不晚于该 source 的称呼；或者先按名称成立位置截断名称集合，再做命中与前后段合并。测试加入“本章新称呼与前章同字但不应进入历史片段”的场景。
+
+## 3. 每个候选都重新编译整本书，额外最多六次全量编译
+
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：`packages/nb-story/src/ingest/chapter.ts:279-315`；`packages/nb-story/src/ingest/job.ts:171`
+- **现象**：核对开始先 `compileWith(draft)` 生成候选视图；每个返回 `same` 且有本章依据的马甲再调用一次 `compileWith(candidate)`；一个章节最多 5 个马甲，因此相对原流程最多增加 6 次完整 `compile`，随后原有的最终 `compileWith(draft)` 仍会再编译一次。`compileWith` 在 job 中把截至当前章的全部草稿与整理稿重新编译，没有增量缓存。
+- **为什么是问题**：书越长、候选越多，核对的 CPU 与内存峰值按全书规模重复支付；默认开启后这是每章的固定额外热路径，不只是模型费用。当前没有性能验收或预算证明这 6 次全量编译可接受，可能把抽取耗时和阻塞窗口放大。
+- **如何核实**：静态沿 `extractChapter -> checkPersonas -> input.compileWith` 计数；`pickPersonas` 上限为 5，故上界为 1 次候选视图 + 5 次逐候选编译 + 既有 1 次最终编译。应在实现 worktree 以 5 个 `same` 候选、不同章数做真实 `compile` A/B 测量，当前审查未调用模型。
+- **建议改法**：先用真实样本测出每章 0、1、5 个候选在 20、50、100 章时的编译耗时与峰值内存并写预算；若超预算，改为可证明等价的批量候选校验或复用已编译前缀，避免在产品路径中无界重复全量编译。
+
+## 4. 复合泛称只测了词法函数，没有测查询侧可观察结果
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：`packages/nb-story/src/core/generic-names.test.ts:21-27`；受影响消费者 `packages/nb-story/src/core/projection.ts:78-79,229-230`、`packages/nb-story/src/core/queries/source.ts:76-80`
+- **现象**：新增测试只断言 `isGenericName`/`allGeneric` 的布尔值；没有用真实查询数据验证“志愿者学姐”对应对象在阅读页不被链接、出场/同场计数不计入、对象被标为 `anonymous`，以及 `includeAnonymous` 的边界。
+- **为什么是问题**：输出 22 同时改变出场、无名对象和阅读页链接，词法函数通过不能证明三个消费者仍共同遵守同一合同；任一消费者若继续按旧的整词判断，测试仍全绿，用户会看到不一致的查询结果。
+- **如何核实**：读取本次 diff 可见 `generic-names.test.ts` 没有查询/API 场景；仓库现有查询测试也没有复合泛称样例。对 `projection` 或 `source` 的复合词判断做变异后，新增测试集合不会覆盖该行为。
+- **建议改法**：补一条真实 `book` 查询合同场景，使用一个称呼为“志愿者学姐”的对象和一处原文提及，同时断言 `entities.list` 的 `anonymous`、`appearances`/统计、`source.read` 的链接与 `includeAnonymous` 结果；再保留词法单测覆盖“墨学姐”等专名。
+
+## 5. 计划要求的马甲渠道失败路径没有行为测试
+
+- **严重程度**：重要；**类别**：测试
+- **位置**：`packages/nb-story/src/ingest/runner.test.ts:832-864`；对照 `packages/nb-story/src/ingest/job.ts:474-475`、`packages/nb-story/src/ingest/runner.test.ts:599-603`
+- **现象**：新增 runner 场景只覆盖核对中停止、接着抽与候选写入；没有让 persona 请求连续 6 次网络失败并断言最终是 `model_failed`、本章不提交、已提交章保留。现有的 `model_failed` 测试针对 `beats`，不能证明新增循环没有捕获、改码或绕过该路径。
+- **为什么是问题**：计划与 Spec 输出 20 明确规定渠道失败与其它步骤相同；核对在一章末尾，失败会牵连整章重做，错误处理又被 `checkPersonas` 只捕获 `IngestBadReply`，这是本次新增的关键传播边界。没有真实 runner/worker 场景，回放只回 `unknown` 的成功场景会把该风险隐藏。
+- **如何核实**：读取本次 diff 的 runner 新增区段只有一个 test；在同文件已有网络失败测试中，步骤固定为 `beats`。运行已通过的 65 个核心测试与 50 个入口测试并不覆盖 persona 的 503 路径。
+- **建议改法**：用真实本机端点在 `key.step === "persona"` 时返回 503，注入短延迟，断言 6 次 HTTP 后任务以 `model_failed` 停下、未提交当前章、接着抽从当前章重做；同时断言 stop 可打断 persona 的渠道重试。
+
+## 影响排序索引
+
+按影响处理：重要 1、2、5；建议 3、4；阻断 0。
+
+## 未发现问题的方面
+
+- `chapter.ts` 的核对插入点在兜底丢弃之后、整理之前；候选写入后最终编译与提交收口位置未发现顺序错误。
+- `toStatement` 的本章段号过滤、出处末段显示名、对象晚于出处跳过、同名马甲交给整理，以及 name-leak 警告删除路径未发现已证实的剧透回归。
+- 渠道错误与停止异常没有被 `checkPersonas` 吞掉；代码沿 `ModelError`、`ModelAborted` 传播，整章重做/停下路径与既有 job 机制一致；缺口是第 5 条所述测试不足。
+- 配置默认值、`config set/unset/show`、CLI 与独立服务入口、worker/job 传递、旧抽取记录缺少 `personas` 时按空处理，以及 disabled 回放的普通请求头基线未发现接线遗漏。
+- 复合泛称的当前词表没有单字泛称项；样例书扫描未发现新增分词结果把既有专名误判为复合泛称。查询侧行为仍缺专门合同测试，见第 4 条。
+
+- **阻断**：0；**重要**：3；**建议**：2。
