@@ -27,7 +27,7 @@
   - 目标对不上锚的项不套用，记入 `resolved` 的 `stale`。
 - `anchor.ts`：每条修订记锚：说法 `{id, at, text}`、对象 `{id, at, firstName}`。`resolveAnchor(dataset, anchor)`：id 与 `at`、文字都对得上就用；对象 id 已不在时按留下的对象的 `mergedFrom` 跟过去（整理合并建重的对象是现实里改编号的唯一途径：`ingest/compile.ts` 合并时写 `mergedFrom`）；再不行按位置与首称呼唯一对得上的找；都不行就是 `stale`。锚又对上了自动恢复（状态现算，不写回）；`stale` 的项只能丢弃（`undo`），没有“重新绑定”。
 - `items.ts`：`listItems(原始 dataset, file, at)`：输入是套用之前的数据集（套用后候选已经变确定或消失，列表要靠原始候选与修订历史才能给出原说法、出处与时间）；现算待确认项（可见、没有决定、没被后文确认的候选身份说法；同一对象对之间在 P 处已有确定的身份说法的算 `closed`）、已处理项与撤销性；状态优先级 `stale` > 已有决定 > `closed` > `pending`；来源由说法的 `origin` 定（`persona-check`，否则 `extraction`）；`summary` 与 `refs` 只用 P 之前的称呼。
-- `store.ts`：`readOverlay(bookDir, generation)`（只认 `generation` 相同的文件，取其中版本最大且读得出来的，损坏的跳过并回退；读到一半被回收时重来）、`writeOverlay(bookDir, generation, mutate)`（临时文件加 `fs.link` 发布 `n+1`，`EEXIST` 重读重算，重试有上限；成功后只删版本小于 `n+1` 的文件与代号不符的遗留文件，`ENOENT` 当作已被别人回收）。写入前核对 `book.json` 的一代、写入后再核对一次；书已换代时报 `book_not_found`，已发布的文件因代号不符不会被新一代读到。
+- `store.ts`：`readOverlay(bookDir, generation)`（只认 `generation` 相同的文件，取其中版本最大且读得出来的，损坏的跳过并回退；读到一半被回收时重来）、`writeOverlay(bookDir, generation, mutate)`（临时文件加 `fs.link` 发布 `n+1`，`EEXIST` 重读重算，重试有上限；成功后只删最近 50 个版本之外的文件（版本号不能马上空出来，否则晚到的写入者会重用已回收的版本号、覆盖别人的写入，实测八个进程并发写时出现过），发布撞上代号不符的遗留文件就删掉它再发布，`ENOENT` 当作已被别人回收）。写入前核对 `book.json` 的一代、写入后再核对一次；书已换代时报 `book_not_found`，已发布的文件因代号不符不会被新一代读到。
 - `ops.ts`：五个写入操作的校验与生成修订（错误码 R1 到 R5，见 Spec），以及 `undo`（确认或驳回回到待确认＝删掉该项的决定；用户自己的修订记 `withdrawn`）。依据位置要是已抽取的原文段（`evidence_invalid`），目标要在依据位置之前出现。
 
 ### `src/core/book-index.ts`、`src/core/projection.ts`、`src/core/api.ts`
