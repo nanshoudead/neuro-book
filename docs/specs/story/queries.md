@@ -15,7 +15,7 @@ owners:
 
 明确不承诺：
 
-- 查询不修改图里的记录。导入（`book.import`）只收已经抽好的数据；从原文抽取见 [`story.ingest`](ingest.md)，抽出的书经本 Spec 查询，用法相同。
+- 查询不修改图里的记录。用户对图的修订由 [`story.revisions`](revisions.md) 另存，查询看到的是套用修订之后的数据（没有修订的书与以前逐字相同）。导入（`book.import`）只收已经抽好的数据；从原文抽取见 [`story.ingest`](ingest.md)，抽出的书经本 Spec 查询，用法相同。
 - 不含问答本身：内置问答见 [`story.qa`](qa.md)，它把本 Spec 的方法当作答 Agent 的工具；外部 Agent 经 [`story.cli`](cli-skill.md) 的命令行与 Skill 问答。
 - 不给图排版：图的方法只给点与线，位置由使用方算。
 - 独立服务只供本机使用：不监听局域网，不支持多用户。
@@ -199,7 +199,7 @@ type RelationEdge = {
 ## 副作用与数据
 
 - 书库目录 `<书库>/<书 id>/`：书的信息（含这一代的代号）、导入的数据文件、阅读状态。书库格式版本 1；遇到不认识的版本，只读不写，写入类方法得到 `unsupported_format`。
-- 只有 `book.import`、`book.remove`、`reading.set` 与 [`story.ingest`](ingest.md) 的抽取写书的数据；其余方法只读。抽取更新书的数据时原子替换数据文件，不改阅读状态与问答记录。问答记录由 [`story.qa`](qa.md#副作用与数据) 写在书目录的 `qa/` 下，随书删除。独立服务的运行登记由 [`story.cli`](cli-skill.md#副作用与数据) 规定，不属于书的数据。
+- 只有 `book.import`、`book.remove`、`reading.set`、[`story.ingest`](ingest.md) 的抽取与 [`story.revisions`](revisions.md) 的写入类方法写书的数据；其余方法只读。抽取更新书的数据时原子替换数据文件，不改阅读状态与问答记录。问答记录由 [`story.qa`](qa.md#副作用与数据) 写在书目录的 `qa/` 下，随书删除。独立服务的运行登记由 [`story.cli`](cli-skill.md#副作用与数据) 规定，不属于书的数据。
 - 原文、图与阅读状态都只在本机书库里；独立服务不向外发请求。
 
 ## 失败与恢复

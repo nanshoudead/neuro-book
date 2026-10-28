@@ -58,6 +58,7 @@ owners:
 | `nbstory serve [--port <端口>] [--open]` | — | 启动查看器的独立服务 |
 | `nbstory ask <问题>`、`nbstory qa`、`nbstory config` | — | 内置问答、问答记录与问答配置，见 [`story.qa`](qa.md#命令) |
 | `nbstory ingest <原文文件>`、`nbstory ingest --book`、`nbstory ingest --status` | — | 导入原文并抽取、接着抽、看进度，见 [`story.ingest`](ingest.md#命令) |
+| `nbstory revisions list`、`confirm`、`reject`、`link`、`kind`、`move-name`、`undo`（planned） | — | 对图的修订：待确认列表、确认或驳回候选身份、手动连接、改对象种类、挪称呼、撤销，见 [`story.revisions`](revisions.md) 输出 13 |
 | `nbstory skill install [--agent claude\|codex] [--dir <目录>] [--force]` | — | 把随包的 Skill 装进外部 Agent 的 Skill 目录 |
 
 - 所有书级命令都接受 `--book <书>`（书库只有一本书时可省略）；所有命令都接受 `--library <目录>` 与 `--json`；分页的命令接受 `--limit` 与 `--cursor`。
