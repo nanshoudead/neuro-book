@@ -101,6 +101,8 @@ test("手机宽度：待确认页单列、“更多”带角标且完整导航�
     await open(page, "/book/fox/revisions?at=30.61");
     await expect(page.locator('[data-revision="st:s30-13"]')).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    // 前面的用例把抽屉里的人物卡存进了阅读状态，手机上它会浮在页面上：先关掉。
+    if (await page.getByTestId("drawer").isVisible()) await page.getByTestId("drawer-scrim").click({position: {x: 10, y: 10}});
     await page.getByRole("button", { name: /更多/u }).click();
     await expect(page.getByRole("navigation", { name: "页面" }).getByText("待确认")).toBeVisible();
     await page.keyboard.press("Escape");
