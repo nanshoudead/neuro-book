@@ -8,17 +8,21 @@ import {mount} from "@vue/test-utils";
 import {describe, expect, it} from "vitest";
 
 import type {DirectoryEntry, Listing} from "nbook/plugins/files/shared/contracts";
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
 import type {KeyOutcome} from "../controller";
 import type {TreeKey} from "../tree/keys";
 import type {DirectorySlot, RootState} from "../tree/model";
 import {projectRows} from "../tree/rows";
+import {explorerCatalogs} from "../text";
 import ExplorerTree from "./ExplorerTree.vue";
 
 const ROOTS: RootState[] = [
     {scheme: "project", address: "project://", status: {kind: "live"}},
     {scheme: "user", address: "user://", status: {kind: "live"}},
 ];
+
+const port = testTextPort("zh-CN", {"nbook.explorer": explorerCatalogs});
 
 const loaded = (listing: Listing): DirectorySlot => ({listing, error: null, loading: false, stale: false});
 const file = (name: string): DirectoryEntry => ({name, kind: "file"});
@@ -37,7 +41,7 @@ const handleKey = (key: TreeKey): KeyOutcome => {
 };
 
 function tree(props: Partial<{rows: ReturnType<typeof rowsOf>; selected: string[]; focus: string | null; indentGuides: "none" | "hover" | "always"; hideMarkdownExtension: boolean}> = {}) {
-    return mount(ExplorerTree, {props: {rows: props.rows ?? rowsOf(3), selected: props.selected ?? [], focus: props.focus ?? null, locale: "zh-CN", label: "文件", handleKey, ...(props.indentGuides === undefined ? {} : {indentGuides: props.indentGuides}), ...(props.hideMarkdownExtension === undefined ? {} : {hideMarkdownExtension: props.hideMarkdownExtension})}, attachTo: document.body});
+    return mount(ExplorerTree, {props: {rows: props.rows ?? rowsOf(3), selected: props.selected ?? [], focus: props.focus ?? null, label: "文件", handleKey, ...(props.indentGuides === undefined ? {} : {indentGuides: props.indentGuides}), ...(props.hideMarkdownExtension === undefined ? {} : {hideMarkdownExtension: props.hideMarkdownExtension})}, attachTo: document.body, global: {provide: provideText(port)}});
 }
 
 describe("ExplorerTree", () => {

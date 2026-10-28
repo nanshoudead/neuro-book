@@ -8,8 +8,11 @@ import FilesExplorerView from "nbook/plugins/explorer/web/components/FilesExplor
 import {useLabSubject} from "../lab-subject";
 import type {LabFixtureProps} from "../lab-subject";
 import ExplorerLiveScene from "./explorer-scene/ExplorerLiveScene.vue";
+import {provideExplorerText} from "./explorer-scene/explorer-text";
 
 const props = defineProps<LabFixtureProps>();
+// 视图的文字来自注入的翻译端口，Lab 窗口的端口没有本插件的目录：另建一个，只给这个场景。
+provideExplorerText(props.scene);
 const subject = useLabSubject<typeof FilesExplorerView>(() => props.input, [
     "row-press", "row-activate", "row-context", "retry", "reconnect", "open-project", "dismiss-notice", "prefs-retry", "prefs-discard", "focus-change", "collision", "recheck", "abandon", "dialog-close",
 ]);

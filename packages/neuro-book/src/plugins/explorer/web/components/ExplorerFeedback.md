@@ -1,5 +1,5 @@
 ---
-标签: []
+标签: [state:inject]
 别名: ["资源管理器的结果区", "Explorer Feedback"]
 ---
 
@@ -15,7 +15,6 @@
 
 ```ts
 type Props = {
-    locale: DisplayLocale;
     /** 当前提示；没有时为 null。 */
     notice: Notice | null;
     /** 最近一次批量的逐项结果；全部成功时为 null。默认 null。 */
@@ -43,3 +42,7 @@ type Emits = {
 - 结果未知是 `role="alert"`：它挡住后续动作，要立即读出。
 - 提示、逐项结果的标题与进行中都带 `role="status"`，出现与变化时由读屏播报；逐项列表本身不是 live region。
 - 没有 slots、expose；attrs 落在根元素上。
+
+## 隐藏通道理由
+
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，结果区的文字都在本插件的目录（命名空间 `nbook.explorer`，`../../locales/`）；语言随端口切换，不重新挂载，组件没有语言属性。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。

@@ -3,13 +3,14 @@
 import {DropFeedbackOverlay, OverlayScrollbar} from "@notnotype/nb-ui/components";
 import type {DropFeedbackPreview} from "@notnotype/nb-ui/components";
 import {useLayoutExtent} from "@notnotype/nb-ui/composables";
+import type {TextParams} from "@notnotype/nb-ui/text";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch} from "vue";
-
-import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {DropAction, DropOver} from "../actions/drop";
 import type {KeyOutcome} from "../controller";
-import {explorerText} from "../messages";
+import {explorerText} from "../../shared/text";
+import type {ExplorerTextKey} from "../../shared/text";
 import {createTreeDrag} from "../tree-drag";
 import type {TreeDrag, TreeDragPointer, TreeDragTarget} from "../tree-drag";
 import {parentAddress} from "../tree/address";
@@ -25,7 +26,6 @@ const props = defineProps<{
     rows: ReadonlyArray<Row>;
     selected: ReadonlyArray<string>;
     focus: string | null;
-    locale: DisplayLocale;
     label: string;
     handleKey: (key: TreeKey, page: number) => KeyOutcome;
     /** 项目根显示的作品名；不给时显示“项目”。 */
@@ -43,6 +43,9 @@ const props = defineProps<{
     /** 宿主最近一次提交的结构变化预告：之后的刷新里认出这些地址才放动画。 */
     motion?: MotionNote | null;
 }>();
+
+const port = useText();
+const text = (key: ExplorerTextKey, params?: TextParams): string => port.t(explorerText(key, params));
 
 const emit = defineEmits<{
     (event: "row-press", id: string, modifiers: Modifiers, part: "twisty" | "row"): void;
@@ -537,7 +540,7 @@ const dropMarks = computed(() => {
 const nameOfRow = (id: string): string => {
     const row = props.rows.find((candidate) => candidate.id === id);
     if (row?.kind === "entry") return displayLabel(row, props.hideMarkdownExtension === true);
-    if (row?.kind === "root") return row.scheme === "project" ? (props.projectTitle ?? explorerText(props.locale, "projectRoot")) : explorerText(props.locale, "userRoot");
+    if (row?.kind === "root") return row.scheme === "project" ? (props.projectTitle ?? text("tree.projectRoot")) : text("tree.userRoot");
     return id;
 };
 
@@ -545,13 +548,13 @@ const nameOfRow = (id: string): string => {
 const dropLabel = computed(() => {
     const action = props.drag?.action;
     if (action === undefined || action.kind === "none") return "";
-    if (action.kind === "open") return explorerText(props.locale, action.skipped > 0 ? "dropOpenSome" : "dropOpen", {count: String(action.addresses.length), skipped: String(action.skipped)});
-    if (action.kind === "move") return explorerText(props.locale, action.ordered ? "dropIntoLast" : "dropInto", {name: nameOfRow(action.target)});
+    if (action.kind === "open") return text(action.skipped > 0 ? "tree.drop.openSome" : "tree.drop.open", {count: action.addresses.length, skipped: action.skipped});
+    if (action.kind === "move") return text(action.ordered ? "tree.drop.intoLast" : "tree.drop.into", {name: nameOfRow(action.target)});
     const name = nameOfRow(action.anchor.id);
     // 换了接收目录（有源不在这一层）才说移入哪里。
     const into = action.kind === "place" && (props.drag?.sources ?? []).some((source) => parentOf(source) !== action.target);
-    if (into) return explorerText(props.locale, action.anchor.side === "after" ? "dropAfterInto" : "dropBeforeInto", {name, target: nameOfRow(action.target)});
-    return explorerText(props.locale, action.anchor.side === "after" ? "dropAfter" : "dropBefore", {name});
+    if (into) return text(action.anchor.side === "after" ? "tree.drop.afterInto" : "tree.drop.beforeInto", {name, target: nameOfRow(action.target)});
+    return text(action.anchor.side === "after" ? "tree.drop.after" : "tree.drop.before", {name});
 });
 /** 行 id 的父目录：资源行带着；源都是资源行。 */
 const parentOf = (id: string): string | null => {
@@ -564,7 +567,7 @@ const ghost = computed(() => {
     const sources = props.drag?.sources;
     const at = pointer.value;
     if (sources === undefined || sources.length === 0 || at === null) return null;
-    const what = sources.length === 1 ? nameOfRow(sources[0] as string) : explorerText(props.locale, "dragItems", {count: String(sources.length)});
+    const what = sources.length === 1 ? nameOfRow(sources[0] as string) : text("tree.dragItems", {count: sources.length});
     return {x: at.x + 12, y: at.y + 4, what, action: dropLabel.value};
 });
 
@@ -602,7 +605,6 @@ defineExpose({focus: focusTree});
                     class="explorer-tree__row absolute"
                     :style="{top: `${String(item.index * rowHeight)}px`, ...rowMotionStyle(item.row.id)}"
                     :row="item.row"
-                    :locale="locale"
                     :project-title="projectTitle ?? null"
                     :dom-id="domId(item.row.id)"
                     :selected="selectedSet.has(item.row.id)"

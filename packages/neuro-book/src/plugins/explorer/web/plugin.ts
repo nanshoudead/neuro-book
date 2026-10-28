@@ -13,14 +13,13 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {COMMANDS_POINT, commandServiceKey, completeMenuItemDeclaration, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import {documentCoordinatorKey} from "nbook/plugins/editor/shared/contracts";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
-import {resolverFor} from "nbook/shared/localized-text";
-import {windowLocale, windowTextKey, windowTextPort} from "nbook/shared/window-text";
+import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import type {PublicStateRead} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
-import type {ViewDeclaration} from "nbook/plugins/workbench/shared/contracts";
+import type {WrittenViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {ViewImplementation} from "nbook/plugins/workbench/web/contracts";
 import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
@@ -30,7 +29,6 @@ import {EXPLORER_CONTEXT_POINT, validateExplorerContextItem} from "../shared/con
 import {EXPLORER_SECTION, EXPLORER_SECTION_DECLARATION, hideMarkdownExtensionSetting, indentGuidesSetting} from "../shared/settings";
 import type {ExplorerContextItemDeclaration} from "../shared/contracts";
 import {COLLAPSE_ALL_COMMAND, EXPLORER_COMMAND_DECLARATIONS, explorerCommands, NEW_FILE_COMMAND, NEW_FOLDER_COMMAND, REFRESH_FILES_COMMAND, TOGGLE_MANIFESTS_COMMAND} from "./commands";
-import {explorerLocalized} from "./messages";
 import {explorerStoreFor} from "./preferences";
 import {createExplorerSession} from "./session";
 import {explorerState, explorerStateValues} from "./state";
@@ -39,18 +37,17 @@ import {createExplorerViewHost} from "./view-host";
 export const EXPLORER_VIEW_ID = "nbook.explorer";
 
 /** 视图标题上的五个动作（docs/specs/workbench/files-explorer.md 的“新应用的插件、命令与界面”）：外壳画按钮、执行命令。 */
-const VIEW: ViewDeclaration = {
-    title: explorerLocalized("title"),
+const VIEW: WrittenViewDeclaration = {
     icon: "i-lucide-files",
     location: "sidebar",
     order: 0,
     layout: "fill",
     actions: [
-        {command: NEW_FILE_COMMAND, icon: "i-lucide-file-plus", title: explorerLocalized("newFile")},
-        {command: NEW_FOLDER_COMMAND, icon: "i-lucide-folder-plus", title: explorerLocalized("newFolder")},
-        {command: REFRESH_FILES_COMMAND, icon: "i-lucide-refresh-cw", title: explorerLocalized("refresh"), args: "instance"},
-        {command: COLLAPSE_ALL_COMMAND, icon: "i-lucide-copy-minus", title: explorerLocalized("collapseAll")},
-        {command: TOGGLE_MANIFESTS_COMMAND, icon: "i-lucide-file-code", title: explorerLocalized("showManifests"), toggled: "nbook.explorer/showManifests"},
+        {command: NEW_FILE_COMMAND, icon: "i-lucide-file-plus"},
+        {command: NEW_FOLDER_COMMAND, icon: "i-lucide-folder-plus"},
+        {command: REFRESH_FILES_COMMAND, icon: "i-lucide-refresh-cw", args: "instance"},
+        {command: COLLAPSE_ALL_COMMAND, icon: "i-lucide-copy-minus"},
+        {command: TOGGLE_MANIFESTS_COMMAND, icon: "i-lucide-file-code", toggled: "nbook.explorer/showManifests"},
     ],
 };
 
@@ -108,7 +105,7 @@ export const explorerBrowserPlugin: PluginDefinition = {
             const storage = context.services.require(storageKey);
             const settings = context.services.require(settingsKey);
             const bound = context.services.require(windowProjectKey).project !== null;
-            const locale = await windowLocale(context.services, () => displayLocale(settings));
+            const text = await windowTextPort(context.services, () => displayLocale(settings));
             const report = (error: unknown): void => {
                 diagnostics.record({level: "error", event: "explorer.error", message: error instanceof Error ? error.message : String(error), error, source: {plugin: descriptor.id}});
             };
@@ -142,8 +139,7 @@ export const explorerBrowserPlugin: PluginDefinition = {
                     commands,
                     state: context.services.require(publicStateKey),
                     contextMenu,
-                    locale,
-                    text: resolverFor(() => locale.value, await windowTextPort(context.services, () => displayLocale(settings))),
+                    text,
                     projectTitle: context.services.require(windowProjectKey).project?.title ?? null,
                     display: computed(() => ({indentGuides: settings.get(indentGuidesSetting), hideMarkdownExtension: settings.get(hideMarkdownExtensionSetting)})),
                     report: (id, reason) => diagnostics.record({level: "warn", event: "explorer.command", message: `${id} 执行失败：${reason}`, source: {plugin: descriptor.id}}),
@@ -154,7 +150,7 @@ export const explorerBrowserPlugin: PluginDefinition = {
                 receivers: {[EXPLORER_CONTEXT_POINT]: contextMenu.receiver()},
                 contributions: {
                     [WORKBENCH_VIEWS_POINT]: {[EXPLORER_VIEW_ID]: view},
-                    [COMMANDS_POINT]: explorerCommands(session, () => locale.value),
+                    [COMMANDS_POINT]: explorerCommands(session, text),
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
                 },
             };

@@ -1,5 +1,5 @@
 ---
-标签: [state:local, env:global, env:portal, env:timer]
+标签: [state:local, state:inject, env:global, env:portal, env:timer]
 别名: ["文件树", "File Tree"]
 ---
 
@@ -30,7 +30,6 @@ type Props = {
     selected: ReadonlyArray<string>;
     /** 键盘焦点所在的行 id。 */
     focus: string | null;
-    locale: DisplayLocale;
     /** 树的可访问名称。 */
     label: string;
     /** 树内按键：没处理、处理了，或要在某一行开右键菜单。`page` 是视口能放下的行数。 */
@@ -76,6 +75,7 @@ type Emits = {
 
 ## 隐藏通道理由
 
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，拖影与落点播报里的文字都在本插件的目录（命名空间 `nbook.explorer`，`../../locales/`）；语言随端口切换，不重新挂载，组件没有语言属性。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。
 - `env:portal`：拖动的落点反馈（nb-ui `DropFeedbackOverlay`）、拖影与播报区渲染到 `body`，坐标是视口坐标，要脱离侧栏的裁剪与层叠上下文。
 - `env:timer`：触摸按住 200ms 才起拖、停留 600ms 展开，各用一个计时器；抬起、移动、落点换了、取消或卸载时清掉。
 - `env:global`：拖动期间在窗口上监听指针移动、松手、Escape、失焦与页面隐藏，并用 `document.elementFromPoint` 找指针下的行或编辑组：指针捕获在树上，移出树与窗口后的移动与松手只有窗口收得到；编辑组是别的插件的元素，只认它的公开标记 `data-editor-group`。拖动结束或组件卸载即拆掉。

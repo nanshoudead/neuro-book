@@ -9,12 +9,14 @@ import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
 import type {DirectoryEntry, Listing} from "nbook/plugins/files/shared/contracts";
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
 import type {Availability, Dialog, OperationReport, Unknown} from "../controller";
 import {menuEntries} from "../menu";
 import type {DirectorySlot, RootState} from "../tree/model";
 import {creatingId, projectRows} from "../tree/rows";
 import type {EntryRow} from "../tree/rows";
+import {explorerCatalogs} from "../text";
 import FilesExplorerView from "./FilesExplorerView.vue";
 
 const ROOTS: RootState[] = [
@@ -33,6 +35,9 @@ const rows = (creating: {parent: string; entry: "file" | "directory"; before: st
 
 const ALL: Availability = {create: true, rename: true, delete: true, createContent: true, convert: true, display: true, include: true, drop: true, moveUp: true, moveDown: false, copy: true, cut: true, paste: false};
 
+/** 中文界面的翻译端口：菜单项文字（`menuEntries`）与组件注入共用。 */
+const port = testTextPort("zh-CN", {"nbook.explorer": explorerCatalogs});
+
 const mounted: Array<{unmount(): void}> = [];
 afterEach(() => {
     for (const wrapper of mounted.splice(0)) wrapper.unmount();
@@ -40,7 +45,7 @@ afterEach(() => {
 });
 
 function view(props: Record<string, unknown> = {}) {
-    const wrapper = mount(FilesExplorerView, {props: {locale: "zh-CN", rows: rows(), selected: [], focus: null, showManifests: false, ready: true, notice: null, problem: null, handleKey: () => "none" as const, ...props}, attachTo: document.body});
+    const wrapper = mount(FilesExplorerView, {props: {rows: rows(), selected: [], focus: null, showManifests: false, ready: true, notice: null, problem: null, handleKey: () => "none" as const, ...props}, attachTo: document.body, global: {provide: provideText(port)}});
     mounted.push(wrapper);
     return wrapper;
 }
@@ -99,7 +104,7 @@ describe("FilesExplorerView：内联输入", () => {
 describe("FilesExplorerView：右键菜单", () => {
     it("资源行的菜单按可用性列出动作，点一项发出它的命令；根行只有新建", async () => {
         const alice = rows().find((row) => row.id === "project://lore.content/alice") as EntryRow;
-        const wrapper = view({menu: {x: 10, y: 20, entries: menuEntries(alice, ALL, "zh-CN")}});
+        const wrapper = view({menu: {x: 10, y: 20, entries: menuEntries(alice, ALL, port)}});
         await flushPromises();
         const labels = [...document.querySelectorAll("[role=menuitem]")].map((item) => item.textContent?.trim());
         expect(labels).toEqual(["新建文件", "新建文件夹", "剪切Ctrl+X", "复制Ctrl+C", "粘贴Ctrl+V", "复制路径", "复制相对路径", "重命名F2", "创建内容", "修改展示名与图标", "上移Alt+↑", "下移Alt+↓", "删除Delete"]);
@@ -110,12 +115,12 @@ describe("FilesExplorerView：右键菜单", () => {
         expect(wrapper.emitted("menu-close")).toHaveLength(1);
 
         const root = rows().find((row) => row.id === "project://");
-        expect(menuEntries(root!, ALL, "zh-CN").map((entry) => (entry.kind === "item" ? entry.key : "-"))).toEqual(["nbook.files.new-file", "nbook.files.new-folder", "-", "nbook.files.paste"]);
+        expect(menuEntries(root!, ALL, port).map((entry) => (entry.kind === "item" ? entry.key : "-"))).toEqual(["nbook.files.new-file", "nbook.files.new-folder", "-", "nbook.files.paste"]);
         // 能打开的行在最前面多“打开”“在侧边打开”；无正文的节点（alice）没有。
         const file = rows().find((row) => row.id === "project://a.md") as EntryRow;
-        expect(menuEntries(file, ALL, "zh-CN").slice(0, 3).map((entry) => (entry.kind === "item" ? `${entry.key} ${entry.shortcut ?? ""}` : "-"))).toEqual(["nbook.files.open Enter", "nbook.files.open-to-side Ctrl+Enter", "-"]);
+        expect(menuEntries(file, ALL, port).slice(0, 3).map((entry) => (entry.kind === "item" ? `${entry.key} ${entry.shortcut ?? ""}` : "-"))).toEqual(["nbook.files.open Enter", "nbook.files.open-to-side Ctrl+Enter", "-"]);
         const gone = rows().find((row) => row.id === "project://lore.content/gone") as EntryRow;
-        expect(menuEntries(gone, ALL, "zh-CN").map((entry) => (entry.kind === "item" ? entry.key : "-"))).toContain("nbook.files.drop-entry");
+        expect(menuEntries(gone, ALL, port).map((entry) => (entry.kind === "item" ? entry.key : "-"))).toContain("nbook.files.drop-entry");
     });
 
     it("别的插件贡献的项：不可用的带原因作读屏描述，勾选项画成 menuitemcheckbox；点了发出它的 key", async () => {
@@ -125,7 +130,7 @@ describe("FilesExplorerView：右键菜单", () => {
             {kind: "item" as const, key: "menu:acme.pin", label: "固定", disabled: false, reason: null, checked: true, danger: false, shortcut: null},
         ];
         const alice = rows().find((row) => row.id === "project://lore.content/alice") as EntryRow;
-        const wrapper = view({menu: {x: 10, y: 20, entries: [...menuEntries(alice, ALL, "zh-CN"), ...contributed]}});
+        const wrapper = view({menu: {x: 10, y: 20, entries: [...menuEntries(alice, ALL, port), ...contributed]}});
         await flushPromises();
         const items = [...document.querySelectorAll<HTMLElement>("[role^=menuitem]")].slice(-2);
         expect(items.map((item) => [item.textContent?.trim(), item.getAttribute("role"), item.getAttribute("aria-checked"), item.getAttribute("aria-description")])).toEqual([
@@ -138,7 +143,7 @@ describe("FilesExplorerView：右键菜单", () => {
 
     it("Tab 关闭菜单、焦点回到树；点菜单外关闭时焦点留在被点的按钮上", async () => {
         const alice = rows().find((row) => row.id === "project://lore.content/alice") as EntryRow;
-        const menu = {x: 10, y: 20, entries: menuEntries(alice, ALL, "zh-CN")};
+        const menu = {x: 10, y: 20, entries: menuEntries(alice, ALL, port)};
         // 菜单在打开（visible 变真）时聚焦首项，所以先挂上再打开。
         const wrapper = view();
         await flushPromises();

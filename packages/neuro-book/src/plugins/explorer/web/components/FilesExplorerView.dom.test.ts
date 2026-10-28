@@ -6,8 +6,12 @@
 import {mount} from "@vue/test-utils";
 import {describe, expect, it} from "vitest";
 
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
+import type {DisplayLocale} from "nbook/shared/localized-text";
+
 import type {RootState} from "../tree/model";
 import {projectRows} from "../tree/rows";
+import {explorerCatalogs} from "../text";
 import FilesExplorerView from "./FilesExplorerView.vue";
 
 const rows = (roots: RootState[]) => projectRows({roots, slots: new Map(), expanded: new Set(), showManifests: false});
@@ -17,8 +21,9 @@ const LIVE: RootState[] = [
     {scheme: "user", address: "user://", status: {kind: "live"}},
 ];
 
-function view(props: Record<string, unknown> = {}) {
-    return mount(FilesExplorerView, {props: {locale: "zh-CN", rows: rows(LIVE), selected: [], focus: null, ready: true, notice: null, problem: null, handleKey: () => "none" as const, ...props}});
+/** 界面语言由注入的翻译端口决定，属性里没有语言。 */
+function view(props: Record<string, unknown> = {}, locale: DisplayLocale = "zh-CN") {
+    return mount(FilesExplorerView, {props: {rows: rows(LIVE), selected: [], focus: null, ready: true, notice: null, problem: null, handleKey: () => "none" as const, ...props}, global: {provide: provideText(testTextPort(locale, {"nbook.explorer": explorerCatalogs}))}});
 }
 
 describe("FilesExplorerView", () => {
@@ -67,8 +72,8 @@ describe("FilesExplorerView", () => {
         expect(wrapper.get("[data-explorer-feedback] [role=status]").text()).toBe("编辑器尚未接入，不能打开 project://a.md");
         await wrapper.get("[data-explorer-feedback] button").trigger("click");
         expect(wrapper.emitted("dismiss-notice")).toHaveLength(1);
-        await wrapper.setProps({locale: "en-US", notice: {kind: "open-failed", address: "project://a.md", reason: "boom"}});
-        expect(wrapper.get("[data-explorer-feedback]").text()).toContain("Could not open project://a.md: boom");
-        expect(wrapper.get("[data-explorer-row=\"user://\"]").text()).toContain("User Assets");
+        const english = view({notice: {kind: "open-failed", address: "project://a.md", reason: "boom"}}, "en-US");
+        expect(english.get("[data-explorer-feedback]").text()).toContain("Could not open project://a.md: boom");
+        expect(english.get("[data-explorer-row=\"user://\"]").text()).toContain("User Assets");
     });
 });

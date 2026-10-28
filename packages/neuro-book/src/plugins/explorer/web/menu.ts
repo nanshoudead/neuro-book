@@ -3,12 +3,12 @@
  * 一条命令。按右键的那一行与此刻的可用性决定有哪些项、哪些禁用；根行只有合法的根级动作（新建与粘贴）。
  */
 
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import type {TextResolver} from "nbook/shared/localized-text";
 
+import {explorerText} from "../shared/text";
+import type {ExplorerTextKey} from "../shared/text";
 import {CONVERT_COMMAND, COPY_COMMAND, COPY_PATH_COMMAND, COPY_RELATIVE_PATH_COMMAND, CREATE_CONTENT_COMMAND, CUT_COMMAND, DELETE_COMMAND, DROP_ENTRY_COMMAND, INCLUDE_COMMAND, MOVE_DOWN_COMMAND, MOVE_UP_COMMAND, NEW_FILE_COMMAND, NEW_FOLDER_COMMAND, OPEN_SELECTION_COMMAND, OPEN_TO_SIDE_COMMAND, PASTE_COMMAND, RENAME_COMMAND, SET_DISPLAY_COMMAND} from "./commands";
 import type {Availability} from "./controller";
-import {explorerText} from "./messages";
-import type {ExplorerMessage} from "./messages";
 import type {Row} from "./tree/rows";
 
 export const MENU_COMMANDS = {
@@ -40,35 +40,35 @@ export type MenuEntry =
     | {readonly kind: "item"; readonly key: string; readonly label: string; readonly disabled: boolean; readonly reason: string | null; readonly checked: boolean | null; readonly danger: boolean; readonly shortcut: string | null}
     | {readonly kind: "separator"};
 
-export function menuEntries(row: Row, available: Availability, locale: DisplayLocale): MenuEntry[] {
-    const item = (command: string, label: ExplorerMessage, enabled: boolean, extra: {danger?: boolean; shortcut?: string} = {}): MenuEntry => ({kind: "item", key: command, label: explorerText(locale, label), disabled: !enabled, reason: null, checked: null, danger: extra.danger ?? false, shortcut: extra.shortcut ?? null});
+export function menuEntries(row: Row, available: Availability, text: TextResolver): MenuEntry[] {
+    const item = (command: string, label: ExplorerTextKey, enabled: boolean, extra: {danger?: boolean; shortcut?: string} = {}): MenuEntry => ({kind: "item", key: command, label: text.t(explorerText(label)), disabled: !enabled, reason: null, checked: null, danger: extra.danger ?? false, shortcut: extra.shortcut ?? null});
     const separator: MenuEntry = {kind: "separator"};
-    const create = [item(MENU_COMMANDS.newFile, "newFile", available.create), item(MENU_COMMANDS.newFolder, "newFolder", available.create)];
-    const paste = item(MENU_COMMANDS.paste, "paste", available.paste, {shortcut: "Ctrl+V"});
+    const create = [item(MENU_COMMANDS.newFile, "menu.newFile", available.create), item(MENU_COMMANDS.newFolder, "menu.newFolder", available.create)];
+    const paste = item(MENU_COMMANDS.paste, "menu.paste", available.paste, {shortcut: "Ctrl+V"});
     if (row.kind !== "entry") return [...create, separator, paste];
     // 能打开的行（文件与有正文的节点）才有“打开”“在侧边打开”；目录行没有。
-    const opening = row.opens === null ? [] : [item(MENU_COMMANDS.open, "open", true, {shortcut: "Enter"}), item(MENU_COMMANDS.openToSide, "openToSide", true, {shortcut: "Ctrl+Enter"}), separator];
+    const opening = row.opens === null ? [] : [item(MENU_COMMANDS.open, "menu.open", true, {shortcut: "Enter"}), item(MENU_COMMANDS.openToSide, "menu.openToSide", true, {shortcut: "Ctrl+Enter"}), separator];
     const entries: MenuEntry[] = [
         ...opening,
         ...create,
         separator,
-        item(MENU_COMMANDS.cut, "cut", available.cut, {shortcut: "Ctrl+X"}),
-        item(MENU_COMMANDS.copy, "copy", available.copy, {shortcut: "Ctrl+C"}),
+        item(MENU_COMMANDS.cut, "menu.cut", available.cut, {shortcut: "Ctrl+X"}),
+        item(MENU_COMMANDS.copy, "menu.copy", available.copy, {shortcut: "Ctrl+C"}),
         paste,
         separator,
         // 缺失条目在磁盘上没有，没有路径可复制。
-        ...(row.type === "missing" ? [] : [item(MENU_COMMANDS.copyPath, "copyPath", true), item(MENU_COMMANDS.copyRelativePath, "copyRelativePath", true), separator]),
-        item(MENU_COMMANDS.rename, "rename", available.rename, {shortcut: "F2"}),
+        ...(row.type === "missing" ? [] : [item(MENU_COMMANDS.copyPath, "menu.copyPath", true), item(MENU_COMMANDS.copyRelativePath, "menu.copyRelativePath", true), separator]),
+        item(MENU_COMMANDS.rename, "menu.rename", available.rename, {shortcut: "F2"}),
     ];
-    if (row.node && !row.body) entries.push(item(MENU_COMMANDS.createContent, "createContent", available.createContent));
-    if (row.type === "directory" && !row.content && !row.binder) entries.push(item(MENU_COMMANDS.convert, row.folder === "content" ? "convertToPlain" : "convertToContent", available.convert));
+    if (row.node && !row.body) entries.push(item(MENU_COMMANDS.createContent, "menu.createContent", available.createContent));
+    if (row.type === "directory" && !row.content && !row.binder) entries.push(item(MENU_COMMANDS.convert, row.folder === "content" ? "menu.convertToPlain" : "menu.convertToContent", available.convert));
     if (row.content) {
         entries.push(separator);
-        if (row.listed === false) entries.push(item(MENU_COMMANDS.include, "include", available.include));
-        else if (row.type === "missing") entries.push(item(MENU_COMMANDS.drop, "drop", available.drop));
-        else entries.push(item(MENU_COMMANDS.setDisplay, "setDisplay", available.display));
-        if (row.listed === true) entries.push(item(MENU_COMMANDS.moveUp, "moveUp", available.moveUp, {shortcut: "Alt+↑"}), item(MENU_COMMANDS.moveDown, "moveDown", available.moveDown, {shortcut: "Alt+↓"}));
+        if (row.listed === false) entries.push(item(MENU_COMMANDS.include, "menu.include", available.include));
+        else if (row.type === "missing") entries.push(item(MENU_COMMANDS.drop, "menu.drop", available.drop));
+        else entries.push(item(MENU_COMMANDS.setDisplay, "menu.setDisplay", available.display));
+        if (row.listed === true) entries.push(item(MENU_COMMANDS.moveUp, "menu.moveUp", available.moveUp, {shortcut: "Alt+↑"}), item(MENU_COMMANDS.moveDown, "menu.moveDown", available.moveDown, {shortcut: "Alt+↓"}));
     }
-    entries.push(separator, item(MENU_COMMANDS.delete, "delete", available.delete, {danger: true, shortcut: "Delete"}));
+    entries.push(separator, item(MENU_COMMANDS.delete, "menu.delete", available.delete, {danger: true, shortcut: "Delete"}));
     return entries;
 }

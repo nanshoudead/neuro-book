@@ -1,5 +1,5 @@
 ---
-标签: [state:local, env:portal]
+标签: [state:local, state:inject, env:portal]
 别名: ["资源管理器", "Explorer", "文件视图"]
 ---
 
@@ -22,7 +22,6 @@
 
 ```ts
 type Props = {
-    locale: DisplayLocale;
     rows: ReadonlyArray<Row>;
     selected: ReadonlyArray<string>;
     focus: string | null;
@@ -100,4 +99,5 @@ type Emits = {
 
 ## 隐藏通道理由
 
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，视图、对话框与结果区的文字都在本插件的目录（命名空间 `nbook.explorer`，`../../locales/`）；语言随端口切换，不重新挂载，组件没有语言属性。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。
 - `env:portal`：右键菜单、删除确认、展示名与碰撞对话框经 nb-ui 的 `ContextMenu`、`AlertDialog`、`Dialog` 渲染到 `body`，要脱离侧栏的裁剪与层叠上下文；`body` 总在。

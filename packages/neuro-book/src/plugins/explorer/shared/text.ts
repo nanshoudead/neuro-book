@@ -1,0 +1,16 @@
+/**
+ * `nbook.explorer` 的文字引用构造函数（docs/specs/ui/i18n.md 的“目录与键”）。放在 `shared/` 是因为设置声明、视图声明与
+ * 公开状态的原因这类写在声明里的文字，服务端、项目与浏览器三个位置都要登记；目录本身只在浏览器的构建里（`web/text.ts`），
+ * 这里只取它的类型核对键，不引入目录内容。
+ */
+
+import {pluginText} from "nbook/shared/plugin-text";
+import type {CatalogKey} from "nbook/shared/plugin-text";
+
+import type zhCN from "../locales/zh-CN.json";
+
+/** 本插件命名空间（插件 id `nbook.explorer`，由 `locales.test.ts` 核对）下的文字引用；键按源语言目录核对，写错编译不过。 */
+export const explorerText = pluginText<typeof zhCN>("nbook.explorer");
+
+/** 源语言目录里的键（复数形归到不带后缀的键）。 */
+export type ExplorerTextKey = CatalogKey<typeof zhCN>;

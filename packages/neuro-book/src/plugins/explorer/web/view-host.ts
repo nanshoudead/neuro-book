@@ -13,7 +13,7 @@ import type {CommandService, MenuItemRegistry} from "nbook/plugins/commands/shar
 import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
 import {OPEN_PROJECT_COMMAND} from "nbook/plugins/projects/shared/contracts";
 import type {ViewContext} from "nbook/plugins/workbench/web/contracts";
-import type {DisplayLocale, TextResolver} from "nbook/shared/localized-text";
+import type {TextResolver} from "nbook/shared/localized-text";
 
 import type {DropOver} from "./actions/drop";
 import type {CollisionChoice} from "./actions/paste-plan";
@@ -35,8 +35,7 @@ export interface ExplorerViewHostOptions {
     readonly state: Pick<PublicStateService, "read">;
     /** 别的插件经 `explorer.context` 贡献的菜单项。 */
     readonly contextMenu: MenuItemRegistry<ExplorerContextItemDeclaration>;
-    readonly locale: ComputedRef<DisplayLocale>;
-    /** 贡献的菜单项标题可能是 `TextRef`，经窗口端口解析；语言映射按 `locale` 取。 */
+    /** 菜单项与重命名错误的文字，以及贡献的菜单项标题（可能是 `TextRef`）经窗口端口解析。 */
     readonly text: TextResolver;
     /** 窗口绑定的作品的显示名，项目根显示它；没有绑定项目时为 null。 */
     readonly projectTitle: string | null;
@@ -114,13 +113,11 @@ export function createExplorerViewHost(view: Component, options: ExplorerViewHos
             onBeforeUnmount(() => session.controller.value?.cancelDrag());
             return () => {
                 const controller = session.controller.value;
-                const locale = options.locale.value;
                 const selection = controller?.selection.value;
                 const editing = controller?.editing.value ?? null;
                 const opened = menu.value;
                 const menuRow = opened === null || controller === null ? undefined : controller.rows.value.find((row) => row.id === opened.row);
                 return h(view, {
-                    locale,
                     rows: controller?.rows.value ?? [],
                     selected: selection?.selected ?? [],
                     focus: selection?.focus ?? null,
@@ -133,10 +130,10 @@ export function createExplorerViewHost(view: Component, options: ExplorerViewHos
                     editing: editing === null ? null : {
                         id: editing.mode === "create" ? creatingId(editing.creating.parent) : editing.address,
                         name: editing.name,
-                        error: editing.error === null ? null : nameErrorText(locale, editing.error),
+                        error: editing.error === null ? null : nameErrorText(options.text, editing.error),
                         busy: editing.busy,
                     },
-                    menu: opened === null || menuRow === undefined || controller === null ? null : {x: opened.x, y: opened.y, entries: [...menuEntries(menuRow, controller.available.value, locale), ...contributedEntries(menuRow, opened.targets, options)]},
+                    menu: opened === null || menuRow === undefined || controller === null ? null : {x: opened.x, y: opened.y, entries: [...menuEntries(menuRow, controller.available.value, options.text), ...contributedEntries(menuRow, opened.targets, options)]},
                     dialog: controller?.dialog.value ?? null,
                     report: controller?.report.value ?? null,
                     running: controller?.running.value ?? null,

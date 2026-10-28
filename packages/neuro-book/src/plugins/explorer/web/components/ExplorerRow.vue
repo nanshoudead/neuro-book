@@ -1,19 +1,19 @@
 <script setup lang="ts">
 /** 资源管理器的一行：根或资源，以及新建与改名的内联输入（同名 .md）。 */
 import {Input, Tooltip} from "@notnotype/nb-ui/components";
+import type {TextParams} from "@notnotype/nb-ui/text";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, onMounted, ref, watch} from "vue";
 
-import type {DisplayLocale} from "nbook/shared/localized-text";
-
 import {fileIconOf} from "../icons/file-icons";
-import {explorerText} from "../messages";
+import {explorerText} from "../../shared/text";
+import type {ExplorerTextKey} from "../../shared/text";
 import {displayLabel} from "../tree/rows";
 import type {Problem, Row} from "../tree/rows";
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 
 const props = defineProps<{
     row: Row;
-    locale: DisplayLocale;
     domId: string;
     selected: boolean;
     active: boolean;
@@ -27,6 +27,9 @@ const props = defineProps<{
     /** 要加深的那一层缩进参考线（层号同 `depth`）；默认 null。 */
     guideActive?: number | null;
 }>();
+
+const port = useText();
+const text = (key: ExplorerTextKey, params?: TextParams): string => port.t(explorerText(key, params));
 
 const emit = defineEmits<{
     (event: "press", mouse: MouseEvent, part: "twisty" | "row"): void;
@@ -82,7 +85,7 @@ const guides = computed(() => Array.from({length: Math.max(0, props.row.depth - 
 
 const label = computed(() => {
     const row = props.row;
-    if (row.kind === "root") return row.scheme === "project" ? (props.projectTitle ?? explorerText(props.locale, "projectRoot")) : explorerText(props.locale, "userRoot");
+    if (row.kind === "root") return row.scheme === "project" ? (props.projectTitle ?? text("tree.projectRoot")) : text("tree.userRoot");
     if (row.kind === "entry") return displayLabel(row, props.hideMarkdownExtension === true);
     return "";
 });
@@ -108,9 +111,9 @@ const problem = computed((): Problem | null => (props.row.kind === "root" || pro
 const problemText = computed(() => {
     const found = problem.value;
     if (found === null) return null;
-    if (found.kind === "loading") return explorerText(props.locale, "loading");
-    if (found.kind === "error") return explorerText(props.locale, "readFailedRetry", {reason: found.detail ?? found.code});
-    return explorerText(props.locale, found.code === "unreadable" ? "manifestUnreadable" : "manifestInvalid", {reason: found.detail ?? ""});
+    if (found.kind === "loading") return text("tree.loading");
+    if (found.kind === "error") return text("tree.readFailedRetry", {reason: found.detail ?? found.code});
+    return text(found.code === "unreadable" ? "tree.manifestUnreadable" : "tree.manifestInvalid", {reason: found.detail ?? ""});
 });
 
 /** 行尾的状态图标：图标与它的文字（悬停提示、可访问描述）。 */
@@ -118,19 +121,19 @@ const marks = computed((): ReadonlyArray<{readonly icon: string; readonly text: 
     const row = props.row;
     if (row.kind !== "entry") return [];
     const found: Array<{icon: string; text: string}> = [];
-    const add = (icon: string, key: "missing" | "unlisted" | "noBody" | "needsPlot" | "cutMark"): void => {
-        found.push({icon, text: explorerText(props.locale, key)});
+    const add = (icon: string, key: "tree.marks.missing" | "tree.marks.unlisted" | "tree.marks.noBody" | "tree.marks.needsPlot" | "tree.marks.cutMark"): void => {
+        found.push({icon, text: text(key)});
     };
-    if (row.type === "missing") add("i-lucide-ban", "missing");
-    if (row.listed === false) add("i-lucide-circle-dashed", "unlisted");
-    if (row.node && !row.body) add("i-lucide-file-minus", "noBody");
-    if (row.binder) add("i-lucide-puzzle", "needsPlot");
-    if (row.cut) add("i-lucide-scissors", "cutMark");
+    if (row.type === "missing") add("i-lucide-ban", "tree.marks.missing");
+    if (row.listed === false) add("i-lucide-circle-dashed", "tree.marks.unlisted");
+    if (row.node && !row.body) add("i-lucide-file-minus", "tree.marks.noBody");
+    if (row.binder) add("i-lucide-puzzle", "tree.marks.needsPlot");
+    if (row.cut) add("i-lucide-scissors", "tree.marks.cutMark");
     return found;
 });
 
 /** 根没有绑定项目时的说明仍是文字：它是分节标题的一部分，不是某个资源的状态。 */
-const rootNote = computed(() => (props.row.kind === "root" && props.row.status.kind === "unbound" ? explorerText(props.locale, "noProject") : null));
+const rootNote = computed(() => (props.row.kind === "root" && props.row.status.kind === "unbound" ? text("tree.noProject") : null));
 
 const position = computed(() => (props.row.kind === "entry" ? {posinset: props.row.position, setsize: props.row.siblings} : props.row.kind === "root" ? {posinset: props.row.scheme === "project" ? 1 : 2, setsize: 2} : null));
 
@@ -145,8 +148,8 @@ const description = computed(() => {
 /** 输入框的可访问名称：说明在给什么起名字，当前值另由输入框自己读出。 */
 const inputLabel = computed(() => {
     const row = props.row;
-    if (row.kind === "edit") return explorerText(props.locale, row.entry === "directory" ? "newFolderName" : "newFileName");
-    return row.kind === "entry" ? explorerText(props.locale, "renameLabel", {name: row.name}) : undefined;
+    if (row.kind === "edit") return text(row.entry === "directory" ? "tree.newFolderName" : "tree.newFileName");
+    return row.kind === "entry" ? text("tree.renameLabel", {name: row.name}) : undefined;
 });
 </script>
 

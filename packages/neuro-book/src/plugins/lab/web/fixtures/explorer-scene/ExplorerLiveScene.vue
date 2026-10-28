@@ -5,12 +5,13 @@
  * 偏好不读写存储（Lab 不碰产品 Storage），切场景时控制器、订阅、意图与命令表一起释放。
  */
 import {SegmentedControl} from "@notnotype/nb-ui/components";
-import {defaultTextPort} from "@notnotype/nb-ui/text-port";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, onBeforeUnmount, ref, shallowRef} from "vue";
 
+import {completeCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
+import type {CommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
-import {resolverFor} from "nbook/shared/localized-text";
 import {MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import type {Release} from "nbook/plugins/commands/shared/contracts";
 import {EXPLORER_COMMAND_DECLARATIONS, explorerCommands} from "nbook/plugins/explorer/web/commands";
@@ -21,15 +22,16 @@ import type {AttachedView, ExplorerSession} from "nbook/plugins/explorer/web/ses
 import {explorerState, explorerStateValues} from "nbook/plugins/explorer/web/state";
 import {createExplorerViewHost} from "nbook/plugins/explorer/web/view-host";
 import type {ViewContext} from "nbook/plugins/workbench/web/contracts";
-import {localize} from "nbook/shared/localized-text";
 
-import {LAB_LOCALE} from "../../lab-locale";
 import {useLabEventSink} from "../../lab-event-sink";
 import LabFixtureControls from "../../LabFixtureControls.vue";
 import {createMemoryFiles} from "./memory-files";
 import type {BatchMode} from "./memory-files";
 
 const SOURCE = "nbook.explorer";
+
+// 文字来自夹具注入的翻译端口（`explorer-text.ts`），命令、状态原因与视图用的是同一个。
+const text = useText();
 
 const record = useLabEventSink();
 const memory = createMemoryFiles({
@@ -57,7 +59,7 @@ const memory = createMemoryFiles({
 const controller = shallowRef<ExplorerController | null>(null);
 const view = shallowRef<AttachedView | null>(null);
 const values = explorerStateValues(controller);
-const keys = Object.fromEntries(Object.entries(explorerState.declarations).map(([name, declaration]) => [explorerState.key(name as keyof typeof explorerState.declarations), localize(declaration.reason, LAB_LOCALE)]));
+const keys = Object.fromEntries(Object.entries(explorerState.declarations).map(([name, declaration]) => [explorerState.key(name as keyof typeof explorerState.declarations), text.t(declaration.reason)]));
 const registry = createCommandRegistry({
     contextKeys: contextTable(keys, () => Object.fromEntries(Object.entries(values).map(([name, value]) => [explorerState.key(name as keyof typeof values), value.value]))),
     report: (error) => record("command-error", error.message),
@@ -94,11 +96,11 @@ controller.value = createExplorerController({
 });
 
 const releases: Release[] = [];
-const implementations = explorerCommands(session, () => LAB_LOCALE);
+const implementations = explorerCommands(session, text);
 for (const [id, declaration] of Object.entries(EXPLORER_COMMAND_DECLARATIONS)) {
     const run = implementations[id]?.run;
     if (run === undefined) continue;
-    const registered = registry.register({id, source: SOURCE, declaration, run: (args) => {
+    const registered = registry.register({id, source: SOURCE, declaration: completeCommandDeclaration({plugin: SOURCE, id, declaration}) as CommandDeclaration, run: (args) => {
         record("command", id);
         return run(args);
     }});
@@ -112,9 +114,8 @@ const Host = createExplorerViewHost(FilesExplorerView, {
     session,
     commands: registry,
     state: {read: () => ({status: "undeclared"})},
-    text: resolverFor(() => "zh-CN", defaultTextPort()),
+    text,
     contextMenu: new MenuItemRegistry([], scene.signal),
-    locale: computed(() => LAB_LOCALE),
     // 产品里是窗口绑定的作品的书名。
     projectTitle: "雾港",
     // 产品里来自设置；场景取缺省值。

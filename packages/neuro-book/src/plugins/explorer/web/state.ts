@@ -8,20 +8,19 @@ import type {ComputedRef, ShallowRef} from "@vue/reactivity";
 
 import {definePublicState} from "nbook/shared/store/public";
 
+import {explorerText} from "../shared/text";
 import type {Availability, ExplorerController} from "./controller";
 
-const reason = (zh: string, en: string) => ({"zh-CN": zh, "en-US": en});
-
 export const explorerState = definePublicState("nbook.explorer", {
-    ready: {type: "boolean", unready: false, reason: reason("资源管理器尚未打开", "The explorer is not open yet")},
-    canCreate: {type: "boolean", unready: false, reason: reason("没有可以新建的位置", "No place to create in")},
-    hasSelection: {type: "boolean", unready: false, reason: reason("没有选中资源", "Nothing is selected")},
-    canPaste: {type: "boolean", unready: false, reason: reason("剪贴板为空、没有可以粘贴的位置，或上一次批量的结果未知", "The clipboard is empty, there is no place to paste, or the last batch outcome is unknown")},
-    canReorder: {type: "boolean", unready: false, reason: reason("选中的项不能在清单里调整顺序", "The selection cannot be reordered")},
-    canCreateContent: {type: "boolean", unready: false, reason: reason("选中的不是没有正文的内容节点", "The selection is not a content node without content")},
-    canConvert: {type: "boolean", unready: false, reason: reason("选中的不是可以转换的文件夹", "The selection is not a folder that can be converted")},
-    canEditManifest: {type: "boolean", unready: false, reason: reason("选中的项不在内容文件夹里", "The selection is not in a content folder")},
-    showManifests: {type: "boolean", unready: false, reason: reason("清单文件没有显示", "Manifest files are hidden")},
+    ready: {type: "boolean", unready: false, reason: explorerText("state.ready.reason")},
+    canCreate: {type: "boolean", unready: false, reason: explorerText("state.canCreate.reason")},
+    hasSelection: {type: "boolean", unready: false, reason: explorerText("state.hasSelection.reason")},
+    canPaste: {type: "boolean", unready: false, reason: explorerText("state.canPaste.reason")},
+    canReorder: {type: "boolean", unready: false, reason: explorerText("state.canReorder.reason")},
+    canCreateContent: {type: "boolean", unready: false, reason: explorerText("state.canCreateContent.reason")},
+    canConvert: {type: "boolean", unready: false, reason: explorerText("state.canConvert.reason")},
+    canEditManifest: {type: "boolean", unready: false, reason: explorerText("state.canEditManifest.reason")},
+    showManifests: {type: "boolean", unready: false, reason: explorerText("state.showManifests.reason")},
 });
 
 /** 各公开键此刻的值：由控制器的选择与可用性算出；没有控制器时都为假。产品入口与 Lab 场景共用。 */

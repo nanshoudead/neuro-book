@@ -2,16 +2,17 @@
 /** 资源管理器视图的界面（同名 .md）。 */
 import {AlertDialog, Button, ContextMenu, Dialog, Checkbox, Input} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
+import type {TextParams} from "@notnotype/nb-ui/text";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, ref, watch} from "vue";
-
-import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {DropAction, DropOver} from "../actions/drop";
 import type {CollisionChoice} from "../actions/paste-plan";
 import type {BatchAction, Dialog as ExplorerDialog, KeyOutcome, Notice, OperationReport, Unknown} from "../controller";
 import {nameErrorText} from "../feedback-text";
 import type {MenuEntry} from "../menu";
-import {explorerText} from "../messages";
+import {explorerText} from "../../shared/text";
+import type {ExplorerTextKey} from "../../shared/text";
 import type {FieldProblem} from "nbook/shared/store/problem";
 import type {TreeKey} from "../tree/keys";
 import type {MotionNote} from "../tree/motion";
@@ -21,7 +22,6 @@ import ExplorerFeedback from "./ExplorerFeedback.vue";
 import ExplorerTree from "./ExplorerTree.vue";
 
 const props = defineProps<{
-    locale: DisplayLocale;
     rows: ReadonlyArray<Row>;
     selected: ReadonlyArray<string>;
     focus: string | null;
@@ -49,6 +49,9 @@ const props = defineProps<{
     /** 设置“隐藏 Markdown 扩展名”；默认 false。 */
     hideMarkdownExtension?: boolean;
 }>();
+
+const port = useText();
+const text = (key: ExplorerTextKey, params?: TextParams): string => port.t(explorerText(key, params));
 
 const emit = defineEmits<{
     (event: "row-press", id: string, modifiers: Modifiers, part: "twisty" | "row"): void;
@@ -94,8 +97,8 @@ const ended = computed(() => roots.value.flatMap((root) => (root.status.kind ===
 const problemText = computed(() => {
     const problem = props.problem;
     if (problem === null) return "";
-    const key = problem.kind === "unread" ? "prefsUnread" : problem.kind === "protected" ? "prefsProtected" : "prefsUnsaved";
-    return explorerText(props.locale, key, {reason: problem.code});
+    const key = problem.kind === "unread" ? "view.prefsUnread" : problem.kind === "protected" ? "view.prefsProtected" : "view.prefsUnsaved";
+    return text(key, {reason: problem.code});
 });
 
 const menuItems = computed((): ContextMenuItem[] => (props.menu?.entries ?? []).map((entry) => (entry.kind === "separator"
@@ -131,7 +134,7 @@ watch(() => collisionDialog.value?.source, () => {
 watch(() => collisionDialog.value === null, (closed) => {
     if (closed) collisionAll.value = false;
 });
-const collisionError = computed(() => (collisionDialog.value?.error == null ? "" : nameErrorText(props.locale, collisionDialog.value.error)));
+const collisionError = computed(() => (collisionDialog.value?.error == null ? "" : nameErrorText(port, collisionDialog.value.error)));
 
 /**
  * 菜单关闭：选择、Escape 与 Tab 让焦点回到树上（菜单项开始的内联输入或对话框随后会再拿走焦点）；外部点击时焦点已随
@@ -149,17 +152,17 @@ defineExpose({focusTree});
     <div class="grid h-full min-h-0 w-full grid-rows-[auto_minmax(0,1fr)_fit-content(40%)] text-sm" data-explorer-view>
         <div class="min-w-0">
             <div v-if="unbound" class="flex flex-wrap items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-secondary)]" data-explorer-unbound>
-                <span>{{ explorerText(locale, "noProject") }}</span>
-                <button type="button" class="nb-ui-focus-ring rounded px-1.5 py-0.5 text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" @click="emit('open-project')">{{ explorerText(locale, "openProject") }}</button>
+                <span>{{ text("tree.noProject") }}</span>
+                <button type="button" class="nb-ui-focus-ring rounded px-1.5 py-0.5 text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" @click="emit('open-project')">{{ text("view.openProject") }}</button>
             </div>
             <div v-for="root in ended" :key="root.scheme" class="flex flex-wrap items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-secondary)]" :data-explorer-ended="root.scheme" role="status">
-                <span class="min-w-0 break-words">{{ explorerText(locale, "ended", {reason: root.reason}) }}</span>
-                <button type="button" class="nb-ui-focus-ring rounded px-1.5 py-0.5 text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" @click="emit('reconnect', root.scheme)">{{ explorerText(locale, "reconnect") }}</button>
+                <span class="min-w-0 break-words">{{ text("view.ended", {reason: root.reason}) }}</span>
+                <button type="button" class="nb-ui-focus-ring rounded px-1.5 py-0.5 text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" @click="emit('reconnect', root.scheme)">{{ text("view.reconnect") }}</button>
             </div>
             <div v-if="problem !== null" class="flex flex-wrap items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-secondary)]" data-explorer-problem role="status">
                 <span class="min-w-0 break-words">{{ problemText }}</span>
-                <button v-if="problem.kind !== 'protected'" type="button" class="nb-ui-focus-ring rounded px-1.5 py-0.5 text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" @click="emit('prefs-retry')">{{ explorerText(locale, problem.kind === "unread" ? "reload" : "retry") }}</button>
-                <button v-if="problem.kind === 'unsaved'" type="button" class="nb-ui-focus-ring rounded px-1.5 py-0.5 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="emit('prefs-discard')">{{ explorerText(locale, "discard") }}</button>
+                <button v-if="problem.kind !== 'protected'" type="button" class="nb-ui-focus-ring rounded px-1.5 py-0.5 text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" @click="emit('prefs-retry')">{{ text(problem.kind === "unread" ? "view.reload" : "view.retry") }}</button>
+                <button v-if="problem.kind === 'unsaved'" type="button" class="nb-ui-focus-ring rounded px-1.5 py-0.5 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="emit('prefs-discard')">{{ text("view.discard") }}</button>
             </div>
         </div>
         <ExplorerTree
@@ -168,8 +171,7 @@ defineExpose({focusTree});
             :rows="rows"
             :selected="selected"
             :focus="focus"
-            :locale="locale"
-            :label="explorerText(locale, 'tree')"
+            :label="text('tree.label')"
             :handle-key="handleKey"
             :project-title="projectTitle ?? null"
             :indent-guides="indentGuides ?? 'hover'"
@@ -191,9 +193,8 @@ defineExpose({focusTree});
             @drag-cancel="emit('drag-cancel')"
             @drag-expand="(id) => emit('drag-expand', id)"
         />
-        <div v-else role="status" aria-busy="true" class="px-3 py-2 text-xs text-[var(--text-muted)]" data-explorer-loading>{{ explorerText(locale, "loading") }}</div>
+        <div v-else role="status" aria-busy="true" class="px-3 py-2 text-xs text-[var(--text-muted)]" data-explorer-loading>{{ text("tree.loading") }}</div>
         <ExplorerFeedback
-            :locale="locale"
             :notice="notice"
             :report="report ?? null"
             :running="running ?? null"
@@ -207,21 +208,21 @@ defineExpose({focusTree});
         <ContextMenu :visible="menu != null" :x="menu?.x ?? 0" :y="menu?.y ?? 0" :items="menuItems" @close="closeMenu" />
         <AlertDialog
             :open="deleteDialog !== null"
-            :title="explorerText(locale, 'deleteTitle', {count: deleteDialog?.items.length ?? 0})"
-            :confirm-text="explorerText(locale, 'delete')"
-            :cancel-text="explorerText(locale, 'cancel')"
+            :title="text('dialog.delete.title', {count: deleteDialog?.items.length ?? 0})"
+            :confirm-text="text('dialog.delete.confirm')"
+            :cancel-text="text('common.cancel')"
             tone="danger"
             @confirm="emit('delete-confirm')"
             @cancel="emit('dialog-close')"
             @closed="focusTree"
         >
             <template #description>
-                <p>{{ explorerText(locale, "deleteDescription") }}</p>
+                <p>{{ text("dialog.delete.description") }}</p>
                 <ul class="mt-2 max-h-[40vh] overflow-y-auto break-words text-xs" data-explorer-delete-items>
                     <li v-for="item in deleteDialog?.items ?? []" :key="item.address">{{ item.address }}</li>
                 </ul>
                 <template v-if="(deleteDialog?.unsaved.length ?? 0) > 0">
-                    <p class="mt-3 text-[var(--status-danger)]">{{ explorerText(locale, "deleteUnsaved") }}</p>
+                    <p class="mt-3 text-[var(--status-danger)]">{{ text("dialog.delete.unsaved") }}</p>
                     <ul class="mt-1 max-h-[20vh] overflow-y-auto break-words text-xs" data-explorer-delete-unsaved>
                         <li v-for="address in deleteDialog?.unsaved ?? []" :key="address">{{ address }}</li>
                     </ul>
@@ -230,63 +231,63 @@ defineExpose({focusTree});
         </AlertDialog>
         <Dialog
             :model-value="dirtyCopyDialog !== null"
-            :title="explorerText(locale, 'dirtyCopyTitle')"
+            :title="text('dialog.dirtyCopy.title')"
             size="sm"
             @request-close="emit('dirty-copy', 'cancel')"
         >
             <div class="flex flex-col gap-2 text-sm" data-explorer-dirty-copy>
-                <p>{{ explorerText(locale, dirtyCopyDialog?.saveable === false ? "dirtyCopyUnrepresentable" : "dirtyCopyBody") }}</p>
+                <p>{{ text(dirtyCopyDialog?.saveable === false ? "dialog.dirtyCopy.unrepresentable" : "dialog.dirtyCopy.body") }}</p>
                 <ul class="max-h-[30vh] overflow-y-auto break-words text-xs">
                     <li v-for="address in dirtyCopyDialog?.documents ?? []" :key="address">{{ address }}</li>
                 </ul>
             </div>
             <template #footer>
                 <div class="flex flex-wrap justify-end gap-2">
-                    <Button variant="ghost" size="sm" data-explorer-dirty-copy-cancel @click="emit('dirty-copy', 'cancel')">{{ explorerText(locale, "cancel") }}</Button>
-                    <Button variant="secondary" size="sm" data-explorer-dirty-copy-disk @click="emit('dirty-copy', 'disk')">{{ explorerText(locale, "dirtyCopyDisk") }}</Button>
-                    <Button v-if="dirtyCopyDialog?.saveable !== false" variant="primary" size="sm" data-explorer-dirty-copy-save @click="emit('dirty-copy', 'save')">{{ explorerText(locale, "dirtyCopySave") }}</Button>
+                    <Button variant="ghost" size="sm" data-explorer-dirty-copy-cancel @click="emit('dirty-copy', 'cancel')">{{ text("common.cancel") }}</Button>
+                    <Button variant="secondary" size="sm" data-explorer-dirty-copy-disk @click="emit('dirty-copy', 'disk')">{{ text("dialog.dirtyCopy.disk") }}</Button>
+                    <Button v-if="dirtyCopyDialog?.saveable !== false" variant="primary" size="sm" data-explorer-dirty-copy-save @click="emit('dirty-copy', 'save')">{{ text("dialog.dirtyCopy.save") }}</Button>
                 </div>
             </template>
         </Dialog>
         <Dialog
             :model-value="displayDialog !== null"
-            :title="explorerText(locale, 'displayTitle', {name: displayDialog?.name ?? ''})"
+            :title="text('dialog.display.title', {name: displayDialog?.name ?? ''})"
             :busy="displayDialog?.busy === true"
             :show-cancel="true"
-            :confirm-label="explorerText(locale, 'save')"
-            :cancel-label="explorerText(locale, 'cancel')"
+            :confirm-label="text('dialog.display.save')"
+            :cancel-label="text('common.cancel')"
             size="sm"
             @confirm="emit('display-commit', displayTitle, displayIcon)"
             @request-close="emit('dialog-close')"
         >
             <div class="flex flex-col gap-3 text-sm" data-explorer-display>
                 <label class="flex flex-col gap-1">
-                    <span class="text-xs text-[var(--text-secondary)]">{{ explorerText(locale, "displayName") }}</span>
+                    <span class="text-xs text-[var(--text-secondary)]">{{ text("dialog.display.name") }}</span>
                     <Input v-model="displayTitle" size="sm" data-explorer-display-title />
                 </label>
                 <label class="flex flex-col gap-1">
-                    <span class="text-xs text-[var(--text-secondary)]">{{ explorerText(locale, "displayIcon") }}</span>
+                    <span class="text-xs text-[var(--text-secondary)]">{{ text("dialog.display.icon") }}</span>
                     <Input v-model="displayIcon" size="sm" data-explorer-display-icon />
                 </label>
-                <p class="text-xs text-[var(--text-muted)]">{{ explorerText(locale, "displayHint") }}</p>
+                <p class="text-xs text-[var(--text-muted)]">{{ text("dialog.display.hint") }}</p>
             </div>
         </Dialog>
         <Dialog
             :model-value="collisionDialog !== null"
-            :title="explorerText(locale, 'collisionTitle')"
-            :cancel-label="explorerText(locale, 'collisionCancel')"
+            :title="text('dialog.collision.title')"
+            :cancel-label="text('dialog.collision.cancel')"
             size="sm"
             @request-close="emit('dialog-close')"
         >
             <form class="flex flex-col gap-3 text-sm" data-explorer-collision @submit.prevent="emit('collision', {kind: 'rename', name: collisionName}, collisionAll)">
                 <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
-                    <dt class="text-[var(--text-secondary)]">{{ explorerText(locale, "collisionSource") }}</dt>
+                    <dt class="text-[var(--text-secondary)]">{{ text("dialog.collision.source") }}</dt>
                     <dd class="break-words" data-explorer-collision-source>{{ collisionDialog?.source }}</dd>
-                    <dt class="text-[var(--text-secondary)]">{{ explorerText(locale, "collisionTarget") }}</dt>
+                    <dt class="text-[var(--text-secondary)]">{{ text("dialog.collision.target") }}</dt>
                     <dd class="break-words" data-explorer-collision-target>{{ collisionDialog?.target }}</dd>
                 </dl>
                 <label class="flex flex-col gap-1">
-                    <span class="text-xs text-[var(--text-secondary)]">{{ explorerText(locale, "collisionName") }}</span>
+                    <span class="text-xs text-[var(--text-secondary)]">{{ text("dialog.collision.name") }}</span>
                     <Input
                         v-model="collisionName"
                         size="sm"
@@ -296,13 +297,13 @@ defineExpose({focusTree});
                     />
                 </label>
                 <p v-if="collisionError" id="explorer-collision-error" role="alert" class="text-xs text-[var(--status-danger)]">{{ collisionError }}</p>
-                <Checkbox v-model="collisionAll" :label="explorerText(locale, 'collisionAll')" data-explorer-collision-all />
+                <Checkbox v-model="collisionAll" :label="text('dialog.collision.all')" data-explorer-collision-all />
             </form>
             <template #footer>
                 <div class="flex flex-wrap justify-end gap-2">
-                    <Button variant="ghost" size="sm" data-explorer-collision-cancel @click="emit('collision', {kind: 'cancel'}, false)">{{ explorerText(locale, "collisionCancel") }}</Button>
-                    <Button variant="secondary" size="sm" data-explorer-collision-skip @click="emit('collision', {kind: 'skip'}, collisionAll)">{{ explorerText(locale, "collisionSkip") }}</Button>
-                    <Button variant="primary" size="sm" data-explorer-collision-rename @click="emit('collision', {kind: 'rename', name: collisionName}, collisionAll)">{{ explorerText(locale, "collisionRename") }}</Button>
+                    <Button variant="ghost" size="sm" data-explorer-collision-cancel @click="emit('collision', {kind: 'cancel'}, false)">{{ text("dialog.collision.cancel") }}</Button>
+                    <Button variant="secondary" size="sm" data-explorer-collision-skip @click="emit('collision', {kind: 'skip'}, collisionAll)">{{ text("dialog.collision.skip") }}</Button>
+                    <Button variant="primary" size="sm" data-explorer-collision-rename @click="emit('collision', {kind: 'rename', name: collisionName}, collisionAll)">{{ text("dialog.collision.rename") }}</Button>
                 </div>
             </template>
         </Dialog>

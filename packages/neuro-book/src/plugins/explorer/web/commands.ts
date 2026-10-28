@@ -6,14 +6,13 @@
 
 import {Type} from "typebox";
 
-import type {CommandDeclaration, CommandImplementation, CommandResult} from "nbook/plugins/commands/shared/contracts";
+import type {CommandImplementation, CommandResult, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {RESOURCE_PATH_PATTERN} from "nbook/plugins/files/shared/contracts";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import type {TextResolver} from "nbook/shared/localized-text";
 
+import {explorerText} from "../shared/text";
 import type {ActionResult, ExplorerController} from "./controller";
 import {unavailableText} from "./feedback-text";
-import {explorerLocalized, explorerText} from "./messages";
-import type {ExplorerMessage} from "./messages";
 import type {ExplorerSession} from "./session";
 import {explorerState} from "./state";
 
@@ -42,13 +41,12 @@ export const OPEN_TO_SIDE_COMMAND = "nbook.files.open-to-side";
 export const COPY_PATH_COMMAND = "nbook.files.copy-path";
 export const COPY_RELATIVE_PATH_COMMAND = "nbook.files.copy-relative-path";
 
-const CATEGORY = {"zh-CN": "文件", "en-US": "Files"};
+const CATEGORY = explorerText("commands.category");
 const NO_ARGS = Type.Object({}, {additionalProperties: false});
 const requires = (...names: ReadonlyArray<keyof typeof explorerState.declarations & string>) => ({requires: names.map((name) => explorerState.key(name))});
 
-/** 作用于选择的命令：参数为空，Agent 不可调用。 */
-const onSelection = (title: ExplorerMessage, description: string, effect: "read" | "write", when: ReadonlyArray<keyof typeof explorerState.declarations & string>, destructive = false): CommandDeclaration => ({
-    title: explorerLocalized(title),
+/** 作用于选择的命令：参数为空，Agent 不可调用。标题省略，登记时补成约定键 `commands.<命令 id>.title`（`locales/`）。 */
+const onSelection = (description: string, effect: "read" | "write", when: ReadonlyArray<keyof typeof explorerState.declarations & string>, destructive = false): WrittenCommandDeclaration => ({
     category: CATEGORY,
     description,
     args: NO_ARGS,
@@ -58,30 +56,29 @@ const onSelection = (title: ExplorerMessage, description: string, effect: "read"
 });
 
 export const EXPLORER_COMMAND_DECLARATIONS = {
-    [NEW_FILE_COMMAND]: onSelection("newFile", "Start creating an empty file in the explorer's target folder; the user types the name inline.", "write", ["ready", "canCreate"]),
-    [NEW_FOLDER_COMMAND]: onSelection("newFolder", "Start creating a folder in the explorer's target folder; the user types the name inline.", "write", ["ready", "canCreate"]),
-    [COLLAPSE_ALL_COMMAND]: onSelection("collapseAll", "Collapse every folder in this window's explorer except the roots.", "read", ["ready"]),
-    [TOGGLE_MANIFESTS_COMMAND]: onSelection("showManifests", "Show or hide manifest files (content.xml) in this window's explorer. Only changes the display preference.", "write", ["ready"]),
-    [RENAME_COMMAND]: onSelection("rename", "Rename the selected file or folder inline; the source identity is frozen when renaming starts.", "write", ["ready", "hasSelection"]),
-    [DELETE_COMMAND]: onSelection("delete", "Delete the selected files and folders after the user confirms; cannot be undone.", "write", ["ready", "hasSelection"], true),
-    [CREATE_CONTENT_COMMAND]: onSelection("createContent", "Create an empty index.md for the selected content node that has none.", "write", ["ready", "canCreateContent"]),
-    [CONVERT_COMMAND]: onSelection("convert", "Convert the selected folder between a plain folder and a content folder.", "write", ["ready", "canConvert"]),
-    [SET_DISPLAY_COMMAND]: onSelection("setDisplay", "Edit the display name and icon of the selected item in its content folder's manifest.", "write", ["ready", "canEditManifest"]),
-    [INCLUDE_COMMAND]: onSelection("include", "Add the selected unlisted item to its content folder's manifest.", "write", ["ready", "canEditManifest"]),
-    [DROP_ENTRY_COMMAND]: onSelection("drop", "Remove the selected missing entry from its content folder's manifest.", "write", ["ready", "canEditManifest"]),
-    [MOVE_UP_COMMAND]: onSelection("moveUp", "Move the selected items up by one in their content folder's manifest order.", "write", ["ready", "canReorder"]),
-    [MOVE_DOWN_COMMAND]: onSelection("moveDown", "Move the selected items down by one in their content folder's manifest order.", "write", ["ready", "canReorder"]),
-    [COPY_COMMAND]: onSelection("copy", "Put the selected files and folders on this window's file clipboard for copying; their identity is frozen now.", "read", ["ready", "hasSelection"]),
-    [CUT_COMMAND]: onSelection("cut", "Put the selected files and folders on this window's file clipboard for moving; their identity is frozen now.", "read", ["ready", "hasSelection"]),
-    [PASTE_COMMAND]: onSelection("paste", "Copy or move the clipboard items into the explorer's target folder, asking about name collisions.", "write", ["ready", "canPaste"]),
-    [CLEAR_CUT_COMMAND]: onSelection("clearCut", "Clear the cut items from this window's file clipboard.", "read", ["ready"]),
-    [RETRY_LIST_COMMAND]: onSelection("retry", "List again the focused folder whose listing failed.", "read", ["ready"]),
-    [OPEN_SELECTION_COMMAND]: onSelection("open", "Open the selected files (and content nodes with a body) as permanent tabs in the active editor group.", "read", ["ready", "hasSelection"]),
-    [OPEN_TO_SIDE_COMMAND]: onSelection("openToSide", "Open the selected files in the editor group to the right of the active one, splitting right when there is none.", "read", ["ready", "hasSelection"]),
-    [COPY_PATH_COMMAND]: onSelection("copyPath", "Copy the absolute paths (on the server machine) of the selected items to the system clipboard, one per line.", "read", ["ready", "hasSelection"]),
-    [COPY_RELATIVE_PATH_COMMAND]: onSelection("copyRelativePath", "Copy the paths of the selected items relative to their root to the system clipboard, one per line.", "read", ["ready", "hasSelection"]),
+    [NEW_FILE_COMMAND]: onSelection("Start creating an empty file in the explorer's target folder; the user types the name inline.", "write", ["ready", "canCreate"]),
+    [NEW_FOLDER_COMMAND]: onSelection("Start creating a folder in the explorer's target folder; the user types the name inline.", "write", ["ready", "canCreate"]),
+    [COLLAPSE_ALL_COMMAND]: onSelection("Collapse every folder in this window's explorer except the roots.", "read", ["ready"]),
+    [TOGGLE_MANIFESTS_COMMAND]: onSelection("Show or hide manifest files (content.xml) in this window's explorer. Only changes the display preference.", "write", ["ready"]),
+    [RENAME_COMMAND]: onSelection("Rename the selected file or folder inline; the source identity is frozen when renaming starts.", "write", ["ready", "hasSelection"]),
+    [DELETE_COMMAND]: onSelection("Delete the selected files and folders after the user confirms; cannot be undone.", "write", ["ready", "hasSelection"], true),
+    [CREATE_CONTENT_COMMAND]: onSelection("Create an empty index.md for the selected content node that has none.", "write", ["ready", "canCreateContent"]),
+    [CONVERT_COMMAND]: onSelection("Convert the selected folder between a plain folder and a content folder.", "write", ["ready", "canConvert"]),
+    [SET_DISPLAY_COMMAND]: onSelection("Edit the display name and icon of the selected item in its content folder's manifest.", "write", ["ready", "canEditManifest"]),
+    [INCLUDE_COMMAND]: onSelection("Add the selected unlisted item to its content folder's manifest.", "write", ["ready", "canEditManifest"]),
+    [DROP_ENTRY_COMMAND]: onSelection("Remove the selected missing entry from its content folder's manifest.", "write", ["ready", "canEditManifest"]),
+    [MOVE_UP_COMMAND]: onSelection("Move the selected items up by one in their content folder's manifest order.", "write", ["ready", "canReorder"]),
+    [MOVE_DOWN_COMMAND]: onSelection("Move the selected items down by one in their content folder's manifest order.", "write", ["ready", "canReorder"]),
+    [COPY_COMMAND]: onSelection("Put the selected files and folders on this window's file clipboard for copying; their identity is frozen now.", "read", ["ready", "hasSelection"]),
+    [CUT_COMMAND]: onSelection("Put the selected files and folders on this window's file clipboard for moving; their identity is frozen now.", "read", ["ready", "hasSelection"]),
+    [PASTE_COMMAND]: onSelection("Copy or move the clipboard items into the explorer's target folder, asking about name collisions.", "write", ["ready", "canPaste"]),
+    [CLEAR_CUT_COMMAND]: onSelection("Clear the cut items from this window's file clipboard.", "read", ["ready"]),
+    [RETRY_LIST_COMMAND]: onSelection("List again the focused folder whose listing failed.", "read", ["ready"]),
+    [OPEN_SELECTION_COMMAND]: onSelection("Open the selected files (and content nodes with a body) as permanent tabs in the active editor group.", "read", ["ready", "hasSelection"]),
+    [OPEN_TO_SIDE_COMMAND]: onSelection("Open the selected files in the editor group to the right of the active one, splitting right when there is none.", "read", ["ready", "hasSelection"]),
+    [COPY_PATH_COMMAND]: onSelection("Copy the absolute paths (on the server machine) of the selected items to the system clipboard, one per line.", "read", ["ready", "hasSelection"]),
+    [COPY_RELATIVE_PATH_COMMAND]: onSelection("Copy the paths of the selected items relative to their root to the system clipboard, one per line.", "read", ["ready", "hasSelection"]),
     [REFRESH_FILES_COMMAND]: {
-        title: explorerLocalized("refresh"),
         category: CATEGORY,
         description: "Re-list every loaded folder of the explorer view instance given by viewId and generation.",
         args: Type.Object({viewId: Type.String(), generation: Type.Integer({minimum: 1})}, {additionalProperties: false}),
@@ -92,7 +89,6 @@ export const EXPLORER_COMMAND_DECLARATIONS = {
     },
     // 欢迎页的快捷入口用它揭示文件夹（docs/specs/workbench/files-explorer.md 的“打开作品时揭示活动文件”同一套揭示）。
     [REVEAL_COMMAND]: {
-        title: explorerLocalized("reveal"),
         category: CATEGORY,
         description: "Reveal a resource in this window's explorer: expand its parent folders, then select it and scroll it into view; with expand, also expand the folder itself.",
         args: Type.Object({address: Type.String({pattern: `^(?:project|user)://${RESOURCE_PATH_PATTERN.slice(1)}`}), expand: Type.Optional(Type.Boolean())}, {additionalProperties: false}),
@@ -100,20 +96,20 @@ export const EXPLORER_COMMAND_DECLARATIONS = {
         expose: {human: false, agent: "auto"},
         when: requires("ready"),
     },
-} as const satisfies Readonly<Record<string, CommandDeclaration>>;
+} as const satisfies Readonly<Record<string, WrittenCommandDeclaration>>;
 
 /** 需要界面输入（内联输入或确认框）的命令：视图要挂着且可见。 */
 const NEEDS_VIEW = new Set<string>([NEW_FILE_COMMAND, NEW_FOLDER_COMMAND, RENAME_COMMAND, DELETE_COMMAND, SET_DISPLAY_COMMAND, PASTE_COMMAND]);
 
-export function explorerCommands(session: ExplorerSession, locale: () => DisplayLocale): Record<string, CommandImplementation> {
+export function explorerCommands(session: ExplorerSession, text: TextResolver): Record<string, CommandImplementation> {
     const unavailable = (reason: string): CommandResult<unknown> => ({ok: false, code: "unavailable", reason});
     const action = (id: string, run: (controller: ExplorerController) => ActionResult | Promise<ActionResult>): CommandImplementation => ({
         run: async () => {
             const controller = session.controller.value;
-            if (controller === null) return unavailable(explorerText(locale(), "notReady"));
-            if (NEEDS_VIEW.has(id) && session.view.value?.visible.value !== true) return unavailable(explorerText(locale(), "notVisible"));
+            if (controller === null) return unavailable(text.t(explorerText("unavailable.notReady")));
+            if (NEEDS_VIEW.has(id) && session.view.value?.visible.value !== true) return unavailable(text.t(explorerText("unavailable.notVisible")));
             const result = await run(controller);
-            return result.ok ? {ok: true, value: null} : unavailable(unavailableText(locale(), result.reason));
+            return result.ok ? {ok: true, value: null} : unavailable(unavailableText(text, result.reason));
         },
     });
     const done: ActionResult = {ok: true};
@@ -157,7 +153,7 @@ export function explorerCommands(session: ExplorerSession, locale: () => Display
             run: (args) => {
                 const {address, expand} = args as {address: string; expand?: boolean};
                 const controller = session.controller.value;
-                if (controller === null) return unavailable(explorerText(locale(), "notReady"));
+                if (controller === null) return unavailable(text.t(explorerText("unavailable.notReady")));
                 controller.reveal(address);
                 if (expand === true) controller.model.expand(address);
                 return {ok: true, value: null};
@@ -168,8 +164,8 @@ export function explorerCommands(session: ExplorerSession, locale: () => Display
                 const {viewId, generation} = args as {viewId: string; generation: number};
                 const controller = session.controller.value;
                 const view = session.view.value;
-                if (controller === null) return unavailable(explorerText(locale(), "notReady"));
-                if (view === null || view.id !== viewId || view.generation !== generation) return {ok: false, code: "stale-target", reason: explorerText(locale(), "staleView")};
+                if (controller === null) return unavailable(text.t(explorerText("unavailable.notReady")));
+                if (view === null || view.id !== viewId || view.generation !== generation) return {ok: false, code: "stale-target", reason: text.t(explorerText("unavailable.staleView"))};
                 controller.model.refresh();
                 return {ok: true, value: null};
             },
