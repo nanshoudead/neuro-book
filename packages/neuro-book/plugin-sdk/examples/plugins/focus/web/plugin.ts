@@ -20,11 +20,14 @@ import {cancelCommand, plugin, sessionsContract, startCommand, toggleCommand} fr
 import type {FocusSource} from "../shared/contracts";
 import {createFocusStore, formatRemaining} from "./focus-store";
 
-/** 侧栏视图。侧栏默认宽约 240px：内容按窄宽写，`minimumSize` 给按钮与倒计时留出一行的宽度。 */
-const panel = view(plugin, {name: "panel", title: {"zh-CN": "专注计时", "en-US": "Focus timer"}, icon: "i-lucide-timer", minimumSize: {width: 200}, load: () => import("./FocusPanel.vue")});
+/**
+ * 侧栏视图。侧栏默认宽约 240px：内容按窄宽写，`minimumSize` 给按钮与倒计时留出一行的宽度。`title` 不写，约定键
+ * `views.panel.title`；下面状态栏条目的是 `statusItems.status.title`（读法见 `../shared/contracts.ts` 的 `text`）。
+ */
+const panel = view(plugin, {name: "panel", icon: "i-lucide-timer", minimumSize: {width: 200}, load: () => import("./FocusPanel.vue")});
 
 /** 状态栏条目：点一下开始或放弃（挂“切换”命令）；靠右是缺省，`order` 排在内置条目之间。 */
-const status = statusItem(plugin, {name: "status", title: {"zh-CN": "专注计时", "en-US": "Focus timer"}, order: 100, command: toggleCommand});
+const status = statusItem(plugin, {name: "status", order: 100, command: toggleCommand});
 
 export const FOCUS_VIEW = panel.id;
 export const FOCUS_ITEM = status.id;

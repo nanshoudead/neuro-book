@@ -35,16 +35,28 @@ import {settingsTestText} from "nbook/plugins/settings/testing/text";
 import type {SettingsWorld} from "nbook/plugins/settings/testing/world";
 import {settingsCatalogs} from "nbook/plugins/settings/web/text";
 import type {SettingLayer, SettingsService} from "nbook/shared/settings";
-import {provideText, testTextPort} from "nbook/shared/testing/text-port";
+import {provideText} from "nbook/shared/testing/text-port";
+import {createHostTextEngine} from "nbook/web/host/text-engine";
 
+import enUS from "../locales/en-US.json";
+import zhCN from "../locales/zh-CN.json";
 import {descriptor} from "../plugin";
-import {itemsSetting, SNIPPETS_SECTION} from "../shared/contracts";
+import {itemsSetting, plugin, SNIPPETS_SECTION} from "../shared/contracts";
 import type {Snippet} from "../shared/contracts";
 import SnippetsPage from "./SnippetsPage.vue";
 
-/** 设置行的固定文字取自 `nbook.settings` 的目录（经测试端口），断言也经目录解析。 */
-const port = testTextPort("zh-CN", {"nbook.settings": settingsCatalogs});
+/**
+ * 页面的文字取自插件自己的目录（`../locales/`），设置行的固定文字取自 `nbook.settings` 的目录，两份都登记进宿主的翻译引擎，
+ * 像窗口那样注入（严格模式：缺键抛错）。设置行的断言经目录解析。
+ */
 const {t} = settingsTestText("zh-CN");
+
+function textEngine() {
+    const engine = createHostTextEngine({locale: "zh-CN", strict: true});
+    engine.register("nbook.settings", settingsCatalogs.catalogs, settingsCatalogs.source);
+    engine.register(plugin.id, {"zh-CN": zhCN, "en-US": enUS}, "zh-CN");
+    return engine;
+}
 
 let tmp = "";
 let cases = 0;
@@ -94,14 +106,15 @@ async function openPage() {
     await world.window("w1", [definitionAt("browser", descriptor, snippets)], {bound: true});
     if (probe.settings === null) throw new Error("探针入口没有拿到配置服务");
     const layer = ref<SettingLayer>("user");
+    const engine = textEngine();
     const wrapper = mount(SnippetsPage, {
         props: {context: {id: SNIPPETS_SECTION, layer: readonly(layer), projectTitle: readonly(ref("book")), options: {}, writable: readonly(ref(true)), dirty: () => undefined}, settings: probe.settings},
-        global: {provide: provideText(port)},
+        global: {provide: provideText(engine.port)},
         attachTo: document.body,
     });
     mounted.push(wrapper);
     await flushPromises();
-    return {world, wrapper, layer};
+    return {world, wrapper, layer, engine};
 }
 
 /** 文件里这一层的片段名；没写这个键为 null。文件在第一次写入时才建，还不存在时按空对象读。 */
@@ -115,8 +128,8 @@ async function namesIn(file: string): Promise<string[] | null> {
 }
 
 describe("片段设置页", () => {
-    it("“用户”标签：添加、下移、改名写进用户层；名字为空被拒，状态行写出原因，输入框回到文件里的值", async () => {
-        const {world, wrapper} = await openPage();
+    it("“用户”标签：添加、下移、改名写进用户层；名字为空被拒，状态行写出原因，输入框回到文件里的值；切换界面语言后状态行与按钮换成英文", async () => {
+        const {world, wrapper, engine} = await openPage();
         // 用户层还没写：显示默认的三条，能编辑。
         expect(wrapper.findAll("[data-snippet]")).toHaveLength(3);
 
@@ -138,9 +151,16 @@ describe("片段设置页", () => {
         await name.setValue("");
         await name.trigger("focusout");
         await waitUntil("状态行写出原因", () => wrapper.find("[data-snippets-problem]").exists());
-        expect(wrapper.find("[data-snippets-problem]").text()).toContain("invalid-value");
+        expect(wrapper.find("[data-snippets-problem]").text()).toContain("没有保存（invalid-value）");
         expect(wrapper.find<HTMLInputElement>("[data-snippet='3'] input").element.value).toBe("落款");
         expect((await namesIn(world.userFile))?.[3]).toBe("落款");
+
+        // 页面存的是失败本身，句子在显示时按当前语言拼（`SnippetsPage.vue` 的 `problem`）：还没清掉的提示也跟着换语言。
+        engine.setLocale("en-US");
+        await flushPromises();
+        expect(wrapper.find("[data-snippets-problem]").text()).toContain("Not saved (invalid-value)");
+        expect(wrapper.find("[data-snippets-editor] > button").text()).toBe("Add Snippet");
+        expect(wrapper.find("[data-snippet='0'] button[aria-label='Move Down']").exists()).toBe(true);
     });
 
     it("“本作品”标签：沿用时编辑器照常可用；第一次删除把删好的整份列表写进本作品层，用户层不变；移除后本作品层清空，回到沿用", async () => {

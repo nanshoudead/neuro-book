@@ -85,7 +85,7 @@ describe("构建示例 snippets", () => {
     it("清单由代码定义生成并通过校验；只有浏览器入口；样式包进 @layer components、带上分区与按钮的图标", async () => {
         const out = join(tmp, "snippets");
         const result = await buildExample("snippets", out);
-        expect(result.files).toEqual(["browser.js", "browser.js.map", "package.json", "style.css"]);
+        expect(result.files).toEqual(["browser.js", "browser.js.map", "locales/en-US.json", "locales/zh-CN.json", "package.json", "style.css"]);
         const manifest = JSON.parse(await readFile(join(out, "package.json"), "utf8")) as Record<string, unknown>;
         const read = manifestFormat.read(manifest);
         if (read.status !== "valid") throw new Error(JSON.stringify(read.problems));

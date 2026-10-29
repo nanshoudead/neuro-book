@@ -111,6 +111,19 @@ describe("消息目录检查", () => {
         ]);
     });
 
+    it("作者目录的 package.json 只写 l10n.source：按 locales/ 里的文件查；l10n 写错形状报一条", async () => {
+        const root = await repositoryWith({
+            "packages/author/package.json": {name: "author", l10n: {source: "zh-CN"}},
+            "packages/author/locales/zh-CN.json": GOOD["zh-CN"],
+            "packages/author/locales/en-US.json": {...GOOD["en-US"], extra: "x"},
+            "packages/broken/package.json": {name: "broken", l10n: {locales: "zh-CN"}},
+        });
+        expect(messageCatalogFailures(root, [])).toEqual([
+            "packages/broken/package.json：l10n 要写 source；写了 locales 时要是语言标签的数组",
+            "packages/author/locales/en-US.json：多余的键 extra（源语言 zh-CN 没有）",
+        ]);
+    });
+
     it("登记的不经清单的目录按登记的源语言查；登记了但仓库里没有的目录不查", async () => {
         const root = await repositoryWith({"packages/app/src/web/locales/zh-CN.json": GOOD["zh-CN"], "packages/app/src/web/locales/en-US.json": {...GOOD["en-US"], extra: "x"}});
         expect(messageCatalogFailures(root, [{path: "packages/app/src/web/locales", source: "zh-CN"}, {path: "packages/missing/locales", source: "zh-CN"}])).toEqual([

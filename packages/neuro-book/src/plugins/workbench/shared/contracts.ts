@@ -93,15 +93,16 @@ export const quickPickKey: ServiceKey<QuickPick> = defineServiceKey<QuickPick>("
 export type NotificationTone = "info" | "success" | "warning" | "error";
 
 /**
- * 一条通知（docs/specs/workbench/notifications.md）。文字已按当前语言写好，由发出方负责；标题说发生了什么，
- * 正文说原因与现在显示的是什么，动作说能做什么。
+ * 一条通知（docs/specs/workbench/notifications.md）。标题说发生了什么，正文说原因与现在显示的是什么，动作说能做什么。
+ * 文字是文字值（`DisplayText`）：交文字引用或语言映射，视口显示时才按当前语言翻，切换语言后已显示的通知随之换文字；
+ * 字符串原样显示。不要先折成字符串再交进来。
  */
 export interface NotificationInput {
     readonly tone?: NotificationTone;
-    readonly title?: string;
-    readonly message: string;
+    readonly title?: DisplayText;
+    readonly message: DisplayText;
     /** 动作按钮；点了之后通知移除。 */
-    readonly action?: {readonly label: string; readonly run: () => void};
+    readonly action?: {readonly label: DisplayText; readonly run: () => void};
     /** 进度（0 到 100）；null 为不确定进度；不给就没有进度条。 */
     readonly progress?: number | null;
     /** 常驻：不自动消失。缺省 error 色调与带动作的通知常驻，其余按色调自动消失。 */

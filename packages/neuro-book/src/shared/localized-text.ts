@@ -31,20 +31,9 @@ export type DisplayText = Text;
 /** 把声明里的 `Text` 解析成当前语言字符串；纯 TS 函数收它，不收语言标签（`TextRef` 要查窗口的目录）。 */
 export type TextResolver = Pick<TextPort, "t" | "variants">;
 
-/** 按 `ui/i18n.md` 输出 2 的规则取一份：当前语言，再 en-US，再第一项。 */
-export function localize(text: LocaleMap, locale: DisplayLocale): string {
-    return resolveLocaleMap(text, locale);
-}
-
 /** 只含字符串与语言映射的文字（代码里写死的那种）按语言取一份；可能含 `TextRef` 的声明文字用 `TextResolver.t`。 */
 export function textOf(text: string | LocaleMap, locale: DisplayLocale): string {
     return typeof text === "string" ? text : resolveLocaleMap(text, locale);
-}
-
-/** 两种语言各代入一次 `{name}` 占位。 */
-export function formatText(template: LocalizedText, params: Readonly<Record<string, string | number>>): LocalizedText {
-    const fill = (text: string): string => text.replace(/\{(\w+)\}/gu, (placeholder, name: string) => (name in params ? String(params[name]) : placeholder));
-    return {"zh-CN": fill(template["zh-CN"]), "en-US": fill(template["en-US"])};
 }
 
 /**

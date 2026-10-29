@@ -22,5 +22,6 @@ NeuroBook 插件 `__ID__`：在侧栏放一个视图，显示设置里的问候�
 | `shared/contracts.ts` | `definePlugin`（插件 id、版本、运行位置）、设置分区与设置项 |
 | `web/plugin.ts` | 浏览器入口：视图与命令 |
 | `web/HelloView.vue` | 视图组件 |
+| `locales/<语言>.json` | 界面文字的消息目录：`zh-CN` 是源语言，声明里省略的标题与组件里的文字都在这里 |
 
 怎样写入口、画界面、调试与发布，见 SDK 包里的 README（`node_modules/@notnotype/nb-plugin-sdk/README.md`）。

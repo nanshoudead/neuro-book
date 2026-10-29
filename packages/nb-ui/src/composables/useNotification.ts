@@ -1,16 +1,22 @@
 import {shallowRef} from "vue";
 import type {ShallowRef} from "vue";
 
+import type {Text} from "../text";
+
 export type NotificationTone = "success" | "warning" | "info" | "error";
 
+/**
+ * 通知里的文字是文字值（docs/specs/ui/i18n.md）：队列原样存着，视口渲染时经翻译端口翻成当前语言，切换语言后已显示的
+ * 通知跟着换文字。不要先折成字符串再交进来。
+ */
 export type NotificationAction = {
-    label: string;
+    label: Text;
     run: () => void;
 };
 
 export type NotificationInput = {
-    message: string;
-    title?: string;
+    message: Text;
+    title?: Text;
     tone?: NotificationTone;
     action?: NotificationAction;
     /** 自动关闭的毫秒数；0 为常驻（只能手动关闭或由发出方移除）。缺省按色调取：info、success 3200，warning 4200，error 5200。 */
@@ -42,10 +48,10 @@ export interface NotificationQueue {
     pause(id: string): void;
     /** 恢复自动关闭：按剩余时长重新计时（至少留 800ms 反应时间）；常驻的不计时。 */
     resume(id: string): void;
-    success(message: string, options?: Omit<NotificationInput, "message" | "tone">): string;
-    warning(message: string, options?: Omit<NotificationInput, "message" | "tone">): string;
-    error(message: string, options?: Omit<NotificationInput, "message" | "tone">): string;
-    info(message: string, options?: Omit<NotificationInput, "message" | "tone">): string;
+    success(message: Text, options?: Omit<NotificationInput, "message" | "tone">): string;
+    warning(message: Text, options?: Omit<NotificationInput, "message" | "tone">): string;
+    error(message: Text, options?: Omit<NotificationInput, "message" | "tone">): string;
+    info(message: Text, options?: Omit<NotificationInput, "message" | "tone">): string;
 }
 
 /** 各色调的缺省自动关闭时长（毫秒）。 */

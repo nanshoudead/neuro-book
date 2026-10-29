@@ -230,7 +230,7 @@ async function world(initial: ShelfItem[], options: {readonly failShelf?: Script
 
     const text = testTextPort("zh-CN", {"nbook.projects": projectsCatalogs});
     const reports: string[] = [];
-    const notifications = createNotifications((message) => reports.push(message));
+    const notifications = createNotifications((message) => reports.push(message), text);
     closers.push(async () => notifications.dispose());
     const navigations: string[] = [];
     const covers: Array<{readonly id: string; readonly name: string | null}> = [];
@@ -285,7 +285,8 @@ async function world(initial: ShelfItem[], options: {readonly failShelf?: Script
         barrier: async () => {
             expect((await remote.list({})).ok).toBe(true);
         },
-        notices: () => notifications.queue.notifications.value.map((notice) => notice.title ?? notice.message),
+        // 队列里是文字值，通知栈显示时才翻（docs/specs/workbench/notifications.md 输出 9）；这里按同一个端口翻。
+        notices: () => notifications.queue.notifications.value.map((notice) => text.t(notice.title ?? notice.message)),
     };
     return result;
 }

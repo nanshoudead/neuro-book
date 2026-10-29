@@ -2,7 +2,9 @@
     "name": "counter",
     "publisher": "example",
     "version": "0.1.0",
-    "description": "计数器：服务端与项目实例各有一个入口，演示远程服务、插件状态、公开键与命令",
     "private": true,
-    "type": "module"
+    "type": "module",
+    "l10n": {
+        "source": "zh-CN"
+    }
 }

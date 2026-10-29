@@ -37,10 +37,22 @@ import {definePlugin} from "nbook/sdk/plugin";
 import {setting} from "nbook/sdk/settings-helpers";
 import {serverPluginDefinitions} from "nbook/server/plugins";
 import {catalogKeyProblems} from "nbook/shared/convention-keys";
+import type {PluginCatalogs} from "nbook/shared/convention-keys";
 import {completeSettingDeclaration, defineSetting} from "nbook/shared/settings";
 import type {SettingsService} from "nbook/shared/settings";
 import {developmentBrowserPluginDefinitions} from "nbook/web/development-plugins";
 import {browserPluginDefinitions, builtinPluginCatalogs} from "nbook/web/plugins";
+
+import {counterBackendPlugin} from "../plugin-sdk/examples/plugins/counter/backend/plugin";
+import counterZh from "../plugin-sdk/examples/plugins/counter/locales/zh-CN.json";
+import {descriptor as counterDescriptor} from "../plugin-sdk/examples/plugins/counter/plugin";
+import {focusBackendPlugin} from "../plugin-sdk/examples/plugins/focus/backend/plugin";
+import focusZh from "../plugin-sdk/examples/plugins/focus/locales/zh-CN.json";
+import {descriptor as focusDescriptor} from "../plugin-sdk/examples/plugins/focus/plugin";
+import {focusBrowserPlugin} from "../plugin-sdk/examples/plugins/focus/web/plugin";
+import snippetsZh from "../plugin-sdk/examples/plugins/snippets/locales/zh-CN.json";
+import {descriptor as snippetsDescriptor} from "../plugin-sdk/examples/plugins/snippets/plugin";
+import {snippetsBrowserPlugin} from "../plugin-sdk/examples/plugins/snippets/web/plugin";
 
 const ref = (ns: string, key: string) => ({kind: "text", ns, key});
 
@@ -187,6 +199,14 @@ describe("声明测试", () => {
         // 收集本身没有漏掉定义表：几个插件的贡献点都在。
         expect(definitions.flatMap((definition) => (definition.contributionPoints ?? []).map((point) => point.id))).toEqual(expect.arrayContaining([COMMANDS_POINT, "settings.properties", viewsPoint.id, statusbarItemsPoint.id]));
         expect(catalogKeyProblems(definitions, builtinPluginCatalogs)).toEqual([]);
+    });
+
+    it("带目录的示例插件：声明补出的键与显式写的键都在示例自己的源语言目录里", () => {
+        // 示例按第三方插件写，目录随产物走、不在 builtinPluginCatalogs 里；贡献点的拥有者仍是内置插件。
+        const catalog = (zhCN: unknown): PluginCatalogs => ({source: "zh-CN", catalogs: {"zh-CN": zhCN as PluginCatalogs["catalogs"][string]}});
+        const examples: PluginDefinition[] = [counterBackendPlugin, focusBackendPlugin, focusBrowserPlugin, snippetsBrowserPlugin, ...[counterDescriptor, focusDescriptor, snippetsDescriptor].map((descriptor): PluginDefinition => ({id: descriptor.id, entries: [], contributions: descriptor.contributions ?? []}))];
+        const catalogs = {...builtinPluginCatalogs, "example.counter": catalog(counterZh), "example.focus": catalog(focusZh), "example.snippets": catalog(snippetsZh)};
+        expect(catalogKeyProblems([...builtinDefinitions(), ...examples], catalogs)).toEqual([]);
     });
 
     it("缺键、缺目录时逐条报告；复数键认 `_other`", () => {

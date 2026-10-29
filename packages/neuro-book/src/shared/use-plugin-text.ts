@@ -7,20 +7,20 @@
  */
 
 import {useText} from "@notnotype/nb-ui/text-port";
-import type {TextParams} from "@notnotype/nb-ui/text";
+import type {Catalog, TextParams} from "@notnotype/nb-ui/text";
 
 import type {TextResolver} from "./localized-text";
 import {pluginText} from "./plugin-text";
 import type {CatalogKey} from "./plugin-text";
 
-export type BoundText<Source> = (key: CatalogKey<Source>, params?: TextParams) => string;
+export type BoundText<Source = Catalog> = (key: CatalogKey<Source>, params?: TextParams) => string;
 
-/** 在 `setup` 里调用。 */
-export function usePluginText<Source>(ns: string): BoundText<Source> {
+/** 在 `setup` 里调用。不写 `Source` 时键不核对。 */
+export function usePluginText<Source = Catalog>(ns: string): BoundText<Source> {
     return boundText<Source>(useText(), ns);
 }
 
-export function boundText<Source>(resolver: TextResolver, ns: string): BoundText<Source> {
+export function boundText<Source = Catalog>(resolver: TextResolver, ns: string): BoundText<Source> {
     const reference = pluginText<Source>(ns);
     return (key, params) => resolver.t(reference(key, params));
 }

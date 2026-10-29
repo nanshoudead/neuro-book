@@ -2,7 +2,9 @@
     "name": "snippets",
     "publisher": "example",
     "version": "0.1.0",
-    "description": "常用片段：设置窗口里的一个 page 分区，编辑写作时常插入的几段固定文字",
     "private": true,
-    "type": "module"
+    "type": "module",
+    "l10n": {
+        "source": "zh-CN"
+    }
 }

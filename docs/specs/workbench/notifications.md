@@ -33,9 +33,9 @@ owners:
   ```ts
   interface NotificationInput {
       tone?: "info" | "success" | "warning" | "error";   // 缺省 info
-      title?: string;
-      message: string;
-      action?: {label: string; run: () => void};
+      title?: Text;
+      message: Text;
+      action?: {label: Text; run: () => void};
       progress?: number | null;                           // 0 到 100；null 不确定进度；不给就没有进度条
       sticky?: boolean;                                   // 常驻；缺省 error 与带动作的常驻
   }
@@ -43,7 +43,7 @@ owners:
   interface Notifications { notify(input: NotificationInput): NotificationHandle }
   ```
 
-- 文字由发出方按当前显示语言写好；服务不翻译、不改写。
+- 标题、正文与动作名是文字值 `Text`（字符串、语言映射或文字引用，[`ui/i18n`](../ui/i18n.md)）：服务原样放进队列、不改写，视口显示时按窗口的当前语言翻（输出 9）。字符串是不翻译的字面文字，原样显示；发出方要让通知随语言切换，就交文字引用或语言映射，不先折成字符串。文字引用要自己带命名空间（插件用 SDK `/text` 的 `pluginText`）：通知是运行期文字，不经登记补命名空间。
 - 文案格式：标题说发生了什么（“书架没有更新”），正文说原因与现在显示的是什么（“取不到作品列表：连接已断开。显示的是上次的数据。”），动作说能做什么（“重试”）。
 
 ## 输出与可观察行为
@@ -56,6 +56,7 @@ owners:
 6. **进度。** `progress` 为数字时通知正文下画一条确定进度条，`null` 画不确定进度条（系统设了减少动画时不动）。
 7. **寿命。** 队列与 `nbook.workbench` 的浏览器入口同寿：入口停止时清空队列与计时器；页面切换（`/` 与 `/workbench` 之间）不清空。Lab 页面不挂产品视口，Lab 场景要通知时自建队列。
 8. **可访问性。** 每条通知是 `role="status"`；关闭按钮有可访问名称；视口不拦截空白处的指针事件。
+9. **文字跟随界面语言。** 视口每次渲染时经窗口的翻译端口把标题、正文与动作名翻成当前语言（规则见 [`ui/i18n`](../ui/i18n.md) 输出 2、4）；切换界面语言后，已显示的通知原地换成新语言的文字，不重新发出、不重新计时。动作抛错的诊断里的动作名按记诊断时的语言翻。
 
 ## 状态与转换
 
@@ -87,14 +88,16 @@ owners:
 - 公开接口：`notificationsKey`、`Notifications`、`NotificationInput`、`NotificationHandle`（`nbook/plugins/workbench/shared/contracts`）。
 - nb-ui 侧：`createNotificationQueue`、`NotificationStack` 的 `queue`、`Notification` 的 `progress`、`Banner`（`@notnotype/nb-ui`）。
 - 信任边界：文字按纯文本渲染，不解释 HTML。
+- 兼容：`title`、`message` 与动作的 `label` 从 `string` 放宽为 `Text`，传字符串的发出方不用改。nb-ui 队列（`createNotificationQueue`）的同名字段同样放宽，视口经注入的翻译端口翻译。
 
 ## 验收与 Smoke
 
 1. Given 书架页，When 刷新失败，Then 右下角出现“书架没有更新”带“重试”且不自动消失；点“重试”后通知消失并重新取数；恢复后不再出现。
 2. Given 两个内置页面，When 在 `/` 发出通知后导航到 `/workbench`，Then 通知仍在。
 3. Given 一条带进度的通知，When 发出方推进到 100 并改成 success，Then 进度条走到头、通知在 3.2 秒后消失。
+4. Given 一条标题、正文与动作名都是文字引用的通知与一条标题是语言映射、正文是字符串的通知，When 界面语言从 zh-CN 切到 en-US，Then 两条通知原地换成英文（字符串不变），同一个通知元素仍在。
 
-Smoke：`notifications.dom.test.ts`（真实队列与视口，验收 3）；`shelf-page.test.ts` 的刷新失败一组（验收 1）；`mount.dom.test.ts`（验收 2：真实窗口、内核与工作台插件，经路由导航换页面。产品里还没有站内去 `/workbench` 的入口，真实浏览器的验收等入口出现时补）；Lab 场景 `NotificationStack`、`Notification`（进度）、`Banner`。
+Smoke：`notifications.dom.test.ts`（真实队列与视口、宿主翻译引擎，验收 3、4）；`shelf-page.test.ts` 的刷新失败一组（验收 1）；`mount.dom.test.ts`（验收 2：真实窗口、内核与工作台插件，经路由导航换页面。产品里还没有站内去 `/workbench` 的入口，真实浏览器的验收等入口出现时补）；Lab 场景 `NotificationStack`、`Notification`（进度）、`Banner`。
 
 ## 实现合同
 
@@ -104,10 +107,11 @@ Smoke：`notifications.dom.test.ts`（真实队列与视口，验收 3）；`she
   - 队列随入口激活建立、停止时清空，不随页面挂载与卸载（输出 7，验收 2）。
   - 明确给过的 `sticky` 保留到再次明确改它；改了色调、动作或 `sticky` 才重算时长（输出 5）。
   - 动作抛错时通知照样移除，错误经诊断记下（输出 4）。
+  - 文字原样进队列，翻译只在视口渲染时做（输出 9）：队列与服务里不存翻好的字符串，切换语言不必重推队列。服务只在写动作失败的诊断时经窗口端口翻一次动作名。
 
 ## 证据
 
-- 批准依据：开发者 2026-10-11 在 t76 的设计讨论中决定通知按三个去处分工、形式补足到 nb-ui 与应用的通用组件（[t76 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t76-bookshelf-polish/plan.md)）；2026-10-12 同意晋升为 `implemented`，验收 2 先由入口级测试覆盖。
+- 批准依据：开发者 2026-10-11 在 t76 的设计讨论中决定通知按三个去处分工、形式补足到 nb-ui 与应用的通用组件（[t76 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t76-bookshelf-polish/plan.md)）；2026-10-12 同意晋升为 `implemented`，验收 2 先由入口级测试覆盖。标题、正文与动作名改为 `Text`（输出 9、验收 4）依据 [《界面文字的消息目录》](../../proposals/i18n-message-catalogs.md) 第 3 节“跨插件传递”（2026-10-27 接受），由 [w00028 t03](../../../.agents/works/w00028-i18n/tasks/t03-shared-packages-migration/plan.md) 的“SDK 与通知”一片实现。
 - 实现入口：[`web/notifications.ts`](../../../packages/neuro-book/src/plugins/workbench/web/notifications.ts)（服务与常驻规则）、[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/workbench/web/plugin.ts)（队列与入口同寿）、[`web/home-page.ts`](../../../packages/neuro-book/src/plugins/workbench/web/home-page.ts)（两个页面挂视口）、[`WorkbenchNotifications.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchNotifications.vue)；nb-ui [`useNotification.ts`](../../../packages/nb-ui/src/composables/useNotification.ts)（队列、计时与悬停暂停）、[`NotificationStack.vue`](../../../packages/nb-ui/src/components/feedback/NotificationStack.vue)
-- 合同测试：[`notifications.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/notifications.dom.test.ts)（输出 2 到 5、验收 3）、[`useNotification.test.ts`](../../../packages/nb-ui/src/composables/useNotification.test.ts)（输出 3 的时长与悬停）、[`NotificationStack.test.ts`](../../../packages/nb-ui/src/components/feedback/NotificationStack.test.ts)、[`shelf-page.test.ts`](../../../packages/neuro-book/src/plugins/projects/shelf-page.test.ts)（验收 1）
+- 合同测试：[`notifications.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/notifications.dom.test.ts)（输出 2 到 5、9，验收 3、4）、[`useNotification.test.ts`](../../../packages/nb-ui/src/composables/useNotification.test.ts)（输出 3 的时长与悬停）、[`NotificationStack.test.ts`](../../../packages/nb-ui/src/components/feedback/NotificationStack.test.ts)、[`shelf-page.test.ts`](../../../packages/neuro-book/src/plugins/projects/shelf-page.test.ts)（验收 1）
 - Smoke：[`mount.dom.test.ts`](../../../packages/neuro-book/src/web/mount.dom.test.ts)（验收 2）；Lab 场景 `NotificationStack`、`Notification`、`Banner`

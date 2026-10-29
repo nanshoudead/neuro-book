@@ -12,13 +12,13 @@ import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 import type {RemoteProvision} from "@notnotype/nb-runtime/remote";
 import type {ContributionDescriptor, ContributionHandle, ContributionReceiver, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
-import {isTextRef} from "@notnotype/nb-ui/text";
+import {isTextRef, resolveLocaleMap} from "@notnotype/nb-ui/text";
 import type {Text} from "@notnotype/nb-ui/text";
 
 import {publicStateKey} from "nbook/plugins/state/shared/contracts";
 import type {PublicStateDeclaration, PublicStateService} from "nbook/plugins/state/shared/contracts";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
-import {formatText, localize, textOf} from "nbook/shared/localized-text";
+import {textOf} from "nbook/shared/localized-text";
 import type {DisplayLocale, TextResolver} from "nbook/shared/localized-text";
 import {windowTextKey} from "nbook/shared/window-text-key";
 
@@ -39,9 +39,12 @@ const REASONS = {
     notTrue: {"zh-CN": "{key} 不为 true", "en-US": "{key} is not true"},
 } as const;
 
-/** 不满足的原因按求值时的显示语言给出（docs/specs/workbench/commands.md“可用性求值”）；已记下的诊断保留当时的文字。 */
+/**
+ * 不满足的原因按求值时的显示语言给出（docs/specs/workbench/commands.md“可用性求值”）；已记下的诊断保留当时的文字。服务端也
+ * 求值，没有翻译端口，所以原因写成语言映射、先按语言取一份再代入键名。
+ */
 function reasonOf(template: (typeof REASONS)[keyof typeof REASONS], key: string, locale: DisplayLocale): string {
-    return localize(formatText(template, {key}), locale);
+    return resolveLocaleMap(template, locale).replaceAll("{key}", key);
 }
 
 function keyProblem(key: string, declaration: PublicStateDeclaration | null, locale: DisplayLocale): string | null {

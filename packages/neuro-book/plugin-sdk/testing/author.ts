@@ -11,7 +11,9 @@ import {fileURLToPath} from "node:url";
 
 import {AUTHOR_PACKAGES, BUILD_DEPENDENCIES} from "../dependencies";
 
-const REPO_MODULES = fileURLToPath(new URL("../../../../node_modules/", import.meta.url));
+// 不写成 `new URL("…", import.meta.url)`：Vitest 在 happy-dom 环境里把这种写法当静态资源改写成 http 地址，组件测试
+// （`plugin-sdk/third-party-text.dom.test.ts`）也用这个模块。
+const REPO_MODULES = join(dirname(fileURLToPath(import.meta.url)), "../../../../node_modules/");
 
 /** 装 vue 时一起装上的包：vue 自己的依赖（`@vue/*`、类型用的 csstype）。 */
 const VUE_DEPENDENCIES = ["csstype", ...["reactivity", "runtime-core", "runtime-dom", "shared", "compiler-dom", "compiler-core", "compiler-sfc", "compiler-ssr", "server-renderer"].map((name) => `@vue/${name}`)];

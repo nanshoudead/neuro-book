@@ -2,6 +2,7 @@
 import {computed} from "vue";
 import {NB_Z_INDEX} from "../../theme/z-index";
 import {useNotification, type NotificationItem, type NotificationQueue} from "../../composables/useNotification";
+import {useText} from "../../text-port";
 import Notification from "./Notification.vue";
 import type {NotificationTone} from "./Notification.vue";
 
@@ -20,6 +21,8 @@ const props = withDefaults(defineProps<{
 // 队列在挂载时取定：一个视口只服务一份队列，换队列应换一个视口实例。
 const queue = props.queue ?? useNotification();
 const {notifications, remove, pause, resume} = queue;
+// 队列里的文字是文字值，在渲染时翻：切换界面语言后，已显示的通知跟着换文字。
+const text = useText();
 
 const positionClass = computed(() => {
     if (props.position === "top-right") {
@@ -53,10 +56,10 @@ function runAction(item: NotificationItem): void {
                 :key="item.id"
                 class="pointer-events-auto"
                 :tone="toneClass(item)"
-                :title="item.title"
-                :message="item.message"
+                :title="item.title === undefined ? undefined : text.t(item.title)"
+                :message="text.t(item.message)"
                 :dismissible="true"
-                :action-label="item.action?.label"
+                :action-label="item.action === undefined ? undefined : text.t(item.action.label)"
                 :close-label="props.closeLabel"
                 :progress="item.progress"
                 @mouseenter="pause(item.id)"

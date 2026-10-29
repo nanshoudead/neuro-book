@@ -13,6 +13,8 @@
         "paths": {
             "nbook/*": ["./src/*"],
             "@notnotype/nb-plugin-sdk": ["./src/sdk/index.ts"],
+            "@notnotype/nb-plugin-sdk/text": ["./src/sdk/text.ts"],
+            "@notnotype/nb-plugin-sdk/text/browser": ["./src/sdk/text-browser.ts"],
             "@notnotype/nb-plugin-sdk/state": ["./src/sdk/state.ts"],
             "@notnotype/nb-plugin-sdk/storage": ["./src/sdk/storage.ts"],
             "@notnotype/nb-plugin-sdk/settings": ["./src/sdk/settings.ts"],

@@ -64,7 +64,9 @@ describe("SDK 的公开面闭包", () => {
 
 /** 每个子路径连带分发的应用源文件。 */
 const CLOSURES: Readonly<Record<string, ReadonlyArray<string>>> = {
-    ".": ["plugin-platform/shared/descriptor-check.ts", "shared/host.ts", "shared/localized-text.ts", "shared/plugin-text.ts"],
+    ".": ["plugin-platform/shared/descriptor-check.ts", "shared/host.ts"],
+    "./text": ["shared/plugin-text.ts"],
+    "./text/browser": ["shared/plugin-text.ts", "shared/use-plugin-text.ts"],
     "./state": ["plugins/state/shared/contracts.ts", "shared/store/persisted.ts", "shared/store/public.ts", "shared/store/store.ts"],
     "./storage": ["plugins/storage/shared/contracts.ts", "shared/storage.ts"],
     "./settings": ["plugin-platform/shared/descriptor-check.ts", "plugins/settings/shared/contracts.ts", "plugins/settings/shared/sections.ts", "plugins/settings/shared/text.ts", "shared/convention-keys.ts", "shared/host-locales.ts", "shared/plugin-text.ts", "shared/settings.ts", "shared/text.ts"],

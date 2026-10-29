@@ -9,7 +9,8 @@
  * - 给了闭合错误域的码表时，源语言目录的 `errors.<码>` 恰好覆盖全部码。
  *
  * 哪些目录要查：带 `l10n` 的插件清单（`package.json`）列出的目录，加上 `CATALOG_DIRECTORIES` 登记的、不经清单的目录
- * （宿主与内置插件的目录随前端构建，不写清单）。没有目录的插件没有要查的；`packages/` 下没登记的 `locales/*.json`
+ * （宿主与内置插件的目录随前端构建，不写清单）。作者目录的 `package.json`（示例插件）只写 `l10n.source`，语言由 `locales/`
+ * 里的文件得出，与构建预设的规则相同；产物与安装的清单另写 `l10n.locales`，按它列出的查。没有目录的插件没有要查的；`packages/` 下没登记的 `locales/*.json`
  * 报为未登记，免得新加的目录没人查。
  */
 
@@ -39,6 +40,8 @@ export interface CatalogDirectory {
 export const CATALOG_DIRECTORIES: ReadonlyArray<CatalogDirectory> = [
     // 宿主自己的文字（命名空间 nbook.host），见 packages/neuro-book/src/web/host/text-engine.ts。
     {path: "packages/neuro-book/src/web/locales", source: "zh-CN"},
+    // 作者模板的目录：模板的清单是 `_package.json`（create 时改名），不在上面按 package.json 找到的范围里。
+    {path: "packages/neuro-book/plugin-sdk/template/locales", source: "zh-CN"},
     // 内置插件的目录（命名空间是插件 id），由 packages/neuro-book/src/web/plugins.ts 的 builtinPluginCatalogs 登记进窗口。
     {path: "packages/neuro-book/src/plugins/editor/locales", source: "zh-CN"},
     {path: "packages/neuro-book/src/plugins/explorer/locales", source: "zh-CN"},
@@ -118,11 +121,12 @@ export function messageCatalogFailures(repoRoot: string, directories: ReadonlyAr
         const l10n = (manifest.value as {l10n?: unknown} | null)?.l10n;
         if (l10n === undefined) continue;
         const {source, locales} = (l10n ?? {}) as {source?: unknown; locales?: unknown};
-        if (typeof source !== "string" || !Array.isArray(locales) || !locales.every((locale) => typeof locale === "string")) {
-            failures.push(`${path}：l10n 要写 source 与 locales`);
+        if (typeof source !== "string" || (locales !== undefined && (!Array.isArray(locales) || !locales.every((locale) => typeof locale === "string")))) {
+            failures.push(`${path}：l10n 要写 source；写了 locales 时要是语言标签的数组`);
             continue;
         }
-        sets.push({directory: join(dirname(path), "locales"), source, locales: locales as string[]});
+        // 没写 locales 的是作者目录的 package.json：按目录里的文件查（见文件头）。
+        sets.push({directory: join(dirname(path), "locales"), source, locales: locales === undefined ? null : locales as string[]});
     }
     for (const set of sets) {
         const inDirectory = files.filter((file) => dirname(file) === set.directory && file.endsWith(".json"));
