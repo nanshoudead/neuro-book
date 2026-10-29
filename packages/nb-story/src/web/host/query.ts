@@ -76,8 +76,10 @@ export function useStoryQuery<M extends StoryMethod>(method: M, params: () => No
     return {data, error, loading, reload: () => void run(params())};
 }
 
-export interface PagedState<T> {
+export interface PagedState<T, E = object> {
     items: ShallowRef<T[]>;
+    /** 页上除了条目、总数与游标之外的字段（例如说法列表的各级条数 `tiers`）；取最近一页的，还没取到为 null。 */
+    extra: ShallowRef<E | null>;
     total: Ref<number | null>;
     error: Ref<StoryCallError | null>;
     loading: Ref<boolean>;
@@ -88,14 +90,16 @@ export interface PagedState<T> {
     reload(): void;
 }
 
-type PagedMethod = "entities.list" | "entity.knowledge" | "entity.statements" | "entity.episodes" | "questions.list" | "episodes.list" | "search";
+type PagedMethod = "entities.list" | "entity.knowledge" | "entity.statements" | "entity.episodes" | "questions.list" | "episodes.list" | "search" | "revisions.list" | "revisions.evidence";
 type PageItem<M extends PagedMethod> = StoryResult<M>["items"][number];
+type PageExtra<M extends PagedMethod> = Omit<StoryResult<M>, "items" | "total" | "next">;
 
 /** 分页的列表：参数一变从第一页重来；滚到底由调用方调 more() 取下一页。 */
-export function usePagedQuery<M extends PagedMethod>(method: M, params: () => NoInfer<Params<M>> | null, pageSize = 100): PagedState<PageItem<M>> {
+export function usePagedQuery<M extends PagedMethod>(method: M, params: () => NoInfer<Params<M>> | null, pageSize = 100): PagedState<PageItem<M>, PageExtra<M>> {
     const client = useStoryClient();
     const book = useBook();
     const items = shallowRef<PageItem<M>[]>([]);
+    const extra = shallowRef<PageExtra<M> | null>(null);
     const total = ref<number | null>(null);
     const error = ref<StoryCallError | null>(null);
     const loading = ref(false);
@@ -116,6 +120,8 @@ export function usePagedQuery<M extends PagedMethod>(method: M, params: () => No
             if (signalOwner.signal.aborted) return;
             const page = result as unknown as {items: PageItem<M>[]; total: number; next: string | null};
             items.value = reset ? page.items : [...items.value, ...page.items];
+            const {items: _items, total: _total, next: _next, ...rest} = result as unknown as {items: unknown; total: unknown; next: unknown} & PageExtra<M>;
+            extra.value = rest as PageExtra<M>;
             total.value = page.total;
             cursor = page.next;
             hasMore.value = page.next !== null;
@@ -144,6 +150,7 @@ export function usePagedQuery<M extends PagedMethod>(method: M, params: () => No
             if (current === null) {
                 controller?.abort();
                 items.value = [];
+                extra.value = null;
                 total.value = null;
                 hasMore.value = false;
                 return;
@@ -153,6 +160,7 @@ export function usePagedQuery<M extends PagedMethod>(method: M, params: () => No
                 return;
             }
             items.value = [];
+            extra.value = null;
             total.value = null;
             hasMore.value = false;
             void fetchPage(true);
@@ -165,6 +173,7 @@ export function usePagedQuery<M extends PagedMethod>(method: M, params: () => No
     });
     return {
         items,
+        extra,
         total,
         error,
         loading,

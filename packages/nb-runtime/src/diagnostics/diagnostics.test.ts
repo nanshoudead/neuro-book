@@ -132,6 +132,20 @@ describe("记录、查询与预算", () => {
     });
 });
 
+describe("插件诊断的级别", () => {
+    it("正常关闭带来的撤回记 debug；失败带来的、带错误的撤回仍记 warn", () => {
+        const store = createDiagnosticsStore({identity});
+        const observers = mechanismObservers(store);
+        const revoke = (reason: string, error: {name: string; message: string} | null = null) => observers.plugins!.diagnosticRecorded!({
+            sequence: 1, instanceId: "i", location: "browser", plugin: "x.p", entry: "browser", generation: 1, stage: "revoke", reason, capability: "x.point", contribution: null, error,
+        });
+        for (const reason of ["receiver-closed", "scope-closed", "activation-stopped", "delivery-failed", "activation-failed"]) revoke(reason);
+        revoke("receiver-closed", {name: "Error", message: "boom"});
+        const levels = store.query({event: "plugins.diagnostic"}).records.map((record) => `${String((record.data as {reason: string}).reason)}:${record.level}`);
+        expect(levels).toEqual(["receiver-closed:debug", "scope-closed:debug", "activation-stopped:debug", "delivery-failed:warn", "activation-failed:warn", "receiver-closed:warn"]);
+    });
+});
+
 describe("出口挂接与降级", () => {
     it("记录能力先于订阅：挂接前的记录按顺序补写到出口，之后记录直接写出", async () => {
         const store = createDiagnosticsStore({identity});

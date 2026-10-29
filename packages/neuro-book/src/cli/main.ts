@@ -44,7 +44,8 @@ function program(): Command {
         .helpCommand("help [命令]", "显示命令的帮助")
         .version(versionText(), "-v, --version", "显示版本")
         // commander 的用法行与命令列表写 `[options]`：自己拼，与中文标题一致；子命令的帮助也列出全局选项。
-        .configureHelp({styleTitle: (title) => TITLES[title] ?? title, commandUsage: usageOf, subcommandTerm: termOf, showGlobalOptions: true})
+        // 对齐按终端里的显示宽度算：commander 缺省按字符数，中文一个字占两格，说明列会错开。
+        .configureHelp({styleTitle: (title) => TITLES[title] ?? title, commandUsage: usageOf, subcommandTerm: termOf, showGlobalOptions: true, displayWidth: (text) => Bun.stringWidth(text)})
         .configureOutput({outputError: () => undefined})
         .exitOverride();
     nbook

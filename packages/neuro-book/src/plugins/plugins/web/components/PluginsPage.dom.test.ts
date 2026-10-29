@@ -197,8 +197,9 @@ describe("PluginsPage", () => {
         const lines = () => [...goal.querySelectorAll("[data-plugin-problem-line]")].map((line) => line.textContent);
         expect(lines()).toEqual(["入口 server（server）激活失败：local 记录需要客户端身份", "workbench.views 的 other.goal 被拒：声明不合规则（前缀不对）"]);
         expect(document.querySelector("[data-plugins-snapshot]")).not.toBeNull();
-        // 内置插件没有清单，不显示显示名与说明；没有问题的行不占位。
-        expect(row("nbook.settings").querySelector("[data-plugin-display-name]")).toBeNull();
+        // 内置插件没有清单：名称与说明取页面这侧的名称表，按界面语言；没有问题的行不占位。
+        expect(row("nbook.settings").querySelector("[data-plugin-display-name]")?.textContent).toBe("设置");
+        expect(row("nbook.settings").querySelector("[data-plugin-description]")?.textContent).toBe("设置窗口与设置项的读写。");
         expect(row("example.hello").querySelector("[data-plugin-problems]")).toBeNull();
         expect(row("example.hello").querySelector("[data-plugin-pending=upgrade]")?.textContent).toContain("重启后降级到 0.9.0");
 
@@ -216,6 +217,14 @@ describe("PluginsPage", () => {
         expect(goal.querySelector("[data-plugin-problems=entries]")?.textContent).toContain("2 个入口没有运行");
         expect(goal.querySelector("[data-plugin-problems=catalogs]")?.textContent).toContain("1 种语言的文字没有取到");
         expect(lines().at(-1)).toBe("en-US 的文字没有取到：目录内容不合规则（menu.open：值必须是字符串或嵌套的对象，这里是number）");
+    });
+
+    it("英文界面里内置插件的名称与说明是英文；名称表里没有的内置插件只显示 id", async () => {
+        await open(registry([BUILTIN, {...BUILTIN, id: "nbook.unknown"}]).client, "en-US");
+        expect(row("nbook.settings").querySelector("[data-plugin-display-name]")?.textContent).toBe("Settings");
+        expect(row("nbook.settings").querySelector("[data-plugin-description]")?.textContent).toBe("The settings window and setting values.");
+        expect(row("nbook.unknown").querySelector("[data-plugin-display-name]")).toBeNull();
+        expect(row("nbook.unknown").querySelector("[data-plugin-description]")).toBeNull();
     });
 
     it("顶层声明被拒时服务端与本窗口各有一条，合成一条显示；没有问题时不显示快照说明；卸载后不再听本窗口的变化", async () => {

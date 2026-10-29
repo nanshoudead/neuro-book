@@ -1,0 +1,1183 @@
+{
+ "A-1-18-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-1-18-1": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-1-19-0": {
+  "gold": "G1",
+  "verdict": "hit",
+  "note": "第 19 章 e19-1 还不在已有记录里，建议建人物并连身份"
+ },
+ "B-1-20-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-1-21-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-1-19-0": {
+  "gold": "G1",
+  "verdict": "hit",
+  "note": "records 写成 e19-2"
+ },
+ "A-1-19-1": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-1-21-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-1-21-1": {
+  "gold": "G4",
+  "verdict": "hit"
+ },
+ "A-1-22-0": {
+  "gold": null,
+  "verdict": "valid",
+  "note": "招生老师 e1-3 没有以另一个身份活动，应为 person（与 G4、G5 同理；金标把它列为不是问题，标注不一致，见 detection.md）"
+ },
+ "A-1-23-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-1-23-1": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-1-23-2": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-1-24-0": {
+  "gold": "G1",
+  "verdict": "hit",
+  "note": "records 没有 e19-1"
+ },
+ "A-1-25-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-1-25-1": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-1-25-2": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-1-26-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-1-26-1": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-1-27-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-1-28-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-1-29-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-1-30-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-2-18-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-2-18-1": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-2-18-2": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-2-18-3": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-2-18-4": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-2-19-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-2-21-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-2-22-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-2-22-1": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-2-24-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-2-25-0": {
+  "gold": "G1",
+  "verdict": "hit"
+ },
+ "A-2-27-0": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "前台魔女不是 e4-1，记录里也没有把她们当作同一对象"
+ },
+ "A-2-28-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-2-28-1": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-2-28-2": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-2-29-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-2-29-1": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-2-30-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "A-2-30-1": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-1-23-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-1-25-0": {
+  "gold": "G1",
+  "verdict": "hit",
+  "note": "records 写成 e24-3、s24-16"
+ },
+ "B-1-27-0": {
+  "gold": null,
+  "verdict": "valid",
+  "note": "“本小姐”是自称，不该登记成织雪的称呼"
+ },
+ "B-1-28-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-1-29-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-2-18-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-2-18-1": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-2-18-2": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-2-18-3": {
+  "gold": "G4",
+  "verdict": "wrong",
+  "note": "指到了 e4-1、e4-2，但说的是“泛称不要归给具体人物”，没指出种类错"
+ },
+ "B-2-18-4": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-2-24-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-2-26-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-2-26-1": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "说的是 q25-1 的解答状态，与 G8 无关"
+ },
+ "B-2-28-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-2-30-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-2-30-1": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-1-18-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-1-30-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-1-30-1": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-2-19-0": {
+  "gold": "G1",
+  "verdict": "wrong",
+  "note": "认出是同一人，但建议把“银空”登记成马甲 e18-1 的称呼（修法不对）"
+ },
+ "B-2-19-1": {
+  "gold": "G1",
+  "verdict": "hit",
+  "note": "第 19 章建议为本人建对象并连身份"
+ },
+ "B-2-21-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-2-25-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-2-25-1": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-2-27-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "B-2-29-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-1-5-0": {
+  "gold": "G2",
+  "verdict": "hit"
+ },
+ "C-1-5-1": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-5-2": {
+  "gold": "G4,G5",
+  "verdict": "hit"
+ },
+ "C-1-5-3": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-1-10-0": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "按规则自动分档：模型自己写了不成立或正确"
+ },
+ "C-1-10-1": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "按规则自动分档：模型自己写了不成立或正确"
+ },
+ "C-1-10-2": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-1-10-3": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-1-10-4": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-1-10-5": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-1-10-6": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-1-10-7": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-1-10-8": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-1-10-9": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-1-10-10": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "按规则自动分档：模型自己写了不成立或正确"
+ },
+ "C-1-15-0": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-1-15-1": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-15-2": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-1-15-3": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-15-4": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-1-15-5": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-15-6": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-15-7": {
+  "gold": null,
+  "verdict": "valid"
+ },
+ "C-1-15-8": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-15-9": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "分段写法列出了截至第 30 章的称呼，模型当成了后文泄漏（脚本的写法造成，不是图的问题）"
+ },
+ "C-1-15-10": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-1-20-0": {
+  "gold": "G1",
+  "verdict": "hit"
+ },
+ "C-1-20-1": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-1-20-2": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-1-20-3": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-1-20-4": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "按规则自动分档：模型自己写了不成立或正确"
+ },
+ "C-1-20-5": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "按规则自动分档：模型自己写了不成立或正确"
+ },
+ "C-1-20-6": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-1-20-7": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "按规则自动分档：模型自己写了不成立或正确"
+ },
+ "C-1-20-8": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "按规则自动分档：模型自己写了不成立或正确"
+ },
+ "C-1-20-9": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "按规则自动分档：模型自己写了不成立或正确"
+ },
+ "C-1-20-10": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-1-20-11": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "按规则自动分档：模型自己写了不成立或正确"
+ },
+ "C-1-25-0": {
+  "gold": "G1",
+  "verdict": "hit"
+ },
+ "C-1-25-1": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-1-25-2": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "按规则自动分档：模型自己写了不成立或正确"
+ },
+ "C-1-25-3": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-1-25-4": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-25-5": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-25-6": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "按规则自动分档：模型自己写了不成立或正确"
+ },
+ "C-1-25-7": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "按规则自动分档：模型自己写了不成立或正确"
+ },
+ "C-1-30-0": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-1": {
+  "gold": "G6",
+  "verdict": "hit"
+ },
+ "C-1-30-2": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-3": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-4": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-5": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-6": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-7": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-8": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-9": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-10": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-11": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-12": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-13": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-14": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-15": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-16": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-17": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-18": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-19": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-20": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-21": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-22": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-23": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-24": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-25": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-26": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-27": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-28": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-29": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-1-30-30": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-1-30-31": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-32": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-1-30-33": {
+  "gold": "G7",
+  "verdict": "wrong",
+  "note": "指到了 s30-11，但说的是拆分，没指出 e16-2 挂错"
+ },
+ "C-1-30-34": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-35": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-1-30-36": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-37": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-38": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "按规则自动分档：模型自己写了不成立或正确"
+ },
+ "C-1-30-39": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-40": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-1-30-41": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-1-30-42": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-1-30-43": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-5-0": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-2-5-1": {
+  "gold": "G4,G5",
+  "verdict": "hit"
+ },
+ "C-2-5-2": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "说的是两位学姐不要合并，不是问题"
+ },
+ "C-2-5-3": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "按规则自动分档：模型自己写了不成立或正确"
+ },
+ "C-2-5-4": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-2-5-5": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-2-5-6": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-5-7": {
+  "gold": "G2",
+  "verdict": "hit",
+  "note": "目标类别写 other 或 event"
+ },
+ "C-2-5-8": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-5-9": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-5-10": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-5-11": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-5-12": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-5-13": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-5-14": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-5-15": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "按规则自动分档：模型自己写了不成立或正确"
+ },
+ "C-2-5-16": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-5-17": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-5-18": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-2-5-19": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-2-5-20": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-5-21": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-2-5-22": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-10-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-10-1": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-10-2": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-10-3": {
+  "gold": "G3",
+  "verdict": "hit",
+  "note": "说称号魔女是类别、应为 concept"
+ },
+ "C-2-10-4": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-10-5": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-10-6": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-10-7": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "按规则自动分档：模型自己写了不成立或正确"
+ },
+ "C-2-10-8": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-10-9": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-10-10": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-10-11": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-10-12": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-10-13": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-10-14": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-10-15": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "按规则自动分档：模型自己写了不成立或正确"
+ },
+ "C-2-10-16": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-10-17": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-10-18": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-15-0": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-2-15-1": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "分段写法列出了截至第 30 章的称呼，模型当成了后文泄漏（脚本的写法造成，不是图的问题）"
+ },
+ "C-2-15-2": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-2-15-3": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-15-4": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-15-5": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-15-6": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-15-7": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-15-8": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-15-9": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-2-15-10": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-15-11": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-2-15-12": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-15-13": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-20-0": {
+  "gold": "G1",
+  "verdict": "hit",
+  "note": "建议 certainty 写 candidate"
+ },
+ "C-2-20-1": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "分段写法列出了截至第 30 章的称呼，模型当成了后文泄漏（脚本的写法造成，不是图的问题）"
+ },
+ "C-2-20-2": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-2-20-3": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-25-0": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-25-1": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-25-2": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-25-3": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-25-4": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-25-5": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-25-6": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-2-25-7": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-2-25-8": {
+  "gold": null,
+  "verdict": "invalid",
+  "note": "按规则自动分档：模型自己写了不成立或正确"
+ },
+ "C-2-25-9": {
+  "gold": null,
+  "verdict": "invalid"
+ },
+ "C-2-30-0": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-1": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-2-30-2": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-3": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-4": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-5": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-6": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-7": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-8": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-9": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-10": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-11": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-12": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-13": {
+  "gold": "G6",
+  "verdict": "hit"
+ },
+ "C-2-30-14": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-15": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-16": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-17": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-18": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-19": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-20": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-21": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-2-30-22": {
+  "gold": null,
+  "verdict": "minor"
+ },
+ "C-2-30-23": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-24": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-25": {
+  "gold": "G7",
+  "verdict": "wrong",
+  "note": "指到了 s30-11，但说的是保留 claim 与拆分，没指出 e16-2 挂错"
+ },
+ "C-2-30-26": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-27": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-28": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-29": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-30": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-31": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-32": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ },
+ "C-2-30-33": {
+  "gold": null,
+  "verdict": "minor",
+  "note": "按规则自动分档：相近类别之间的口径"
+ }
+}

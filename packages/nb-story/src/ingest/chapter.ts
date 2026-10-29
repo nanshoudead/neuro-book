@@ -14,16 +14,17 @@
 import type {BookFeatures, Dataset, SourceChapter} from "../core/dataset";
 import type {CompileResult, Issue} from "./compile";
 import {consolidationContext} from "./consolidation-context";
-import {recallCandidates, renderContext} from "./context";
+import {displayName, recallCandidates, renderContext} from "./context";
 import {ConsolidationSchema, parseWith} from "./draft-schema";
 import {applyPatch, checkDraft, dropOffending, fixBeats, fixPositions, normalizeDraft, sanitizeConsolidation, stripDisabled, type ConsolidationScope, type Problem, type RawDraft} from "./draft-tools";
 import {callModel, type Attempt, type CallOptions, type IngestEffort, type ModelEndpoint, type ModelError, type ModelReply} from "./model";
 import {beatsTask, consolidationPrompt, draftTask, prefixFor, reviewTask, system, systemV2, wholeConsolidationPrompt} from "./prompts";
+import {nextStatementId, parseVerdict, PERSONA_SYSTEM, personaRequest, pickPersonas, toStatement, type PersonaHistory, type PersonaOutcome, type Verdict} from "./persona-check";
 import {llmRecaller, RECALL_LIMIT} from "./recall";
 import {buildChecklist} from "./reconcile";
 
 /** 一章里的几步；进度里显示它，用量按它记账。 */
-export type Step = "recall" | "beats" | "draft" | "review" | "repair" | "consolidation";
+export type Step = "recall" | "beats" | "draft" | "review" | "repair" | "persona" | "consolidation";
 
 /** 模型的回复重发一次后仍不成形，或兜底之后书的数据仍有错误（F5）。 */
 export class IngestBadReply extends Error {
@@ -43,6 +44,8 @@ export class IngestBadReply extends Error {
 export interface BadReplyRecord {
     chapter: number;
     step: Step;
+    /** 同一章同一步问了几次不同的东西时（马甲核对，一次一个马甲），是哪一个；留存的文件名带上它，互不覆盖。 */
+    subject?: string;
     why: string;
     replies: {round: number; finishReason: string | null; text: string}[];
 }
@@ -51,6 +54,8 @@ export interface ChapterRun {
     endpoint: ModelEndpoint;
     /** 挑相关说法用的端点；不给时不挑（默认），说法按规则缩减。 */
     recallEndpoint?: ModelEndpoint;
+    /** 马甲核对（输出 20）：给出已提交各章的核对记录时做，不给时不做。开关的默认值在配置解析处定（qa/config.ts）。 */
+    personaCheck?: PersonaHistory;
     signal?: AbortSignal;
     sleep?: CallOptions["sleep"];
     fetch?: CallOptions["fetch"];
@@ -58,6 +63,11 @@ export interface ChapterRun {
     delaysMs?: CallOptions["delaysMs"];
     /** 每一步开始时调用。 */
     onStep?: (step: Step) => void;
+    /**
+     * 每个逻辑请求发出之前调用（含不成形后的重发），抛出就不发：停止检查挂在这里。`onStep` 只在一步开始时调用一次，
+     * 马甲核对一章问几个马甲只报一次步骤，所以停止不能只靠它（实现审查第 1 条）。
+     */
+    beforeRequest?: (step: Step) => void;
     /** 每次 HTTP 尝试发出之前调用（用来记“发出过”）。 */
     onAttemptStart?: (step: Step, attempt: number) => void | Promise<void>;
     /** 每次 HTTP 尝试结束时调用（成功或失败），用来记用量。 */
@@ -98,6 +108,8 @@ export interface ChapterResult {
     /** 已提交的各章加上这一章编译出的数据集，与这次编译的全部问题（不只本章）。 */
     dataset: Dataset;
     issues: Issue[];
+    /** 马甲核对问了谁、连上了谁、谁答“不是马甲”；没开时为 null。 */
+    personas: PersonaOutcome | null;
 }
 
 const MAX_REVIEWS = 1;
@@ -118,18 +130,20 @@ function chapterIssues(issues: Issue[], chapter: number): Issue[] {
 
 const asProblem = (issue: Issue): Problem => ({message: issue.message, subject: issue});
 
-type Ask = (step: Step, systemPrompt: string, user: string, effort: IngestEffort, valid: (reply: ModelReply) => boolean, endpoint?: ModelEndpoint) => Promise<unknown>;
+/** `subject`：同一步一章里问几次不同的东西时是哪一个（进请求头与坏回复的文件名）；`announce: false` 时不报步骤（同一步的后几次）。 */
+type Ask = (step: Step, systemPrompt: string, user: string, effort: IngestEffort, valid: (reply: ModelReply) => boolean, endpoint?: ModelEndpoint, extra?: {subject?: string; announce?: boolean}) => Promise<unknown>;
 
 /** 一步的请求：渠道失败由 callModel 重发；回复不成形重发一次，仍不成形抛 `IngestBadReply`。不给端点时用抽取的。 */
 function asker(run: ChapterRun, chapter: number): Ask {
-    return async (step, systemPrompt, user, effort, valid, endpoint = run.endpoint) => {
-        run.onStep?.(step);
+    return async (step, systemPrompt, user, effort, valid, endpoint = run.endpoint, extra = {}) => {
+        if (extra.announce !== false) run.onStep?.(step);
         const replies: BadReplyRecord["replies"] = [];
         for (let round = 1; ; round++) {
+            run.beforeRequest?.(step);
             const reply = await callModel(endpoint, {
                 system: systemPrompt, user, effort, signal: run.signal, sleep: run.sleep, fetch: run.fetch, delaysMs: run.delaysMs,
                 // 请求头里的身份：章、步骤、这一步的第几次（不成形时重发算下一次；渠道重发不变）。
-                tag: `${chapter}/${step}/${round}`,
+                tag: `${chapter}/${step}/${round}${extra.subject ? `/${extra.subject}` : ""}`,
                 onAttemptStart: attempt => run.onAttemptStart?.(step, attempt),
                 onAttempt: attempt => run.onAttempt?.(step, attempt),
                 onRetry: info => run.onRetry?.(step, info),
@@ -139,14 +153,14 @@ function asker(run: ChapterRun, chapter: number): Ask {
             if (round === 2) {
                 const why = reply.finishReason === "length" ? "回复被截断" : reply.json === null ? "回复不是 JSON" : "回复缺本章的内容";
                 // 容错的步骤（挑相关说法、整理）接住这个异常后这一章照常提交，所以不论后面怎样，原文先留下。
-                const saved = await run.onBadReply?.({chapter, step, why, replies});
+                const saved = await run.onBadReply?.({chapter, step, ...(extra.subject ? {subject: extra.subject} : {}), why, replies});
                 throw new IngestBadReply(step, `第 ${chapter} 章${STEP_NAMES[step]}：${why}，重发一次后仍是这样${saved ? `（两次回复的原文留在书库的 ${saved}）` : ""}`);
             }
         }
     };
 }
 
-export const STEP_NAMES: Record<Step, string> = {recall: "挑相关说法", beats: "写时间点与段落块", draft: "写其余记录", review: "核对补漏", repair: "修复", consolidation: "整理"};
+export const STEP_NAMES: Record<Step, string> = {recall: "挑相关说法", beats: "写时间点与段落块", draft: "写其余记录", review: "核对补漏", repair: "修复", persona: "核对马甲", consolidation: "整理"};
 
 /** 回复里本章的那一份：单章时就是回复本身，要写明本章章号（与原管线的 splitByChapter 相同）。 */
 const forChapter = (json: unknown, chapter: number): Record<string, unknown> | null => {
@@ -249,6 +263,8 @@ export async function extractChapter(input: ChapterInput, run: ChapterRun): Prom
         }
         await patchWith("repair", state.problems.map((problem, index) => `C${index + 1} [结构] ${problem.message}`));
     }
+    const checked = run.personaCheck ? await checkPersonas() : null;
+    const personas = checked?.outcome ?? null;
     const removedNote = [
         removed.ledger ? `${removed.ledger} 条数值记录` : "",
         removed.secrets ? `${removed.secrets} 个秘密` : "",
@@ -256,10 +272,58 @@ export async function extractChapter(input: ChapterInput, run: ChapterRun): Prom
         removed.secretRefs ? `${removed.secretRefs} 条说法上的秘密` : "",
     ].filter(Boolean);
     if (removedNote.length) notes.push(`按书的设置去掉了 ${removedNote.join("、")}`);
-    const final = input.compileWith(draft);
+    // 马甲核对最后编出的就是这份草稿（没写下时是它开头编的那份）：直接用，不再编一遍。
+    const final = checked?.compiled ?? input.compileWith(draft);
     const errors = chapterIssues(final.issues, chapter).filter(issue => issue.level === "error");
     if (errors.length) throw new IngestBadReply("repair", `第 ${chapter} 章仍有错误：${errors.map(issue => issue.message).join("；")}`);
-    return {draft, recall, notes, rounds, dropped, remaining: final.issues.filter(issue => issue.chapter === chapter), dataset: final.dataset, issues: final.issues};
+    return {draft, recall, notes, rounds, dropped, remaining: final.issues.filter(issue => issue.chapter === chapter), dataset: final.dataset, issues: final.issues, personas};
+
+    /**
+     * 马甲核对（输出 20）：用丢弃之后的草稿编出的书选马甲、逐个问；写下的说法加进 `draft`，加进去后编译出错或称呼剧透就去掉。
+     * 一个马甲的回复两次不成形只跳过它，不让这一章失败；渠道失败与停止照常往外抛（输出 9、11）。
+     */
+    async function checkPersonas(): Promise<{outcome: PersonaOutcome; compiled: CompileResult}> {
+        const outcome: PersonaOutcome = {asked: [], linked: [], notPersona: [], statements: []};
+        let current = input.compileWith(draft);
+        const view = current.dataset;
+        const picked = pickPersonas(view, chapter, paragraphs, run.personaCheck!);
+        const end = {chapter, paragraph: paragraphs.length};
+        for (const [index, persona] of picked.entries()) {
+            outcome.asked.push(persona.id);
+            let verdict: Verdict;
+            try {
+                verdict = parseVerdict(await ask("persona", PERSONA_SYSTEM, personaRequest(view, persona, chapter), "medium", reply => parseVerdict(reply.json) !== null, undefined, {subject: persona.id, announce: index === 0}))!;
+            } catch (error) {
+                if (!(error instanceof IngestBadReply)) throw error;
+                notes.push(`${error.message}，${persona.id} 这一章不核对`);
+                continue;
+            }
+            const who = `${displayName(persona, end)}（${persona.id}）`;
+            if (verdict.verdict === "not-persona") {
+                outcome.notPersona.push(persona.id);
+                notes.push(`核对马甲：${who}可能不是马甲`);
+                continue;
+            }
+            if (verdict.verdict !== "same") continue;
+            const made = toStatement(view, persona, verdict, chapter, paragraphs.length, nextStatementId(draft.statements ?? [], chapter));
+            if ("skip" in made) {
+                notes.push(`核对马甲：${who}${made.skip}，没有写`);
+                continue;
+            }
+            const candidate: RawDraft = {...draft, statements: [...(draft.statements ?? []), made.draft]};
+            const compiled = input.compileWith(candidate);
+            const broke = chapterIssues(compiled.issues, chapter).some(issue => issue.level === "error") || compiled.issues.some(issue => issue.code === "name-leak" && issue.records?.includes(made.draft.id as string));
+            if (broke) {
+                notes.push(`核对马甲：${who}就是 ${verdict.entity} 的说法加进去后数据有错或用了后文的称呼，去掉`);
+                continue;
+            }
+            draft = candidate;
+            current = compiled;
+            outcome.linked.push(persona.id);
+            outcome.statements!.push(made.draft.id as string);
+        }
+        return {outcome, compiled: current};
+    }
 }
 
 /**

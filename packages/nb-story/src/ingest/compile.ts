@@ -267,6 +267,7 @@ export function compile(book: Dataset["book"], sources: SourceChapter[], rawDraf
                 kind, holder: kind === "fact" ? null : by, basis, premises: item.premises ?? [], reason: item.reason,
                 certainty: item.certainty ?? "certain", neg: item.neg ?? false, time: item.time ?? null, secret: item.secret, rel: item.rel ?? [],
                 unverified: item.unverified,
+                ...(item.tier === undefined ? {} : {tier: item.tier}),
                 at: evidence.length ? endOf(evidence) : {chapter, paragraph: 1},
             };
             statements.set(item.id, statement);
@@ -328,7 +329,7 @@ export function compile(book: Dataset["book"], sources: SourceChapter[], rawDraf
             const at = evidence.length ? endOf(evidence) : {chapter, paragraph: 1};
             episodes.set(item.id, {
                 id: item.id, title: item.title, summary: item.summary, evidence, time: item.time, place: item.place, who: item.who, steps,
-                outcome: item.outcome, links: item.links.map(link => ({...link, at})), at,
+                outcome: item.outcome, links: item.links.map(link => ({...link, at})), ...(item.tier === undefined ? {} : {tier: item.tier}), at,
             });
             count(written, "episodes");
         }

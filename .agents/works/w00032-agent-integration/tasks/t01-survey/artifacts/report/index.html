@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NeuroBook 接入 Agent：需求对照与遗漏</title>
+<style>
+:root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef;
+    --warn: #b45309; --warn-soft: #fdf1df; --ok: #15803d; --ok-soft: #e4f4e8;
+    --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+    :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123b37;
+        --warn: #fbbf24; --warn-soft: #3a2e12; --ok: #86efac; --ok-soft: #173322; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1080px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 16px; margin: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+h4 { font-size: 13px; margin: 12px 0 2px; color: var(--muted); }
+p, li { max-width: 900px; }
+ul { margin: 4px 0; padding-left: 22px; }
+.lead p { color: var(--muted); margin: 6px 0; }
+.round { margin-top: 40px; font-size: 19px; font-weight: 700; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+section.q, .card { margin-top: 20px; padding: 16px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.badge.warn { background: var(--warn-soft); color: var(--warn); }
+.badge.ok { background: var(--ok-soft); color: var(--ok); }
+.rec-note { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.rec-note b { color: var(--accent); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-top: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; border-top: 0; }
+code { font-size: 12.5px; }
+</style>
+</head>
+<body>
+<main>
+<h1>NeuroBook 接入 Agent：需求对照与遗漏</h1>
+<div class="lead">
+<p>w00032 t01。上半部分逐条对照开发者列的 20 条需求：现在有什么、要讨论什么、在哪个 Task 里讨论；下半部分是清单之外值得拿出来讨论的 10 项。每条后面有一个选答的批注框，想到什么随时写；正式讨论按 Task 的顺序一个个来（最下面有顺序表）。</p>
+<p>事实与出处见两份调研：<a href="../../../../research/2026-10-28-repo-survey.md">仓库内的现状</a>、<a href="../../../../../../../docs/research/agent-runtime-references.md">外部参照：omp、DeepSeek Harness 与工具发现</a>。本页的“建议”是主 Agent 的意见，不是已定的设计。</p>
+</div>
+
+<div class="card">
+<h2>已定 <span class="badge ok">2026-10-28 开发者</span></h2>
+<ul>
+<li><b>底座</b>：以 master 的 nb-harness（nb-story 在用的那套）为底座，参考内核分支 <code>feat/w00002-harness-kernel</code>，分支做得多的地方逐块移过来。</li>
+<li><b>分支为什么去掉 nb-session、nb-profile</b>：没有去掉能力，是开发者 2026-10-10 同意把三个包并成一个包、按子路径导出（<code>nb-harness/session</code>、<code>nb-harness/profile</code>），延续 09-11 起“Agent 相关能力聚合、按命名空间组织”的偏好。当时两个包还没有使用方，新的会话格式（带 <code>id</code>、<code>parentId</code> 的树）和 Profile 主机又与旧包不兼容。nb-story 是 10-15 之后才依赖它们的。包分不分开，在 t02 里重新定。</li>
+<li><b>工具发现</b>：开发者要求在“插件给所有 Profile 加工具”时一起考虑，见第 7 条。</li>
+</ul>
+</div>
+
+<h2 class="round">一、20 条需求逐条对照</h2>
+
+<section class="q" data-nbdev-question="n01" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="第 1 条 Composer：批注">
+<h2>1. Composer：模型、推理档、附件、模式、状态栏 <span class="badge" data-nbdev-skip>t17</span></h2>
+<h4>现在有什么</h4>
+<ul>
+<li>nb-agent-ui 已有模型选择、思考档、模式、排队、附件、上下文用量，在 Lab 里能跑；对话视图 Spec 列了 composer 的字段与动作（planned）。</li>
+<li>harness 的 <code>turn(input: string)</code> 只收文字，图片附件怎样进模型没有设计。</li>
+<li>模式（normal、discuss、plan）只在命令系统里出现，有哪些、各是什么意思没定。</li>
+<li>旧应用还有：图片预算（最多 8 张、单张 16 MB）、草稿持久化（10 条、30 天过期）、状态栏（上下文占用并可点开看构成、缓存命中率、累计费用）。</li>
+</ul>
+<h4>要讨论</h4>
+<ul>
+<li>模式要不要保留 discuss、plan，和审批怎样配合（t06）；附件存哪（t08）；模型选择依赖模型服务（t09）。</li>
+</ul>
+</section>
+
+<section class="q" data-nbdev-question="n02" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="第 2 条 Composer 的输入框：批注">
+<h2>2. Composer 的输入框 <span class="badge" data-nbdev-skip>t17</span></h2>
+<h4>现在有什么</h4>
+<ul>
+<li>nb-markdown 的 PromptEditor 已实现（implemented），附件写成 <code>![image #N](local://…)</code>、<code>[file #N · 文件名](local://…)</code>。</li>
+<li>旧应用有三种触发符：<code>/</code> 命令、<code>$</code> 插入 Skill、<code>@</code> 引用（章节、卷、设定集等，依赖旧的剧情模型）。</li>
+</ul>
+<h4>要讨论</h4>
+<ul>
+<li><code>$</code> 与 <code>@</code> 在新应用里引用什么；<code>@</code> 的种类应由插件贡献（文件、章节、剧情图谱里的人物……）。</li>
+</ul>
+</section>
+
+<section class="q" data-nbdev-question="n03" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="第 3 条 Agent 插件的贡献点：批注">
+<h2>3. Agent 是内置插件，要留贡献点 <span class="badge" data-nbdev-skip>t10</span></h2>
+<h4>现在有什么</h4>
+<ul>
+<li>平台提案已定：<code>agent.tools</code>、<code>agent.skills</code> 两个贡献点，激活事件 <code>onAgentTool:&lt;名&gt;</code>，导出“以某 Profile 发起任务”。都没实现，新应用里没有 <code>nbook.agent</code>。</li>
+<li>内核分支给插件留的落脚点：工具来源、工具调用拦截、审批应答、Profile 节点与数据源与字段、压缩方法、资源方案。</li>
+</ul>
+<h4>要讨论（建议的清单）</h4>
+<ul>
+<li>工具、工具组；Skill；Profile；文档（第 12 条）；资源方案（第 11 条）；斜杠命令；<code>@</code> 引用的种类；对话视图的工具渲染器（nb-agent-ui 已有注册表）；上下文槽；钩子（第 7 条）；压缩方法。</li>
+<li>哪些是声明式贡献（清单里写），哪些要激活后命令式登记。</li>
+</ul>
+</section>
+
+<section class="q" data-nbdev-question="n04" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="第 4 条 nb-harness 与应用的分工：批注">
+<h2>4. nb-harness 和应用各管什么 <span class="badge" data-nbdev-skip>t02</span></h2>
+<h4>现在有什么</h4>
+<ul>
+<li>master 的原则：harness 不认识插件、不读配置文件、不解析模型角色，会话日志由宿主给。</li>
+<li>内核分支把配置快照、凭据存储、角色解析都放进了 harness，这是两条线分歧最大的地方。</li>
+<li>harness 的第二类使用方已经存在：nb-story（独立应用）；以后还有评测脚本。</li>
+</ul>
+<div class="rec-note"><b>建议</b>：按“离开 NeuroBook 还能不能用”来分。进 harness：会话、Profile、工具协议、审批判定、提问通道、压缩、运行控制。留在插件：贡献点、设置合成、密钥存放、资源地址到真实目录的映射、nb-history 记账、命令桥、HTTP 与推送。</div>
+</section>
+
+<section class="q" data-nbdev-question="n05" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="第 5 条 工具池：批注">
+<h2>5. 工具池：命名空间 id、模型看到的名字、工厂函数 <span class="badge" data-nbdev-skip>t04</span></h2>
+<h4>现在有什么</h4>
+<ul>
+<li>已有，叫“登记表”：id 带命名空间（<code>builtin.read</code>、<code>story.search</code>），给模型看的名字是单独的字段；工具由工厂函数创建（<code>createReadTool(options)</code>）。登记的是“声明（可冻结）+ 调用句柄（可撤回）”。</li>
+<li>差别：master 的模型名要显式写，不是“没写就取 id 最后一段”；内核分支是把 id 里的 <code>/</code>、<code>.</code> 换成 <code>__</code>、<code>_</code>。</li>
+</ul>
+<h4>要讨论</h4>
+<ul>
+<li>默认取最后一段时 <code>builtin.file.read</code> 与 <code>story.read</code> 会撞名，nb-story 已经撞过一次（它的 <code>read</code> 与 nb-agent-ui 内置工具同名）。撞名时报错，还是自动加前缀？</li>
+</ul>
+</section>
+
+<section class="q" data-nbdev-question="n06" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="第 6 条 Profile：批注">
+<h2>6. Profile：提示词、工具、钩子 <span class="badge" data-nbdev-skip>t05</span></h2>
+<h4>现在有什么</h4>
+<ul>
+<li>master：TSX 写的 <code>defineProfile({manifest, initialSchema, tools, context})</code>，<code>&lt;If tool&gt;</code> 按工具是否生效渲染；没有钩子。</li>
+<li>内核分支：另加 tools、model、compaction、approval 一等属性，节点、数据源、字段都可注册，有上下文槽 <code>&lt;Slot&gt;</code>，文件改动后重载。</li>
+<li>旧应用还有：Profile 自带设置表单（人设、文风预设）、每轮结构化输入、结构化结果、<code>skills.include</code>、用户从模板新建、项目级覆盖；profile home 在项目里。</li>
+</ul>
+<h4>要讨论</h4>
+<ul>
+<li>存放几层（内置、用户级、项目级）；用户能不能自己写 Profile（加载即执行代码）；旧应用的这些字段哪些要。</li>
+</ul>
+</section>
+
+<section class="q" data-nbdev-question="n07" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="第 7 条 插件给所有 Profile 加工具、工具发现与钩子：批注">
+<h2>7. 插件给所有 Profile 加工具、工具发现、全局钩子 <span class="badge" data-nbdev-skip>t04、t05</span></h2>
+<h4>现在有什么</h4>
+<ul>
+<li>现行 Spec 明确不做：给所有 Profile 的公共工具、用配置追加工具、工具发现（10-15 定为后续）。</li>
+<li>约束：工具定义在提示词缓存前缀的最前面，会话中途加减工具会让整段缓存失效。所以现在会话开始时算出工具集、写进快照、会话内不变。</li>
+<li>w00017 移交的调研讨论过两条路：Profile 直接引用插件工具；插件在声明里请求装进某些 Profile，由用户按“工具 × Profile”批准。</li>
+</ul>
+<h4>工具发现的现状（调研第 4 节）</h4>
+<ul>
+<li><b>接口原生</b>：Anthropic Messages 与 OpenAI Responses 都支持“工具搜索 + <code>defer_loading</code>”；Gemini 没有找到；DeepSeek 等 Chat Completions 兼容端点没有找到。</li>
+<li><b>OMP 18.2.5（仓库锁定）</b>：
+  <ul>
+  <li>工具有 <code>loadMode: essential | discoverable</code>，但怎样呈现要上层自己做；</li>
+  <li><code>deferLoading</code> 只对 Anthropic 生效；</li>
+  <li>Anthropic 另有“会话内增减工具”：新工具追加到末尾、不改前缀、不破坏缓存，但要 beta 头，缺省关；</li>
+  <li>OpenAI Responses 的延迟工具不会发出。</li>
+  </ul></li>
+<li><b>omp 命令行自己的做法</b>：去掉了 BM25 工具搜索，改成 <code>xd://</code> 设备：工具从 tools 数组撤下，模型用已有的 <code>read</code>、<code>write</code> 列出、取 schema、执行。代码注释说多数模型不懂这套，常用工具（web_search 等）只能留在顶层。</li>
+</ul>
+<div class="rec-note"><b>建议</b>：
+<ul>
+<li>工具发现做在客户端：一个“查工具、加载工具”的机制，所有服务商都能用；Anthropic、OpenAI 的原生延迟加载当作优化。</li>
+<li>和“插件给所有 Profile 加工具”合起来做：
+  <ul>
+  <li>插件把工具登记进公共池，标成可发现；</li>
+  <li>Profile 声明要不要开发现、开哪些工具组，不用改 TSX；</li>
+  <li>被加载的工具只往会话里追加，不改已有前缀，并记进会话日志，以便恢复。</li>
+  </ul></li>
+</ul>
+要定的是加载后的工具怎么调用：放进 tools 数组（非 Anthropic 时会破坏缓存），还是像 <code>xd://</code> 那样经一个分发工具调用（缓存不受影响，但模型更容易调错）。</div>
+<h4>全局钩子</h4>
+<ul>
+<li>没有设计。平台提案只写了“按顺序询问多个插件的钩子由拥有者定义贡献点，并规定收集顺序、合并方式与失败处理”。钩子点（每次模型请求前、工具调用前后、一轮结束）放在 t05 与 Profile 一起讨论。</li>
+</ul>
+</section>
+
+<section class="q" data-nbdev-question="n08" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="第 8 条 多 Agent：批注">
+<h2>8. 多 Agent <span class="badge" data-nbdev-skip>t14</span></h2>
+<h4>现在有什么</h4>
+<ul>
+<li>旧应用：<code>create_agent</code> 可以带父会话，<code>invoke_agent</code> 前台阻塞或后台作为 job 运行、结果作为后续消息回流，另有 <code>detach_agent</code> 与关系列表。人和 Agent 走同一个 <code>invokeAgent</code>，只差调用方类型，这一点和你的印象一致。</li>
+<li>内核分支提案的设想：子代理是记了父会话的普通会话；父会话批准派生就算授权；子代理以无界面方式运行，遇到要询问的调用直接失败；用收尾工具交回结果（master 已经有收尾工具）。</li>
+<li>omp：一个 <code>task</code> 工具，可批量、后台，结果经 <code>agent://</code> 读；DeepSeek Harness：子代理是接缝，并存多种提供方。</li>
+</ul>
+<h4>要讨论</h4>
+<ul>
+<li>子代理遇到审批：直接失败，还是冒泡到父会话的界面上问用户；后台子代理的结果怎样回流；Workflow 的位置（见清单外第 7 项）。</li>
+</ul>
+</section>
+
+<section class="q" data-nbdev-question="n09" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="第 9 条 审批、ask、人在回路：批注">
+<h2>9. 审批、ask、人在回路 <span class="badge" data-nbdev-skip>t06</span></h2>
+<h4>现在有什么</h4>
+<ul>
+<li>master 没有：harness 只有空闲、运行中、关闭三种状态。</li>
+<li>内核分支已做：OMP 的读、写、执行三档等级加四种模式，审批模型（让另一个模型先判），<code>ToolContext.ask</code> 写进日志与待处理、进程重启后还能回答。</li>
+<li>平台提案定的形态：服务端把待处理事项持久化并推送事件，用户经普通调用回答。命令系统的 <code>confirm</code> 级命令也等这条通道。</li>
+</ul>
+<h4>要讨论（拿例子过）</h4>
+<ul>
+<li>discuss 模式下 Agent 要改一章：审批卡片显示 diff，批准、拒绝、改了再批。</li>
+<li>Agent 用 ask 问“这章用第一人称还是第三人称”，附选项，也能自由输入。</li>
+<li>插件被禁用时，正在等审批的调用怎样结算（调研留的待定项）。</li>
+<li>子代理的审批（同第 8 条）。</li>
+</ul>
+</section>
+
+<section class="q" data-nbdev-question="n10" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="第 10 条 基础工具：批注">
+<h2>10. 基础工具 <span class="badge" data-nbdev-skip>t12</span></h2>
+<h4>现在有什么</h4>
+<ul>
+<li>master 只有 <code>read</code>、<code>edit</code>（五种编辑模式，默认 hashline）；grep、glob、bash 在资源 Spec 里是 planned。</li>
+<li>omp 常驻的核心集：read、write、edit、bash、grep、glob、find、task、todo、ask；旧应用另有 web_search、web_fetch、request_user_input、switch_mode、report_result。</li>
+</ul>
+<h4>要讨论</h4>
+<ul>
+<li>bash 不经资源地址：会绕过 nb-history 记账（只能被记成外部修改）和只读模式。旧应用就有这个洞：bash、execute_sql 没标成“会写”，discuss 模式下照样能写。</li>
+</ul>
+</section>
+
+<section class="q" data-nbdev-question="n11" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="第 11 条 agent home 与 URI：批注">
+<h2>11. agent home：session、profile、agent 三层 <span class="badge" data-nbdev-skip>t08</span></h2>
+<h4>现在有什么</h4>
+<ul>
+<li>资源 Spec 已有 <code>方案://路径</code>：<code>project://</code>、<code>user://</code> 已实现；<code>local://</code>（会话工作目录）、<code>tmp://</code>、<code>docs://</code>、插件注册新方案的接口是 planned。内核分支已实现 project、local、tmp、docs、artifact 五种。</li>
+<li>没有 session、profile、agent 三种 home。</li>
+<li>冲突：<code>local://</code> 在资源 Spec 里是会话工作目录，在提示词编辑器 Spec 里是附件短地址。</li>
+<li>旧应用：profile home 在项目里（<code>agents/&lt;profile&gt;/</code> 下的 context.md、memory.md）；附件按内容哈希存，可以共享。omp：<code>local://</code> 是会话的暂存区，<code>memory://</code> 按项目，<code>agent://</code> 是子代理的输出。</li>
+</ul>
+<h4>要讨论</h4>
+<ul>
+<li>三层之外还有一个维度：放项目里还是跨项目（profile home 在项目里，还是用户级）。</li>
+<li>fork 会话时附件复制还是共享（按内容哈希存就能共享）。</li>
+<li>命名：<code>agent://</code> 在 omp 里是“子代理的输出”，换个名字可以免得和它撞义。</li>
+<li>长期记忆（清单外第 9 项）落在哪一层。</li>
+</ul>
+</section>
+
+<section class="q" data-nbdev-question="n12" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="第 12 条 文档与 docs://：批注">
+<h2>12. 文档：docs:// 与插件贡献文档 <span class="badge" data-nbdev-skip>t08</span></h2>
+<h4>现在有什么</h4>
+<ul>
+<li>omp 的文档 URI 实际叫 <code>omp://</code>，提示词写着没被问到就别读；我们的 <code>docs://</code> 定为“产品参考文档，只读”（planned）。插件贡献文档没有设计。</li>
+<li>SDK 的 npm 包已经带了 <code>docs/</code> 与 <code>specs/</code>。</li>
+</ul>
+<div class="rec-note"><b>建议</b>：<code>docs://</code> 放产品使用文档、SDK 作者文档、插件贡献的文档（按插件 id 分目录），Agent 写插件时直接用得上。仓库自己的 Spec、ADR 是开发文档，用户用不到，不放进去。</div>
+</section>
+
+<section class="q" data-nbdev-question="n13" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="第 13 条 Skill：批注">
+<h2>13. Skill 规范与目录 <span class="badge" data-nbdev-skip>t15</span></h2>
+<h4>现在有什么</h4>
+<ul>
+<li>产品 Skill 没有规范，记录里写“随 Agent 插件迁回时确定”。</li>
+<li>omp、DeepSeek Harness、Claude Code 的共同约定：<code>&lt;名&gt;/SKILL.md</code>，frontmatter 的 name、description 必填，都读 <code>.claude/skills</code> 与 <code>.agents/skills</code>。</li>
+<li>旧应用：安装层与项目层，同名整体覆盖，可运行的 Skill 带 package.json，内置 17 个。nb-story 已有 <code>nbstory skill install</code>。</li>
+</ul>
+<h4>要讨论</h4>
+<ul>
+<li>bun 脚本的依赖什么时候装、装在哪；uv 可以用脚本内联依赖（<code>uv run --script</code>），不需要预装。</li>
+<li>要不要兼容读 <code>~/.claude/skills</code>、<code>~/.agents/skills</code>。</li>
+</ul>
+</section>
+
+<section class="q" data-nbdev-question="n14" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="第 14 条 MCP 插件：批注">
+<h2>14. MCP 作为插件 <span class="badge" data-nbdev-skip>t19</span></h2>
+<ul>
+<li>没有设计。它建在第 7 条上：MCP 工具正是“给所有 Profile 的公共工具”的典型，工具多时还需要工具发现（OpenAI 的工具搜索可以把整个 MCP 服务延迟加载）。</li>
+</ul>
+</section>
+
+<section class="q" data-nbdev-question="n15" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="第 15 条 外部命令行依赖：批注">
+<h2>15. Agent 需要的外部命令行 <span class="badge" data-nbdev-skip>t12</span></h2>
+<ul>
+<li>没有依赖策略，ADR 0029、0033 只承诺 Bun。</li>
+<li>要定：安装时就装，还是第一次用到时检测并提示；Windows 怎么办。</li>
+<li>一个思路（推断，未验证）：rg 经 npm 包随应用带；git、gh、python、uv 只检测、不安装。</li>
+</ul>
+</section>
+
+<section class="q" data-nbdev-question="n16" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="第 16 条 nb-history：批注">
+<h2>16. nb-history 接入 <span class="badge" data-nbdev-skip>t13</span></h2>
+<h4>现在有什么</h4>
+<ul>
+<li>包的能力都在（时间线、误删找回、收件箱、会话游标），新应用没接。</li>
+<li>旧应用：Agent 写文件前后记账，人写的记 user，外部程序改的由文件监听补记 external；收件箱可以接受、还原、全部接受；每轮开始时告诉 Agent 上次之后谁改了哪些文件（三档）。</li>
+</ul>
+<h4>要讨论</h4>
+<ul>
+<li>归属：文件底座提案写 <code>nbook.history</code>，平台提案放进 <code>nbook.project</code>。</li>
+<li>bash 的写入只能被记成 external（第 10 条）。</li>
+</ul>
+</section>
+
+<section class="q" data-nbdev-question="n17" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="第 17 条 rewind、tree、fork、swipe：批注">
+<h2>17. rewind、tree、fork、swipe <span class="badge" data-nbdev-skip>t03</span></h2>
+<h4>现在有什么</h4>
+<ul>
+<li>nb-agent-ui 的视图层已有分支切换、树面板、编辑重试的动作。</li>
+<li>master 的会话日志是线性的：条目只有序号、没有父条目，分支的数据从哪来没有定义。内核分支的格式按树（<code>id</code>、<code>parentId</code>），v1 只用一条链。</li>
+<li>旧应用与 omp 都是“条目带父条目的树 + 当前叶子”，回退只移动叶子、不删历史。</li>
+</ul>
+<h4>要讨论</h4>
+<ul>
+<li>swipe（同一条回复重新生成、左右切换）在树模型里就是同一父节点下的兄弟分支，和 retry 同一个机制。</li>
+<li>omp 的 rewind 有两个意思：<code>/rewind</code> 就是 <code>/branch</code>，回退的是会话；<code>rewind</code> 工具按 git 检查点回滚文件。我们回滚文件应走 nb-history，不走 git。</li>
+<li>树与“前缀稳定、只追加”不冲突：每条路径仍只追加；恢复会话按当前叶子走。</li>
+</ul>
+</section>
+
+<section class="q" data-nbdev-question="n18" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="第 18 条 Agent 操控 NeuroBook：批注">
+<h2>18. Agent 操控 NeuroBook <span class="badge" data-nbdev-skip>t16</span></h2>
+<h4>现在有什么</h4>
+<ul>
+<li>命令系统已实现：never、confirm、auto 三种暴露级别；跨实例的 list 与 execute，来源记为 <code>agent:&lt;调用方&gt;</code>；只读模式下拒绝写类命令；每次执行留审计。</li>
+<li>缺两样：确认通道（现在 <code>confirm</code> 级命令一律返回 <code>confirmation-required</code>），以及 Agent 这一侧调用命令的工具。</li>
+<li>旧应用还能让 Agent 打开工作台面板、切换主题。命令提案有三个待决项：插件的命名空间、Ctrl+P 搜哪些东西、两种模式动作集的关系。</li>
+</ul>
+</section>
+
+<section class="q" data-nbdev-question="n19" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="第 19 条 提示词规范与内置 Profile：批注">
+<h2>19. 提示词工程、内置 Profile 与 Skill <span class="badge" data-nbdev-skip>t18</span></h2>
+<h4>现在有什么</h4>
+<ul>
+<li>新应用一个 Profile 都没有；没有提示词规范。</li>
+<li>旧应用：14 个 Profile（主创、写手、导演、行内编辑、研究、检索、记忆整理、摘要、世界引擎、角色扮演两个、模拟两个），17 个 Skill，53 个文风预设。</li>
+<li>nb-story 的 <code>story-qa</code> 是唯一的新式 Profile，有实测：不设推理档时 168 题错 38，设 xhigh 后错 11。</li>
+</ul>
+<div class="rec-note"><b>建议</b>：第一批只做很少几个（一个主创，加一个生成会话标题的摘要），先把规范和评测方法定下来。</div>
+</section>
+
+<section class="q" data-nbdev-question="n20" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="第 20 条 nbook project 子命令：批注">
+<h2>20. <code>nbook project</code> 子命令 <span class="badge" data-nbdev-skip>t16</span></h2>
+<ul>
+<li>命令行 Spec 明写现在没有作品管理的子命令。</li>
+<li>要先定它给谁用：给外部 Agent（Claude Code 这类，像 <code>nbstory skill</code> 那样配一个 Skill），还是应用内的 Agent 也走它。</li>
+<li>跨实例执行命令第一版只允许服务端调用，命令行要不要求应用在运行，得一起定。</li>
+</ul>
+</section>
+
+<h2 class="round">二、清单之外值得讨论的</h2>
+
+<section class="q" data-nbdev-question="m01" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="清单外 1 上下文压缩：批注">
+<h2>1. 上下文压缩 <span class="badge" data-nbdev-skip>t11</span></h2>
+<ul><li>长篇写作的会话一定会超出上下文。旧应用有自动（预留 25600 token、保留最近 24000 token）与手动 <code>/compact</code>；内核分支做了 <code>soft</code> 压缩；master 明确不做。</li></ul>
+</section>
+
+<section class="q" data-nbdev-question="m02" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="清单外 2 插话与排队：批注">
+<h2>2. 运行中插话、排队 <span class="badge" data-nbdev-skip>t07</span></h2>
+<ul><li>旧应用有 steer 与 followup，内核分支有，master 没有。nb-agent-ui 已有排队界面，现在宿主把它关掉了。</li></ul>
+</section>
+
+<section class="q" data-nbdev-question="m03" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="清单外 3 模型服务插件：批注">
+<h2>3. 模型服务插件 <span class="badge" data-nbdev-skip>t09</span></h2>
+<ul>
+<li>新应用没有模型相关的插件；模型角色合同是 accepted，但没有 Spec，引用的还是旧应用路径。</li>
+<li>密钥的存法不一致：设置的 <code>secret</code> 没实现，10-20 定 API Key 当明文配置项；nb-story 只存环境变量名（ADR 0032）。</li>
+</ul>
+</section>
+
+<section class="q" data-nbdev-question="m04" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="清单外 4 多窗口、多实例写同一会话：批注">
+<h2>4. 多窗口、多实例同时写一个会话 <span class="badge" data-nbdev-skip>t03</span></h2>
+<ul><li>harness Spec 写“同一时刻只由一个进程里的一个会话写”，但 v2 是多实例拓扑（ADR 0024），两个窗口可能打开同一个会话。旧应用为此有一份会话租约 Spec（planned）。</li></ul>
+</section>
+
+<section class="q" data-nbdev-question="m05" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="清单外 5 运行不绑页面：批注">
+<h2>5. 运行不绑页面 <span class="badge" data-nbdev-skip>t10</span></h2>
+<ul><li>nb-story 的做法可以照搬：服务端跑，SSE 推送（更新最多 100 毫秒一次，积压超过 2 MiB 断开），断线后补齐；页面关了 Agent 照样跑完。</li></ul>
+</section>
+
+<section class="q" data-nbdev-question="m06" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="清单外 6 会话的周边：批注">
+<h2>6. 会话的周边 <span class="badge" data-nbdev-skip>t17</span></h2>
+<ul><li>标题与摘要自动生成（旧应用每 16 次调用一次）、归档与恢复、会话列表、上下文检查器、分项用量（nb-story t24 留下的）、费用“未知”与“免费”的区分。</li></ul>
+</section>
+
+<section class="q" data-nbdev-question="m07" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="清单外 7 Workflow 与 Agent：批注">
+<h2>7. Workflow 与 Agent 的关系 <span class="badge" data-nbdev-skip>t14</span></h2>
+<ul><li>nb-workflow 包在（只被旧应用依赖），对话视图里也有 <code>run_workflow</code> 节点与 <code>workflow.submit</code> 动作，但两者怎样配合没有任何合同。</li></ul>
+</section>
+
+<section class="q" data-nbdev-question="m08" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="清单外 8 只读模式里哪些工具算写：批注">
+<h2>8. 只读模式里哪些工具算“写” <span class="badge" data-nbdev-skip>t06</span></h2>
+<ul><li>和第 10 条的 bash 是同一个问题，要在工具声明里定死（OMP 的等级没声明时按执行档处理）。</li></ul>
+</section>
+
+<section class="q" data-nbdev-question="m09" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="清单外 9 长期记忆：批注">
+<h2>9. 长期记忆 <span class="badge" data-nbdev-skip>t08</span></h2>
+<ul><li>nb-memory 还是 spike；和 agent home 一起考虑落在哪一层。</li></ul>
+</section>
+
+<section class="q" data-nbdev-question="m10" data-nbdev-type="text" data-nbdev-optional data-nbdev-label="清单外 10 真实模型测试的预算与授权：批注">
+<h2>10. 真实模型测试的预算与授权 <span class="badge" data-nbdev-skip>t18</span></h2>
+<ul><li>nb-story 的经验：渠道不稳、推理档对结果影响大、OMP 自带重试关不掉。评测方法与预算要在 Work 开头定下来。</li></ul>
+</section>
+
+<h2 class="round">三、讨论顺序</h2>
+<div class="card">
+<p>按依赖排：前面的定了，后面的才好讨论。每个 Task 现在都是草稿，轮到时再写计划。</p>
+<table>
+<tr><th>Task</th><th>讨论什么</th><th>对应</th></tr>
+<tr><td>t02</td><td>harness 底座：两条线对照与移植清单，harness 与插件的分工，包分不分开</td><td>4</td></tr>
+<tr><td>t03</td><td>会话模型：条目树、回退与分支、存放与单写者</td><td>17、清单外 4</td></tr>
+<tr><td>t04</td><td>工具登记、命名与工具发现</td><td>5、7</td></tr>
+<tr><td>t05</td><td>Profile：定义、存放层次、钩子与设置</td><td>6、7</td></tr>
+<tr><td>t06</td><td>审批、提问与 Agent 模式</td><td>9、清单外 8</td></tr>
+<tr><td>t07</td><td>运行控制：插话、排队与中止</td><td>清单外 2</td></tr>
+<tr><td>t08</td><td>资源地址与 home、文档</td><td>11、12、清单外 9</td></tr>
+<tr><td>t09</td><td>模型服务与模型角色</td><td>清单外 3</td></tr>
+<tr><td>t10</td><td>Agent 插件骨架与贡献点</td><td>3、清单外 5</td></tr>
+<tr><td>t11</td><td>上下文压缩</td><td>清单外 1</td></tr>
+<tr><td>t12</td><td>基础工具与外部命令行依赖</td><td>10、15</td></tr>
+<tr><td>t13</td><td>nb-history 接入与文件变更感知</td><td>16</td></tr>
+<tr><td>t14</td><td>多 Agent 与 Workflow</td><td>8、清单外 7</td></tr>
+<tr><td>t15</td><td>Skill 规范与目录</td><td>13</td></tr>
+<tr><td>t16</td><td>Agent 操控 NeuroBook 与 <code>nbook project</code></td><td>18、20</td></tr>
+<tr><td>t17</td><td>对话界面（并入 w00019 t11）</td><td>1、2、清单外 6</td></tr>
+<tr><td>t18</td><td>内置 Profile、提示词规范与评测</td><td>19、清单外 10</td></tr>
+<tr><td>t19</td><td>MCP 插件</td><td>14</td></tr>
+</table>
+<p>别的 Work 要先排好的：w00028 t03（共享包的文字迁移）合入之后再写 Agent 插件的界面；w00031 t03 的错误码合同定了再定工具的错误形状。</p>
+</div>
+
+</main>
+</body>
+</html>

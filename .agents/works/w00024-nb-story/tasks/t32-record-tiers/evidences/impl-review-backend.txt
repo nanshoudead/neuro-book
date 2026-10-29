@@ -1,0 +1,51 @@
+# w00024/t32 后端实现审查
+
+审查范围：`c85450cd7..HEAD`，`packages/nb-story/` 下排除 `src/web/`。
+
+## 1. 单个阅读位置的等级计算远超计划性能预算
+
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：`packages/nb-story/src/core/tiers.ts:391-421`、`packages/nb-story/src/core/queries/entities.ts:137-160`
+- **现象**：`tiersAt` 的表按说法惰性计算，但 `entity.statements` 为生成列表和 `tiers` 计数会逐条调用 `table.statement`，因此首次查询一个位置仍扫描每条说法的全部后文词组。样例书 100 章、1739 条说法的单位置全量计算实测约 481 ms；第 20/50/100 章分别约 417/458/481 ms。
+- **为什么是问题**：计划与 Spec 的性能预算是单个 P 的表小于 50 ms；当前实现约为预算的 8 到 10 倍。等级是人物卡默认查询的热路径，冷建之外仍会让首次打开人物卡明显变慢；LRU 只缓解重复位置，不能满足单位置成本。
+- **如何核实**：在审查 worktree 运行 `bun /tmp/review-t32-impl/exp/measure-tiers.ts`，输出 `chapter:20 allStatementsMs:417.2`、`chapter:50 allStatementsMs:457.6`、`chapter:100 allStatementsMs:480.9`（样例书 100 章）。
+- **建议改法**：把按 P 的后文计数改成可按章前缀/游标增量计算，或在底稿中为每个词组保留可二分截取的出现位置并预聚合；列表的各级计数与条目等级共享一次批量计算，避免每条重复扫描。若接受较高预算，应同步修订 Spec 与验收阈值，而不是保留当前“小于 50 ms”的合同。
+
+## 2. `tier.explain` 逃逸共享缓存对象，调用方可污染后续查询
+
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`packages/nb-story/src/core/tiers.ts:342-363`、`packages/nb-story/src/core/queries/tiers.ts:12-23`
+- **现象**：`TierTable.statement` 把 `StatementTier` 缓存在 `computed` 中，`tierExplain` 直接把其中的 `refs` 与 `echo` 放进返回值，没有复制或冻结。进程内调用方修改一次返回结果，后续同一索引、同一阅读位置的查询就读到被修改的计数。
+- **为什么是问题**：查询合同要求结果是书的一代、版本与参数的纯函数；同一张表被多个查询共享时，结果对象的可变引用不应成为共享状态。HTTP 序列化会掩盖问题，但插件或其它进程内调用方可以直接改返回对象，随后得到错误依据，且跨并发查询互相影响。
+- **如何核实**：运行 `bun /tmp/review-t32-impl/exp/check-tier-alias.ts`，输出 `{"before":1,"after":999999}`；实验先调用 `tier.explain`，改写 `first.signals.refs.confirms`，再用同一位置调用第二次。
+- **建议改法**：`tierExplain` 返回 `{...statement.refs}` 与 `{count: statement.echo.count, phrases: [...statement.echo.phrases]}`；或让缓存内部类型为不可变并在公开出口统一深复制/冻结。不要把缓存内部对象直接作为合同结果。
+
+## 3. 新增 `record_not_found` 没有按命令行合同给出下一步
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`packages/nb-story/src/cli/main.ts:33-43`
+- **现象**：`record_not_found` 已加入核心错误码、HTTP 状态表和 `tier.explain` 合同，但没有加入 `NEXT_STEP`。`nbstory why missing-id --at 50` 只输出错误码和说明，不输出“下一步”。
+- **为什么是问题**：命令行规范对查询失败要求给人读的输出包含错误说明与下一步；新错误码走统一分支却遗漏了对应指引，用户无法从命令输出知道应从可见的说法/情节列表取 id。
+- **如何核实**：运行 `bun /tmp/review-t32-impl/exp/check-record-not-found-cli.ts`，输出 `code:1` 且 `stderr` 为 `错误（record_not_found）：这个阅读位置没有说法或情节 missing-id`，没有“下一步”。
+- **建议改法**：在 `NEXT_STEP` 增加 `record_not_found` 的指引，例如提示用 `statements` 或 `episodes` 列出当前阅读位置可见记录后重试；同时补 CLI 合同测试。
+
+补充核实：同一实验覆盖两本 100 章数据，样例书 1,739 条说法等级全量计算 639.9 ms，西游记 2,136 条说法为 1,002.1 ms；底稿冷建分别为 243.1 ms、124.1 ms。
+
+## 未发现问题的方面
+
+- 规则表逐格、证据窗口、同章引用排除、称呼遮盖、后文引用位置和截断对照：针对性测试通过；未发现当前实现把 P 之后的记录用于等级或依据的路径。
+- `WeakMap<BookIndex, ...>` 的索引隔离、8 个位置的 LRU、表内惰性计算和索引换代键隔离：从代码与实验检查，除第 2 条的返回引用逃逸外，未发现并发同步或旧索引复用问题。
+- `entity.statements` 的 `maxTier`、`tiers`、稳定过滤、分页与游标摘要；情节先验字段；`tier.explain` 的不可见等同 `record_not_found`；错误码与 HTTP 状态映射：未发现另一个合同不一致。
+- 问答工具删除 `maxTier`、显式拒绝该字段、格式化结果不输出等级：118 个针对性测试通过，未发现结果文字变化。
+- 抽取侧 `tier` 清洗、非法值保留记录、修复替换沿用先验、编译带入，以及 `asBeforeT32` 对回放提示词的对照：未发现本次改动范围内的另一个确证问题。
+
+## 验证记录
+
+- `bun test src/core/tiers.test.ts src/core/queries/tiers.test.ts src/qa/engine.test.ts src/cli/cli.test.ts src/ingest/compile.test.ts`：118 pass，0 fail。
+- `bun run typecheck`：通过，包含 core、web、web-test 与 e2e TypeScript 检查。
+- `bun test src/core/spoiler.test.ts src/core/api.test.ts`：33 pass，0 fail。
+- `bun test src/core/spoiler.test.ts src/core/api.test.ts src/server/server.test.ts`：41 pass、2 fail；两个失败是既有服务器测试的 5 秒超时（“单实例与登记”“命令行的查看器地址”），并伴随清理 2 个 dangling processes，未归因于本次等级代码。
+- 性能实验：`bun /tmp/review-t32-impl/exp/measure-tiers-both.ts`；结果见第 1 条后的补充证据。
+- 审查 worktree `git status --short` 为空；实验文件均在 `/tmp/review-t32-impl/exp/`。
+
+有效发现：1、2、3；阻断 0，重要 2，建议 1。

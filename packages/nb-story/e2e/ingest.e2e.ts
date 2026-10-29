@@ -29,7 +29,8 @@ test.beforeAll(async () => {
     replay = await startReplay();
     const configHome = join(root, "xdg");
     await mkdir(join(configHome, "nbstory"), {recursive: true});
-    await writeFile(join(configHome, "nbstory", "config.json"), JSON.stringify({model: {baseUrl: replay.url, id: "replay-model", apiKeyEnv: KEY_ENV, price: {input: 1, output: 4, currency: "CNY"}}}));
+    // 录下的回放里没有马甲核对这一步，显式关掉（输出 20）。
+    await writeFile(join(configHome, "nbstory", "config.json"), JSON.stringify({model: {baseUrl: replay.url, id: "replay-model", apiKeyEnv: KEY_ENV, price: {input: 1, output: 4, currency: "CNY"}}, ingest: {personaCheck: {enabled: false}}}));
     env = {XDG_CONFIG_HOME: configHome, [KEY_ENV]: "fake-e2e-ingest-credential"};
     file = join(root, "灰烬.txt");
     await writeFile(file, await sampleSourceText(10));

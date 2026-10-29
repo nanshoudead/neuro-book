@@ -130,8 +130,8 @@ const ATTEMPT_TIMEOUT_MS = 600_000;
 export const STEP_HEADER = "X-Nbstory-Step";
 /** 错误文字里回显的密钥换成它（与 nb-harness 的 `REDACTED_KEY` 相同）。 */
 const REDACTED_KEY = "[REDACTED]";
-/** 服务明确拒绝、没有受理请求的状态码（用量确定为 0）。 */
-const REJECTED_UNPROCESSED = new Set([401, 403, 429]);
+/** 服务明确拒绝、没有受理请求的状态码（用量确定为 0）。413 是网关嫌请求太大，请求没有到模型。 */
+const REJECTED_UNPROCESSED = new Set([401, 403, 413, 429]);
 
 /** 推理档里“启用推理”的几档，由低到高；`none` 是关闭推理，不在其中。 */
 const ENABLED_EFFORTS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -224,6 +224,9 @@ function classify(error: unknown, apiKey: string): ModelError {
         if (status === 402 || code === "insufficient_quota") return new ModelError("quota", status, message);
         if (status === 429) return new ModelError("rate_limit", status, message, retryAfterOf(error.headers));
         if (code === "context_length_exceeded") return new ModelError("context_overflow", status, message);
+        // 网关嫌请求太大（docs/specs/story/ingest.md F4）。抽取的请求随书变长，长书后面的章会撞上网关的上限；拆成几条消息
+        // 也没用，w00024 t36 实测这个上限是按整个请求算的。只能换网关，所以说明里直接告诉用户。
+        if (status === 413) return new ModelError("provider", status, `网关拒绝了这次请求：请求太大（413）。网关对单次请求的大小有上限，书越往后请求越大；换一个上限更大的网关（nbstory config set ingest.model …）后再接着抽。网关的原话：${message}`);
         if (status !== null && (NETWORK_STATUSES.has(status) || status >= 500)) return new ModelError("network", status, message);
         return new ModelError("provider", status, message);
     }

@@ -39,8 +39,8 @@ owners:
 | `nbstory find <名字或称呼> [--kind <类别>] [--at]` | `entities.list` | 找对象：全部称呼、身份、出场次数 |
 | `nbstory card <对象> [--at] [--perspective <对象>]` | `entity.card` | 人物卡 |
 | `nbstory knowledge <对象> [--state <状态>] [--query <字>] [--at]` | `entity.knowledge` | 他知道的事 |
-| `nbstory statements <对象> [--query <字>] [--at]` | `entity.statements` | 关于他的说法 |
-| `nbstory appearances <对象> [--query <字>] [--at]` | `entity.episodes` | 他参与的情节 |
+| `nbstory statements <对象> [--query <字>] [--max-tier 1\|2\|3] [--tiers] [--at]` | `entity.statements` | 关于他的说法 |
+| `nbstory appearances <对象> [--query <字>] [--tiers] [--at]` | `entity.episodes` | 他参与的情节 |
 | `nbstory knows [--at]` | `secrets.matrix` | 谁知道什么（秘密矩阵） |
 | `nbstory ties <对象> [--perspective <对象>] [--at]` | `entity.relations` | 他和每个对象的关系：关系词、身份连接、一句说明 |
 | `nbstory between <对象> <另一个> [--perspective <对象>] [--at]` | `entity.relation` | 两个对象之间的全部说法、一起出场的情节、互相知道的事 |
@@ -49,7 +49,8 @@ owners:
 | `nbstory track <数值> [--at]` | `ledger.track` | 某一项的流水与对账差额 |
 | `nbstory questions [--state <状态>] [--query <字>] [--at]` | `questions.list` | 悬念与进展 |
 | `nbstory timeline [--order story\|source] [--at]` | `timeline` | 时间线 |
-| `nbstory episodes [--arc <主线>] [--query <字>] [--at]` | `episodes.list` | 情节 |
+| `nbstory episodes [--arc <主线>] [--query <字>] [--tiers] [--at]` | `episodes.list` | 情节 |
+| `nbstory why <说法或情节 id> [--at]` | `tier.explain` | 一条说法或情节为什么是这个等级 |
 | `nbstory arcs [--at]` | `arcs.list` | 当前这一批主线 |
 | `nbstory search <文字> [--kinds <类>] [--at]` | `search` | 搜名字、说法、原文 |
 | `nbstory read <章.段[-段]> [--at]` | `source.read` | 读原文 |
@@ -57,11 +58,13 @@ owners:
 | `nbstory serve [--port <端口>] [--open]` | — | 启动查看器的独立服务 |
 | `nbstory ask <问题>`、`nbstory qa`、`nbstory config` | — | 内置问答、问答记录与问答配置，见 [`story.qa`](qa.md#命令) |
 | `nbstory ingest <原文文件>`、`nbstory ingest --book`、`nbstory ingest --status` | — | 导入原文并抽取、接着抽、看进度，见 [`story.ingest`](ingest.md#命令) |
+| `nbstory revisions list`、`confirm`、`reject`、`link`、`kind`、`move-name`、`undo`（planned） | — | 对图的修订：待确认列表、确认或驳回候选身份、手动连接、改对象种类、挪称呼、撤销，见 [`story.revisions`](revisions.md) 输出 13 |
 | `nbstory skill install [--agent claude\|codex] [--dir <目录>] [--force]` | — | 把随包的 Skill 装进外部 Agent 的 Skill 目录 |
 
 - 所有书级命令都接受 `--book <书>`（书库只有一本书时可省略）；所有命令都接受 `--library <目录>` 与 `--json`；分页的命令接受 `--limit` 与 `--cursor`。
 - 参数名与方法参数同名（多词的写成连字符形式，例如 `--min-together` 对 `minTogether`）。
 - `reading.get`、`reading.set`、`graph.book`、`graph.storyline` 只给查看器用，没有命令。
+- `--tiers` 只影响给人读的输出，不是方法参数：说法与情节的行前写等级与标记（例如 `[2 级·待证实]`，情节没有等级时不写），`statements` 末尾另写各级条数；不带时输出与不分级时相同。`why` 把 `tier.explain` 写成人话：等级、模型给的先验、后文证据，以及后文引用与再提起的词句（[`story.queries`](queries.md) 输出 23 到 27）。
 
 ## 输出与可观察行为
 

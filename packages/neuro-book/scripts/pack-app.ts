@@ -150,6 +150,9 @@ export async function packApp(options: PackOptions): Promise<PackedApp> {
         engines: {bun: BUN_ENGINE},
         license: "AGPL-3.0-only",
         repository: REPOSITORY,
+        keywords: ["neurobook", "writing", "novel", "fiction", "markdown", "local-first", "bun"],
+        homepage: "https://github.com/notnotype/neuro-book#readme",
+        bugs: {url: "https://github.com/notnotype/neuro-book/issues"},
         publishConfig: {access: "public"},
     }, null, 4)}\n`);
     const version = spawnSync("bun", [join(outDir, "server", "nbook.js"), "--version"], {encoding: "utf8"});

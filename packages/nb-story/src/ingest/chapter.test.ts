@@ -25,6 +25,7 @@ import {compile, sourceChapter} from "./compile";
 import {recallCandidates, renderContext} from "./context";
 import {stripDisabled, type RawDraft} from "./draft-tools";
 import {ModelAborted, ModelError, RETRY_DELAYS_MS, type Attempt} from "./model";
+import {EMPTY_HISTORY} from "./persona-check";
 import {RECALL_LIMIT} from "./recall";
 
 const FIXTURES = join(import.meta.dir, "..", "..", "tests", "fixtures", "ingest");
@@ -41,6 +42,11 @@ const TIGHTENED_IDENTITY: [now: string, then: string][] = [
     ["`identity` 类必须正好两个，而且都是人物或身份，不能连到任务、物件之类。给人取名、拜师、同行、捆绑、替代、猜测“可能是”都不是同一个个体：前几种写 `event`、`social`、`kinship` 或 `attitude`；原文没有明确说就是同一个个体、只是猜测时，写 `identity` 并标 `certainty: \"candidate\"`。", "`identity` 类必须正好两个。"],
 ];
 const asBeforeT20 = (text: string) => TIGHTENED_IDENTITY.reduce((result, [now, then]) => result.replace(now, then), text);
+/**
+ * t32 在规则里加了“重要程度”一节、给示例草稿的说法与情节加了 `tier`。对照以前的请求（t34 的录音、t10 与 t12 的哈希
+ * 基线）时先去掉这两处，其余部分仍须逐字相同。录下的回复没有 `tier`，核对与修复请求里嵌的草稿因此不变。
+ */
+const asBeforeT32 = (text: string) => text.replace(/### 11\. 重要程度 `tier`[\s\S]*?\n(?=## 四、)/u, "").replace(/,"tier":[123]/gu, "");
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
 /**
@@ -54,7 +60,7 @@ const requestBaseline = async (name: "replay-ch001-010" | "recall-ch010", increm
     const t12 = (JSON.parse(await readFile(join(FIXTURES, "requests-t12.json"), "utf8")) as Record<string, Record<string, string>>)[name] ?? {};
     return {...Object.fromEntries(Object.entries(t10).filter(([key]) => !key.endsWith(":consolidation"))), ...t12};
 };
-const requestHashes = (requests: {key: string; system: string; user: string}[]) => Object.fromEntries(requests.map(request => [request.key, sha256(`${request.system}\n\u0000\n${request.user}`)]));
+const requestHashes = (requests: {key: string; system: string; user: string}[]) => Object.fromEntries(requests.map(request => [request.key, sha256(`${asBeforeT32(request.system)}\n\u0000\n${request.user}`)]));
 
 /**
  * 第 10 章整理的增量回复（手写，代替整批写法的录音）：a5-2 追加第 6 到 8 章的几段，新开一条南嘉鱼的主线；苏天晴的概览
@@ -161,7 +167,7 @@ describe("回放前 10 章（输出 4、7）", () => {
             }
             const text = `${request.system}\n\u0000\n${user}`;
             // 逐字相同；不同时只能是核对清单里的校验说明不同，而且只在核对类请求里。
-            const before = asBeforeT20(text);
+            const before = asBeforeT20(asBeforeT32(text));
             const same = sha256(before) === recorded.sha256 ? "same" : sha256(withoutSchemaDetails(before)) === recorded.normalized && step === "review-1" ? "schema details only" : "different";
             expect({key: request.key, same}).not.toEqual({key: request.key, same: "different"});
         }
@@ -628,4 +634,66 @@ describe("增量整理稿的清理（输出 7）", () => {
         ]);
         expect(outcome.dataset.arcs.filter(arc => arc.through === 3).map(arc => [arc.id, arc.status, arc.episodes])).toEqual([["a2-1", "closed", ["p1-1", "p2-1"]], ["a3-1", "ongoing", ["p3-1"]]]);
     });
+});
+
+describe("马甲核对（输出 20）", () => {
+    /** 回放抽前 3 章、打开马甲核对；第 3 章的风信子（e3-2）是新建的、还没连上任何人的马甲。`answer` 给马甲核对每次的回复。 */
+    async function throughThree(answer: ((key: ReplayKey, nth: number) => EndpointReply | undefined) | null) {
+        const sample = await sampleDataset();
+        const played = replay(await loadReplay(), (key, nth) => (key.step === "persona" && answer ? answer(key, nth) : undefined));
+        const served = serve(played.responder, () => played.seen.at(-1));
+        const run: ChapterRun = answer ? {...served.run, personaCheck: EMPTY_HISTORY} : served.run;
+        const book = await extractBook(sample, 3, run);
+        const last = sample.sources[2]!.paragraphs.length;
+        const dataset = compile(sample.book, sample.sources.slice(0, 3), book.drafts).dataset;
+        return {...book, played, last, dataset, asked: played.seen.filter(key => key.step === "persona")};
+    }
+    const json = (value: unknown): EndpointReply => ({kind: "text", text: JSON.stringify(value)});
+
+    test("答出是同一个人、但本章依据不是段号：问了这个马甲，不写，说明里记一句", async () => {
+        const run = await throughThree(key => json(key.subject === "e3-2" ? {verdict: "same", entity: "e1-1", certainty: "certain", evidence: ["3.LAST"], current: ["3.LAST"], reason: "测试"} : {verdict: "unknown"}));
+        expect(run.asked.some(key => key.chapter === 3 && key.subject === "e3-2")).toBe(true);
+        expect(run.played.unknown).toEqual([]);
+        expect(run.results[2]!.personas?.linked).toEqual([]);
+        expect(run.results[2]!.notes.some(note => note.includes("e3-2") && note.includes("没有给出本章的依据"))).toBe(true);
+    }, 60_000);
+
+    test("依据在本章：写下一条候选身份说法（模型写的 certain 也只写候选），位置与文字取依据那一段", async () => {
+        const sample = await sampleDataset();
+        const last = sample.sources[2]!.paragraphs.length;
+        const run = await throughThree(key => json(key.subject === "e3-2" ? {verdict: "same", entity: "e1-1", certainty: "certain", evidence: [`3.${last}`], current: [`3.${last}`], reason: "测试"} : {verdict: "unknown"}));
+        expect(run.results[2]!.personas?.linked).toEqual(["e3-2"]);
+        const added = run.dataset.statements.filter(item => item.family === "identity" && item.about.includes("e3-2") && item.about.includes("e1-1"));
+        expect(added.map(item => ({certainty: item.certainty, at: item.at, text: item.text}))).toEqual([{certainty: "candidate", at: {chapter: 3, paragraph: last}, text: "风信子可能就是苏天晴。"}]);
+    }, 60_000);
+
+    test("答不是马甲：数据不变，说明里记一句；回复两次不成形：这一章照常抽完，问题记进这一章", async () => {
+        const notPersona = await throughThree(key => json(key.subject === "e3-2" ? {verdict: "not-persona"} : {verdict: "unknown"}));
+        expect(notPersona.results[2]!.personas?.notPersona).toEqual(["e3-2"]);
+        expect(notPersona.results[2]!.notes.some(note => note.includes("e3-2") && note.includes("可能不是马甲"))).toBe(true);
+        const broken = await throughThree(key => (key.subject === "e3-2" ? {kind: "text", text: "好的。"} : json({verdict: "unknown"})));
+        expect(broken.asked.filter(key => key.subject === "e3-2").length).toBe(2);
+        expect(broken.results[2]!.notes.some(note => note.includes("核对马甲") && note.includes("e3-2"))).toBe(true);
+        expect(broken.results[2]!.personas?.linked).toEqual([]);
+    }, 60_000);
+
+    test("每个核对请求发出前都检查停止：检查抛出就不发，错误照常往外抛", async () => {
+        const sample = await sampleDataset();
+        const played = replay(await loadReplay(), key => (key.step === "persona" ? json({verdict: "unknown"}) : undefined));
+        const served = serve(played.responder, () => played.seen.at(-1));
+        class Halt extends Error {}
+        const run: ChapterRun = {...served.run, personaCheck: EMPTY_HISTORY, beforeRequest: step => {
+            if (step === "persona") throw new Halt("停止");
+        }};
+        const outcome = await extractBook(sample, 3, run).then(() => null, (error: unknown) => error);
+        expect(outcome instanceof Halt).toBe(true);
+        expect(played.seen.filter(key => key.step === "persona")).toEqual([]);
+    }, 60_000);
+
+    test("关着：不发这一步的请求", async () => {
+        const run = await throughThree(null);
+        expect(run.asked).toEqual([]);
+        expect(run.results.every(result => result.personas === null)).toBe(true);
+        expect(run.played.unknown).toEqual([]);
+    }, 60_000);
 });

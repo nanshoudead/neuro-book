@@ -36,7 +36,7 @@ bun add -g @notnotype/neuro-book
 nbook
 ```
 
-`nbook` starts the local server in the foreground and opens your browser; Ctrl-C stops it, and running it again opens the instance that is already running. The server listens on loopback only; on a remote machine, forward it with `ssh -L 4217:127.0.0.1:4217 <host>`. Data lives in your platform's data directory (`~/.local/share/neuro-book` on Linux), and books default to `NeuroBook` under your documents folder. Options, data locations and upgrades are described in the [app package notes](packages/neuro-book/scripts/app-package/README.md) (Chinese).
+`nbook` starts the local server in the foreground and opens your browser; Ctrl-C stops it, and running it again opens the instance that is already running. The server listens on loopback only; on a remote machine, forward it with `ssh -L 4217:127.0.0.1:4217 <host>`. Data lives in your platform's data directory (`~/.local/share/neuro-book` on Linux), and books default to `NeuroBook` under your documents folder (`~/NeuroBook` when there is none). Options, data locations and upgrades are described in the [app package notes](packages/neuro-book/scripts/app-package/README.md) (Chinese).
 
 ## What it does today
 

@@ -1,0 +1,58 @@
+w00028 t03 第 7 片：projects 插件迁移报告（边做边追加）
+工作区：/home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n（分支 feat/w00028-i18n，基线 d2adbdd8e）
+
+## 状态
+- 一次做完，不分块。typecheck 已过（tsc + 两次 vue-tsc）；locales.test.ts 已过并做过变异自检（改 en-US 一个值，变红，改回后变绿）。
+- 以下待追加：bun 测试、vitest、docs:check、governance:check、message-catalogs 的结果。
+
+## 目录
+- src/plugins/projects/locales/zh-CN.json、en-US.json：脚本从 HEAD 抽出 187 条旧字面量生成，值逐字沿用，只做 {x} -> {{x}}。
+- 键数：186 个叶子键（zh-CN 里复数键按 _other 计）+ 9 条 open.retryTitle.*（8 个失败码 + unknown，整句）。
+- 分组：settings / commands / home / editorPages / settingsPages（约定键）、open、registerFailures、shelf（含 fields）、errors、remoteErrors、format、welcome、bookCard、bookshelfHost、bookshelfPage、pathPicker、projectInfo、shelfCards、shelfDesk、shelfList、welcomePage、worksSettings。
+- 登记：src/web/plugins.ts builtinPluginCatalogs 加 "nbook.projects"；scripts/ci/message-catalogs.ts CATALOG_DIRECTORIES 加 projects/locales。
+
+## 实际键数（叶子字符串）
+- zh-CN 195，en-US 199（en-US 多出的 4 条是英文复数 _one：words/files/books 与 bookshelfPage 的单数形式拆分，zh 只有 _other）。
+
+## 改动（全部在 .worktree/w00028-i18n，未提交）
+- 新增：projects/locales/{zh-CN,en-US}.json、shared/text.ts（projectsText，命名空间字面量，locales.test.ts 校验等于 descriptor.id；因 plugin.ts 引 contracts，用 descriptor 会成环）、web/text.ts（projectsCatalogs）、web/failure-text.ts（取代 messages.ts）、locales.test.ts、lab/web/fixtures/projects-scene/projects-text.ts（withProjectsText）。
+- 删除：web/messages.ts（旧表与取文字函数）。
+- 产品代码：contracts.ts（librarySetting 省 title，description 显式引用）、open-project.ts / browse.ts / works-section.ts / bookshelf-home.ts / welcome.ts / shelf-format.ts / shelf-page.ts / plugin.ts：`locale` 改为 `text`（TextResolver 或 TextPort），由 plugin.ts 用 windowTextPort 生成；声明用约定键并省略 title。
+- 10 个组件（BookCard、BookshelfHost、BookshelfPage、PathPickerDialog、ProjectInfoDialog、ShelfCards、ShelfDesk、ShelfList、WelcomePage、WorksSettingsPage）：删 TEXT 表与 locale 属性，经 useText() 取词；对应 .md 标 state:inject 并写理由，去掉 locale Props。BookCover、FileBrowser 未动。
+- 登记：src/web/plugins.ts、scripts/ci/message-catalogs.ts。
+- Lab：fixtures/index.ts 里 9 个 projects 场景改为 defineLabFixture + withProjectsText；scene 输入里的 locale 去掉。
+
+## 测试
+- 新增 locales.test.ts（6 条）：命名空间与 source、键与值对照 git HEAD 旧字面量（186 条旧表 + retryTitle 模板）、retryTitle 与 registerFailures 拼接一致、复数形状、码表与目录分组一致、errors 码均在 projectsRemoteContract 声明。
+- 改动：projects.test.ts、shelf-page.test.ts、welcome-chapter.test.ts、shelf-format.test.ts、7 个组件 dom 测试、welcome.dom.test.ts、WorksSettingsPage.dom.test.ts：中文断言改经测试端口（testTextPort / textIn / provideText），未放宽断言，无 mock/spy/假计时器/固定等待。
+- 严格测试引擎抓出两处遗漏（pathPicker.current 缺参数、nbook.settings 缺 row.modified），已修。
+- 临时跑过 46 个 Lab 场景确认无键名泄漏，en-US 场景翻译生效；临时文件已删。
+
+## 验证结果
+- packages/neuro-book：`bun run typecheck` 通过；`bun run test:bun` 1605 pass / 0 fail；`bunx vitest run --testTimeout=30000` 65 文件 381 通过。
+- 仓库根：`bun run docs:check` failures 空；`bun run governance:check` failures 空；`bun scripts/ci/message-catalogs.ts` 退出码 0 无输出。
+- e2e 未跑；grep e2e 和 docs 无对 locale 属性、shelfText、messages.ts 的残留引用。
+
+## 给主会话的决定点
+1. 服务端失败码文字没有合并成单一 errors.<code>，而分三组：registerFailures（登记失败原因，8 码）、errors（业务码 unknown-project/read-only/identity-invalid/identity-conflict，identity-* 与登记版文字不同）、remoteErrors（路由码 version-changed/unavailable，not-provided 与 target-gone 共用 unavailable）。码与语义未改，w00031 接手时可再合并。
+2. retryTitle：TextRef 参数不能嵌套，故每码一条整句键 open.retryTitle.<code> + unknown；测试验证等于旧模板拼出的句子。
+3. wordsTenThousand 与 today 的参数改名 amount（count 在复数键里必须是数字）；words/files/books 用 {{count, number}} 复数键。
+4. 组件 locale 属性全部删除，改经端口；shelf-page 的 host.text 是 TextPort（需要 locale.value 排序与格式化）。
+5. 参数 500 字截断现在也作用于服务端 detail 文字（旧版不截断），仅极端长 detail 才可见。
+6. Lab 的 projects fixture 同时注册 nbook.settings（Works 页嵌入 SettingsRow）。
+
+## 未迁移或存疑（未猜，原样保留）
+- FileBrowser.vue 的中文单语默认值（emptyText "这里没有子目录"、upLabel "上一级"、label "目录"），属组件默认 props，调用方（PathPickerDialog）是否已覆盖请主会话确认；本片未动 FileBrowser。
+- 诊断文字不迁：shelf-page.ts 的 host.report 文本、web/plugin.ts 的 diagnostics.record message、works-section.ts 与 welcome.ts 的 options.report 文本、backend/、project/ 下所有 record message 与服务端 detail（backend/cover-routes.ts、browse.ts 的 detail 为服务端响应，归 w00031）。
+- 数据性：FALLBACK_DIRECTORY_NAME = "作品"（shared/directory-name.ts，目录名数据）、welcome.ts 的 QUICK_PREFIXES ["大纲","设定"]（章节文件名前缀，数据）、NO_FILES 码。
+- 代码里拼接的全角标点：`（…）`（createInvalidParent）、`${code}：${detail}`（failureReason 的 fallback）。
+- ShelfDesk.vue 用正则 /\s*(字|words)$/ 去掉 formatWords 结果的单位，依赖目录里 format.words 的单位文字，是脆弱点；改法需要单独的无单位格式键，本片按"文字不变"不动。
+- Lab 夹具里的中文示例内容（作品名等）是数据。
+- Welcome 命令的英文 description 未改。
+
+## 错字与共享代码
+- 错字：未发现。
+- 共享代码（src/ui、src/shared）：未改，未发现需要改的问题。
+
+## 禁止清单自查
+- 未按错误文案分支（用码表）；无静默 catch；无跳过/放宽测试；产品代码无测试专用分支；未改范围外文件与注释（仅 projects、其 Lab fixture、两处登记）；无跨包深导入；未用 rm -rf（删 messages.ts 用 rm 单文件，已确认被跟踪并在工作区显示为 D）；未 commit/push/stash。

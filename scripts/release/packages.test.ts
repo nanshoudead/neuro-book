@@ -70,6 +70,19 @@ describe("发布清单检查", () => {
         expect(output.order.at(-1)).toBe("@notnotype/nb-story");
     });
 
+    it("bun.lock 里记的工作区版本与 package.json 不同时报出（发布时依赖范围会被写旧）", async () => {
+        const root = await fixtureRoot();
+        await writePackage(root, "lib", manifest("lib", {version: "0.2.0"}), {"src/index.ts": "export const x = 1;\n"});
+        await writeFile(join(root, "bun.lock"), `{\n  "workspaces": {\n    "packages/lib": {\n      "name": "@notnotype/lib",\n      "version": "0.1.0",\n    },\n  },\n}\n`);
+
+        const stale = runCheck(["--root", root, "--package", "lib"]);
+        expect(stale.status).toBe(1);
+        expect(stale.output.findings.map((finding) => finding.code)).toEqual(["lockfile_version"]);
+
+        await writeFile(join(root, "bun.lock"), `{\n  "workspaces": {\n    "packages/lib": {\n      "name": "@notnotype/lib",\n      "version": "0.2.0",\n    },\n  },\n}\n`);
+        expect(runCheck(["--root", root, "--package", "lib"]).status).toBe(0);
+    });
+
     it("被依赖的包排在前面", async () => {
         const root = await fixtureRoot();
         await writePackage(root, "app", manifest("app", {dependencies: {"@notnotype/base": "workspace:^"}}), {"src/index.ts": `import {base} from "@notnotype/base";\nexport const app = base;\n`});

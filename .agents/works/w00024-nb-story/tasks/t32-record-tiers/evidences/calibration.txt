@@ -1,0 +1,47 @@
+t32 第 1 片校准（scripts/calibrate.ts，2026-10-27）。参数定为：证据窗口 5 章；回响词组的章数上限为可见章数的 40%（至少 5 章）；
+强证据为后文引用至少 1 处或回响词组至少 5 个；回响除原文外也看记录文字（说法、情节）。
+各列：等级分布、后验分布、最近 3 章的等级分布；“标注”是与 t28 两遍模型标注（样例书前 20 章 320 条说法）的对照：
+与第一遍完全一致、程序 3 级里模型两遍都没标 1 级的比例（安全折叠）、程序 1 级里模型两遍都没标 3 级的比例。
+西游记一行的“标注”列无意义（标注是样例书的 id，碰巧同名），只看分布。“先验run1”把 t28 第一遍标注当作先验。
+对照的候选：只看原文回响时西游记 3 级 51%（文白不同，原文里找不到说法的词组）；强证据门槛 3 个时先验书第 100 章 1 级 61%；
+上限比例 0.1 到 0.4 对一致率影响在 2 个百分点内，取 0.4 让贯穿全书的设定词组（“神典石”三十多章）仍算回响。
+
+样例·无先验 P=20 n=323 1/2/3=20%/48%/32% ev[unknown:18% none:27% some:45% strong:9%] 最近3章 1/2/3=0%/100%/0% | 标注 n=320 一致46% 3级安全88%(102) 1级不误97%(64) unconfirmed:0 foreshadow:0 | index 83ms tiers 559ms
+样例·无先验 P=50 n=836 1/2/3=27%/43%/30% ev[unknown:9% none:20% some:55% strong:16%] 最近3章 1/2/3=2%/98%/0% | 标注 n=320 一致44% 3级安全94%(85) 1级不误92%(114) unconfirmed:0 foreshadow:0 | index 63ms tiers 467ms
+样例·无先验 P=100 n=1739 1/2/3=31%/43%/25% ev[unknown:5% none:15% some:54% strong:26%] 最近3章 1/2/3=0%/100%/0% | 标注 n=320 一致45% 3级安全95%(65) 1级不误93%(134) unconfirmed:0 foreshadow:0 | index 61ms tiers 475ms
+样例·无先验·前20章 P=20 n=323 1/2/3=20%/48%/32% ev[unknown:18% none:27% some:45% strong:9%] 最近3章 1/2/3=0%/100%/0% | 标注 n=320 一致46% 3级安全88%(102) 1级不误97%(64) unconfirmed:0 foreshadow:0 | index 46ms tiers 354ms
+样例·无先验·前20章 P=50 n=323 1/2/3=36%/38%/26% ev[unknown:0% none:17% some:57% strong:27%] 最近3章 1/2/3=0%/0%/0% | 标注 n=320 一致44% 3级安全94%(85) 1级不误92%(114) unconfirmed:0 foreshadow:0 | index 37ms tiers 417ms
+样例·无先验·前20章 P=100 n=323 1/2/3=42%/38%/20% ev[unknown:0% none:11% some:50% strong:39%] 最近3章 1/2/3=0%/0%/0% | 标注 n=320 一致45% 3级安全95%(65) 1级不误93%(134) unconfirmed:0 foreshadow:0 | index 64ms tiers 374ms
+样例·先验run1·前20章 P=20 n=323 1/2/3=23%/62%/15% ev[unknown:18% none:27% some:45% strong:9%] 最近3章 1/2/3=14%/67%/19% | 标注 n=320 一致87% 3级安全100%(49) 1级不误100%(73) unconfirmed:26 foreshadow:3 | index 41ms tiers 321ms
+样例·先验run1·前20章 P=100 n=323 1/2/3=47%/42%/11% ev[unknown:0% none:11% some:50% strong:39%] 最近3章 1/2/3=0%/0%/0% | 标注 n=320 一致71% 3级安全100%(37) 1级不误100%(150) unconfirmed:7 foreshadow:15 | index 35ms tiers 405ms
+西游记·无先验 P=10 n=309 1/2/3=8%/67%/25% ev[unknown:48% none:34% some:16% strong:3%] 最近3章 1/2/3=0%/100%/0% | 标注 n=188 一致39% 3级安全75%(55) 1级不误86%(14) unconfirmed:0 foreshadow:0 | index 53ms tiers 474ms
+西游记·无先验 P=30 n=745 1/2/3=15%/48%/37% ev[unknown:14% none:50% some:31% strong:5%] 最近3章 1/2/3=0%/100%/0% | 标注 n=317 一致35% 3级安全83%(143) 1级不误83%(53) unconfirmed:0 foreshadow:0 | index 33ms tiers 476ms
+西游记·无先验 P=100 n=2136 1/2/3=24%/44%/32% ev[unknown:5% none:40% some:46% strong:9%] 最近3章 1/2/3=9%/91%/0% | 标注 n=317 一致37% 3级安全83%(103) 1级不误87%(89) unconfirmed:0 foreshadow:0 | index 30ms tiers 508ms
+底稿冷建 625 ms
+P=30 全部说法 11.2 ms
+P=60 全部说法 8.3 ms
+P=100 全部说法 14.6 ms
+P=99 全部说法 14.9 ms
+
+
+---- 第二轮（第 4 片做依据弹出层时，2026-10-27）----
+依据里的回响词组出现“晴在视频”“认为风信”这类带半截人名的词组，人看了没有意义，也虚增回响。改为：说法里出现的称呼（P 时已出现的）
+盖住的字所在的词组不算回响；给人看的是相邻或重叠的回响词组连成的词句。其余参数不变（强证据门槛另试了 3、4：与先验的一致率更低，
+先验书第 100 章 1 级分别占 48%、39%，维持 5）。西游记的图改读仓库里的 .gz（未压缩的那份被别的会话移走了）。
+
+样例·无先验 P=20 n=323 1/2/3=15%/46%/38% ev[unknown:18% none:42% some:33% strong:7%] 最近3章 1/2/3=0%/100%/0% | 标注 n=320 一致40% 3级安全85%(124) 1级不误96%(49) unconfirmed:0 foreshadow:0 | index 54ms tiers 390ms
+样例·无先验 P=50 n=836 1/2/3=19%/42%/39% ev[unknown:9% none:37% some:44% strong:9%] 最近3章 1/2/3=0%/100%/0% | 标注 n=320 一致40% 3级安全91%(113) 1级不误93%(80) unconfirmed:0 foreshadow:0 | index 43ms tiers 381ms
+样例·无先验 P=100 n=1739 1/2/3=22%/41%/38% ev[unknown:5% none:32% some:50% strong:12%] 最近3章 1/2/3=0%/100%/0% | 标注 n=320 一致40% 3级安全92%(99) 1级不误93%(99) unconfirmed:0 foreshadow:0 | index 46ms tiers 346ms
+样例·无先验·前20章 P=20 n=323 1/2/3=15%/46%/38% ev[unknown:18% none:42% some:33% strong:7%] 最近3章 1/2/3=0%/100%/0% | 标注 n=320 一致40% 3级安全85%(124) 1级不误96%(49) unconfirmed:0 foreshadow:0 | index 56ms tiers 309ms
+样例·无先验·前20章 P=50 n=323 1/2/3=25%/40%/35% ev[unknown:0% none:30% some:54% strong:15%] 最近3章 1/2/3=0%/0%/0% | 标注 n=320 一致40% 3级安全91%(113) 1级不误93%(80) unconfirmed:0 foreshadow:0 | index 33ms tiers 348ms
+样例·无先验·前20章 P=100 n=323 1/2/3=31%/38%/31% ev[unknown:0% none:23% some:55% strong:22%] 最近3章 1/2/3=0%/0%/0% | 标注 n=320 一致40% 3级安全92%(99) 1级不误93%(99) unconfirmed:0 foreshadow:0 | index 41ms tiers 265ms
+样例·先验run1·前20章 P=20 n=323 1/2/3=17%/67%/15% ev[unknown:18% none:42% some:33% strong:7%] 最近3章 1/2/3=14%/67%/19% | 标注 n=320 一致83% 3级安全100%(49) 1级不误100%(55) unconfirmed:41 foreshadow:3 | index 32ms tiers 321ms
+样例·先验run1·前20章 P=100 n=323 1/2/3=33%/54%/14% ev[unknown:0% none:23% some:55% strong:22%] 最近3章 1/2/3=0%/0%/0% | 标注 n=320 一致79% 3级安全100%(45) 1级不误100%(104) unconfirmed:21 foreshadow:7 | index 31ms tiers 283ms
+西游记·无先验 P=10 n=309 1/2/3=6%/65%/28% ev[unknown:48% none:39% some:12% strong:2%] 最近3章 1/2/3=0%/100%/0% | 标注 n=188 一致39% 3级安全73%(60) 1级不误83%(12) unconfirmed:0 foreshadow:0 | index 42ms tiers 606ms
+西游记·无先验 P=30 n=745 1/2/3=12%/47%/41% ev[unknown:14% none:57% some:26% strong:3%] 最近3章 1/2/3=0%/100%/0% | 标注 n=317 一致35% 3级安全82%(153) 1级不误79%(42) unconfirmed:0 foreshadow:0 | index 26ms tiers 469ms
+西游记·无先验 P=100 n=2136 1/2/3=17%/44%/39% ev[unknown:5% none:52% some:38% strong:5%] 最近3章 1/2/3=6%/94%/0% | 标注 n=317 一致37% 3级安全79%(118) 1级不误86%(73) unconfirmed:0 foreshadow:0 | index 22ms tiers 502ms
+底稿冷建 532 ms
+P=30 全部说法 9.4 ms
+P=60 全部说法 9.8 ms
+P=100 全部说法 12.1 ms
+P=99 全部说法 17.2 ms

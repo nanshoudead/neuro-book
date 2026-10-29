@@ -12,6 +12,7 @@
 
 import type {Dataset, Entity, Knowledge, KnowledgeState, LedgerEntry, Position, Question, Secret, Span, Statement, TimeAnchor} from "../core/dataset";
 import {featuresOf} from "../core/dataset";
+import {displayName} from "../core/display-name";
 import {comparePosition, formatPosition, visibleAt} from "../core/position";
 import {occurrenceFinder} from "./text-match";
 
@@ -249,12 +250,8 @@ export function recallCandidates(dataset: Dataset, afterChapter: number, text: s
     return dataset.statements.filter(item => taken.has(item)).map(item => ({id: item.id, text: item.text}));
 }
 
-/** 对象在某个阅读位置的显示名：取此时最新的主要称呼；还没有称呼时用整理标签并加括号标明。 */
-export function displayName(entity: Entity, readAt: Position): string {
-    const names = entity.names.filter(name => visibleAt(name.at, readAt)).sort((a, b) => comparePosition(a.at, b.at));
-    const primary = names.filter(name => name.primary).at(-1);
-    return primary?.text ?? names[0]?.text ?? `〔${entity.label}〕`;
-}
+/** 对象在某个阅读位置的显示名（实现在 core，修订也用它）。 */
+export {displayName};
 
 /** 此时可见的两个对象显示名相同时，各自带上整理标签，列表里才分得清。 */
 export function uniqueNames(dataset: Dataset, readAt: Position): Map<string, string> {

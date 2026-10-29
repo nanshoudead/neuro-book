@@ -112,6 +112,8 @@ export interface ServerProcessOptions {
      * 命令行自己的输出。
      */
     readonly onStartupFailed?: (failure: StartupFailureReport) => void;
+    /** 服务端停止结算之后、进程退出之前调用（启动中被停下也算；启动失败时不调）：给前台运行的命令行写一句“已停止”。 */
+    readonly onStopped?: (exitCode: number) => void;
 }
 
 /** 启动失败的摘要：每个失败入口的来源、原因与错误消息。 */
@@ -153,14 +155,20 @@ export async function runServerProcess(manifest: ReadonlyArray<PluginDescriptor>
         process.exit(1);
     }
     // 启动失败时 startServer 已写出致命诊断，随后经 stopped 以 1 退出。
+    let ran = false;
     server.ready.then(
-        () => options.onReady?.({url: server.url, rpcUrl: server.rpcUrl}),
+        () => {
+            ran = true;
+            options.onReady?.({url: server.url, rpcUrl: server.rpcUrl});
+        },
         (error: unknown) => {
-            // 启动中被请求停止（Ctrl-C）不算启动失败。
-            if (!(error instanceof ServerStartupError && error.status !== "failed")) options.onStartupFailed?.(startupFailureReport(error));
+            // 启动中被请求停止（Ctrl-C）不算启动失败：照常是一次停止，停完也报“已停止”。
+            if (error instanceof ServerStartupError && error.status !== "failed") ran = true;
+            else options.onStartupFailed?.(startupFailureReport(error));
         },
     );
     const {exitCode} = await server.stopped;
+    if (ran) options.onStopped?.(exitCode);
     process.exit(exitCode);
 }
 

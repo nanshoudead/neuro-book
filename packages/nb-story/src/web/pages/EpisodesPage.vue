@@ -12,6 +12,7 @@ import NameLink from "../parts/NameLink.vue";
 import PagedList from "../parts/PagedList.vue";
 import PageState from "../parts/PageState.vue";
 import RefLink from "../parts/RefLink.vue";
+import TierBadge from "../parts/TierBadge.vue";
 
 const book = useBook();
 const arcs = useStoryQuery("arcs.list", () => ({}));
@@ -70,7 +71,7 @@ watch([() => list.items.value, pendingJump, () => list.loading.value], async () 
                             <h3 v-if="index === 0 || list.items.value[index - 1]!.chapter !== item.chapter" class="chapter-head">第 {{ item.chapter }} 章</h3>
                             <article class="episode" :data-episode="item.id">
                                 <button type="button" class="flex w-full flex-wrap items-baseline gap-x-2 text-left" :aria-expanded="expanded.has(item.id)" @click="toggle(item.id)">
-                                    <b class="min-w-0 flex-1">{{ item.title }}</b>
+                                    <b class="min-w-0 flex-1"><TierBadge :tier="item.tier" />{{ item.title }}</b>
                                     <span v-if="item.time || item.place" class="text-[length:var(--text-2xs)] text-[var(--text-secondary)]" data-testid="episode-when">
                                         <template v-if="item.time"><span class="i-lucide-clock align-[-1px]" /> {{ item.time.label }}</template>
                                         <template v-if="item.place"><span class="i-lucide-map-pin ml-1 align-[-1px]" /> {{ item.place.label }}</template>

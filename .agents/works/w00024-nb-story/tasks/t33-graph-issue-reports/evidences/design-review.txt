@@ -1,0 +1,156 @@
+# t33 设计审查报告
+
+审查按核实顺序追加；未调用真实模型 API。
+
+## 1. 严重程度：重要；类别：正确性、代码机制；位置：plan.md「检测」第 44 到 46 行；相关代码 packages/nb-story/src/ingest/context.ts:40-134、252-265，packages/nb-story/src/ingest/compile.ts:426-553
+
+**现象**：`renderContext` 对 `at`、可见称呼、知情、情节和说法做了位置过滤，但它还直接输出可见对象的 `label` 与 `note`；整理合并会删除 `drop` 对象、把称呼并入 `keep`，并把 `keep.at` 可能改早，最终图只保留 `mergedFrom`，不保存合并发生章。`summaries` 与 `arcs` 根本不由 `renderContext` 输出。计划只说“按 `at` 去掉之后的记录”，没有定义嵌套字段、来源、合并历史的截断合同。`prior` 的真实含义是上一章提交后的编译结果，不是对最终图做顶层 `at <= k-1` 过滤。
+
+**为什么是问题**：在本次 18 到 30 章数据上，当前唯一合并发生在后面，直接渲染和一份位置过滤副本可能逐字相同，但这个“相同”只证明两次调用的字符串相同，不证明副本等价于真实 `prior`。一旦保留对象在后文合并、标签/说明带有整理后的信息，或合并把对象位置改早，最终图无法从 `mergedFrom` 逆推出合并前的两个对象；逐字比较会把错误的两份输入同时当成正确。反过来，若截断只过滤顶层数组，嵌套的 `names`、`question.updates`、`time.clockAt/dateAt`、引用数组和派生 `mentions` 也会不等价。
+
+**如何核实**：运行 `bun /tmp/review-t33-design/exp/context-check.ts`；输出第 18、19、24、25、30 章均为 `equal:true`，但脚本只能构造位置过滤副本，不能从 `/tmp/t31/graph-164.json` 恢复合并发生位置。另读 `context.ts:40-134` 可见输出字段，读 `compile.ts:439-451,528-553` 可见合并会删除对象、改早 `keep.at`、只留 `mergedFrom` 并重定向引用。
+
+**建议改法**：把核对对象改成真实前缀：从 `sources` 和每章已提交草稿/整理重新编译出第 `k-1` 章 `prior`；若只有最终图，明确声明只能验证当前样本范围，先检查所有 `mergedFrom`、标签/说明和嵌套引用是否会影响 18 到 30 章，再由人工确认。截断实现必须逐字段按位置处理，并验证对象集合、可见称呼、知情、情节、说法、来源段落和派生索引，而不是只比较最终字符串。
+
+## 2. 严重程度：重要；类别：正确性、测量口径；位置：plan.md「金标」第 29 到 38 行、「程序扫描」第 40 到 42 行；packages/nb-story/src/core/generic-names.ts:1-30
+
+**现象**：计划把 `e4-1`、`e4-2`、`e16-1`、`e16-2` 都描述为“只有泛称”，并把 `e10-4` 描述为泛称类候选；但实际 `isGenericName`/`allGeneric` 的结果是：`e4-1=true`，`e4-2=false`（“志愿者学姐”不是整词泛称），`e16-1=false`（“小姨”不在词表），`e16-2=false`（“母亲”不在词表），`e10-4=false`（“称号魔女”不在词表）。`e4-2` 的“学姐”虽泛称，`allGeneric` 要求每个称呼都泛称。
+
+**为什么是问题**：P 组按同一个实现找全泛称对象时不会召回其中 4 条，计划却把它们放进同一类金标并用“程序候选 + 人工核实”叙述，导致 P 的召回被定义错误；修复评分也没有区分“移除泛称称呼”“标 anonymous”“改 `kind`”和“保留无名对象”。更重要的是，`小姨`、`母亲`是指向特定亲属的关系称谓，不等于当前程序定义的“只说类别”的泛称。
+
+**如何核实**：运行 `bun -e 'const d=JSON.parse(await Bun.file("/tmp/t31/graph-164.json").text()); const m=await import("./packages/nb-story/src/core/generic-names.ts"); for (const id of ["e4-1","e4-2","e16-1","e16-2","e10-4"]) { const e=d.entities.find((x: {id:string})=>x.id===id)!; console.log(id,e.names.map((n: {text:string})=>`${n.text}:${m.isGenericName(n.text)}`).join(","),m.allGeneric(e.names)); }'`；输出依次为 `e4-1 ... true`、`e4-2 ... false`、`e16-1 ... false`、`e16-2 ... false`、`e10-4 ... false`。原文与图核对：第 4 章把“志愿者学姐”作为一个具体工作人员，第 16 章“小姨/母亲”是特定亲属关系，第 10 章“称号魔女”是类别。
+
+**建议改法**：逐条给金标写语义判定与目标状态，不把它们统称泛称。使用当前合同的目标应是：`e4-1` 可作为泛称/无名对象候选；`e4-2`、`e16-1`、`e16-2` 先由原文语义决定是否保留称呼；`e10-4` 明确目标 `kind`（很可能是 `concept`，而非只写“改种类”）。P 的未召回金标另列，不把程序扫不到误算为程序漏报。
+
+## 3. 严重程度：阻断；类别：实验设计、测量口径；位置：plan.md「检测」第 57 到 65 行、「报告」第 75 到 77 行
+
+**现象**：A0 只跑 1 遍，A 跑 2 遍，却要用 A 对 A0 的“草稿条数差”判断同一次调用加 `graphIssues` 是否拖累草稿。`callModel` 未设置随机种子或温度，`reasoning_effort: medium` 也不保证两次回复相同。计划没有 A0 重复基线、交叉配对、随机化顺序或置信区间。
+
+**为什么是问题**：A 与 A0 的记录数量差可能只是采样波动，不是附加任务造成的变化；A 有两次而 A0 一次，不能把两组的均值、方差和失败率放在同一口径上。即使条数完全相同，也不能证明草稿没被拖累：可能少写关键记录、多写错误记录、字段变形，或因输出变长被截断。只比较“按类的条数”和输出 token 不足以回答“草稿本身是否受损”。这会使第 2 个问题的结论不成立。
+
+**如何核实**：读 `packages/nb-story/src/ingest/model.ts:335-343` 可见请求只固定模型、`max_tokens`、`reasoning_effort` 和 JSON 格式，没有随机种子/温度控制；读 `chapter.ts:137-143` 可见 `finishReason === "length"` 或 JSON 不成形会再发一整次。运行 `/tmp/review-t33-design/exp/prompt-size.ts` 还显示单次草稿请求系统提示词约 14,187 字、用户消息约 17,941 到 18,827 字，附加字段会改变长输出的截断风险。
+
+**建议改法**：每章至少做配对的 A0/A 重复；固定同一 `prefix`，随机交错请求顺序并记录请求顺序与实际 `finishReason`。预先定义草稿质量指标：按冻结金标或人工盲评比较关键记录的召回、错误率、结构失败/截断率，以及现有字段的保留率；条数差只作为辅助。A 的 `graphIssues` 必须写进明确的 JSON 合同，否则把未知字段追加到 `draftTask` 后面会让模型仍按“只输出草稿字段”执行。
+
+## 4. 严重程度：阻断；类别：实验设计、测量口径；位置：plan.md「检测」第 55 到 65 行、「报告」第 75 到 77 行；packages/nb-story/src/ingest/context.ts:40-134、252-265
+
+**现象**：C 只在第 30 章跑一次，调用 `renderContext(graph, 30)` 不带原文；A、B 则在第 18 到 30 章逐章运行，带当前章原文和按原文选择的上下文。`renderContext` 不带 `focus` 时会列全量可见对象、最近 400 条说法，而带 `focus` 时按当前章文本选对象、秘密、疑问、时间点和说法。C 的 `graphIssues` 仍沿用“`evidence` 只能引本章与之前段落”的共同形状，但 C 没有任何原文段落或说法出处位置。
+
+**为什么是问题**：C 和 A/B 的输入信息、上下文裁剪、时间点和证据能力不同，C 的结果不能同时解释为“后文第 30 章抽取者的发现”“抽完后全图扫描的最终发现”或“同成本的另一种检测”。“最早”对 C 没有定义；“更早”只能比较 A/B 的首报，不能把 C 的第 30 章当作一个可比时间点。若 C 必须给 evidence，它会因没有原文而被不公平判错；若允许空 evidence，又和 A/B 的准确率定义不一致。成本也不能拿一次 C 与 13 章累计 A/B 直接比。
+
+**如何核实**：读 `context.ts:40-134`、`218-230`：无 `focus` 走全量名册和最后 400 条可见说法，有 `focus` 才按本章文本筛选；读 `prefixes` 调用方 `chapter.ts:195-207`：真实抽取使用 `renderContext(prior, chapter - 1, {text})` 并另传本章原文。运行 `/tmp/review-t33-design/exp/context-check.ts` 仅证明当前截断文字，不改变上述输入差异。
+
+**建议改法**：先声明 C 只回答“截至第 30 章、只给图时的最终召回/准确率”，不参与最早章和每章费用比较；为 C 另设可验证的 evidence 规则（例如只允许引用图中已有记录 id，不要求段落号），并分别报告 A/B/C 的可见金标子集。若要回答草案的“抽完后扫描基线”，让 C 读完整的 1 到 30 章图与原文但不把原文放入模型，或固定成本/输入口径；不要把 C 的单点结果塞进 A/B 的最早报告表。
+
+## 5. 严重程度：阻断；类别：正确性、代码机制；位置：plan.md「修复」第 67 到 73 行、「技术选型」第 24 行；packages/nb-story/src/core/dataset.ts:219-238,286-294、packages/nb-story/src/core/book-index.ts:158-215、packages/nb-story/src/ingest/compile.ts:426-553
+
+**现象**：计划把修订套到图副本后只调用 `validateDataset`，再 `buildBookIndex` 和查一次 `entity.card`。`validateDataset` 只编译 V9 schema；`buildBookIndex` 只排序、建 Map、身份连接、引用索引，不会重新生成或修复派生 `knowledge`、`mentions`、账本 running、摘要/主线引用。
+
+**为什么是问题**：这套检查会接受“结构合法但语义已坏”的修订。`moveName`/`removeName` 后已有 `mentions` 不会随称呼重新匹配；`mergeEntities` 若只删对象或改几个直达字段，会留下 `statements.about/source.by/source.to`、`secrets.about`、`episodes.who/place/as`、`knowledge.who`、`ledger.owner/item`、`questions.about/by`、`summaries.entity`、提及和身份连接的悬空或旧 id。实际编译合并还会重定向这些字段，并重新生成 mentions、derived knowledge；代码在 `compile.ts:528-553,580-625`。新增 identity 说法也可能需要秘密、知情和程序派生知识，直接 push 一条 statement 不会触发这些规则。仅查一个人物卡不能发现其它对象、情节、关系、秘密、账本和摘要的损坏。
+
+**如何核实**：读 `dataset.ts:286-294` 可见校验只返回 schema 错误；读 `book-index.ts:158-215` 可见索引不会派生知识或 mentions；读 `compile.ts:441-451,528-553,580-625` 可见真实合并会重定向字段、重算 mentions，并对 identity 派生 knowledge/secret-missing。特别是 `projection.ts:72-100,125-148,156-168` 只会在查询时过滤部分不可见引用，不能证明数据修订正确。
+
+**建议改法**：修订实验必须复用或等价实现真实编译/覆盖层收口：对每种操作定义前后引用闭包，重建 mentions、derived knowledge、账本派生值与索引；至少对所有实体逐一查 card、statements、knowledge、episodes、relations、secrets，以及所有 summaries/arcs/mentions 的引用完整性。`validateDataset` 和单个 `entity.card` 只能作为 schema/smoke，不得作为“可套用修订”的验收。对 `addStatement` 明确是否同时生成 identity link、secret、knowledge 及其可见位置。
+
+## 6. 严重程度：重要；类别：测量口径、实验设计；位置：plan.md「金标」第 29 到 42 行、「检测」第 48 到 63 行
+
+**现象**：P 只实现五类表面谓词：全泛称、persona 无 identity、identity 文字缺身份词、同一称呼挂两个对象、身份提示词段落缺 identity。冻结金标里已有的 `s2-7` 错 family、`e10-4` 错 kind、银色闪光/银空的跨章别名漏连、以及错误对象归属/错误 statement 文本，都不是这些谓词能完整表达的。尤其旗舰问题在第 18 章只有账号身份和银发、第 19 章只有银发魔女与照片互认，两个别名不在同一原文段落；P 的“同一段两个称呼 + identity hint”无法发现它。
+
+**为什么是问题**：如果把 P 的召回直接和完整金标召回比较，会把“程序设计上不可检测”误报为程序质量差；如果只挑程序能找到的金标，又会把 A/B 对跨章推理和语义错误的优势从评价中删掉。`同一称呼挂两个对象`也会对多个不同的“学姐”等合法泛称产生大量候选，不能直接当问题。计划没有按问题类别标注 P 的可检测子集，也没有把候选来源与人工新增金标分开。
+
+**如何核实**：读 `reconcile.ts:21-23,119-126` 的 `IDENTITY_HINT` 与当前草稿级扫描逻辑；读图中 `e18-1/e19-1` 及第 18、19、25 章原文，确认没有同段“双称呼身份提示”；读 `generic-names.ts:10-30`，确认泛称是整词集合而不是所有职业/亲属角色。
+
+**建议改法**：给每条金标增加 `detectors` 或 `programDetectable` 字段，分别报告 P 的可检测子集召回/准确率和全金标上的覆盖上限；把跨章别名、family/kind、错误归属、错误合并、过时 label/summary、引用闭包等作为独立类别。P 只能作为规则基线，不要用完整金标召回定义它的“准确率”。
+
+## 7. 严重程度：重要；类别：成本、测量口径；位置：plan.md「检测」第 60 到 65 行、「报告」第 75 到 77 行、「验证」第 97 到 102 行；packages/nb-story/src/ingest/model.ts:34-40,258-303,325-403、packages/nb-story/src/ingest/status.ts:64-87
+
+**现象**：按计划表格，逻辑请求数是 A0 13 + A 26 + B 26 + C 2 = 67，不是约 100；但每次 `callModel` 可能有网络/限流重试，`asker` 还会因截断、非 JSON 或缺章内容再发一轮，所以实际 HTTP 尝试数不是 67。`callModel` 只返回 `input/output/cacheRead/complete`，不返回费用；费用要用当时的模型 `Price` 按每次 attempt 计算。计划却统一“按 deepseek-flash 低谷价折算”，实验模型是 gpt-6-luna。
+
+**为什么是问题**：以代理价格做出的 ¥5 到 ¥10 不能作为 gpt-6-luna 的真实预算，也不能可靠执行“超过 ¥20 停下”。缓存读单价、失败流的部分用量、推理档和重试都会改变成本；`complete:false` 的用量只是下界。若重跑失败章但只保留最终成功结果，会漏算已经发出的失败请求，导致费用和样本失败率都偏低。
+
+**如何核实**：运行 `/tmp/review-t33-design/exp/prompt-size.ts`，第 18、24、30 章的系统提示词分别为 14,187 字，单次草稿用户消息为 17,941、18,390、18,827 字，系统加用户约 32,128、32,577、33,014 字；这只是输入字符，不是服务 token。读 `model.ts:335-353` 可见实际用量来自流尾 `include_usage`，读 `model.ts:376-403` 可见失败时 `complete=false`；读 `status.ts:64-67,77-87` 可见真实成本公式和失败尝试计入规则。
+
+**建议改法**：先把 67 个逻辑请求和每次 attempt 分开编号，记录 `finishReason`、`effortUsed`、`complete`、`input/output/cacheRead`、重试/重发原因和请求顺序。用 gpt-6-luna 这次实际配置的 `Price` 逐 attempt 累计，缓存价格按 `cacheRead` 单独算；未知/不完整部分报告下界并按下界接近 ¥20 就停止。代理价格可作为与历史实验的附表，不得冒充本次真实费用。
+
+## 8. 严重程度：重要；类别：成本、代码机制；位置：plan.md「技术选型」第 20 到 25 行、「检测」第 60 到 65 行
+
+**现象**：计划把 B 定义为“共用同一个开头，吃前缀缓存”，并用此理由比较单独一步与顺带报告的成本。实际 `prefixFor` 只是把已有记录和原文拼成完整的 `user` 字符串，`callModel` 每次都把完整 system/user 消息重新发送；代码没有本地缓存、缓存键、TTL 或命中保证。服务端是否对 system 与 user 的长前缀做缓存、缓存粒度、跨请求/跨组/跨运行是否命中，计划没有测。
+
+**为什么是问题**：B 比 A 多一次请求本身可能更贵，也可能因缓存命中更便宜；若 A0/A/B 的运行顺序固定，后运行组会得到不同的缓存状态。用“共用开头”推算成本会把缓存命中率当成设计事实，无法回答“哪个更合算”。
+
+**如何核实**：读 `prompts.ts:154-158` 与 `model.ts:335-345`：前者只拼接字符串，后者每次发送两个完整 message；读 `model.ts:348-353`：只有服务返回 `prompt_tokens_details.cached_tokens` 才记录 `cacheRead`，没有本地命中逻辑。
+
+**建议改法**：A0、A、B、C 统一记录实际 `cacheRead`，固定或随机化组顺序并做冷缓存/热缓存标记；成本按每个 attempt 的未缓存输入、缓存读取、输出分别计算。若服务端无法保证跨请求缓存，就把“共用同一开头”仅作为请求文本复用，不把它写成缓存成本优势。
+
+## 9. 严重程度：重要；类别：实验设计、代码机制；位置：plan.md「检测」第 55 到 65 行、「切片」第 83 到 89 行；packages/nb-story/src/ingest/chapter.ts:123-145、packages/nb-story/src/ingest/model.ts:369-403
+
+**现象**：计划只写“失败的调用重跑同一章，不跳章”，没有定义失败类型、重跑次数上限、已完成结果的断点格式、重复结果如何去重，也没有保证每次失败都能留原始回复。`callModel` 的渠道/限流失败可能在逻辑调用内自动重试；流中断、超时和跑飞只通过 `Attempt` 记下下界用量，失败的部分文本不会作为 `ModelReply` 返回。`asker` 对非 JSON/截断最多重发一整轮，第二轮失败才通过 `onBadReply` 留两次文本。
+
+**为什么是问题**：直接重跑会把渠道失败、模型输出失败和实验脚本错误混在一起，改变每组有效样本数和成本；已完成章节若没有不可变的结果清单，续跑可能覆盖或重复计入。只保存成功 JSON 不能复盘被截断的 `graphIssues`、草稿质量或失败率；只保存最终一轮也会漏算失败尝试和重发。结果可能看起来“某组更准/更便宜”，实际是失败样本被删掉。
+
+**如何核实**：读 `chapter.ts:128-145`：一个步骤最多两轮不成形回复；读 `model.ts:294-301,369-403`：网络/限流有多次重试，流中断和无结束原因按 network 处理，失败 attempt 的 usage 可不完整。`model.ts:75-79` 的 `ModelReply` 只有成功逻辑调用才返回文本。
+
+**建议改法**：为每个 `组/遍/章/逻辑请求/HTTP attempt` 写追加式 manifest，记录开始、请求哈希、响应原文（能拿到的部分）、finish reason、错误类型、用量完整性、是否重发及最终纳入评分的版本；失败只在错误类型允许时重试，并声明是否把重试结果替换原结果。脚本可从 manifest 断点续跑，报告同时给成功率、失败率和按意向到达样本的分母，不把失败章节静默排除。
+
+## 10. 严重程度：重要；类别：实验设计；位置：plan.md「检测」第 57 到 63 行、「修复」第 67 到 73 行；来源 t21 README 第 84 到 92 行
+
+**现象**：开发者草案的对照是“**不改抽取、只在抽完后让修复 agent 扫全书找问题**”，作为与后续章节顺带报告的基线。计划把它改成 C：第 30 章末让模型只看 `renderContext(graph, 30)` 输出 `graphIssues`，然后把 A、B、C 的报告合并后统一交给 `repair.ts`。没有一条“修复 agent 在无 A/B 报告时独立扫描全图并修复”的基线路径。
+
+**为什么是问题**：C 测到的是一个图问题检测调用，不是草案中的“独立修复 agent 扫全书”流程；后续同一个修复 agent 还会看到 A/B 的报告，不能把 C 的修复效果称为抽完后扫描基线。这样第 3 个问题（顺带报告和单独一步哪种合算）与草案的对照实验都混在一起，无法分离检测方式与修复方式。
+
+**如何核实**：对照 t21 第 86 到 90 行与计划第 57 到 73 行；计划的 `repair.ts` 输入明确写为 A、B、C 报告去重后的问题，没有 `C-only`/`post-hoc-only` 运行。
+
+**建议改法**：保留 C 作为“第 30 章末只给图的检测”时，另加独立基线：同一份最终图、同一模型和同一修复输出合同，不给 A/B 报告，让修复 agent 自己扫描并修复；单独报告该基线的检测、修复、成本和失败率。若开发者只想做检测对照，则在 Task 中明确删掉草案的修复基线，并不要把 C 命名为草案对照。
+
+## 11. 严重程度：重要；类别：正确性、代码机制；位置：plan.md「修复」第 69 到 73 行
+
+**现象**：报告类型包含 `wrong-name`、`wrong-kind`、`wrong-family`、`other`，但修订操作只有 `addStatement`、`setEntityKind`、`setStatementFamily`、`moveName`、`removeName`、`mergeEntities`、`reject`。没有新增/改写称呼文本、改实体 `label/note`、改 statement `about/source.by/source.to/kind/text`、改 evidence 或修订 summary/arc 依赖的操作。`moveName` 只能移动一个图中已经存在的称呼，不能补抽取时完全漏掉的名字。
+
+**为什么是问题**：一旦模型报的是名字缺失、对象归属错但不是合并、说法关系端点错、证据位置错、标签泄漏或摘要引用错，修复 agent 只能 `reject` 或伪装成另一种操作；修复准确率会被操作集合的人为上限限制。尤其 plan 的 `other` 没有可执行映射，`addStatement` 只允许 identity 又无法覆盖 identity 伴随的 secret/knowledge 收口。
+
+**如何核实**：逐项对照 plan 第 50 到 53 行报告类型与第 71 行操作；读 `compile.ts:531-553,565-581,583-625` 可见真实编译会改写多种字段并重新生成 mentions/knowledge，而计划的操作列表没有对应合同。
+
+**建议改法**：先冻结可修复问题子集，把不可表达的报告标成“不在本实验修订能力内”，不要计入修复 agent 的错误；或补齐覆盖层操作和字段合同，至少明确 `addName/renameName`、statement 端点/种类/文本/evidence 修订、label/summary 依赖修订，以及 identity 的 secret/knowledge 伴随操作。评分按问题类型分别给“正确修复、正确拒绝、不可表达”，不要把不可表达算成模型错误。
+
+## 12. 严重程度：重要；类别：测量口径、正确性；位置：plan.md「金标」第 31 到 38 行、「修复」第 69 到 73 行；packages/nb-story/src/core/book-index.ts:149-155
+
+**现象**：金标只写“补一条 identity”“改类别”“改种类”，没有冻结修订后字段的可观察合同。实际 `identityLinkOf` 只有在 `family === "identity"`、非否定、`about` 恰好为两个不同已知对象、`certainty === "certain"` 且 `kind` 为 `fact` 或 `belief` 时才建立身份连接；这条规则在 `book-index.ts:149-155`。
+
+**为什么是问题**：修复 agent 可以输出一个 schema 合法的 identity 说法，但用 `claim`、`candidate`、错误端点、错误证据或只写一边对象；`validateDataset` 和单次 `entity.card` 仍可能通过，但查询不会把它当身份连接。反之，`s2-7` 的“改类别”没有写明是 `attitude`、`belief` 还是别的 family，也没有说明是否保留其原有 secret；`e10-4` 的“改种类”没有目标 kind。评分会依赖评审者临时解释，不能从原始结果重算。
+
+**如何核实**：读 `book-index.ts:149-178`；用图中 `s2-7` 的现状 `family: identity`、`kind: belief`、`certainty: certain` 对照计划的目标描述；读 `dataset.ts:92-120` 可见 family/kind/certainty/证据都是独立字段。
+
+**建议改法**：冻结每条金标的字段级期望：目标 entity kind、statement family/kind/certainty/neg/about、是否需要 secret/knowledge、最小 evidence 集合和 query 可观察结果（例如 `identityLinks` 出现且人物卡 identities 包含对方）。修复报告分别判“字段相似”和“实际可用”，以后者为主；无法确定的目标先标为人工不可重算，不写成通过。
+
+## 13. 严重程度：建议；类别：测量口径、实验设计；位置：plan.md「金标」第 29 到 38 行、「不做与风险」第 104 到 110 行
+
+**现象**：计划先冻结金标，再把模型报告出的金标外问题事后逐条判为“成立/误报”，并报告“冻结金标与补充后的两组数字”。但没有说明补充问题的判定者、适用的时间窗、哪些组有机会报出它、以及补充集是否只用于描述而不回填主指标。
+
+**为什么是问题**：模型看过的输出会反过来决定评价集合；若把补充集并入某组的准确率/召回率，已经不是盲测，且 A/B/C 的可见章数和输入不同，补充机会不均等。即便补充集单独报，若没有固定的判定协议，读者仍会把两个数字混成一个结论。
+
+**如何核实**：对照 plan 第 31、38、108 行；计划只写“冻结加事后判定两组数字”，没有主指标不变、补充集独立报告和盲判步骤。
+
+**建议改法**：冻结金标作为唯一主指标，冻结后不得改变其成员；模型新增问题做预先命名的探索集，由不知道组别的人工判定者依据原文/图逐条判定，报告覆盖、成立率和出现机会，但不回填主召回/准确率。每个候选记录首次可见章和来源组，避免后文机会造成组间不等。
+
+## 14. 严重程度：重要；类别：代码机制、实验设计；位置：plan.md「检测」第 44 到 46 行、「技术选型」第 20 到 25 行；packages/nb-story/src/ingest/chapter.ts:175-207、packages/nb-story/src/ingest/context.ts:218-230
+
+**现象**：真实抽取的 `prior` 可能有两种上下文：默认关闭 recall 时，`renderContext(prior, chapter - 1, {text})` 按规则选说法；开启 `ingest.recall.enabled` 时，先用另一个 `minimal` 请求从 `recallCandidates` 选最多 40 条，再以 `{text, statements}` 渲染。计划固定写成 `renderContext(graph, k-1, {text})`，没有冻结 recall 开关、候选结果或选中的 statement ids。
+
+**为什么是问题**：如果实验脚本使用默认无 `statements` 的上下文，它测的是规则缩减路径，不一定是开发者所说的产品写草稿调用；如果真实配置开着 recall，A/A0/B 的输入和实际管线不同，且 recall 请求的成本、失败、重试没有计入。两组只要上下文不同，草稿条数与 graphIssues 差异就不能归因于附加任务。
+
+**如何核实**：读 `chapter.ts:175-196`：有 `recallEndpoint` 时先调用 `recallCandidates`/`llmRecaller`，随后把 `statements` 传给 `renderContext`；读 `context.ts:218-230`：显式 statement 集合和规则缩减是两条不同路径；读 `config.ts:95-102,320-324`：recall 默认关、也可继承抽取模型。
+
+**建议改法**：在计划中冻结并记录 recall 配置。若测产品默认，明确 `recall` 关闭并说明；若测开发者实际配置，先单独保存每章候选与选中 ids，在 A0/A/B/C 复用同一份，不把 recall 的随机性混入主比较，并把其请求与费用另列。真实 draft 的 `structure`、book features 和 `systemV2` 也要从同一固定前缀输入，避免用最终图里的后验 beats 冒充产品刚生成的结构。
+
+## 未发现问题的方面
+
+- 已定范围与操作边界本身覆盖：第 18 到 30 章、每组 2 遍、加入 B 与 P、模型 gpt-6-luna、只做实验不改产品；计划也明确先冻结金标、原始结果落盘、dry run 和超过 ¥20 停止。问题在这些已定项的实验口径与执行合同，不是擅自改了范围。
+- 计划依赖的 `renderContext`、`prefixFor`、`draftTask`、`callModel`、`validateDataset`、`isGenericName`/`allGeneric` 均确实存在；未发现“名字不存在导致方案无法启动”的问题。已确认 `callModel` 的 medium 推理档、JSON 响应、重试和用量字段存在，但它们的实际语义与计划中的成本/失败假设不完全相同，已分别列出。
+- 本次只读核实未调用真实模型 API；实际图数据 `/tmp/t31/graph-164.json` 可读，指定金标对象/说法与第 18、19、25、2、4、10、16 章原文均能定位。
+
+## 数量
+
+- 阻断：3
+- 重要：10
+- 建议：1
+- 合计：14

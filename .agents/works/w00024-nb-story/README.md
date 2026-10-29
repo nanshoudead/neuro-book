@@ -39,3 +39,10 @@ autonomous-delivery 推进时照推荐做了、本该由开发者决定的点，
 - 2026-10-27 [t29](tasks/t29-web-import-skill/README.md)：网页导入 V9 记忆图文件、删除书、安装 Skill（只允许 claude/codex 固定路径）；已合入本地 master。
 - 2026-10-27 [t30](tasks/t30-qa-unextracted-books/README.md)：问答读未抽取章的原文（位置可选到尾部章，图只到抽取进度）。
 - 2026-10-27 [t28](tasks/t28-graph-tiering/README.md)：图分级的小实验，脚本与计划已备好、干跑通过，卡在模型密钥（环境里没有）。
+- 2026-10-28 [t32](tasks/t32-record-tiers/README.md) 完成并合入：记录分级（模型先验加程序后验），查看器默认折叠 3 级，命令行 `--tiers`、`--max-tier`、`why`；待确认的几条默认追认。
+- 2026-10-28 [t33](tasks/t33-graph-issue-reports/README.md)：抽取时顺带报告图问题、另一个 agent 修复的实验（gpt-6-luna，约 ¥2.55）。逐章顺带报告只报得出马甲没连这一类、准确率低；事后扫描召回好但噪声大；修订都不能自动套用。建议与待开发者定的后续见 t33 README。
+- 2026-10-28 开发者同意按 t33 的建议继续用 autonomous-delivery 推进：先做 [t34](tasks/t34-persona-link-probe/README.md)（程序找没连上的马甲、模型答窄问题的实验），再按结论做覆盖层与待确认修订、抽取上下文带说法类别、网关单条消息上限。
+- 2026-10-28 [t34](tasks/t34-persona-link-probe/README.md) 完成：窄问题在揭示后多数第 1 次问到就找回，揭示前不提前确定，称呼全是泛称的马甲会被乱连。据此建 [t35](tasks/t35-persona-check/README.md)（抽取管线加马甲核对）与 [t36](tasks/t36-long-message-split/README.md)（长消息分段，网关单条上限）。
+- 2026-10-28 t35 合入：抽取每章提交前对没连上的马甲问窄问题，答出是同一个人时写候选身份说法（默认开，可关）；泛称加复合词判定。真实模型小抽取已跑完：样例书写下 1 条对的候选（十万水星可能就是苏天晴），没有错连；魔女学院第 17 到 20 章没写下候选，银色闪光与银空没连上是因为抽取把它们建成了同一个马甲对象（没有人物可连，称呼里还混进洛萱的昵称“小萱萱”，墨砚秋是人名却建成了马甲），这类种类与称呼建错的问题核对管不到，要靠覆盖层的修订；核对请求约占抽取费用的 1% 到 9%。详见 [t35 evidences/extract.md](tasks/t35-persona-check/evidences/extract.md)。t36 搁置：真实网关上拆成几条消息照样 413，网关限的是整个请求的大小（t33 的“只限单条”只凭两个数据点），长书后面的章在这个网关上仍会被拒，要不要做“被拒时缩减已有记录”待开发者定。t33 建议的“抽取上下文带说法类别”不做：它原本是为了让逐章报告看得见说法类别，逐章报告已经不用，马甲核对自己带了完整的说法字段；改了会动所有抽取请求，要真实模型回归。覆盖层与待确认修订要先定界面，已建 [t37](tasks/t37-overlay-revisions-design/README.md)，评审板第 1 轮已发布，等开发者答复。
+- 2026-10-28 [t38](tasks/t38-overlay-revisions/README.md) 完成并合入：图的修订（`story.revisions`，planned）——确认或驳回候选身份、手动连接、改对象种类、挪称呼，修订按书单独保存、按依据位置生效、可撤销；待确认页、人物卡就地确认与修改菜单、`nbstory revisions`。设计见 [t37](tasks/t37-overlay-revisions-design/README.md)。事后扫描另起 Task。
+- 2026-10-28 [t39](tasks/t39-npm-release-0-2/README.md) 完成：发布 nb-runtime 0.2.0、nb-harness 0.1.1、nb-story 0.2.1（0.2.0 的依赖范围写旧，补发 0.2.1，`release:check` 加锁文件版本检查）；从 registry 安装的冒烟通过。

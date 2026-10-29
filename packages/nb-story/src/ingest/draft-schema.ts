@@ -44,6 +44,8 @@ const secretId = idOf("x");
 const arcId = idOf("a");
 
 const basis = oneOf(["explicit", "inferred"] as const);
+/** 重要程度（说法与情节）：不合法的值在 normalizeRecord 里已被去掉，到这里只剩 1 到 3。 */
+const tier = Type.Union([Type.Literal(1), Type.Literal(2), Type.Literal(3)]);
 const list = <T extends TSchema>(item: T) => Type.Array(item, {default: []});
 
 const name = {
@@ -134,6 +136,8 @@ const StatementDraftSchema = Type.Object({
     secret: Type.Optional(secretId),
     rel: Type.Optional(Type.Array(Type.Object({type: oneOf(["confirms", "contradicts", "revises"] as const), to: statementId, note: Type.Optional(text)}, strict))),
     unverified,
+    /** 重要程度：1 主线必需、2 有用、3 琐碎（规则第三部分第 11 节）。 */
+    tier: Type.Optional(tier),
 }, strict);
 
 const SecretDraftSchema = Type.Object({
@@ -158,6 +162,7 @@ const EpisodeDraftSchema = Type.Object({
     steps: list(Type.Object({text, at: evidence}, strict)),
     outcome: Type.Optional(text),
     links: list(Type.Object({type: oneOf(EPISODE_LINKS), to: episodeId, note: Type.Optional(text)}, strict)),
+    tier: Type.Optional(tier),
 }, strict);
 
 /** 给两个已有情节补一条连接：后文才看出的因果，或回忆里的事和主线情节之间的关系。读法和情节自带的连接相同：from 相对于 to。 */

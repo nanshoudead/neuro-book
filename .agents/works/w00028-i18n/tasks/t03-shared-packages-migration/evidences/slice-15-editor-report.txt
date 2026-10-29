@@ -1,0 +1,169 @@
+第 15 片 editor 运行期文字 交付报告
+
+== 结论 ==
+任务说明 1 到 4 都已完成，没有偏离。
+- 编辑器区（area.ts）、编辑器选择（editors.ts）、命令（commands.ts）、Monaco 控件与写不出的终态说明里给用户看的中文，全部迁入 nbook.editor 目录。
+- 原因与提示一律是文字值（editorText 返回的 TextRef），area 不收翻译器。
+- notice、notify 以 Text 交给 EditorArea，组件经端口翻译；切换语言后原地更新，有新的 dom 测试。
+- Lab 命令场景与命令面板夹具改为经端口翻译原因；场景 id 与输入不变。
+- 诊断文字（diagnostics.record、shared/contracts 的校验、languages.ts 的 throw）没有迁，只在“没做的与遗留”里列出。
+- 没有 commit。验证结果见“验证”。
+
+== 改动文件 ==
+路径都在 /home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n 下：修改 26 个，新增 2 个。
+
+Spec 与组件说明：
+- docs/specs/runtime/browser-host.md：windowRescueKey 的提供者返回 {path, text, note?}，note 是文字值，按窗口当前语言显示；每项列出提供者的说明。
+- packages/neuro-book/src/web/FailurePage.md：说明是文字值，经翻译端口显示。
+- packages/neuro-book/src/plugins/editor/web/components/EditorArea.md：提示条的文字经端口翻译，换语言后原位更新；state:inject 一节补上“提示条的文字”。组件原本就是 state:inject，没有新增注入。
+
+目录：
+- packages/neuro-book/src/plugins/editor/locales/zh-CN.json、en-US.json：末尾追加 notice、refusal、rescue 三组。只有新增，没有删改已有行；脚本先 dry-run 核对，再写入。
+
+editor 插件产品代码（packages/neuro-book/src/plugins/editor/）：
+- web/area.ts
+  - ActionResult、BatchCloseResult、OpenResult 的 reason 改为 DisplayText，并补了注释。
+  - notice 改为 ShallowRef<DisplayText | null>；notify(text: DisplayText)。
+  - refusal(groupId, who) 的 who 从中文字面量“当前视图”“目标组”改为 "current" | "target"，按 holding() 选四个整句键之一。
+  - 其余中文字面量都改为 editorText(...)。
+- web/editors.ts：editorRefusal 返回 TextRef | null。
+- web/commands.ts：失败原因都改为 editorText(...)。
+- web/components/MonacoControl.vue：notReady、lineOutOfRange 两个原因改走目录，只 import editorText，没有加注入。
+- web/components/EditorArea.vue：{{ port.t(area.notice.value) }}。
+- web/documents/store.ts：LOST_FORMAT = editorText("rescue.lostFormat")；救回正文的 note 类型改为 DisplayText。
+- shared/contracts.ts：revealLine 失败的 reason 改为 DisplayText，并补了注释。
+- web/plugin.ts
+  - 继续写作遇到项目外地址时改为 notify(editorText("notice.continueOutsideProject", {address}))。
+  - 两条诊断改用 diagnosticText(reason) 写入原因，诊断句子本身不变。
+- web/tab-menu.ts：批量结果的 reason 类型改为 DisplayText，报告用 diagnosticText。
+
+类型放宽带来的必要修改：
+- packages/neuro-book/src/shared/host.ts：RescuedText.note 改为 DisplayText，补注释说明终态时插件目录仍登记着。
+- packages/neuro-book/src/web/FailurePage.vue：{{ t(item.note) }}。
+- packages/neuro-book/src/plugins/projects/web/welcome.ts：报告改用 diagnosticText(result.reason)。不改的话，编辑器的原因变成 TextRef 之后会写出 [object Object]。
+- packages/neuro-book/src/plugins/lab/web/fixtures/editor-scene/EditorAreaFixture.vue：保存结果的记录改为 text.t(result.reason)。
+
+Lab 命令场景（任务 2）：
+- packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/lab-command-scene.ts
+  - 场景自建 createHostTextEngine({locale: LAB_LOCALE})，登记 workbench 与 editor 两份目录。
+  - LabCommandScene 新增 text: TextPort。
+  - failure 改为 `${id}：${text.t(reason)}`；事件载荷里的 reason 保留原值。
+  - 文件头注释补了理由：Lab 窗口的端口不登记这两份目录。
+- packages/neuro-book/src/plugins/lab/web/fixtures/WorkbenchCommandPaletteFixture.vue：lastResult 改为 scene.text.t(result.reason)。
+
+测试：
+- packages/neuro-book/src/plugins/editor/testing/text.ts（新增）
+  - editorTestText(locale)：严格端口，缺键、缺参数都抛错。
+  - reasonText(result, locale)：取原因的整句，成功时为 null。
+- packages/neuro-book/src/plugins/editor/locales.test.ts
+  - 新增 RUNTIME 表（52 个基础键，中英两份）与 RUNTIME_ONE（英文单数形）。
+  - 第一条用例改为对 EXPECTED = LEGACY + RUNTIME 逐键核对；PLURAL_KEYS 加两个批量键。
+  - 新增用例“批量关闭停下时的原因”：英文单数、复数各一，中文同一句。
+  - 文件头注释补了 RUNTIME 的来历（提交 4aabb5ae7 时的字面量或拼接整句）。
+- packages/neuro-book/src/plugins/editor/area.test.ts
+  - 原来对中文字符串的 toEqual 或 stringContaining 改为 toMatchObject 核对 ok（批量另核对 closed: 0），再逐语言核对整句。涉及 currentUnrepresentable、saveUnrepresentable、groupClosed、pageSplit、pageEditor、batchRunning。
+  - 提示也逐字核对整句：unrepresentable、lastEditMissing，以及 notify 收到的真实键 notice.continueOutsideProject。原来只是 toContain("写不回")、toContain("只能打开项目里的文件")，现在更严。
+  - 新增本地辅助函数 noticeText。
+- packages/neuro-book/src/plugins/editor/documents.test.ts：写不出一例原来断言 rescue() 的 note 是 expect.any(String)；现在改为核对 path 与 text，再分中英两种语言核对 note 的整句（原断言只要求是字符串，现在更严）。
+- packages/neuro-book/src/plugins/editor/tab-menu.test.ts：两处 throw new Error(page.reason) 改为 diagnosticText(page.reason)，只为通过类型检查。
+- packages/neuro-book/src/plugins/editor/web/components/EditorArea.dom.test.ts（新增）
+  - 用真实编辑器区、内存文件适配器和严格宿主引擎。
+  - notify 一个文字引用后，提示条显示中文整句；setLocale("en-US") 后原地换成英文整句。
+- packages/neuro-book/src/web/FailurePage.dom.test.ts：新增用例。救回正文的 note 是 editorText("rescue.lostFormat")，引擎登记编辑器目录；先核对中文，切换到英文后原地更新。
+- packages/neuro-book/src/plugins/lab/web/fixtures/command-scene/lab-command-scene.dom.test.ts：新增用例。
+  - 命令失败的原因是 editorText("refusal.noActiveTab")。
+  - 失败区显示“nbook.editor.lab-refused：没有活动标签”，不是键名；command 事件里的 reason 是原值。
+  - 不用 vi。
+
+== 新增键 ==
+新增基础键 52 个：notice 4 个、refusal 47 个、rescue 1 个。en-US 另多 2 个单数形 refusal.batchCancelled_one 与 refusal.batchSaveFailed_one；zh-CN 只有 _other。
+
+中文与 HEAD 4aabb5ae7 的字面量或拼接结果逐字相同，由 locales.test 的 RUNTIME 表逐键核对。
+- 唯一的形式差别：refusal.currentUnresolved、currentUnrepresentable、targetUnresolved、targetUnrepresentable。HEAD 用 `${who}有…` 拼出四种句子，现在一句一个键，代入后的整句与 HEAD 相同。
+- 数字参数（count、line、total）与 HEAD 一样直接插值，不加 `, number` 格式化。HEAD 本来也不按千分位格式化，这些数都很小。
+
+英文沿用目录里已有的说法：
+- 组顶部按钮的 Use Current Text、Keep This View's Text、Show Block。
+- lineUnsupported 抄 workbench 已有的 “The active editor does not support line navigation”。
+- “继续写作”没有现成的英文（书架按钮是 Continue “{{title}}”），notice.continueOutsideProject 写成 “Cannot open {{address}}: only files in the project can be opened to continue writing”，不另造按钮名。
+
+键清单：
+- notice：lastEditMissing{address}、unresolved、unrepresentable、continueOutsideProject{address}。
+- refusal（编辑器区）：currentUnresolved、currentUnrepresentable、targetUnresolved、targetUnrepresentable、disposed、unsavedBeforeBytes、batchRunning、batchCancelled{count,address}、batchSaveFailed{count,address}、tabClosed、groupClosed、saveFailed、cancelled、samePlace、pageAddress、noPreview、notFileTab、pagePin、cannotSplit、noActiveTab、pageSplit、pageEditor、noActiveFileTab、noActiveDocument、saveUnrepresentable。
+- refusal（editors.ts）：noEditor{editor}、editorCannotOpen{editor,name}。
+- refusal（命令）：notReady、pageNoPath、noClipboard、realPathFailed{address,code}、clipboardFailed{message}、undoUnsupported、redoUnsupported、noPage{id}、closeCancelled、noPicker{arg}、areaChanged、tabChanged、noLanguage、unknownLanguage{language}、nothingToFocus、noActiveEditor、targetChanged。
+- refusal（行号）：lineUnsupported、lineOutOfRangeOf{line,total}、lineOutOfRange{line}。
+- rescue：lostFormat。
+
+已核对目录里每个键都有调用：52 个基础键在 editor/web 与 editor/shared 下都能找到字面量引用，没有空置的键。
+已扫过范围内文件（area.ts、commands.ts、editors.ts、MonacoControl.vue、store.ts）的字符串字面量：剩下的中文只有 store.ts 里的一处 RangeError，属于诊断，见遗留第 3 条。
+
+参数名逐个核对过：用脚本把每个带参数的 editorText 调用与目录占位符对照，没有对不上的。测试里的严格端口缺参数也会抛错。
+
+== 各类文字的处理方式 ==
+1. 编辑器区的提示（notice、notify）：文字引用。EditorArea 用 port.t 显示，换语言后原地更新。plugin.ts 的继续写作提示改为 notice.continueOutsideProject。
+2. 动作与命令的失败原因（ActionResult、OpenResult、BatchCloseResult、CommandResult、revealLine）：文字引用。
+   - 由显示的一方翻译：命令面板、标签菜单、标题动作、通知、Lab。
+   - 进诊断时用 diagnosticText 写成 ns:key {params}。
+3. LOST_FORMAT：文字引用，经 windowRescueKey 交给终态页，FailurePage 经窗口端口翻译。窗口引擎不撤销目录，所以终态时编辑器目录还在。
+4. editorRefusal：返回 TextRef | null。
+5. MonacoControl 的两个原因：走目录，不加注入；原因交给命令，由命令的显示方翻译。
+6. ui.unit：settings.ts 已经用 editorText("settings.code.fontSize.unit")，本片没有改。
+7. 诊断文字：没有迁，见遗留第 3 条。
+
+== 验证 ==
+最终一轮在全部改动完成后连续跑完，包内命令在 packages/neuro-book 下执行，其余在仓库根执行：
+- bun run typecheck（tsc + vue-tsc web + vue-tsc browser-test）：没有报错，typecheck exit 0。
+- bun run test:bun：1624 pass，0 fail，11508 expect() calls，Ran 1624 tests across 183 files. [177.22s]，exit 0。
+  - 已知会间歇失败的“展开的目录改名”这一轮没有失败。
+  - 日志里的“✗ Build failed”是 plugin-sdk/build-plugin.test.ts 有意制造的失败，该测试本身通过。
+  - 前一轮全量有一项失败：documents.test.ts 的“写不出”一例，原来断言 note 是 expect.any(String)。原因是 LOST_FORMAT 改成了文字引用；改为分中英两种语言核对整句（见改动文件），之后整轮重跑。
+- bun run test:vitest：Test Files 70 passed (70)，Tests 406 passed (406)，exit 0。
+- 仓库根 bun scripts/ci/message-catalogs.ts：没有输出，exit 0。
+- 仓库根 bun run docs:check：failures []，warnings []，只有存量的 stockWarnings。
+- 仓库根 bun run governance:check：failures []，warnings []，只有存量的 stockWarnings。
+- SDK 快照另外单独跑了一次：bun test src/sdk/sdk.test.ts src/sdk/surface.test.ts plugin-sdk/pack.test.ts，17 pass，0 fail。导出名没有变，快照不用更新。
+- 完整日志在 /tmp/w00028-t03/s15/：typecheck.log、test-bun.log、test-vitest.log、root.log；目录编辑脚本 edit-catalogs.py 也在这里，不在仓库内。
+
+== 禁止清单自查 ==
+- 不按错误文案分支：没有新增按文字做的判断。save 仍按 result.code === "unrepresentable" 分支，与 HEAD 相同。
+- 不静默吞错：原有的诊断与 report 都保留，只把原因改为经 diagnosticText 写入。
+- 不掩盖问题：
+  - 没有跳过测试，没有放宽断言。
+  - toEqual 字符串改为 toMatchObject 核对 ok/closed，再逐语言核对整句；toContain 片段改为整句，比原来严。
+  - 产品代码里没有测试专用分支。
+- 不改任务之外的代码与注释：
+  - area.ts 里 open 的局部变量 refusal 曾改名为 unusable，已撤回到 HEAD 的写法。
+  - welcome.ts、host.ts、FailurePage、EditorAreaFixture、tab-menu.test.ts 是类型放宽后必须改的使用处。
+- 清理与收口语句都保留：closeBatch 的 finally 没有动，没有第二条路径。
+- 没有跨包深导入：只用了 @notnotype/nb-ui/text-port 这个公开子路径和本包的 nbook/... 别名。
+- 没有用 rm 删除仓库内的文件；目录用脚本修改，先 dry-run 再写入。
+- 新测试没有 mock、spy、fake timers，也没有固定等待。新的 Lab 用例直接 await execute；同文件旧用例里的 vi.waitFor 是原有代码，没有动。
+- 新增注入：没有。EditorArea 与 FailurePage 原本就用 useText()，同名 .md 里原本就标了 state:inject。
+
+== 没做的与遗留 ==
+1. saveAll 的失败原因仍是字符串：把各项 `${address}：${code}` 用“；”连起来。
+   - 里面只有地址、机器码与标点，但英文界面会出现全角“：”“；”。
+   - 要迁得先定列表格式（例如每项一个键，再用 Intl.ListFormat 连接），不属本片。
+2. save、overwrite 失败时 reason 直接是文件服务的失败码（例如 conflict），与 HEAD 相同，没有改。中英文界面都显示这个码。
+3. 中文诊断。ADR 0034 要求诊断用英文，本片按说明只列出：
+   - editor/web/plugin.ts：
+     - 语言 ${language} 的规则加载失败，按纯文本显示：…
+     - ${address} 有 N 个默认编辑器同级命中，取 …
+     - 地址参数指向的不是项目里的资源：…
+     - 按地址参数打开失败：…
+     - 自动打开页面 ${id} 失败：…
+     - ${command} 执行失败：…
+     - 标签菜单的 ${action} 没有完成：…
+   - editor/shared/contracts.ts 的贡献校验：
+     - 页面、编辑器、语言的“id 必须是…”“声明不合格”“只接受浏览器入口的贡献”
+     - “按字节显示，必须声明 selector”“由源码编辑器自带”“firstLine 不是合法的正则”
+   - editor/web/code/languages.ts：throw “不支持的语言格式：…”
+   - editor/web/documents/store.ts：throw new RangeError(`文档 ${path} 已关闭`)，是用错接口时抛的编程错误
+   - projects/web/welcome.ts：“${command} 执行失败：…”
+4. Lab 自己的 command-scene/editor-commands.ts 与 SampleTextEditor.vue 仍返回中文字符串。它们是 Lab 样板，不在本片范围；经端口翻译后照原样显示。
+5. 合同放宽：宿主合同 RescuedText.note 从 string 改为 DisplayText，browser-host.md 与 FailurePage.md 已同步。目前只有编辑器一个提供者。
+6. 没有跑 e2e，也没有拍 Lab 截图。
+   - 中文逐字不变，由 locales.test、单元测试与 dom 测试保证。
+   - e2e/lab-commands.e2e.ts 比对的“当前编辑器不支持行号跳转”来自 Lab 的上下文键表，不经本片的键。
+7. locale 属性的统一按说明没有碰。

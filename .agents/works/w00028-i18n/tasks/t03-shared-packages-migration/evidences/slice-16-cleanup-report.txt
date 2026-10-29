@@ -1,0 +1,127 @@
+第 16 片 收尾 交付报告
+
+工作区：/home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n（分支 feat/w00028-i18n），未提交。
+
+== 结论 ==
+四项都做了，全部验证通过（命令与结果见“验证”）。
+- 第 1 项：内置插件的通知（书架、作品目录、设置窗口、命令失败）改传 TextRef，切换语言时屏幕上已有的通知原位更新；中文逐字不变，有测试。
+- 第 2 项：盘点完毕，没有改代码。没有找到可以安全删除的 locale 属性：剩下的要么是公开合同，要么用于 Intl 格式化且已经取自端口，要么牵动 Lab 输入集。逐条列在下面，其中 PluginsPage.locale 需要开发者定。
+- 第 3 项：新增机检 scripts/ci/component-inject-tags.ts，接入 governance:check，带反例测试。仓库里有同名 .md 的 94 个取端口组件已经全部标了 state:inject，所以没有 .md 要补。“补齐缺的 .md”我理解为补齐缺这个标签的 .md；如果指的是给没有文档的组件新建 .md，那 18 个组件就是本项还没做的部分，见下。
+- 第 4 项：editor、settings、projects/welcome.ts 里的开发者诊断、校验拒绝原因和 throw 消息改成英文，对应的测试断言同步改。用户可见的 detail 与解析错误原样保留，逐条列在下面。
+
+== 1 内置插件通知改传 TextRef ==
+改动：
+- packages/neuro-book/src/plugins/projects/web/shelf-page.ts：
+  - 刷新失败通知（标题、正文、“重试”动作）、书库通知、popupBlocked、颜色 updateFailed、libraryNotSaved 都改传 projectsText(...)；warn 的参数类型改为 Text。
+  - notified() 给通知的是引用。返回值仍是 t(...) 字符串，因为 ProjectActionOutcome.message 是字符串合同，本片不动。
+- packages/neuro-book/src/plugins/projects/web/works-section.ts：通知改传 projectsText 引用，并去掉已经用不到的 text: TextResolver 选项。
+- packages/neuro-book/src/plugins/projects/web/plugin.ts：调用处去掉 text 参数。
+- packages/neuro-book/src/plugins/settings/web/settings-window.ts：notifyFailure 的标题与正文改为 settingsText 引用。参数 title、reason 仍是当场翻译好的字符串，这两个是已翻好的子片段，按说明保留。
+- packages/neuro-book/src/plugins/workbench/web/commands/failure-notice.ts：标题改为 workbenchText("palette.commandFailed", {title})；命令名照旧当场翻译。
+原因：docs/specs/workbench/notifications.md 输出 9 已经要求队列存 Text、由视口渲染时翻译，Spec 不用改。
+验证：
+- projects/shelf-page.test.ts 与 WorksSettingsPage.dom.test.ts 改用 createHostTextEngine，把队列里的通知翻译出来再断言。中文全文与改动前逐字一致。setLocale("en-US") 之后，同一个通知 id 显示英文，证明是原位更新。
+- settings/window.test.ts 与 SettingsWindow.dom.test.ts 先翻译再断言，并补了英文标题的断言。
+- WorkbenchCommandHost.dom.test.ts 按两种语言翻译后断言，新增中文“Broken没有完成”。
+- 证据怎么连起来：本片的测试证明队列里存的是引用，同一条通知切换语言后翻出来是英文。视口拿到引用后按当前语言重绘，这一点由已有的 workbench/web/notifications.dom.test.ts 输出 9 的用例覆盖（“切换语言后已显示的通知跟着换”）。本片没有另写挂载视口的测试。
+遗留：
+- Lab 的 SettingsWindowFixture.vue、SettingsRowFixture.vue 原样记录 notify 的入参，事件页现在显示的是 TextRef 对象，不是译好的文字。Lab 不在本片范围，没改。
+- ProjectActionOutcome.message 仍是字符串，不随语言切换。
+
+== 2 locale 属性统一 ==
+分类（a 只用来取界面文字，改为读端口并删属性；b 用于 Intl 格式化，改读端口的 locale；c 公开合同，保留）：
+(a) 本片盘点没有找到。
+(b)
+- PluginsPage.locale（plugins 插件）：只用于 Intl.ListFormat，组件已经注入了端口。保留，因为 Lab 的 16 个场景输入是 {props:{locale}}，由 defineLabFixture<typeof PluginsPage> 按属性定类型，删属性会改变 Lab 输入集（说明禁止）。需要开发者定：删属性，同时把这 16 个场景的输入一起改掉。
+- WorkbenchDocument.locale（Ref）：只用来设置 <html lang>，与 web/boot.ts:49 做的事重复，值来自 windowLocale，也就是端口。保留，列出。
+- shelf-format.ts 的纯函数收 locale 参数，调用处传 port.locale.value。已经符合要求，不改。
+(c) 保留：
+- EditorControlProps.locale（editor/shared/contracts.ts:342，docs/specs/workbench/editor.md 约第 89 行；EditorGroup.vue:342 传入 port.locale.value）。编辑器贡献点不在 SDK 里，但第三方插件可以向任意贡献点贡献，无法证明没有外部使用者。
+  - 几个内置控件继续声明它，免得 Vue 把没声明的属性透传到 DOM 上：MonacoControl 与 MarkdownControl 声明了没用，html-preview 的包装组件（editor/web/plugin.ts:120）同样只声明，ImageViewer 用它做 Intl.NumberFormat（值本来就取自端口）。
+- nb-form 的 SchemaForm、SchemaField 的 locale?：已发布包的兜底，没有注入端口时用它；nb-story 传了 locale="zh-CN"。
+- nb-form 的 widgets.ts 与 controls/control.ts 的 locale：自定义控件合同，forms.md 输出 22。
+其它保留：
+- settingForm(declaration, locale, text)：locale 是按语言分的缓存键。
+- settings-window 的 options.locale：设置插件本身就是语言的来源。
+- commands/shared/plugin.ts 的 reasonOf、displayLocale：前后端共用的代码，第 3c 片有意保留。
+- Lab 文件不在范围内。
+
+== 3 state:inject 机检与补齐 ==
+改动：
+- 新增 scripts/ci/component-inject-tags.ts：
+  - 只查有同名 .md 的 .vue；跳过旧应用、docs/archived 与 .agents。
+  - 先去掉注释，再找取翻译端口的写法：useXxxText(、inject(TEXT_PORT_KEY，以及共享包根组件的 provideFormText(、provideAgentText(、provideMarkdownText(。最后这三个先读注入的端口，没有时才自己建。Lab 夹具的 provideXxxText( 只建端口、不读注入，不算。我核对过仓库里所有 inject(TEXT_PORT_KEY 的封装：nb-ui 的 useText、useUiText，nb-form、nb-agent-ui、nb-markdown 各自的 useXxxText 与 provideXxxText，都在这个模式里。
+  - 用 yaml 解析 frontmatter，「标签」数组要含 state:inject；没有 frontmatter 也报。
+  - 可以单独运行：bun scripts/ci/component-inject-tags.ts [--repo-root]。
+- 新增 scripts/ci/component-inject-tags.test.ts，5 个用例：
+  - 仓库里的真实组件通过；
+  - 每种写法都要求标签，标了的通过（含 provideAgentText、provideMarkdownText）；
+  - 只认 frontmatter（正文里写了不算，没有 frontmatter 也报）；
+  - 下面几种不报：只在注释里提到、组件不取端口、只建端口不读注入的 provideProjectsText、组件没有 .md、旧应用；
+  - 命令行有问题时退出 1，通过时退出 0。
+- scripts/ci/agent-governance.ts：接在 messageCatalogFailures 之后（接法与 message-catalogs.ts 相同）。scripts/tsconfig.json 的 include 加上新文件。我查过 message-catalogs.ts 还登记在哪里：除了这两处，只在 docs/specs/ui/i18n.md 里作为目录检查的实现写了一次。新脚本没有对应的 Spec，所以登记在规范 docs/standards/code/components.md 里。
+- docs/standards/code/components.md：补一句“取翻译端口的 state:inject 由 governance:check 机检”，列出认作取端口的写法，并链接到脚本。
+结果：112 个组件取端口，其中 94 个有 .md，全部已经标了标签，所以没有 .md 要补。
+遗留：有 18 个组件取端口但没有同名 .md。按规则不归这项检查管，也没有补，列出供决定：
+- nb-agent-ui：RenderGuard
+- nb-form：FieldShell、IssueSummary、LayoutItem、NodeField、ViewValue；controls 下的 Boolean、Choice、ListActions、List、MasterDetail、Number、Object、Text
+- nb-ui：ColorPickerPanel
+- Lab：ExplorerLiveScene、SampleModelsPage
+- neuro-book：web/NotFoundPage.vue
+
+== 4 中文开发者诊断改英文 ==
+改成英文的：
+- editor：
+  - web/plugin.ts 的 7 条诊断（语言规则加载失败、同层多个默认编辑器、地址参数不指向资源、打开地址参数失败、自动打开页面失败、命令失败、标签菜单动作未完成）；
+  - web/documents/store.ts 的 “Document … is closed”；
+  - web/code/languages.ts 的 “Unsupported language format”；
+  - shared/contracts.ts 的全部校验拒绝原因（全角冒号一并改成 ": "）。
+- projects/web/welcome.ts：3 条诊断。QUICK_PREFIXES 不改，它要匹配用户的文件名。
+- settings：
+  - shared/sections.ts：id、形状、小组、重复与“只接受浏览器入口”的校验原因，名词 Section、Choice provider；
+  - web/choices.ts：shapeProblem、entryReason（冒号）、the implementation has no source()、两条 #once 诊断、四条不能激活的原因；
+  - web/sections.ts：跨点撞名、不能按需激活、没有 load() 的诊断，没有 load() 的 TypeError，不能激活的原因，retry 的两条原因，entryReason 冒号；
+  - web/settings-window.ts：三条 report；
+  - shared/instance.ts：两条 record 消息，“No first snapshot within … ms”，code 与 detail 之间的冒号；
+  - backend/layer-owner.ts：全部 record 消息；
+  - web/window-source.ts：TypeError。
+同步改的测试：
+- projects/web/welcome.dom.test.ts
+- settings/web/choices.test.ts
+- settings/web/sections.test.ts
+- settings/window.test.ts
+没改的测试断言：
+- sections.test.ts 第 170–172 行：内核的消息。
+- sections.test.ts 第 387 行：来自 src/shared/settings.ts，不在范围内。
+- 测试自己抛的错误。
+用户可见、保留中文的（经 settingsFailureText 的 {{detail}} 或 SettingsWindow.vue:58 显示给用户）：
+- 各处 SettingsFailure 的 detail：shared/layers.ts、backend/layer-owner.ts（189、199–249 行）、shared/instance.ts（251、258 行）、web/window-source.ts:85、backend/layer-file.ts；
+- shared/layer-text.ts 的解析错误原因（在文件视图里显示）；
+- settings/testing/world.ts 的 throw（测试辅助）。
+注意：
+- choices 与 sections 的这些原因会作为 {{reason}} 插进中文界面句，所以中文界面上会出现英文片段。例如“无法加载选项：插件没有声明打开设置时提供选项：Entry x.models/browser does not declare onSettingsChoices:x.models.list”和“无法加载选项：missing-service: x.models/missing”。这是按说明点名改 shapeProblem 与 entryReason 的直接结果。如果要求界面全是中文，需要另把这些原因做成目录键。
+- Lab 的 settings 场景 fixtures/index.ts:535 用 "missing-dependency：nbook/storage" 作输入值，没改。
+没有 Spec 需要同步：Spec 只描述行为，没有引用这些原文。
+editor、settings、projects/web 下的 .vue 我也查了 report、record、warn、Error 里的中文，一处也没有。
+
+== 验证 ==
+packages/neuro-book：
+- bun run typecheck：退出 0
+- bun run test:bun：1624 pass，0 fail，退出 0（日志 /tmp/w00028-t03/test-bun-16.log）
+- bun run test:vitest：70 个文件、406 个测试通过，退出 0（日志 /tmp/w00028-t03/test-vitest-16.log）
+仓库根：
+- bun run docs:check：failures 为空，退出 0
+- bun run governance:check：failures 为空，退出 0（已包含新的检查）
+- bun scripts/ci/message-catalogs.ts：退出 0
+- bun x tsc --noEmit -p scripts/tsconfig.json：退出 0
+- bun x vitest run --config scripts/vitest.config.ts：13 个文件、133 个测试通过
+nb-ui、nb-form 没有改动，没有跑它们的检查。explorer/browse.test.ts“展开的目录改名”本轮没有失败。
+git status 只有本片范围内的文件（27 个修改，2 个新增），没有 commit。
+
+== 没做的与遗留 ==
+- 第 2 项 PluginsPage.locale：要改 Lab 输入集，需要开发者定。
+- 第 2 项 WorkbenchDocument.locale：与 boot.ts 设置 <html lang> 重复，可以另做一片收掉。
+- 第 3 项：18 个取端口但没有 .md 的组件，见上面的列表。
+- Lab 的 notify 事件页显示 TextRef 对象。
+- 范围外的中文开发者诊断还有：projects 的 backend 与 project 插件、shelf-page 的 host.report，以及 workbench 里通知动作的诊断等。projects 与 workbench 两个目录合计约 45 处 record/report/throw，没有动。
+- settings 的 {{reason}} 会把英文片段插进中文界面句，见第 4 项的注意。

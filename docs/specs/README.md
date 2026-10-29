@@ -216,6 +216,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Agent 对话视图 | [`ui/agent-conversation-view.md`](ui/agent-conversation-view.md) | `nb-agent-ui` 包：分轮与过程时间线、工具渲染、输入框、注册表扩展点、宿主注入的 Markdown 与编辑器；2026-10-22 从归档搬回 |
 | Agent harness | [`agent/harness.md`](agent/harness.md) | 只经 Profile 运行：生效工具集与会话快照、渲染即上下文、一次运行的结果与错误归类、收尾工具、单次请求、按配置给模型 |
 | Schema 表单 | [`ui/forms.md`](ui/forms.md) | 按数据 schema 画表单：支持的写法与控件选择、受控值与缺失、校验与问题的显示、选项、条件显示、草稿与提交、展示态、列表编辑、自定义控件、Agent 策略、终端退回；nb-ui 表单控件的合同 |
+| 剧情图谱：图的修订 | [`story/revisions.md`](story/revisions.md) | 确认或驳回候选身份、手动连两个对象、改对象种类、挪称呼；修订按书单独保存、套用后查询、不剧透、可撤销、重抽后按锚对应 |
 
 ## 旧应用的规范与 Reference（只作参照）
 

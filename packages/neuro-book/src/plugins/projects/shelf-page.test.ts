@@ -474,7 +474,7 @@ describe("Spec bookshelf 动作", () => {
         expect(w.notices()).toEqual([]);
 
         expect(w.settings.get(librarySetting)).toBe("");
-        await page.rememberLibrary("/home/writer/books");
+        expect(await page.rememberLibrary("/home/writer/books")).toBe(true);
         await waitUntil("作品目录记住", () => w.settings.get(librarySetting) === "/home/writer/books");
 
         expect(await page.update("a", {title: "甲二", description: "改过", color: "#7a4b3a"})).toEqual({ok: true, id: "a"});

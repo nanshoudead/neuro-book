@@ -4,7 +4,7 @@
  */
 
 import {partsStrength, edgeParts, hasParts, type EdgeFacts} from "../graph/edge-parts";
-import type {GraphLayout} from "../graph/StoryNetwork.vue";
+import type {GraphLayout} from "../graph/layout";
 import {readJsonPref, writeJsonPref} from "./prefs";
 
 export interface RelationsView {

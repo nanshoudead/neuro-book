@@ -9,6 +9,7 @@ import type {Basis, Episode, KnowledgeState, Position, Span, Statement, Statemen
 import {READER, type Grouping} from "../identity";
 import {formatSpan} from "../position";
 import type {BookView} from "../projection";
+import {episodeTier, type Tier} from "../tiers";
 
 export interface QueryContext {
     readonly method: StoryMethod;
@@ -118,6 +119,11 @@ export function participants(ctx: QueryContext, episode: Episode): (NodeRef & {a
 /** 一段情节的参与者所在的点 id。 */
 export function participantNodes(ctx: QueryContext, episode: Episode): string[] {
     return participants(ctx, episode).map(item => item.id);
+}
+
+/** 情节的简要条目（人物卡、关系详情、悬念里的情节）；`tier` 是先验等级。 */
+export function episodeBrief(episode: Episode): {id: string; title: string; chapter: number; refs: string[]; tier: Tier | null} {
+    return {id: episode.id, title: episode.title, chapter: episode.at.chapter, refs: refs(episode.evidence), tier: episodeTier(episode)};
 }
 
 /** 搜索用的“包含这段文字”：忽略大小写与首尾空白。 */

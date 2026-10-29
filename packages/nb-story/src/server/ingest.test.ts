@@ -64,7 +64,8 @@ async function setup(override?: (key: ReplayKey, nth: number) => EndpointReply |
     const played = replay(await loadReplay(), override);
     const endpoint = startEndpoint(played.responder);
     cleanups.push(() => endpoint.stop());
-    await writeFile(join(configHome, "nbstory", "config.json"), JSON.stringify({model: {baseUrl: endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV, price: {input: 1, output: 4, currency: "USD"}}}));
+    // 录下的回放里没有马甲核对这一步：公共配置显式关掉，开着的场景单独测（输出 20）。
+    await writeFile(join(configHome, "nbstory", "config.json"), JSON.stringify({model: {baseUrl: endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV, price: {input: 1, output: 4, currency: "USD"}}, ingest: {personaCheck: {enabled: false}}}));
     const library = join(dir, "library");
     await prepare?.(library);
     const childEnv = {XDG_CONFIG_HOME: configHome, [KEY_ENV]: FAKE_KEY};
@@ -86,7 +87,7 @@ describe("挑相关说法开着时的进度（ingest.md 输出 4、13）", () =>
     test("正在挑第 2 章的说法：ingest.status 的当前步骤是 recall；停止照常", async () => {
         const env = await setup(key => (key.step === "recall" ? hang : undefined));
         // 服务每次发起时读配置：改了就生效。
-        await writeFile(join(env.childEnv.XDG_CONFIG_HOME!, "nbstory", "config.json"), JSON.stringify({model: {baseUrl: env.endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}, ingest: {recall: {enabled: true}}}));
+        await writeFile(join(env.childEnv.XDG_CONFIG_HOME!, "nbstory", "config.json"), JSON.stringify({model: {baseUrl: env.endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}, ingest: {recall: {enabled: true}, personaCheck: {enabled: false}}}));
         const started = await env.call("ingest.start", {content: base64(await sampleSourceText(3)), title: "转生反派萝莉"});
         const id = (started.body as {id: string}).id;
         await waitUntil("第 2 章挑说法", async () => {
@@ -97,6 +98,31 @@ describe("挑相关说法开着时的进度（ingest.md 输出 4、13）", () =>
         await waitUntil("停下", async () => (await env.status(id)).state === "stopped", {timeoutMs: 30_000});
         expect((await env.status(id)).committed).toBe(1);
     }, 120_000);
+});
+
+describe("马甲核对（ingest.md 输出 20）", () => {
+    test("配置里不写这一节：默认开，第 3 章核对风信子时进度的当前步骤是 persona；写 enabled: false：不发这一步", async () => {
+        const env = await setup(key => (key.step === "persona" ? hang : undefined));
+        const configFile = join(env.childEnv.XDG_CONFIG_HOME!, "nbstory", "config.json");
+        // 服务每次发起时读配置：去掉这一节就是默认开。
+        await writeFile(configFile, JSON.stringify({model: {baseUrl: env.endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}}));
+        const started = await env.call("ingest.start", {content: base64(await sampleSourceText(5)), title: "默认开"});
+        const id = (started.body as {id: string}).id;
+        await waitUntil("第 3 章核对马甲", async () => {
+            const status = await env.status(id);
+            return status.current?.chapter === 3 && status.current.step === "persona";
+        }, {timeoutMs: 60_000});
+        expect((await env.call("ingest.stop", {book: id})).status).toBe(200);
+        await waitUntil("停下", async () => (await env.status(id)).state === "stopped", {timeoutMs: 30_000});
+
+        const before = env.played.seen.filter(key => key.step === "persona").length;
+        await writeFile(configFile, JSON.stringify({model: {baseUrl: env.endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}, ingest: {personaCheck: {enabled: false}}}));
+        const off = await env.call("ingest.start", {content: base64(await sampleSourceText(5)), title: "关着"});
+        const offId = (off.body as {id: string}).id;
+        await waitUntil("抽完", async () => (await env.status(offId)).state === "done", {timeoutMs: 120_000});
+        expect(env.played.seen.filter(key => key.step === "persona").length).toBe(before);
+        expect(env.played.unknown).toEqual([]);
+    }, 240_000);
 });
 
 describe("按书关闭数值与秘密（ingest.md 输出 18）", () => {

@@ -243,3 +243,18 @@ describe("停止（输出 11、13）", () => {
         expect(run.attempts.map(attempt => attempt.usage.complete)).toEqual([false]);
     });
 });
+
+describe("网关嫌请求太大（F4）", () => {
+    test("413：不重发，以 provider 失败，说明写明请求太大、要换网关；请求没有被受理，用量记 0", async () => {
+        const endpoint = endpointOf([{kind: "status", status: 413, message: "Request payload is too large"}]);
+        const run = call(endpoint.url);
+        const error = await run.promise.catch((caught: unknown) => caught);
+        expect(error instanceof ModelError && {kind: error.kind, status: error.status}).toEqual({kind: "provider", status: 413});
+        expect(error instanceof ModelError && error.message).toContain("请求太大");
+        expect(error instanceof ModelError && error.message).toContain("换一个上限更大的网关");
+        expect(error instanceof ModelError && error.message).toContain("Request payload is too large");
+        expect(endpoint.bodies.length).toBe(1);
+        expect(run.waits).toEqual([]);
+        expect(run.attempts.map(attempt => attempt.usage)).toEqual([{input: 0, output: 0, cacheRead: 0, complete: true}]);
+    });
+});

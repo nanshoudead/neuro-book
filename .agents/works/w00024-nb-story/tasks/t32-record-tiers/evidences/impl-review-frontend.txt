@@ -1,0 +1,91 @@
+# w00024 t32 前端实现审查报告（c85450cd7..HEAD，src/web 与 e2e）
+
+审查方式：读完整 diff、Spec（viewer 输出 9、56、57，queries 输出 23 到 27）、Task README 界面决定、nb-ui Popover 源码与 reka-ui DismissableLayer 源码；跑了 `bun test src/web/parts/tier-words.test.ts`（2 通过）与 `vue-tsc --noEmit -p tsconfig.web.json`（通过）。未跑 e2e，未做变异检查（e2e 不让跑，下面的“测试没抓到”都是读用例推出）。
+
+## 发现
+
+### 1. [重要] 正确性/交互：切换、搜索、换阅读位置时“展开次要（N）”条会整条消失再出现
+- 位置：`src/web/host/query.ts:150-166`（参数一变 `extra.value = null`），`src/web/shell/DrawerCard.vue:149`（`v-if="minorCount"`）、`src/web/shell/RecordsTable.vue:45`
+- 现象：点“展开次要（N）”后 `showMinor` 变，`usePagedQuery` 的参数变，走 reset 分支：`items=[]`、`extra=null`、`total=null`，于是 `minorCount` 变 null，`FoldedBar` 因 `v-if` 被卸载，等第一页回来才重新挂载并写“收起次要（N）”。搜索框每敲一个字（`recordQuery` 没有防抖）、拖阅读位置时同样如此。
+- 为什么是问题：
+  - 用户刚点的那个按钮在指针下消失一瞬，列表整块变成“正在取……”，版面上下跳；
+  - 用键盘按 Enter 触发时按钮是被销毁重建的，焦点掉到 body，要再按 Tab 才能回到条上收起；
+  - 这正是重点 2 问的“maxTier 切换时 N 会不会闪”：N 不会错，但会消失。
+  - `tiers` 的合同是“不随 maxTier 与分页变”，所以切 maxTier 时丢掉它没有必要。
+- 如何核实：读 `query.ts` 的 watch 回调（reset 分支无条件清 `extra`），再读两处 `v-if`；e2e 用 `getByTestId` 每次重新定位，用例里 `bar.click()` 后 `toHaveText` 会重试，所以抓不到。
+- 建议：条的出现条件不要依赖“这一页的 extra 正好在”。做法二选一：（a）`usePagedQuery` 只在 `at`、`query` 或对象变了时清 `extra`，只有 `maxTier` 变时保留（要让 composable 知道哪些参数不影响 extra，不通用，不推荐）；（b）调用方自己记住上一次的非空 N，同一对象、同一 `query`、同一位置下切 `showMinor` 时继续用；（c）条改为 `v-if="showMinor || minorCount"` 并在 N 未知时不写括号（`FoldedBar` 已支持 `count=null`），展开状态下按钮始终在、收起状态下 N 回来之前也在。（c）最小，也保住焦点。
+
+### 2. [重要] 不变量：平板和手机宽度档，弹出层开着按 Esc 会把整个抽屉一起关掉（从代码推断，未跑）
+- 位置：`src/web/shell/BookFrame.vue:86-89`（`window` 上的 keydown，只判断 `event.key === "Escape"`，没看 `defaultPrevented`），与 `src/web/parts/TierBadge.vue` 的 `Popover`。
+- 现象：reka-ui `DismissableLayer` 用 `@vueuse/core` 的 `onKeyStroke("Escape")`（默认也挂在 window 上），关闭时只 emit `dismiss`，不调 `preventDefault`（`node_modules/reka-ui/dist/DismissableLayer/DismissableLayer.js:72-77`）。两个监听都会跑：弹出层关了，`book.closeDrawer()` 也执行，抽屉连同正在看的人物卡一起没了。
+- 为什么是问题：本 Task 之前抽屉里没有会响应 Esc 的浮层；现在在 `overlayDrawer`（非宽档）下“看完依据按 Esc”的自然动作会丢掉人物卡。e2e 只在宽档，抓不到；宽档抽屉不监听 Esc，所以只在窄档出现。
+- 如何核实：读两处监听；在 e2e 里把视口缩到平板宽度，开抽屉、点色块、按 Esc，期望抽屉仍在。
+- 建议：`onKey` 里跳过已被处理的 Esc（`if (event.defaultPrevented) return`，同时需要弹出层那一侧先 `preventDefault`，而 reka 不做）。更稳的做法：`onKey` 检查 `document.querySelector('[role="dialog"][data-state="open"]')` 一类很脆，不推荐；推荐给 `Popover` 的 `@escape-key-down` 无法穿透（nb-ui `Popover` 没暴露该事件），所以要么在 `TierBadge` 外包一层自己的 `keydown.esc.stop`（content 内部没有焦点时无效），要么让 `BookFrame` 的 Esc 只在焦点或事件目标不在 portal 弹层内且没有打开的弹层时才关。此项涉及 nb-ui 合同，修法需要开发者定：给 `Popover` 增加转发 `escapeKeyDown`，或接受现状并在已知限制里写明。
+
+（对第 1 条建议（c）的补正：条的出现条件应写成“N 已知时 N 大于 0，N 未知（正在重取）时看 showMinor”，即 `minorCount === null ? showMinor : minorCount > 0`，否则 showMinor 为 true 而这个对象没有 3 级说法时会多出一个“收起次要（0）”。）
+
+### 3. [建议] 代码质量/常见返工项：按显示文案分支
+- 位置：`src/web/parts/TierBadge.vue:26`：`book.atLabel.value.startsWith("第") ? book.atLabel.value : "最后"`
+- 现象：靠阅读位置标签是不是以“第”开头来判断“是否读完全书”。`book.atEnd` 就是现成的布尔值（`book.ts:229`）。
+- 为什么是问题：`atLabel` 的写法一改（比如“第 N 章”改成“N 章”）读完全书的判断就悄悄错了，且没有测试会失败；这是仓库禁止清单里“不按文案做分支”的一类。
+- 建议：`book.atEnd.value ? "最后" : book.atLabel.value`；写法放进 `tier-words.ts` 的函数参数（传 `atEnd` 与 `atLabel`，由 `tierVerdict` 自己拼“读到……”），这样“读到最后”这类措辞与测试在同一处。
+
+### 4. [建议] 正确性/措辞：依据文字与先验表耦合、读完全书时有一句不通
+- 位置：`src/web/parts/tier-words.ts:29-31`、`:34`
+- 现象与问题：
+  - `ev === "unknown"` 且无先验时写死“先算作 2 级”。这是 `core/tiers.ts` 表二“未知一律 2 级”的现状，改表时这句不会跟着变，也没有测试能发现。应写 `explain.tier`。
+  - 同一分支对读完全书（`全部读完`）不适用：窗口小于 5 章又没有后文可看，写“还看不出后文会不会再提”不对；`atEnd` 只处理了 unconfirmed 一句。真实场景：全书最后 4 章里的说法，点开都是这句。
+  - `tierVerdict` 的末两句（`tier < prior` 升级、否则“相符”）对 `tier > prior` 的非标记情形也会写“相符”；按当前两张表这不会发生，但这个兜底无声，建议最后一句只在 `tier === prior` 时写“相符”，否则按数字直写（“从 X 级变为 Y 级”）。
+- 如何核实：`bun test` 里加一条 `window: 3, prior: null, tier: 3` 之类的断言即可暴露硬编码（当前表下取不到，需改表才暴露，故只列建议）；读完全书的措辞要在界面上看。
+- 建议：用 `explain.tier` 代替“2 级”；`unknown` 分支在 `atEnd` 时改成“这是最后几章，之后没有更多内容可以印证，暂按抽取时的判断。”（措辞由开发者定）。
+
+### 5. [建议] 代码质量：`tierVerdict` 的情节分支是死代码，且 `TierBadge.md` 的描述与 Spec 不一致
+- 位置：`src/web/parts/tier-words.ts:20`（`explain.kind === "episode"`）与 `tier-words.test.ts` 最后一条断言；`src/web/parts/TierBadge.md` 的 `explain` 注释“说法或情节的 id”。
+- 现象：Spec 输出 56 写“情节……不能点”，实现里情节的 `TierBadge` 不传 `explain`，所以 `tier.explain` 永远不会为情节被调用，`tierVerdict` 的情节分支、`kind === 'statement'` 的 `v-if`、测试里的情节断言都没有调用方。
+- 为什么是问题：没有调用方的分支要维护，还让 `.md` 对读者暗示“情节也能点开”，与 Spec 相反。
+- 建议：删掉情节分支与对应断言，`explain` 的注释改成“说法的 id”；以后真要让情节可点再加。
+
+### 6. [建议] 无障碍：弹出层关闭后焦点掉到 body，且面板文字选不中
+- 位置：`src/web/parts/TierBadge.vue` 用的 nb-ui `Popover`（`Popover.vue` 的 `@close-auto-focus="preventDefault"` 与 `select-none`，`Popover.md` 明写不保证焦点）。
+- 现象：用键盘 Tab 到某条说法的色块、Enter 打开、Esc 关掉后，焦点不回到触发按钮。列表里最多 100 到 500 个色块，键盘用户要从页首重新 Tab。面板根带 `select-none`，依据里的文字无法选中复制。
+- 为什么是问题：这是 nb-ui 的既有取舍，不是本 Task 的错，但本 Task 是第一个在长列表里把每行都做成 Popover 触发器的用法，问题在这里才显出来。
+- 建议：先记到 nb-ui 的已知限制或 followups，不在本 Task 里绕过；若要在本处处理，给面板内容 `class="select-text"` 覆盖并在 `update:open` 变为 false 时把焦点还给按钮（需要拿到按钮的 ref）。
+
+### 7. [建议] 组件规范：色块手写了一套近似 Badge 的样式，且带字面量像素
+- 位置：`src/web/parts/TierBadge.vue` 的 `<style scoped>`（`font-size: 10px`、`width/height: 16px`、`border-radius: 4px`、`margin-right: 6px`）。
+- 现象：1 级实心强调色、2 级强调色描边、3 级中性描边，与 nb-ui `Badge` 的 `solid accent`、`outline accent`、`outline neutral` 三种组合一一对应，但这里用自己的 CSS 重画了一遍；字号用 `10px` 而不是 `var(--text-2xs)`（同一文件的 `.foot` 已经用了），圆角不走 `--radius-control`。
+- 为什么是问题：组件规范要求复用 nb-ui 组件与主题变量；字面量不跟密度和主题变。
+- 建议：色块改用 `Badge size="sm"` 加三种 `variant`/`tone` 组合；若方形外观是开发者在评审板上定的，保留自写样式，但把字号、圆角换成变量，并在文件里写一句为什么不用 `Badge`。
+
+### 8. [重要] 测试：e2e “记录等级”用例有几条判据没有真的测到
+- 位置：`e2e/viewer.e2e.ts:323-351`
+- 现象（读用例推出，未做变异）：
+  1. N 只和同一个接口的 `tiers[2]` 比（`all.tiers[2]`），页面上的行数从未和 N 对照。若页面把 3 级以外的也折掉、或展开后少列几条，只要第一条 3 级可见就过。应在展开后断言 `data-tier="3"` 的行数等于 N（样例对象若超过一页再用 `limit` 或只在 N 小于 100 时断言），收起时可见行数加 N 等于展开时的行数。
+  2. 宽表格（`RecordsTable.vue`，`data-testid="wide-record"`）整条路径没有测：色块、折叠、“抽屉与宽表格共用一个开关”（Spec 输出 56 明写）都没有断言。把 `RecordsTable.vue` 里的 `useShowMinorRecords` 换成本地 `ref(false)`，这条用例仍然全过。
+  3. “展开后 3 级淡显”没有断言（`.is-minor` 删掉照样过）。可以对 `data-tier="3"` 的行和同表里 `data-tier="1"` 的行比较计算出的 `color`。
+  4. 依据弹层只断言了固定文字“后文引用”和结尾一句；“后文又提到”那一行写“有”还是“没有”、一句结论是哪一种都没断言，`echoWords` 返回值写反也过。
+  5. 情节只测了“样例书没有先验所以不画”，没有一条正向用例（有先验的情节画出色块、不能点）。样例书将来一旦带上先验，这条断言反而会失败。
+  6. 人物页“其他”的 `FoldedBar` 替换（`toggle-minor`）没有任何用例，本 Task 改了它的文字（展开后新增“（N）”）与样式（新增 hover 下划线）。
+- 为什么是问题：重点 6 问“是否真测到判据”；上面几条里第 2、1 两条对应 Spec 56 的原话，缺了就是判据没有被验证。
+- 建议：补 1、2、5（可以用一本带先验的小书，`fixtures.ts` 里已有造书的函数的话直接用）；3、4 用 `toHaveCSS` 与 `toContainText("有")`；6 在 roster 页加一次点击。
+
+### 9. [建议] 测试：`tier-words.test.ts` 的覆盖缺口
+- 位置：`src/web/parts/tier-words.test.ts`
+- 现象：`citedWords` 只覆盖了 `confirms`、`knowers` 两项，`contradicts`、`revises`、`secrets`、`answers` 四条文字没有断言；`tierVerdict` 没测 `atEnd` 的措辞、没测 `window: 0` 且无先验。断言写的是完整句子，措辞稍改就全红（这是文字产出本身，可以接受）。
+- 建议：给 `citedWords` 补一条“六项都有”的断言；`tierVerdict` 随第 4 条修改一起补。
+
+## 补充核实（无问题或只需注意）
+
+- `useStoryQuery("tier.explain")`：关闭时 `params` 为 null，不发请求；打开才取；关闭再开会重取一次（`run(null)` 清了 data），中间会短暂写“正在取依据……”，可以接受；阅读位置变化时 `at` 在 watch 的依赖里，会重取。Spec 输出 57“打开时才取依据”满足。每行一个 `useStoryQuery` 加一个 `Popover`，一页最多 500 行即 500 个 watcher 加 500 个 `PopoverRoot`，只在渲染量级上有成本，没有看到实测，不列为问题。
+- `show-minor.ts`：偏好写失败时 `prefs.write` 吞掉并 `console.warn`，模块里的 `ref` 已更新，本页内仍然抽屉与宽表格共用，符合 prefs.ts 文件头的约定；多本书共用同一个开关符合 Spec 输出 56 与 viewer.md“副作用与数据”（浏览器级偏好）。没有跨标签页同步（无 `storage` 监听），与同文件里其它偏好一致。
+- `query.ts` 的 `extra`：翻页（`more()`）取最近一页的 `tiers`，合同写明不随分页变，所以一致；只换版本（`keep`）走 `fetchPage(true, limit)`，整体替换，`extra` 与条目同一次写入；换参数与换位置先清再取，不会把旧位置的 N 写到新位置。唯一的问题是第 1 条的消失。`const {items: _items, total: _total, next: _next, ...rest}` 三个下划线变量 `vue-tsc` 通过，未见 lint 规则拦截。
+- `TierBadge` 的 Popover 层级：抽屉在窄档是页内 `z-30` 的绝对定位，不是 nb-ui 的 `Drawer`，`Popover` 取默认 `NB_Z_INDEX.popover = 60`，在抽屉之上，没有被遮住。
+- `FoldedBar`：单根元素，`class`、`data-testid` 透传；`RosterPage` 仍然带着原来的 `data-testid="toggle-minor"`；文案与原来相同，展开后多了“（N）”是 Spec 输出 56 的要求。同名 `.md` 与实现一致（props、emits、无 slots、根元素带 `aria-expanded`）。`TierBadge.md` 与实现一致，除第 5 条那一处。
+- 提交 `6d6cf8d43` 顺带把 `GraphLayout` 从 `StoryNetwork.vue` 挪到 `sigma-kit.ts`、给 e2e tsconfig 加 `DOM.Iterable`：与记录等级无关，是为了让整体 typecheck 通过，已单独成提交；RelationsPage 仍从 `StoryNetwork.vue` 导入类型，靠 `export type {GraphLayout}` 兼容，没有问题。
+- 界面决定 1 到 5 逐条对照：默认收起 3 级（`maxTier: 2`）、顶部“展开次要（N）”与“收起次要（N）”、展开后淡显、情节只画先验色块不折叠不可点、依据写法 A（一句结论加两行加结尾）、“后文又提到”只写有或没有，都落实了；只有第 1 条（条的消失）影响了“顶部一行”的稳定性。
+
+## 数量
+
+- 阻断：0
+- 重要：3（第 1、2、8 条）
+- 建议：6（第 3、4、5、6、7、9 条）

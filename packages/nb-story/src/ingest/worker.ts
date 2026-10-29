@@ -21,6 +21,7 @@ export interface WorkerStart {
     endpoint: Endpoint;
     price: Price | null;
     recall: {endpoint: Endpoint; price: Price | null} | null;
+    personaCheck: boolean;
     run: string;
     /** 一个 Int32：非 0 表示要停。 */
     stop: SharedArrayBuffer;
@@ -50,6 +51,7 @@ self.onmessage = (message: MessageEvent<WorkerInbound>) => {
         endpoint: withKey(data.endpoint),
         price: data.price,
         recall: data.recall ? {endpoint: withKey(data.recall.endpoint), price: data.recall.price} : null,
+        personaCheck: data.personaCheck,
         run: data.run,
         chapterWaitsMs: data.chapterWaitsMs,
         ...(data.delaysMs ? {delaysMs: data.delaysMs} : {}),

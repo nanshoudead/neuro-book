@@ -151,6 +151,7 @@ async function serve(claim: StateRootClaim, context: StartContext, options: Star
             context.output.hint("前台运行中，按 Ctrl-C 停止。");
             if (url !== null) void openBrowser(url, context, options);
         },
+        onStopped: (exitCode) => context.output.hint(exitCode === 0 ? "NeuroBook 已停止。" : `NeuroBook 已停止（退出码 ${String(exitCode)}，详情见 ${join(context.stateRoot, "logs")}）。`),
         onStartupFailed: ({message, causes}) => {
             const first = causes.find((cause) => cause.message !== null)?.message ?? message;
             context.output.failure(new CliFailure("startup-failed", `服务端启动失败：${first}（详情见上面的致命诊断与 ${join(context.stateRoot, "logs")}）`, 1, {stateRoot: context.stateRoot, causes}));

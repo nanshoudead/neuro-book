@@ -119,6 +119,13 @@ export const ConfigSchema = Type.Object(
                             {additionalProperties: false, "x-form": {label: "挑选相关说法"}},
                         ),
                     ),
+                    // 马甲核对（docs/specs/story/ingest.md 输出 20）：默认开，写 false 关；用抽取的模型。
+                    personaCheck: Type.Optional(
+                        Type.Object(
+                            {enabled: Type.Optional(Type.Boolean({"x-form": {label: "核对马甲", help: "每章抽完后，问一下还没连上任何人的马甲（网名、代号）是不是已有的哪个人；默认开"}}))},
+                            {additionalProperties: false, "x-form": {label: "核对马甲"}},
+                        ),
+                    ),
                 },
                 {additionalProperties: false, "x-form": {label: "抽取"}},
             ),

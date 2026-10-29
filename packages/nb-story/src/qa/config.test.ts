@@ -193,6 +193,7 @@ describe("写配置（config 命令）", () => {
             "ingest.model.price": '{"input":2,"output":8,"currency":"CNY"}',
             // 挑相关说法的开关不用先整组写入；挑选的模型和抽取的一样要先整组写入。
             "ingest.recall.enabled": "true",
+            "ingest.personaCheck.enabled": "false",
             "ingest.recall.model": '{"baseUrl":"http://r/v1","id":"r","apiKeyEnv":"R_ENV"}',
             "ingest.recall.model.baseUrl": "http://s/v1",
             "ingest.recall.model.id": "recall",
@@ -223,6 +224,7 @@ describe("写配置（config 命令）", () => {
             ingest: {
                 model: {baseUrl: "http://z/v1", id: "ingest", apiKeyEnv: "INGEST_ENV", contextWindow: 64000, maxTokens: 16000, price: {input: 2, output: 8, currency: "CNY"}},
                 recall: {enabled: true, model: {baseUrl: "http://s/v1", id: "recall", apiKeyEnv: "RECALL_ENV", contextWindow: 32000, maxTokens: 4000, price: {input: 0.5, output: 1, currency: "USD"}}},
+                personaCheck: {enabled: false},
             },
             qa: {maxChapters: 10, fullReadMaxChars: 100000, answer: "structured"},
         });

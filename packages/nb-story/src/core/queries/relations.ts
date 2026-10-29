@@ -9,7 +9,7 @@
 import type {StoryParams, StoryResult} from "../../contract/contract";
 import type {Episode, Knowledge, Statement} from "../dataset";
 import {READER} from "../identity";
-import {firstRef, nodeRef, participantNodes, perspectiveStatements, refs, tags, type QueryContext} from "./context";
+import {episodeBrief, firstRef, nodeRef, participantNodes, perspectiveStatements, refs, tags, type QueryContext} from "./context";
 import {relationWord} from "./graph";
 
 const RELATION_FAMILIES: ReadonlySet<string> = new Set(["kinship", "social", "membership"]);
@@ -150,7 +150,7 @@ export function entityRelation(ctx: QueryContext, params: StoryParams<"entity.re
             refs: refs(statement.source.evidence),
             chapter: statement.at.chapter,
         })),
-        episodes: pair.episodes.map(episode => ({id: episode.id, title: episode.title, chapter: episode.at.chapter, refs: refs(episode.evidence)})),
+        episodes: pair.episodes.map(episodeBrief),
         knows: grouping.perspective === READER ? {ab: pair.ab.slice(-KNOWS_SHOWN).map(knowsItem), ba: pair.ba.slice(-KNOWS_SHOWN).map(knowsItem)} : null,
     };
 }

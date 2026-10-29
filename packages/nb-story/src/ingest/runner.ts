@@ -58,6 +58,8 @@ export interface StartInput {
     price: Price | null;
     /** 挑相关说法用的模型；null 时不挑（默认）。 */
     recall: {endpoint: EndpointConfig; price: Price | null} | null;
+    /** 马甲核对开不开（输出 20）；由入口从配置解析（`personaCheckEnabled`），这里不给默认值。 */
+    personaCheck: boolean;
     runner: RunnerKind;
     /** 同一章失败（回复不成形、渠道失败重试用完）后最多重做几次，缺省 3；0 不重做。 */
     autoResume?: number;
@@ -153,7 +155,7 @@ function launch(input: StartInput, plan: IngestPlan, store: IngestStore, lock: F
     };
     worker.addEventListener("close", () => finish(stopRequested ? {kind: "stopped"} : {kind: "failed", code: "model_failed", errorKind: "local", message: "抽取线程意外退出"}));
 
-    const start: WorkerStart = {type: "start", libraryRoot: input.library.root, id: plan.id, endpoint: input.endpoint, price: input.price, recall: input.recall, run, stop: stopBuffer,
+    const start: WorkerStart = {type: "start", libraryRoot: input.library.root, id: plan.id, endpoint: input.endpoint, price: input.price, recall: input.recall, personaCheck: input.personaCheck, run, stop: stopBuffer,
         chapterWaitsMs: input.timing?.chapterWaitsMs ?? chapterWaits(input.autoResume ?? 3),
         ...(input.timing?.delaysMs ? {delaysMs: input.timing.delaysMs} : {}),
     };

@@ -25,6 +25,8 @@ import type {BookMeta} from "./library";
 import {resolvePosition} from "./position";
 import {BookView} from "./projection";
 import {bookInfo, bookStats} from "./queries/books";
+import {revisionsEvidence, revisionsList} from "./queries/revisions";
+import {reviseBook} from "./overlay/ops";
 import {makePager} from "./queries/context";
 import type {QueryContext} from "./queries/context";
 import {entitiesList, entityCard, entityEpisodes, entityKnowledge, entityStatements} from "./queries/entities";
@@ -36,6 +38,7 @@ import {questionsList} from "./queries/questions";
 import {search} from "./queries/search";
 import {secretsMatrix} from "./queries/secrets";
 import {sourceRead, sourceRecords} from "./queries/source";
+import {tierExplain} from "./queries/tiers";
 import {timeline} from "./queries/timeline";
 import {unextractedTail} from "./unextracted";
 
@@ -85,10 +88,13 @@ const BOOK_HANDLERS: Partial<Record<StoryMethod, BookHandler>> = {
     "arcs.list": arcsList,
     "source.read": sourceRead,
     "source.records": sourceRecords,
+    "tier.explain": tierExplain,
     search,
     "graph.relations": relationsGraph,
     "graph.book": bookGraph,
     "graph.storyline": storyline,
+    "revisions.list": revisionsList,
+    "revisions.evidence": revisionsEvidence,
 };
 
 /** 不适用视角的方法：忽略 perspective，用读者视角。 */
@@ -187,7 +193,7 @@ export function createStoryApi(options: {library?: Library | string} = {}): Stor
             index,
             view,
             grouping,
-            page: makePager(`${index.meta.generation}:${index.meta.revision}`, paramsDigest(method, params), cursor, params.limit as number | undefined),
+            page: makePager(`${index.meta.generation}:${index.meta.revision}:${index.overlay.file?.version ?? 0}`, paramsDigest(method, params), cursor, params.limit as number | undefined),
             resolveEntity: text => resolveEntity(view, text, grouping),
         };
         const handler = BOOK_HANDLERS[method];
@@ -215,6 +221,16 @@ export function createStoryApi(options: {library?: Library | string} = {}): Stor
                 // 存进去的位置要能在这本书里落定；存原样（只给章就存章），读回时含义不变。
                 resolvePosition(input.position, index.chapters, index.meta.extractedThrough);
                 return library.setReading(id, input.position, input.view);
+            }
+            case "revisions.confirm":
+            case "revisions.reject":
+            case "revisions.link":
+            case "revisions.kind":
+            case "revisions.moveName":
+            case "revisions.undo": {
+                const id = await library.resolveBookId(params.book as string | undefined);
+                const {book: _book, ...rest} = params;
+                return reviseBook(library, id, {method, ...rest} as Parameters<typeof reviseBook>[2]);
             }
             default:
                 return bookCall(method, params);

@@ -88,11 +88,13 @@ type IngestConfig = {
             enabled?: boolean;
             model?: {baseUrl: string; id: string; apiKeyEnv: string; contextWindow?: number; maxTokens?: number; price?: {input: number; output: number; cacheRead?: number; currency: string}};
         };
+        /** 马甲核对（输出 20）：默认开，`false` 关；用抽取的模型。 */
+        personaCheck?: {enabled?: boolean};
     };
 };
 ```
 
-- 推理档由程序按步骤固定：挑相关说法、写时间点和段落块用最低档（`minimal`），其余步骤用中档（`medium`）；模型不接受这两档时：网关的 400 列出了合法档位（严格转发推理档的端点），就改发其中最接近的启用档并立即重发一次（`minimal` 优先 `low`；不选 `none`，它是关闭推理，会让原来要推理的步骤静默变成不推理；不进延迟表），同一进程里记住这个结果；没有可改发的启用档、或 400 没列出档位时按 F4 停下（`provider`），不省略。
+- 推理档由程序按步骤固定：挑相关说法、写时间点和段落块用最低档（`minimal`），其余步骤（含马甲核对）用中档（`medium`）；模型不接受这两档时：网关的 400 列出了合法档位（严格转发推理档的端点），就改发其中最接近的启用档并立即重发一次（`minimal` 优先 `low`；不选 `none`，它是关闭推理，会让原来要推理的步骤静默变成不推理；不进延迟表），同一进程里记住这个结果；没有可改发的启用档、或 400 没列出档位时按 F4 停下（`provider`），不省略。
 - 挑相关说法的请求按挑选模型的单价记费用。
 - 配置了 `price` 时按它算费用，并记下当时的单价与币种；没有时费用为空，只报 token 数。
 
@@ -110,7 +112,7 @@ type IngestConfig = {
 
 ### 抽取
 
-4. **逐章抽取。** 按 [V9 记忆图提案](../../proposals/novel-memory-v9.md#七抽取管线)的抽取管线逐章往后抽：每章先写时间点与段落块，再写其余记录，然后程序检查、按清单让模型核对补漏与修复，仍修不好的记录丢弃；每到第 5 的倍数章、以及原文的最后一章，提交这一章前先做整理。一章的模型请求只含抽取规则、截至上一章已提交的记忆图生成的已有记录与这一章原文。整理的全量材料（全量的已有记录加全部情节的概括）不超过 60,000 字时照旧给全量、从头重写，超过时改为增量，只给“这一段”的材料（本条最后一项），每次按当次的大小判断；普通章的已有记录只详列与本章相关的行：
+4. **逐章抽取。** 按 [V9 记忆图提案](../../proposals/novel-memory-v9.md#七抽取管线)的抽取管线逐章往后抽：每章先写时间点与段落块，再写其余记录，然后程序检查、按清单让模型核对补漏与修复，仍修不好的记录丢弃；开着马甲核对（输出 20）时接着核对没连上的马甲；每到第 5 的倍数章、以及原文的最后一章，提交这一章前先做整理。一章的模型请求只含抽取规则、截至上一章已提交的记忆图生成的已有记录与这一章原文。整理的全量材料（全量的已有记录加全部情节的概括）不超过 60,000 字时照旧给全量、从头重写，超过时改为增量，只给“这一段”的材料（本条最后一项），每次按当次的大小判断；普通章的已有记录只详列与本章相关的行：
    - 这本书关掉了数值或秘密时（输出 18），对应的一节不列，整理的材料里也不列状态变动、指向秘密的知情。
    - 相关对象是本章原文里出现了它此时的称呼（至少两个字）的对象，同一称呼属于几个对象时都算，加上最近 3 章有提及的对象（包括只用代称提及、没有称呼的）。名册详列相关对象，其余对象在“其他对象”里每个一行，写编号、类别、当前称呼与整理标签。
    - 秘密只列涉及相关对象、或有相关对象知情记录（指向秘密本身或它列的说法）的；当前状态只列相关对象的量；未解的疑问只列最近 20 章里提出或有进展的；时间点只列最后 20 个；最近的情节照旧。
@@ -128,7 +130,7 @@ type IngestConfig = {
 
 ### 失败
 
-9. **渠道失败自己重试。** 一次模型请求遇到超时、连接或流中断、服务端 5xx，或回复在一段内容之后只剩连续 2000 个以上的空白字符（“跑飞”，此时立即中止这次请求）时，等 30、60、120、180、300 秒依次重发，同一次请求连同第一次合计至多 6 次 HTTP 尝试；仍失败时任务以 `model_failed` 停下（`kind` 按 [`agent.harness`](../agent/harness.md#失败与恢复) 的归类），已提交的章都保留，可以接着抽。认证失败、额度用尽、密钥环境变量没设置、模型拒绝推理档时不重发，直接停下。
+9. **渠道失败自己重试。** 一次模型请求遇到超时、连接或流中断、服务端 5xx，或回复在一段内容之后只剩连续 2000 个以上的空白字符（“跑飞”，此时立即中止这次请求）时，等 30、60、120、180、300 秒依次重发，同一次请求连同第一次合计至多 6 次 HTTP 尝试；仍失败时任务以 `model_failed` 停下（`kind` 按 [`agent.harness`](../agent/harness.md#失败与恢复) 的归类），已提交的章都保留，可以接着抽。认证失败、额度用尽、密钥环境变量没设置、模型拒绝推理档、网关以 413 拒绝（请求太大）时不重发，直接停下。
    - **限流（429）退避更久。** 限流单独按另一张表等：1、2、5、10、15、20 分钟，之后每次 30 分钟，连同第一次合计至多 12 次 HTTP 尝试，等待合计 203 分钟；仍是 429 时以 `model_failed`（`rate_limit`）停下。服务给了 `Retry-After` 且是有限、非负的秒数时按它等，最长 30 分钟（空串、负数、日期格式一律按表）。两类失败各按自己的表计数，等待都能被停止打断（输出 11）；`config test --ingest` 只试一次。最坏的等待：网络类失败 11.5 分钟、限流 203 分钟，都不含请求本身的耗时。
 10. **回复不成形。** 模型正常回复、但不是 JSON、被截断、缺本章、或没有段落块时，这一步重发一次（不计入输出 9 的次数）；仍不成形，这一章失败。
     - **章内重做。** 一章因回复仍不成形（丢弃修不好的记录之后这一章仍有错误也算），或渠道失败重试用完（`network` 类）而失败时，任务不退出：等 5、10、15 分钟（`--auto-resume <次数>` 给次数，缺省 3，0 不重做；多于三次时之后都等 15 分钟），从头重做这一章。重做在同一把 id 锁、同一个任务里进行，这一章没提交、书的数据不变；失败的请求与重做的请求都计入这次任务的用量与这一章的用时，一次命令仍只有一份小结与一份 `--json`。次数按同一章算，下一章有新的额度；这一章的重做次数用完才以 `ingest_bad_reply`（或 `model_failed`）停下，已提交的章保留，接着抽时从头重做这一章。认证、额度、限流（`callModel` 内部已按输出 9 退避过）、`provider` 与本机错误重做也没有用，直接停下；提交前整本检查仍有错误（错误可能来自已提交的旧章，重做改变不了）同样不重做，直接以 `ingest_bad_reply` 停下。等待期间收到停止、删书与平时一样立即生效（等待在持有 id 锁时进行，没有放锁的空档）；进度（输出 13）的“正在等待的重试”显示重做的等待。最坏的等待：网络类失败每轮 11.5 分钟加章级 5、10、15 分钟，缺省共约 72 分钟，不含请求本身的耗时。网页的独立服务沿用缺省次数。
@@ -143,7 +145,7 @@ type IngestConfig = {
 
 13. **进度。** `ingest.status` 与 `nbstory ingest --status` 对每个有抽取记录的书 id 给出：
     - 状态：`running`（运行中，另给由谁运行：命令行或独立服务）、`stopped`（停下，另给原因：用户停止、失败码与说明、运行它的进程已退出）、`done`（原文的章全部提交）；
-    - 原文总章数、已提交的章数、正在抽的章与步骤（只在运行中；步骤是 `recall`、`beats`、`draft`、`review`、`repair`、`consolidation` 之一）、正在等待的重试（第几次、还要等多久）；
+    - 原文总章数、已提交的章数、正在抽的章与步骤（只在运行中；步骤是 `recall`、`beats`、`draft`、`review`、`repair`、`persona`（马甲核对，输出 20）、`consolidation` 之一）、正在等待的重试（第几次、还要等多久）；
     - 这次任务与历次合计的用时、token 用量（输入、输出、缓存命中）、费用；每章平均用时与费用（分子含失败与作废的尝试，分母是已提交的章数）；
     - 每个已提交的章：用时、费用（含这一章作废过的尝试）、丢弃的记录条数。
     - 这本书的开关（`features`，输出 18）。
@@ -165,6 +167,23 @@ type IngestConfig = {
     - 两项都开时，发给模型的每个请求与没有这项设置时逐字相同。
     - 开关只在新建时定，保存在抽取记录里，之后不改：接着抽、追加、已抽完时不给就沿用；给了与保存值不同的项，得到 `invalid_params`（命令行退出码 2），什么都不改。第 1 章还没提交的书也一样。要换设置，删除这本书后重抽。
     - `ingest.preview`、`ingest.status`、`books.list` 与 `book.info` 给出生效的开关（[`story.queries`](queries.md#边界与兼容)）；查看器与问答按它隐藏对应的页面与查询（[`story.viewer`](viewer.md)、[`story.qa`](qa.md)）。
+
+### 重要程度
+
+19. **先验等级。** 抽取规则要求模型给每条说法与每个情节写重要程度 `tier`（1 主线必需、2 有用、3 琐碎；1 级应是少数，拿不准写 2），编译时原样带进书的数据，作为 [`story.queries`](queries.md) 输出 23 到 27 的先验。
+    - `tier` 写成数字串时按数字算；不是 1 到 3 的整数时去掉这个字段，记录照常保留（等于没有先验），不进核对与修复。
+    - 核对与修复按编号整条替换记录时，新记录没写 `tier` 而原记录有，沿用原记录的。
+    - 没写 `tier` 的记录照常提交。
+
+### 马甲核对
+
+20. **马甲核对。** 开着时（默认，`ingest.personaCheck.enabled: false` 关），每章在兜底丢弃之后、整理与提交之前，对还没连上的马甲各问一次“它是不是已有的哪个人物或马甲”，答出是同一个人并给出本章的依据时，在这一章的记录里加一条候选身份说法：
+    - **问谁**：加上本章记录之后、截至本章末的马甲里，没有任何身份说法（确定或候选）连到人物或马甲的；称呼全是泛称（[`story.queries`](queries.md) 输出 22）的不问；之前的章核对答过“不是马甲”的不问。其中它的某个不是泛称、至少两个字的称呼出现在本章原文里，或本章新建了人物或马甲时才问。一章至多问 5 个，上一次被问得早的（没问过的最前）先问，再按编号。
+    - **问法**：一次一个马甲，材料截至本章：它的类别、称呼、整理标签与涉及它的说法，本章之前它的称呼出现过的段落（最近的 12 段，带前后各一段），本章原文全文，以及截至本章的全部人物与马甲。回复是 `{"verdict": "same" | "not-persona" | "unknown", "entity", "current", "reason", …}`，`current` 是本章里支持这个结论的段号。不是对象、或 `verdict` 不是这三者之一算不成形，重发一次（同输出 10）；仍不成形时这个马甲这一章跳过，问题记进这一章，这一章照常提交。渠道失败、停止同其他步骤（输出 9、11）。
+    - **写下**：`same`、对象是截至本章的人物或马甲、`current` 里至少一段是本章的真实段落时，加一条身份说法：连接这两个对象，`certainty` 为候选（不论模型怎么写），出处为 `current` 里本章的段落，旁白，推断。文字由程序写成“甲可能就是乙。”，甲乙取两个对象在出处最后一段时的显示名；任一对象在那一段之后才出现时不写。对方是与它同名的马甲时不写（多半是建重了，留给整理合并）。加上后书的数据出错，或这条说法用了后文才出现的称呼时，去掉这一条。没写下的都在这一章的问题里记一句。
+    - **来源标记**：这一章的抽取记录里记下写下的说法编号；编出的书里这些说法带 `origin: "persona-check"`，让 [`story.revisions`](revisions.md) 的待确认列表区分它与抽取模型自己写的候选。草稿结构与发给模型的文字不变；`origin` 不影响任何查询的结果。
+    - **其余回答**：`not-persona` 不改数据，记一句“可能不是马甲”，之后不再问它；`unknown` 不记。
+    - 抽取记录里每章记下问了谁、连上了谁、谁答了不是马甲；整章作废重做时重新问。
 
 ## 状态与转换
 
@@ -201,7 +220,7 @@ type IngestConfig = {
 | F1 | `ingest_bad_text` | 原文不是 UTF-8、超过 32 MiB，或一个章标题也没有 | 转成 UTF-8；检查章标题的写法（用 `--preview` 看切章结果） |
 | F2 | `ingest_text_changed` | 保存的某一章与原文文件不同，或文件少了章 | 改稿重抽不支持：换一个书名（得到新 id）重新抽，或删除这本书后重抽 |
 | F3 | `ingest_running` | 这个书 id 已有抽取任务在运行；或要删除的书正被别的进程抽取 | 等它结束，或在运行它的地方停下它 |
-| F4 | `model_failed` | 模型请求失败，重试用完或不可重试；`kind` 同 [`story.qa`](qa.md#失败与恢复) F2；网关不接受固定推理档、又没有可改发的启用档时为 `provider` | 按 `kind` 处理后接着抽；不接受推理档时换模型或换网关 |
+| F4 | `model_failed` | 模型请求失败，重试用完或不可重试；`kind` 同 [`story.qa`](qa.md#失败与恢复) F2；网关不接受固定推理档、又没有可改发的启用档时为 `provider`；网关以 413 拒绝时也是 `provider`，说明写明请求太大、要换网关（抽取的请求随书变长，长书后面的章会撞上网关对单次请求的上限；这次请求没有被受理，用量记 0） | 按 `kind` 处理后接着抽；不接受推理档时换模型或换网关；413 时换一个请求上限更大的网关 |
 | F5 | `ingest_bad_reply` | 模型的回复重发一次后仍不成形，或丢弃这一章的记录后书的数据仍有错误 | 接着抽（重做这一章）；反复出现时换模型 |
 
 另沿用：配置缺失或不合格为 [`story.qa`](qa.md#失败与恢复) 的 `qa_unconfigured`；`book_exists`、`book_not_found`、`unsupported_format` 同 [`story.queries`](queries.md#失败与恢复)。
@@ -210,6 +229,7 @@ type IngestConfig = {
 
 - **公开接口**：`nbstory ingest` 的参数、`--json` 的输出形状与退出码；`ingest.*` 方法的参数与结果；配置文件的 `ingest` 一节。新增可选字段不算破坏兼容。
 - 抽取得来的书与导入数据文件得来的书，查询接口与数据格式相同。导入现成数据文件得来的书不受输出 8 约束（数据文件里已经定了称呼的位置）。
+- 写了重要程度（输出 19）之后抽取的书，抽取记录里的草稿带 `tier`：更早版本的 nbstory 能查看这本书，但不能接着抽（它按旧的草稿格式校验，每一章都报格式错误）。
 - **信任边界**：原文文件与模型回复都是外部输入：原文在切章时校验编码与大小，模型回复只经程序检查后才提交，不合格的记录丢弃。
 
 ## 验收与 Smoke
@@ -243,7 +263,7 @@ Smoke：在真实书库与独立服务上，网页导入样例书前 3 章的原
 
 ## 证据
 
-- 批准依据：[剧情图谱第一版提案](../../proposals/novel-story-app.md) 2026-10-15 的决策记录（抽取搬进 nb-story，命令行与网页都能导入、看进度、追加新章）；[V9 记忆图提案](../../proposals/novel-memory-v9.md)的“抽取管线”与第十二节第 9 到 11 小节（称呼只认本章段落的修法见第 10 小节）；开发者 2026-10-20 在 [w00024 t06](../../../.agents/works/w00024-nb-story/tasks/t06-ingest/README.md) 的决定 3 到 8 与会话里确认的八条假设；验收 11 的尺子是 V9 记忆图提案第十二节第 9 小节所述的 53 条关键记录尺子与 20 章样例原文，随 w00024 t06 迁入该 Task 的脚本目录（来源 w00005 t33）。；开发者 2026-10-20 在 [w00024 t10](../../../.agents/works/w00024-nb-story/tasks/t10-ingest-context-cost/README.md) 的决定 1 到 9（普通章已有记录的选法、挑相关说法默认关、整理改成增量另立 t12），选法的质量由 t10 的真实模型回归验证；开发者 2026-10-20 在 [w00024 t11](../../../.agents/works/w00024-nb-story/tasks/t11-book-feature-switches/README.md) 的决定 1 到 4（输出 18：开关只在新建时设、关秘密保留指向说法的知情、系统提示词不变），两项都关的一次真实模型评测见该 Task 的证据；开发者 2026-10-21 在 [w00024 t12](../../../.agents/works/w00024-nb-story/tasks/t12-consolidation-incremental/README.md) 的决定 1 到 3（整理在全量材料超过上限后改为增量，输出 4 的切换条件与整理材料、输出 7 的合成规则），旧写法与新写法只跑整理的真实模型对照见该 Task 的证据
+- 批准依据：[剧情图谱第一版提案](../../proposals/novel-story-app.md) 2026-10-15 的决策记录（抽取搬进 nb-story，命令行与网页都能导入、看进度、追加新章）；[V9 记忆图提案](../../proposals/novel-memory-v9.md)的“抽取管线”与第十二节第 9 到 11 小节（称呼只认本章段落的修法见第 10 小节）；开发者 2026-10-20 在 [w00024 t06](../../../.agents/works/w00024-nb-story/tasks/t06-ingest/README.md) 的决定 3 到 8 与会话里确认的八条假设；验收 11 的尺子是 V9 记忆图提案第十二节第 9 小节所述的 53 条关键记录尺子与 20 章样例原文，随 w00024 t06 迁入该 Task 的脚本目录（来源 w00005 t33）。；开发者 2026-10-20 在 [w00024 t10](../../../.agents/works/w00024-nb-story/tasks/t10-ingest-context-cost/README.md) 的决定 1 到 9（普通章已有记录的选法、挑相关说法默认关、整理改成增量另立 t12），选法的质量由 t10 的真实模型回归验证；开发者 2026-10-20 在 [w00024 t11](../../../.agents/works/w00024-nb-story/tasks/t11-book-feature-switches/README.md) 的决定 1 到 4（输出 18：开关只在新建时设、关秘密保留指向说法的知情、系统提示词不变），两项都关的一次真实模型评测见该 Task 的证据；开发者 2026-10-21 在 [w00024 t12](../../../.agents/works/w00024-nb-story/tasks/t12-consolidation-incremental/README.md) 的决定 1 到 3（整理在全量材料超过上限后改为增量，输出 4 的切换条件与整理材料、输出 7 的合成规则），旧写法与新写法只跑整理的真实模型对照见该 Task 的证据；开发者 2026-10-28 同意按 [w00024 t33](../../../.agents/works/w00024-nb-story/tasks/t33-graph-issue-reports/README.md) 与 [t34](../../../.agents/works/w00024-nb-story/tasks/t34-persona-link-probe/README.md) 的实验结论推进，输出 20 的马甲核对由 [t35](../../../.agents/works/w00024-nb-story/tasks/t35-persona-check/README.md) 实现（只写候选、默认开、复合泛称记在 w00024 的待确认清单）
 - 实现入口：[`runner.ts`](../../../packages/nb-story/src/ingest/runner.ts)、[`job.ts`](../../../packages/nb-story/src/ingest/job.ts)、[`cli/ingest.ts`](../../../packages/nb-story/src/cli/ingest.ts)、[`server/ingest-service.ts`](../../../packages/nb-story/src/server/ingest-service.ts)
-- 合同测试：[`runner.test.ts`](../../../packages/nb-story/src/ingest/runner.test.ts)、[`chapter.test.ts`](../../../packages/nb-story/src/ingest/chapter.test.ts)、[`model.test.ts`](../../../packages/nb-story/src/ingest/model.test.ts)、[`text.test.ts`](../../../packages/nb-story/src/ingest/text.test.ts)、[`cli/ingest.test.ts`](../../../packages/nb-story/src/cli/ingest.test.ts)、[`server/ingest.test.ts`](../../../packages/nb-story/src/server/ingest.test.ts)、[`e2e/ingest.e2e.ts`](../../../packages/nb-story/e2e/ingest.e2e.ts)
+- 合同测试：[`runner.test.ts`](../../../packages/nb-story/src/ingest/runner.test.ts)、[`chapter.test.ts`](../../../packages/nb-story/src/ingest/chapter.test.ts)、[`persona-check.test.ts`](../../../packages/nb-story/src/ingest/persona-check.test.ts)、[`model.test.ts`](../../../packages/nb-story/src/ingest/model.test.ts)、[`text.test.ts`](../../../packages/nb-story/src/ingest/text.test.ts)、[`cli/ingest.test.ts`](../../../packages/nb-story/src/cli/ingest.test.ts)、[`server/ingest.test.ts`](../../../packages/nb-story/src/server/ingest.test.ts)、[`e2e/ingest.e2e.ts`](../../../packages/nb-story/e2e/ingest.e2e.ts)
 - Smoke：[`smoke-web.mjs`](../../../.agents/works/w00024-nb-story/tasks/t06-ingest/scripts/smoke-web.mjs)（真实模型、网页导入前 3 章、停一次再继续）与 [`regress-20.sh`](../../../.agents/works/w00024-nb-story/tasks/t06-ingest/scripts/regress-20.sh)（验收 11；2026-10-20 三次合计 378，[结果](../../../.agents/works/w00024-nb-story/tasks/t06-ingest/evidences/regress-20/README.md)）

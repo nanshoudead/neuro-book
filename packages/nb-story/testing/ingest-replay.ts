@@ -12,13 +12,15 @@ import {gunzipSync} from "node:zlib";
 
 import type {EndpointReply, Responder} from "./openai-endpoint";
 
-export type ReplayStep = "recall" | "beats" | "draft" | "review-1" | "repair-1" | "consolidation";
+export type ReplayStep = "recall" | "beats" | "draft" | "review-1" | "repair-1" | "persona" | "consolidation";
 
 export interface ReplayKey {
     chapter: number;
     step: ReplayStep;
     /** 这一步的第几次（回复不成形时重发算下一次；渠道重发不变）。 */
     round: number;
+    /** 马甲核对问的是哪个马甲（同一章至多问几个，各自一次请求）。 */
+    subject?: string;
 }
 
 interface Recorded {
@@ -40,12 +42,12 @@ export async function loadReplay(): Promise<Record<string, Record<string, Record
     return recorded;
 }
 
-/** 请求头里的身份：`章/步骤/第几次`；步骤是 beats、draft、review、repair、consolidation。 */
+/** 请求头里的身份：`章/步骤/第几次`，马甲核对再带 `/马甲编号`；步骤是 recall、beats、draft、review、repair、persona、consolidation。 */
 export function stepOf(headers: Headers): ReplayKey | null {
-    const match = /^(\d+)\/(recall|beats|draft|review|repair|consolidation)\/(\d+)$/u.exec(headers.get("x-nbstory-step") ?? "");
+    const match = /^(\d+)\/(recall|beats|draft|review|repair|persona|consolidation)\/(\d+)(?:\/([a-z]\d+-\d+))?$/u.exec(headers.get("x-nbstory-step") ?? "");
     if (!match) return null;
     const step = match[2] === "review" ? "review-1" : match[2] === "repair" ? "repair-1" : (match[2] as ReplayStep);
-    return {chapter: Number(match[1]), step, round: Number(match[3])};
+    return {chapter: Number(match[1]), step, round: Number(match[3]), ...(match[4] ? {subject: match[4]} : {})};
 }
 
 export interface Replay {
@@ -71,7 +73,7 @@ export function replay(data: Record<string, Record<string, Recorded>>, override?
             return {kind: "status", status: 418};
         }
         seen.push(key);
-        const id = `${key.chapter}:${key.step}`;
+        const id = `${key.chapter}:${key.step}${key.subject ? `:${key.subject}` : ""}`;
         const nth = (asked.get(id) ?? 0) + 1;
         asked.set(id, nth);
         const injected = override?.(key, nth);

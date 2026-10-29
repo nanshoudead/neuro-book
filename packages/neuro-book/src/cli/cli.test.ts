@@ -143,6 +143,7 @@ describe("nbook start（真实进程）", () => {
             if ("SSH_CONNECTION" in env) expect(await waitUntil("提示了端口转发", () => (server.stderr().includes("ssh -L") ? true : undefined))).toBe(true);
             server.signal("SIGINT");
             expect(await server.exit).toBe(0);
+            expect(server.stderr()).toContain("NeuroBook 已停止。");
             expect((await openedUrls()).length).toBe(before);
         }
     }, 30_000);
@@ -246,9 +247,14 @@ describe("用法", () => {
         const version = Bun.spawnSync(["bun", nbook, "--version"], {env: cleanEnv()});
         expect(version.exitCode).toBe(0);
         expect(version.stdout.toString()).toContain(`NeuroBook ${PRODUCT_VERSION}`);
-        const help = Bun.spawnSync(["bun", nbook, "--help"], {env: cleanEnv()});
-        expect(help.exitCode).toBe(0);
-        expect(help.stdout.toString()).toContain("用法：");
+        // 选项与命令两段里，说明列从同一个显示列开始（中文一个字两格宽）。
+        for (const args of [["--help"], ["start", "--help"]]) {
+            const help = Bun.spawnSync(["bun", nbook, ...args], {env: cleanEnv()});
+            expect(help.exitCode).toBe(0);
+            expect(help.stdout.toString()).toContain("用法：");
+            const starts = help.stdout.toString().split("\n").filter((line) => /^ {2}\S/u.test(line)).map((line) => Bun.stringWidth(/^ {2}\S.*?\s{2,}(?=\S)/u.exec(line)?.[0] ?? ""));
+            expect(new Set(starts).size).toBe(1);
+        }
     }, 30_000);
 });
 

@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t37-overlay-revisions-design",
+    "artifactId": "review",
+    "ackId": "20261028T123233059Z-082d0dc7",
+    "answers": [
+        "20261028T123143979Z-930ded64"
+    ],
+    "through": "20261028T123143979Z-930ded64",
+    "included": [
+        ".agents/works/w00024-nb-story/tasks/t37-overlay-revisions-design/README.md"
+    ],
+    "ackedAt": "2026-10-28T12:32:33.059Z"
+}

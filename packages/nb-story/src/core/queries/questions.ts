@@ -5,7 +5,7 @@
 import type {StoryParams, StoryResult} from "../../contract/contract";
 import type {Episode, Question, Span} from "../dataset";
 import {comparePosition} from "../position";
-import {matches, nodeRefs, refs, type QueryContext} from "./context";
+import {episodeBrief, matches, nodeRefs, refs, type QueryContext} from "./context";
 
 /** 展开一条悬念时列出的相关情节至多几段。 */
 const RELATED_EPISODES = 6;
@@ -40,7 +40,7 @@ function relatedEpisodes(episodes: readonly Episode[], question: Question) {
     return episodes
         .filter(episode => episode.evidence.some(span => spans.some(other => overlaps(span, other))))
         .slice(0, RELATED_EPISODES)
-        .map(episode => ({id: episode.id, title: episode.title, chapter: episode.at.chapter, refs: refs(episode.evidence)}));
+        .map(episodeBrief);
 }
 
 export function questionsList(ctx: QueryContext, params: StoryParams<"questions.list">): StoryResult<"questions.list"> {

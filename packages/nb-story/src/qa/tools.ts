@@ -91,7 +91,8 @@ function methodOf(name: string): StoryMethod {
  * 由 execute 明确拒绝，其余的由查询方法的严格 schema 报 invalid_params。
  */
 function toolParameters(method: StoryMethod): TSchema {
-    const omitted = PERSPECTIVE_METHODS.has(method) ? ["book", "at"] : ["book", "at", "perspective"];
+    // 等级参数不进问答：问答要全部证据，折叠是给人看的（docs/specs/story/qa.md 输出 3）。
+    const omitted = PERSPECTIVE_METHODS.has(method) ? ["book", "at", "maxTier"] : ["book", "at", "perspective", "maxTier"];
     return Type.Omit(STORY_METHODS[method].input, omitted);
 }
 
@@ -110,6 +111,7 @@ function queryTool(name: (typeof QUERY_COMMANDS)[number], state: QaToolState): {
         impl: {
             async execute(args) {
                 if ("at" in args || "book" in args) return text("工具参数里不能写 book 或 at：书与阅读位置由系统固定", true);
+                if ("maxTier" in args) return text("工具参数里不能写 maxTier：问答用全部记录", true);
                 let params: Record<string, unknown> = args;
                 if (name === "read") {
                     const plan = state.ledger.plan(args.from as never, args.to as never);

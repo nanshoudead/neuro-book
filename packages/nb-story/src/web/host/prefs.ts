@@ -52,6 +52,15 @@ export function writeModeNoticeSeen(): void {
     write("qa-mode-notice-seen", "true");
 }
 
+/** 人物卡“关于他的”里展开次要（3 级）说法与否；缺省收起（viewer 输出 56）。 */
+export function readShowMinorRecords(): boolean {
+    return read("show-minor-records") === "true";
+}
+
+export function writeShowMinorRecords(value: boolean): void {
+    write("show-minor-records", String(value));
+}
+
 /** 一份 JSON 偏好：读不出、形状不对时给缺省（调用方自己校验字段）。 */
 export function readJsonPref(key: string): unknown {
     const text = read(key);

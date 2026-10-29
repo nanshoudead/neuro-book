@@ -36,7 +36,7 @@ bun add -g @notnotype/neuro-book
 nbook
 ```
 
-`nbook` 在前台启动本地服务并打开浏览器，按 Ctrl-C 停止；再运行一次会打开已经在运行的那个。服务只监听本机，远程机器上用 `ssh -L 4217:127.0.0.1:4217 <机器>` 转发。数据放在平台的数据目录（Linux 是 `~/.local/share/neuro-book`），作品目录缺省在文档目录下的 `NeuroBook`。选项、数据位置与升级见[应用包的说明](packages/neuro-book/scripts/app-package/README.md)。
+`nbook` 在前台启动本地服务并打开浏览器，按 Ctrl-C 停止；再运行一次会打开已经在运行的那个。服务只监听本机，远程机器上用 `ssh -L 4217:127.0.0.1:4217 <机器>` 转发。数据放在平台的数据目录（Linux 是 `~/.local/share/neuro-book`），作品目录缺省在文档目录下的 `NeuroBook`（没有文档目录时是 `~/NeuroBook`）。选项、数据位置与升级见[应用包的说明](packages/neuro-book/scripts/app-package/README.md)。
 
 ## 现在能做什么
 

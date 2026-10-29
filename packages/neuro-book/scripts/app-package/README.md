@@ -2,7 +2,7 @@
 
 # NeuroBook
 
-本地优先的长篇写作工作区：作品文件、数据库与 Agent 会话都在你自己的机器上。这个包是 NeuroBook 应用本身，带命令 `nbook`。
+本地优先的长篇写作工作区：作品是你电脑上的文件夹，章节与设定都是 Markdown 文件，数据都在你自己的机器上。这个包是 NeuroBook 应用本身，带命令 `nbook`。
 
 这是 v2 的预览版：工作台、文件与编辑器、设置与插件已经能用，AI 写作、世界引擎与剧情工坊还在重建，见[仓库首页的路线图](https://github.com/notnotype/neuro-book#路线图)。
 
@@ -33,7 +33,7 @@ nbook
 
 ## 数据放在哪里
 
-状态（设置、日志、插件、作品登记）放在平台的数据目录：Linux 是 `~/.local/share/neuro-book`（遵守 `XDG_DATA_HOME`），macOS 是 `~/Library/Application Support/NeuroBook`，Windows 是 `%LOCALAPPDATA%\NeuroBook`。用 `--state-root <目录>` 或环境变量 `NBOOK_STATE_ROOT` 换一个；一个状态根同一时间只跑一个 NeuroBook。作品目录缺省在你的文档目录下的 `NeuroBook`。
+状态（设置、日志、插件、作品登记）放在平台的数据目录：Linux 是 `~/.local/share/neuro-book`（遵守 `XDG_DATA_HOME`），macOS 是 `~/Library/Application Support/NeuroBook`，Windows 是 `%LOCALAPPDATA%\NeuroBook`。用 `--state-root <目录>` 或环境变量 `NBOOK_STATE_ROOT` 换一个；一个状态根同一时间只跑一个 NeuroBook。作品目录缺省在你的文档目录下的 `NeuroBook`（系统没有文档目录时在主目录下，即 `~/NeuroBook`），设置窗口的“作品”分区里可以改。
 
 ## 插件
 

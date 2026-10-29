@@ -20,7 +20,7 @@ import type {Router} from "vue-router";
 import type {IngestStatusView, PositionInput, StoryResult} from "../../contract/contract";
 import {sendKeepalive, StoryCallError, type StoryClient} from "./client";
 
-export const PAGES = ["overview", "relations", "book-graph", "roster", "secrets", "ledger", "questions", "timeline", "episodes", "source", "qa", "stats"] as const;
+export const PAGES = ["overview", "relations", "book-graph", "roster", "secrets", "ledger", "questions", "timeline", "episodes", "source", "qa", "revisions", "stats"] as const;
 export type Page = (typeof PAGES)[number];
 /** 只在这本书记这一类时才有的页（docs/specs/story/viewer.md 输出 2；开关见 ingest.md 输出 18）。 */
 const PAGE_FEATURE: Partial<Record<Page, {feature: keyof Features; missing: string}>> = {
@@ -56,7 +56,7 @@ export type DrawerContent =
  * 从别的页点进来时要定位的东西（总览点主线、秘密、悬念、情节，输出 8）。只在这次跳转里有效，不进地址：
  * 目标页挂载时用 `takeJump` 取走并清空。
  */
-export type JumpTarget = {kind: "arc"; id: string} | {kind: "secret"; id: string} | {kind: "question"; id: string} | {kind: "episode"; id: string};
+export type JumpTarget = {kind: "arc"; id: string} | {kind: "secret"; id: string} | {kind: "question"; id: string} | {kind: "episode"; id: string} | {kind: "entity"; id: string};
 
 /** 存进书库的界面状态（`reading.set` 的 view）。 */
 interface SavedView {

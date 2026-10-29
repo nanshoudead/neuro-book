@@ -1,0 +1,19 @@
+# 重新导入的模块能不能被 GC 回收（Bun 1.4.2，2026-10-28）
+# 每轮写一个模块（一个 SIZE 字节的字符串常量加一个 marker 对象）并导入，FinalizationRegistry 记 marker 是否被回收；结束前 Bun.gc(true) 五次，heapMB 为 bun:jsc heapStats().heapSize。
+# same-path：同一路径，导入前 delete require.cache；new-path：每轮新文件名、不清缓存；new-path-evict：每轮新文件名，导入后删掉上一轮的缓存条目。
+
+SIZE=200000
+same-path      100 次  heapMB 20.5  rssMB 94   回收 99/100
+same-path      400 次  heapMB 32.5  rssMB 173  回收 399/400
+same-path     1600 次  heapMB 80.7  rssMB 332  回收 1599/1600
+new-path       400 次  heapMB 80.9  rssMB 258  回收 0/400
+new-path-evict 400 次  heapMB 32.5  rssMB 162  回收 399/400
+new-path-evict 1600 次 heapMB 80.7  rssMB 516  回收 1599/1600
+
+same-path，按模块大小（100 次 → 400 次）
+SIZE=2000     heapMB 0.7 → 1.5    约 2.7 KB/次
+SIZE=20000    heapMB 2.5 → 8.7    约 21 KB/次
+SIZE=200000   heapMB 20.5 → 32.5  约 40 KB/次
+SIZE=2000000  heapMB 34.4 → 64.4  约 100 KB/次
+
+结论：删掉缓存条目、没有别处引用后，导出的对象会被回收（最后一个仍在缓存里）；不删缓存条目就一个都不回收。删了之后每次加载仍留下一部分内存，随次数线性增长，几 KB 到几十 KB 的模块约为模块大小的一倍，大模块比例更低；留下的是什么没有查明（推断是加载器内部为每次加载保存的源码或模块记录）。RSS 涨得比堆多，因为分配器不一定把释放的页还给系统，分支 t20 只量 RSS 高估了泄漏。

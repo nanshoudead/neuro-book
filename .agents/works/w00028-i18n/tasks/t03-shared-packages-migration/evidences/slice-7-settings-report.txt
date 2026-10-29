@@ -1,0 +1,39 @@
+== 第 7 片 settings 交付报告（进行中，边做边追加）==
+[进度 1] 源码迁移已完成并 typecheck 通过：locales/{zh-CN,en-US}.json、shared/text.ts、web/text.ts、ui/settings/text.ts、
+  setting-text.ts / SettingsRow / SettingsSaveBar / SettingsPageList / SettingsWindow / SettingsPageFrame / SettingsFileView /
+  SettingsListSection / settings-window.ts / shared/contracts.ts / web/plugin.ts 已改；Lab 夹具与局部宿主已提供端口。
+  待办：测试改写、locales.test.ts、.md 标签、全量验证。
+
+[进度 2] 测试改写完成，全部验证通过。
+
+== 验证（工作区 .worktree/w00028-i18n，packages/neuro-book）==
+- bun run typecheck：通过（tsc、vue-tsc 两个 tsconfig 全部 exit 0）
+- bun run test:bun：1589 pass / 0 fail（177 个文件）
+- bunx vitest run --testTimeout=30000：65 个文件 380 个用例全过（与 bun 全量同时跑时 markdown 插件两个 dom 用例等待超时，属负载，单独重跑通过）
+- 仓库根：bun run docs:check 无失败；bun run governance:check 无失败；bun scripts/ci/message-catalogs.ts exit 0
+
+== 改动 ==
+新增（packages/neuro-book/src/）：plugins/settings/locales/{zh-CN,en-US}.json（113 键）、plugins/settings/shared/text.ts、plugins/settings/web/text.ts、
+  ui/settings/text.ts、plugins/settings/locales.test.ts（“文字没变”：旧表取自 git HEAD，逐字对照且键一一对应；复数形；源语言与登记；UI 键表）、
+  plugins/settings/testing/text.ts（settingsTestText）、plugins/lab/web/fixtures/settings-scene/settings-text.ts。
+修改：web/plugins.ts、../../scripts/ci/message-catalogs.ts（登记两处）；ui/settings/{setting-text.ts,SettingsRow.vue,SettingsSaveBar.vue,SettingsPageList.vue}
+  及三个 .md；plugins/settings/web/components/{SettingsWindow,SettingsPageFrame,SettingsFileView,SettingsListSection}.vue 及 .md；
+  web/settings-window.ts、shared/contracts.ts、web/plugin.ts；workbench 的 theme-commands.ts 与 plugin.ts（传 text）；
+  projects 的 WorksSettingsPage.vue 与 plugin-sdk 示例 SnippetsPage.vue（去掉 :locale）；Lab 的 settings-host.ts、三个 Fixture.vue、
+  SampleModelsPage.vue、SampleSnippetsPage.vue、fixtures/index.ts；测试：window.test.ts、sections.test.ts、commands.test.ts、testing/world.ts（新增 text 选项）、
+  sdk/surface.test.ts（闭包表）、SettingsRow/SettingsSaveBar/SettingsPageList/SettingsWindow/SnippetsPage 的 dom 测试（经测试端口、断言经 settingsTestText 取目录文字）。
+
+== 没迁移的（列给主会话）==
+1. web/choices.ts 的四条“无法加载选项”原因表：nb-form 的 FormText 装不下 TextRef，保持双语字面量；nb-form 自带的 locale 属性（SchemaField/describeIssues/settingForm）保留。
+2. 服务端与数据性中文：backend/layer-file.ts、shared/layer-text.ts 的解析原因、shared/sections.ts / instance.ts / layers.ts 的诊断与 detail，不是界面文字或服务端不翻译。
+3. locale 选项的各语言本名（HOST_LOCALES 动态），不迁。
+4. 共享代码里的文字（src/ui、src/shared 里 ui/settings 之外的）：本次未发现需要改的。
+
+== 决定点 ==
+1. switchSetting 现在必须传 text: TextResolver（CommandResult.reason 是字符串），影响 workbench 的 themeCommands 与 settings 插件命令入口（后者异步取 windowTextKey 的端口）。
+2. SettingsRow、SettingsSaveBar、SettingsPageList 这些经 SDK 交给第三方的组件删了仅用于取文字的 locale 属性，改为注入端口；docs/specs/settings/settings-window.md 约 151–154 行仍提到 locale 属性，Spec 在 master 上，未改，需要主会话改。
+3. 新增键 list.separator（顿号/逗号，原来写死在拼接里）。
+4. SettingsSaveBar 的 Lab fixture 改成 defineLabFixture，场景属性不再带 locale；英文场景 id 对应 en-US。
+5. SDK 子路径 ./settings 的运行时闭包新增 plugins/settings/shared/text.ts 与 shared/plugin-text.ts（surface.test.ts 已更新）。
+6. 在 ui/ 只能引 ui/ 与 shared/ 的约束下，键表在 ui/settings/text.ts 手写，由 locales.test.ts 核对。
+7. 没发现原文错字。

@@ -9,6 +9,7 @@
 import {readFile, stat} from "node:fs/promises";
 import {basename, extname} from "node:path";
 
+import {createStoryApi} from "../core/api";
 import {StoryError} from "../core/errors";
 import {coordinatedLibrary, runnerTable} from "../ingest/coordinator";
 import type {IngestEvent, JobOutcome} from "../ingest/job";
@@ -19,7 +20,7 @@ import {STEP_NAMES} from "../ingest/chapter";
 import {decodeUtf8, MAX_SOURCE_BYTES} from "../ingest/text";
 import type {BookFeatures} from "../core/dataset";
 import type {Library} from "../core/library";
-import {ingestModel, loadQaConfig, recallModel} from "../qa/config";
+import {ingestModel, loadQaConfig, personaCheckEnabled, recallModel} from "../qa/config";
 import {QaError} from "../qa/errors";
 import {NEXT_STEP, type CliIo} from "./main";
 
@@ -242,6 +243,7 @@ async function run(
         ...(input.features === undefined ? {} : {features: input.features}),
         ...modelChoice(model),
         recall: recall === null ? null : modelChoice(recall),
+        personaCheck: personaCheckEnabled(config),
         runner: "cli",
         ...(input.autoResume === undefined ? {} : {autoResume: input.autoResume}),
         onEvent: event => {
@@ -279,10 +281,21 @@ async function run(
     }
 
     const status = await ingestStatus(library, plan.id);
-    const summary = {id: plan.id, action: plan.action, outcome: outcome.kind, committed: status?.committed ?? 0, total: status?.total ?? plan.chapters.length, thisRun: status?.thisRun ?? null};
-    const summaryText = `书 ${plan.id}（${plan.title}）：提交到第 ${summary.committed} 章，共 ${summary.total} 章；这次${status ? usageText(status.thisRun) : ""}`;
+    // 待确认的修订（story.revisions 输出 12）：按全书算，有才写；这是提示，查不出来不影响抽取的结果。
+    const pending = await pendingRevisions(library, plan.id, io);
+    const summary = {id: plan.id, action: plan.action, outcome: outcome.kind, committed: status?.committed ?? 0, total: status?.total ?? plan.chapters.length, thisRun: status?.thisRun ?? null, pendingRevisions: pending};
+    const summaryText = `书 ${plan.id}（${plan.title}）：提交到第 ${summary.committed} 章，共 ${summary.total} 章；这次${status ? usageText(status.thisRun) : ""}${pending > 0 ? `\n${pending} 条待确认的修订（nbstory revisions list --book ${plan.id}）` : ""}`;
     if (outcome.kind === "done") return done(summary, summaryText);
     if (!json) io.stdout(summaryText);
     if (outcome.kind === "stopped") return fail("cancelled", "已停下；再运行同一条命令（或 nbstory ingest --book）接着抽", EXIT_STOPPED);
     return fail(outcome.code, `${outcome.message}；已提交的章都保留，处理后再运行同一条命令接着抽`, INGEST_FAILURES.has(outcome.code) ? EXIT_FAILED : EXIT_LIBRARY, outcome.errorKind);
+}
+
+/** 这本书全书范围待确认的修订数；取不到时写一行诊断、按 0 处理。 */
+async function pendingRevisions(library: Library, book: string, io: CliIo): Promise<number> {
+    const outcome = await createStoryApi({library}).call("revisions.list", {book, state: "pending", limit: 1}).catch((error: unknown) => ({ok: false as const, error: {code: "internal", message: error instanceof Error ? error.message : String(error)}}));
+    if (outcome.ok) return outcome.value.counts.pending;
+    // 查不出来不影响抽取的结果，但不能写成“0 条”：写一行诊断（书在收尾时被删除时不吵）。
+    if (outcome.error.code !== "book_not_found") io.stderr(`待确认的修订数没能取到（${outcome.error.code}）：${outcome.error.message}`);
+    return 0;
 }

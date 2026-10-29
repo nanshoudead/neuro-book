@@ -1,0 +1,214 @@
+# w00024 t38 前端实现审查（提交 73c9a3825，只读）
+
+范围：`packages/nb-story/src/web` 的 revise.ts、query.ts、book.ts、RevisionsPage、RevisionCard、CandidateBlock、ReviseDialog、DrawerCard、BookFrame 与同名 `.md`，以及 `e2e/revisions.e2e.ts`。`bun run typecheck`（五段 tsc/vue-tsc）退出码 0。未跑 e2e 与开发服务；下面凡写“从代码推断”的都没有在浏览器里复现。实验文件在 /tmp/review-t38-impl/exp-web/（样例书导入到 lib/，用 `nbstory revisions list --at` 取数）。
+
+---
+
+## F1 导航角标按全书算，不按阅读位置：数目与页面对不上，还泄漏后文
+- 严重程度：重要　类别：正确性（防剧透）
+- 位置：`src/web/shell/BookFrame.vue:49`（`revisionBadge`）、`src/web/host/book.ts:176`（`book.info` 不带 `at`）；Spec `viewer.md` 输出 58、`revisions.md` 第 49 行
+- 现象：`revisionBadge = book.info.revisions.pending + stale`，而 `book.info` 是 `client.call("book.info", {book})`，没有 `at`，服务端补成 `extractedThrough`（`core/api.ts:179`），所以角标是全书的待确认数。待确认页、人物卡候选块却按阅读位置取。实测（样例书，`nbstory revisions list --at N --json`）：at=10、at=29 时列表 `counts.pending=0`，at=30.61 与 at=100 时为 1；而角标在任何阅读位置都显示 1。读到第 10 章的人：导航写“待确认 1”，点进去页签写“待确认”、卡片区写“没有需要确认的”。
+- 为什么是问题：Spec `revisions.md` 第 49 行明写“`book.info` 另给 revisions，按阅读位置算（与列表一致），供导航的角标用”；viewer 输出 6 的防剧透原则也不允许页面泄漏阅读位置之后的信息，角标数目告诉读者“后文有一条身份候选”。`contract.ts:79` 的字段注释同样写“按阅读位置算”，BookFrame.vue:48 的注释却写“按全书算”，实现与合同相反。另外 `book.info` 只在 `refresh()` 时重取，换阅读位置不会重取，就算服务端改成按位置算，角标也不会随位置变。
+- 如何核实：`cd packages/nb-story && bun src/cli.ts import <sample.json> --id fox --library <tmp>`，再 `bun src/cli.ts revisions list --library <tmp> --book fox --at 29 --json` 看 `counts`；对照 `core/api.ts:179` 与 `book.ts:176`。e2e 里角标只在 at=30.61 断言，样例书又只有一条待确认，所以看不出差别。
+- 建议改法：角标不要读 `book.info.revisions`，由 BookFrame 用 `useStoryQuery("revisions.list", () => ({limit: 1}))` 取 `counts`（带阅读位置与数据版本，自然随位置与写入重取）；或让 `book.info` 在每次换位置后带 `at` 重取。e2e 补一条：at 在 30.61 之前时无角标、之后出现。
+
+## F2 修订对话框的“每次打开重置”是死代码，改种类与挪称呼的默认值是错的
+- 严重程度：重要　类别：正确性
+- 位置：`src/web/shell/ReviseDialog.vue:21-41`（`watch(() => props.open, …)`）、`src/web/shell/DrawerCard.vue` 的 `<ReviseDialog v-if="reviseMode" …>`
+- 现象：DrawerCard 用 `v-if="reviseMode"` 挂载对话框，每次打开都是新实例，`open` 一开始就是 true；`watch` 默认不是 immediate，不会触发，所以重置逻辑从不执行，各 ref 保持声明处的初值：`newKind = "person"`，`name = ""`。后果：
+  1. 对一个本来就是“人物”的对象点“改对象种类”：`newKind` 是 `"person"`，但 `SegmentedControl` 的选项已排除当前种类，界面上没有任何一项被选中，而选了依据段后“改种类”按钮可点；提交的就是 `kind: "person"`，服务端回 `revision_conflict`（`ops.ts:127` “已经是这个种类”）。用户什么也没选却得到一条莫名其妙的错误。
+  2. 挪称呼：本意是默认选第一个称呼（`names[0]`），实际 `name=""`，没有选中项，用户必须先点一个称呼；依据段列表也是在不带 `text` 过滤的状态下列全部段落。
+  3. 注释“每次打开重新开始，不带上次的选择”描述的行为实际由 v-if 重建实例提供，这段 watch 既无用又会误导后来者。
+- 为什么是问题：e2e 的改种类用例用的是 `e3-2`（样例书里 kind 是 persona），默认值 `person` 恰好不同，所以用例碰巧通过；遇到人物就是上面 1。`newKind.value as "person"`（第 79 行）这个类型断言把 `string` 硬转成 `"person"`，正好掩盖了“初值和选项集不一致”的问题（`KINDS` 的 `value` 没有用 `EntityKind` 类型，类型检查帮不上）。
+- 如何核实：`ls /tmp/review-t38-impl/exp-web/watch.ts`（用 Vue 的 `createSSRApp` 复现同构的“open 初值为 true 的组件里非 immediate 的 watch 不执行”，输出 `<div>person</div> []`）；样例书 `e30-1` 是 persona，`e1-1` 等人物对象可直接试。从代码推断，浏览器里没点过。
+- 建议改法：去掉 watch，直接在 setup 里按 props 初始化（`newKind` 取第一个不等于当前种类的种类，`name = names[0]`），或给 watch 加 `{immediate: true}`；把 `KINDS` 写成 `Record<EntityKind, string>` 或复用 `host/kinds.ts` 的 `KIND_LABEL`，去掉 `as "person"`；`ready` 里加 `props.mode !== "kind" || newKind.value !== props.kind`。e2e 补一条在人物对象上改种类的用例。
+
+## F3 手写“章.段”没有按阅读位置限制，Spec 要求“晚于阅读位置的段不能选”
+- 严重程度：重要　类别：正确性
+- 位置：`src/web/shell/ReviseDialog.vue:48-49`（`chosenEvidence`、`ready`），`submit` 第 71-83 行
+- 现象：依据段列表由 `revisions.evidence` 按阅读位置给，没问题；但“或直接写章.段”的输入框只判断非空，不看是否晚于 `book.at`。写入类方法没有 `at` 参数（`WriteBook`），服务端 `ops.ts:46-49` 只校验“章.段”存在且是已抽取的段（`evidence_invalid`），所以在阅读位置第 3 章时输入 `80.5` 会成功写入。写入成功后，因为依据在阅读位置之后，当前页面“看不到变化”，用户得到的是一次无声的成功（待确认页与卡片都按阅读位置过滤，也看不到这条修订）；而用户等于凭手输入选了一个后文的依据，违背 viewer 输出 60“晚于阅读位置的段不能选”。
+- 为什么是问题：Spec 把限制放在界面（因为写入方法没有阅读位置）；实现只在列表里满足，手写路径绕开了。e2e 的“失败写在对话框里”只测了 `999.1`（不存在的章），没测“存在但晚于阅读位置”。
+- 如何核实：`ops.ts` 里 `evidence_invalid` 只有三种（格式、章不存在、段超范围）；ReviseDialog 全文没有引用 `book.at`。
+- 建议改法：在对话框里解析 `typed`，晚于 `book.at`（用 `host/book.ts` 已有的位置比较）时 `ready` 为 false 并在 typed 输入旁写原因（不要在字段下加行：见 F9，写进 Dialog 的 `status`）；格式不对也提前判断，而不是等服务端。
+
+## F4 “这个对象的修订（N）”没做：菜单项缺 N，点了只是跳到未过滤的待确认页
+- 严重程度：重要　类别：正确性（Spec 有实现没有）
+- 位置：`src/web/shell/DrawerCard.vue` 的 `reviseItems`（`{value: "list", label: "这个对象的修订"}`）与 `onRevise`（`book.goPage("revisions")`）
+- 现象：Spec viewer 输出 60：“这个对象的修订（N）”列出与它有关的修订，可撤销。实现：标题没有 N；点击 `goPage("revisions")`，打开的页面是默认的“待确认”页签、来源“全部”、没有对象筛选，列出的是全书（阅读位置内）的所有修订，既不是“与它有关的”，也不会切到“已处理”（用户自己的修订都在已处理里，撤销入口在那里）。`revisions.list` 已有 `entity` 筛选，页面没用。
+- 为什么是问题：用户在某人物卡上点“这个对象的修订”，看到的是别的对象的一堆卡片，要的撤销入口找不到；功能名实不符。
+- 如何核实：读 `onRevise`；`RevisionsPage.vue` 的查询参数里没有 `entity`；e2e 没有任何一条点这个菜单项。
+- 建议改法：二选一：页面支持 `entity` 筛选（路由或会话里带上，页头写“只看 X 的修订”并提供清除），菜单项用 `revisions.list {entity, limit:1}` 的 total 做 N；或在对话框里直接列该对象的修订（带撤销）。同时补 e2e。
+
+## F5 Spec 59 的人物卡头部项缺三处：X 不可点、“候选”标记、“你确认的”标记
+- 严重程度：重要　类别：正确性（Spec 有实现没有）
+- 位置：`src/web/parts/CandidateBlock.vue`，`src/web/shell/DrawerCard.vue`（记录页签与“同一身份”行未改）
+- 现象：对照 viewer 输出 59：
+  1. “可能就是 X（X 可点开它的人物卡）”：CandidateBlock 只输出 `item.summary`（服务端是说法原文，如“深蓝猫娘可能就是南嘉鱼暗中活动的反派魔法少女身份。”），没有任何 `NameLink`/可点的对象；也没有对方对象的名字单列。
+  2. “记录 → 关于他的 里同一条说法带‘候选’标记”：在 `src/web` 下 grep “候选” 只有 SOURCE_WORDS（“抽取候选”）与伏笔候选，记录列表（`entity.statements`）没有改动。
+  3. 确认之后“头部变成同一身份：X（出处）并标‘你确认的’，说法变成确定、标‘你确认的’”：`grep "你确认\|你加的\|decidedAt" src/web` 除了 ReviseDialog 的说明文字外没有任何命中；DrawerCard 的“同一身份”行没改，确认前后看不出这是用户确认的。
+  4. “页面下方出一条带‘撤销’的提示”：实现是在头部块里的一行 `<p role="status">`，随人物卡内容滚动，不是页面级的提示（计划写的是 nb-ui `Notification`，见 F11）。
+- 为什么是问题：这些都是输出 59 里逐条写明的可观察行为。ReviseDialog 里“说法在记录里标‘你加的’”这句话更是承诺了一个界面上并不存在的标记。
+- 如何核实：grep 如上；e2e 只断言了 `candidate-block` 可见、确认后消失，没有断言“同一身份”行与标记。
+- 建议改法：CandidateBlock 把对方对象渲染成 `NameLink`（`item.entities` 里不是本对象的那个，取名字要么让服务端给 `other: {id,label}`，要么用 `entities.list`）；记录与同一身份行按服务端给的来源标“候选”“你确认的”（需要后端字段时先改合同）。未做的部分若是有意延后，要写进 Task 记录与 Spec 的 planned 标注，不能默默缺。
+
+## F6 “已处理”卡片不显示处理时间；点卡片高亮的是页面卡片，不是抽屉里的候选
+- 严重程度：重要　类别：正确性（Spec 有实现没有）
+- 位置：`src/web/parts/RevisionCard.vue`（无 `decidedAt`）、`src/web/pages/RevisionsPage.vue:100`（`highlighted`）、`CandidateBlock.vue`（无高亮）
+- 现象：
+  1. viewer 输出 58：已处理“列出已确认、已驳回、后文已确认的项与各自的时间”。`RevisionItemSchema.decidedAt` 有，RevisionCard 没有任何地方用它（grep decidedAt 在 web 下零命中）。
+  2. 输出 58：“点卡片在抽屉里打开相关的人物卡，抽屉里同一条候选高亮”。实现里 CandidateBlock 没有高亮，被高亮的是待确认页上的卡片（`item.entities.includes(drawer.entity)`），而且是该对象所有相关卡片一起高亮，不是“同一条”；当抽屉的对象是合并点的代表（`book.drawer.entity` 是点的代表 id，而 `item.entities` 是成员 id）时，条件还会不成立。
+- 为什么是问题：缺的是 Spec 逐条写明的行为；e2e 的“点卡片在抽屉打开人物卡”没有断言高亮。
+- 如何核实：读代码即可；`RevisionCard.vue` 全文没有 `decidedAt`。
+- 建议改法：已处理卡片显示 `decidedAt`（本地化的相对或绝对时间）；CandidateBlock 接受 `highlight`（来自会话里“从哪条卡片点进来的”，例如 `drawer` 带 `revision` 字段），按说法 id 高亮；若决定页面卡片高亮就是想要的，要改 Spec。
+
+## F7 待确认页：来源筛选后列表空白且不写“没有需要确认的”；“已处理”靠前端过滤状态
+- 严重程度：重要　类别：正确性
+- 位置：`src/web/pages/RevisionsPage.vue:31`（`total`）、`:24-27`（`done`/`processed`）、`:92-98`（`PagedList` 的 `total`、`empty-text`）；`src/web/parts/PagedList.vue:45`
+- 现象：
+  1. 待确认页签的 `total` 取 `counts.pending + counts.stale`，而 `counts` 是服务端“全书的，不受筛选影响”的计数（`revisions.md` 第 40 行）。`PagedList` 只在 `total === 0` 时显示 `emptyText`。所以在有待确认项的书里点来源筛选“我的”（用户自己的修订不会是待确认，这个组合永远为空）、或点与现有项不同的来源，列表是空白的，没有“没有需要确认的”，`total` 却是 1。样例书（一条 `extraction`/`persona-check` 待确认）上点“我的”必现。
+  2. “已处理”页签的 `done` 查询不带 `state`（服务端只支持单个 state），结果按依据位置混着 pending、stale 排列（`items.ts:109`），前端再 `filter` 掉未处理的；`total` 用的是过滤后已加载的条数。若前面各页全是待确认项（真实长书里待确认可以很多），第一页 100 条里一条已处理都没有，`total=0` 而 `hasMore` 为真：会先写“还没有处理过的”再翻页；翻页要靠 `PagedList` 的哨兵逐页取，等于把全部待确认项读一遍才找得到已处理的。页签上的数字（adopted+rejected+closed）与实际列出的也可能不一致（见 `STATE_WORDS.withdrawn`，列表其实不返回 withdrawn，是死分支）。
+- 为什么是问题：1 是默认界面上点一下就能见到的空白；2 在条数少的样例书上看不出来（样例书只有 3 条），e2e 覆盖不到。
+- 如何核实：样例书导入后 `nbstory revisions list --source user --json` 得 `items:[]`、`counts.pending:1`；对照 `RevisionsPage.vue` 的 `total` 与 `PagedList` 的空态条件。2 从代码推断。
+- 建议改法：空态按“已加载完且列表为空”判断，或 `total` 用本次查询的 `total`（`stale.total + pending.total`，`usePagedQuery` 已暴露）；“已处理”用服务端的 state 组合（三次查询或给 `revisions.list` 加 `state: "done"`），去掉前端过滤与 `withdrawn` 死分支。
+
+## F8 修订对话框没有把 `busy` 交给 `Dialog`：写入期间能取消或按 Esc 关掉，结果无处可显示
+- 严重程度：重要　类别：不变量 / 界面规范
+- 位置：`src/web/shell/ReviseDialog.vue:94`（`<Dialog …>` 没传 `:busy`）、页脚取消按钮 `:123`
+- 现象：nb-ui `Dialog` 有 `busy` 属性：“busy 时遮罩、取消按钮、关闭按钮与 Escape 都不生效，页脚按钮与关闭按钮禁用”（`Dialog.md` 的“交互”）。ReviseDialog 自己有 `busy`，只用来禁用“提交”按钮，没传给 `Dialog`，也没禁用“取消”。请求在途时用户点“取消”、点遮罩或按 Esc，对话框关闭（`update:open=false`，DrawerCard 里 `v-if` 把组件卸载），而请求照常写入服务端：用户以为取消了，数据已改；失败时错误信息随组件消失，没有任何反馈。
+- 为什么是问题：写入不可撤回地改了图（虽然能在已处理里撤销），“取消”应当意味着没写。Spec 输出 62 要求“请求期间禁用对应按钮”，Dialog 提供了现成的整套禁用。
+- 如何核实：读 `ReviseDialog.vue` 的 `<Dialog>` 属性；`Dialog.vue:66,257,263,387,400` 处理 `busy`。从代码推断，没在浏览器复现。
+- 建议改法：`<Dialog :busy="busy" …>`，取消按钮 `:disabled="busy"`。
+
+## F9 修订对话框违反 UI 规范第 5 节：错误写在正文里、选择列表没有角色与状态、`<label>` 不关联控件
+- 严重程度：建议（界面规范）　类别：界面规范
+- 位置：`src/web/shell/ReviseDialog.vue:105-116`（`.lab` 的 `<label>`、`.list`/`.row` 的按钮列表）、`:113`（错误 `<p>`）
+- 现象与依据（`packages/nb-ui/docs/ui-development-spec.md` 第 5 节）：
+  1. 第 8 条：“提交之后才知道的错……对话框里是页脚左侧的状态行（Dialog 的 `status`），一次只写一条”，且“出错时不在字段下插入文字”。实现把 `revise-error` 作为正文里的 `<p>` 插进内容，出错时正文变高、依据段列表与按钮被推动。应传 `:status="error ?? ''"`。
+  2. 第 5 条：复合选择控件必须暴露正确的角色和状态。对象搜索结果与依据段两个列表是 `ul > li > button.row`，选中只靠 `.on` 的底色，没有 `aria-pressed`/`aria-selected`/`role`，读屏用户听不到哪项被选。nb-ui 已有 `SearchSelect`（combobox，带键盘与 aria）与 `RadioGroup`，计划里也写了“对象搜索沿用 SearchBox.vue”，实现却手写。
+  3. 五个 `<label class="lab">` 没有 `for`，也不包裹控件，是装饰性标题却占了 label 语义；应是 `<p>`/`<span>` 并用 `aria-labelledby` 指向列表，或用 `Field`。
+  4. 对象搜索没有“没有找到”的空态，也没有输入防抖（`SearchBox.vue` 用 250ms 防抖，这里每个按键发一次 `entities.list`）。
+- 为什么是问题：这些是 nb-ui 规范明写的规则；第 1 点还会造成布局位移，第 2 点是键盘与读屏无法完成“选对象”。
+- 如何核实：读代码对照规范第 5 节。从代码推断，没有用读屏或键盘实测。
+- 建议改法：见各点。
+
+## F10 修订对话框的选择项显示原始种类代码，种类名与全站不一致，称呼只能选前 8 个
+- 严重程度：建议　类别：界面规范 / 正确性
+- 位置：`src/web/shell/ReviseDialog.vue:12-21`（`KINDS`）、`:100`（`{{ item.kind }} · 出场 …`）、`:103`（`names.slice(0, 8)`）
+- 现象：
+  1. 对象搜索结果里直接显示 `item.kind`，用户会看到 `person`、`persona`、`group` 这样的英文代码；全站有 `host/kinds.ts` 的 `KIND_LABEL`。
+  2. `KINDS` 手写了一份，persona 写成“马甲”，而 `KIND_LABEL` 里 persona 是“身份”：同一个种类在人物卡、人物页写“身份”，对话框里写“马甲”，并且 `KINDS` 不是 `Record<EntityKind, …>`，新增种类时没有编译期提醒。
+  3. 称呼模式的 `SegmentedControl` 只给前 8 个称呼（人物卡上写“等 N 个”可展开全部），超过 8 个称呼的对象，第 9 个及以后无法选来挪。分段控件放 8 个长称呼（例如“魔法少女风信子”）在 390 宽的对话框里是否溢出没有验证，从代码推断。
+- 如何核实：读代码；`src/web/host/kinds.ts:7`。
+- 建议改法：用 `KIND_LABEL`；称呼多时改用列表或 `Select`；搜索结果行显示 `KIND_LABEL[item.kind]`。
+
+## F11 隐藏通道声明不准：`.md` 的标签与理由与实现不符，ReviseDialog.md 还写了一个不成立的保证
+- 严重程度：重要　类别：不变量（组件文档规范）
+- 位置：`src/web/shell/ReviseDialog.md`、`parts/CandidateBlock.md`、`parts/RevisionCard.md`、`pages/RevisionsPage.md`
+- 现象：`docs/standards/code/components.md`“声明是对实现的如实描述……实现用了某条通道而未声明，以实现为准，整份声明不予采信”；“任何 `io:` 标签：为什么该请求不能由宿主发起并把结果传入”。对照同包既有声明：
+  1. `ReviseDialog`：只声明 `state:local`，理由写“无”。实现发起读请求（`usePagedQuery`、`useStoryQuery`，经注入的 `StoryClient`、`useBook()`）与写请求（`useRevise`），渲染 nb-ui `Dialog`（`env:portal`；同包 `ProviderDialog.md` 为同一个原因声明了 `env:portal`，并特地说明“读请求由页面给，组件本身不发请求”）。应有 `state:inject`、`io:read`、`io:mutate`、`env:portal` 及理由；或把写入与取数挪回 DrawerCard，对话框只收 props/发事件。同包 `GraphImport.md`、`SkillInstall.md` 做写请求都声明了 `io:mutate`。
+  2. `CandidateBlock`：同样 `state:local`，实际 `useStoryQuery` 取数、`useRevise` 写入，`useBook()` 注入；理由段把这些写成“经 useStoryQuery 与 useRevise”当作“无通道”。
+  3. `RevisionCard`：声明 `state:local`，自己的理由段却写“出处链接经 `RefLink` 读 `useBook()`”，自相矛盾；同包 `SourceText.md` 对同样情形（子组件 `NameLink` 经注入打开人物卡）声明了 `state:inject` 并写了理由。
+  4. `RevisionsPage`：声明 `state:inject`，漏了 `io:read`、`io:mutate`（页面直接调 `useRevise().run`）。
+  5. `ReviseDialog.md` 的“注意事项”写“依据段只列阅读位置之前的（接口保证）；手写的‘章.段’由服务端校验”：服务端只校验格式与“已抽取”，不校验“不晚于阅读位置”（见 F3），这句保证不成立。`CandidateBlock.md` 写“页面下方出一条带‘撤销’的提示”，实际在头部块里（F5）。
+- 如何核实：对照 `shell/ProviderDialog.md`、`shell/GraphImport.md`、`parts/SourceText.md`、`parts/TierBadge.md`（使用 `useBook` 的同类组件声明了 `state:inject`）。
+- 建议改法：按实现补全标签与理由；或把写入收到宿主（DrawerCard/RevisionsPage）里，让 ReviseDialog、CandidateBlock 只经 props 与事件通信，这样标签反而更少。
+
+## F12 样式：`--radius-card` 不是主题 token，两处取了不同的兜底值；`.quote`、提示条重复写了两份
+- 严重程度：建议　类别：界面规范 / 代码质量
+- 位置：`RevisionCard.vue` 样式（`var(--radius-card, 12px)`）、`CandidateBlock.vue`（`10px`）、`RevisionsPage.vue` 的 `.last`（`10px`）
+- 现象：`packages/nb-ui` 里没有定义 `--radius-card`（grep 0 处，规范第 53 行写面板用 `--radius-panel`），`var(--radius-card, N)` 永远走兜底，写死的 12px 与 10px 互不一致，也不随主题变。`.quote` 在 RevisionCard 与 CandidateBlock 各写一份只差内边距；计划（plan.md 第 51 行）写的是抽 `parts/EvidenceQuote.vue` 复用 `RefLink`，未做。`.last`（页面提示条）与 CandidateBlock 的 `.done` 是同一样式写两遍；计划写“撤销提示用 nb-ui Notification”，实现是手写的 `<p role="status">`，而且 `role="status"` 加在随后才插入 DOM 的元素上，读屏通常不播报。
+- 如何核实：`grep -rn "radius-card" packages/nb-ui/src`；对照 plan.md。
+- 建议改法：圆角用 `--radius-panel`；抽 `EvidenceQuote`；撤销提示收成一个组件或用 `Notification`。
+
+## F13 写入流程里的几处时序与状态问题
+- 严重程度：建议　类别：正确性
+- 位置：`src/web/host/revise.ts:20-37`（`run`）、`RevisionsPage.vue:41-61`、`CandidateBlock.vue:10-20`
+- 现象：
+  1. `run` 在写成功后 `await book.refresh()`，但忽略它的返回值：`refresh()` 失败时不 reject、只写 `notice` 并返回 false（`book.ts:361-376`），这时 `run` 仍返回成功，页面照旧显示未处理的卡片与可点的按钮，`last` 里还写着“已确认”；再点一次得到 `revision_conflict`。
+  2. 成功后 `busy` 在 `refresh()` 一完成就变回 false，但各列表的重取要等 `dataVersion` 变化触发后再发请求（`query.ts` 的“版本变了留着旧数据”）。这段时间（一个往返）里旧卡片与可点的“确认”还在，快速再点会得到冲突错误。
+  3. 失败时只显示错误、不重取：`revision_conflict`（别处已处理，例如命令行 `nbstory revisions confirm`）、`revision_target_not_found` 说明页面数据已过期，但界面一直停在旧数据上，错误会重复出现；Spec 输出 62 只说“数据不变”，但对这几个码刷新一次更合理（可用 `book.refresh()`）。
+  4. 页面卡片、人物卡候选块、对话框各自 `useRevise()`，`busy` 互不通：在人物卡里确认的同时，待确认页同一条的“确认”没被禁用，两处并发写同一条。
+- 如何核实：读 `revise.ts` 与 `book.ts:361`；并发与时序从代码推断，没有在浏览器复现。
+- 建议改法：`run` 检查 `refresh()` 的结果；`busy` 放进 `book` 级共享状态或模块级 ref；失败码为冲突类时触发一次 refresh。
+
+## F14 `CandidateBlock` 只取 5 条且不提示；确认、驳回、撤销、`st:` 前缀处理在两处各写一遍
+- 严重程度：建议　类别：代码质量 / 正确性
+- 位置：`src/web/parts/CandidateBlock.vue:11`（`limit: 5`）、`:15`、`RevisionsPage.vue:36-38`
+- 现象：
+  1. 对象有多于 5 条待确认候选时，只显示 5 条，没有“还有 N 条”也没有链接到待确认页。确认一条后下一条才冒出来。
+  2. `item.id.replace(/^st:/u, "")` 在 `RevisionsPage.statementOf` 与 CandidateBlock 里各写一遍，确认/驳回/撤销与“刚做完一件事”的状态机（`done`/`last`、`undo`/`undoLast`）也是两份。`st:` 是 `RevisionItemSchema.id` 的约定（`contract.ts:407`），对非 `st:` 前缀的 id（例如将来 `scan` 来源的待确认项）会原样把 `r12` 当成说法编号发给服务端，得到莫名其妙的 `revision_target_not_found`。
+- 如何核实：读代码；样例书候选只有 1 条，看不出。
+- 建议改法：`useRevise` 里加 `confirm/reject(item)`，内部处理前缀并在非候选时抛出；CandidateBlock 显示总数并链接到页面。
+
+## F15 待确认卡片整体可点但键盘与读屏不可达
+- 严重程度：建议　类别：界面规范
+- 位置：`src/web/parts/RevisionCard.vue:18`（`<article … @click="$emit('open', item)">`，`cursor: pointer`）
+- 现象：整张卡片靠 `click` 打开人物卡，`article` 没有 `tabindex`、`role="button"` 或键盘处理，键盘用户无法“点卡片”；同类页面（人物页的行）用的是 `<button>`。导航与“更多”上的角标圆点 `aria-hidden`，且按钮名里没有数目，读屏用户听不到“有待确认项”（展开的宽导航里有 Badge 文字，窄导航与手机“更多”没有）。
+- 如何核实：读代码；从代码推断。
+- 建议改法：卡片标题做成按钮（只有标题可点），整卡点击作为鼠标便利；圆点加 `aria-label` 或给按钮加 `aria-describedby`。
+
+## F16 “改完会怎样”的文字是静态的，与 Spec 与评审板不一致
+- 严重程度：建议　类别：正确性（Spec 有实现没有）
+- 位置：`src/web/shell/ReviseDialog.vue:53-58`（`effects`）
+- 现象：viewer 输出 60：“每个对话框底部列‘改完会怎样’（人物卡、统计、阅读页链接各会怎样、哪些不变）”。三种模式都是固定的两行泛称，没有对象名、称呼、目标，也没有按三项分别说：连接只说“合成一个点”与“你加的”；改种类没说阅读页链接；挪称呼没说人物卡与统计。评审板（t37 r2 的 edit-kind、edit-name 截图）里是针对具体对象的三行，例如“‘小萱萱’从银色闪光的称呼里去掉，出现在洛萱的称呼里”，改种类还带“从这个对象连出去的身份说法有 0 条，不受影响”。另外按钮文字也比评审板的“改成人物”“挪给洛萱”泛。依据列表评审板里默认选中最近一条，实现是必须先点一条（e2e 断言了初始禁用，属于已变更的行为，但 `ReviseDialog.md` 没写）。
+- 为什么是问题：“改完会怎样”的价值在于说出这次具体改了什么；泛称等于没有。链接说法“标‘你加的’”的承诺界面上也没有（F5）。
+- 建议改法：文字用 `label`、`name`、`target.label`、`newKind` 拼成具体句子，按人物卡、统计、阅读页链接三项写；不涉及的写“不变”。
+
+## F17 e2e 的标题声称的判据多处没有断言，对 Spec 验收 14 缺口很大
+- 严重程度：重要　类别：测试
+- 位置：`e2e/revisions.e2e.ts` 全文（逐条见下）
+- 现象（对照用例标题与断言，从代码推断；没有跑变异，下表是“若这样改，用例仍通过”的推演）：
+  1. 用例 2 标题“卡片带依据原文”，只断言 `revision-summary` 非空；整个 `blockquote`/`RefLink` 删掉仍通过。也没有断言“点卡片后抽屉里同一条候选高亮”（F6），只断言 `entity-card` 可见。
+  2. 用例 3 标题“改完人物卡与统计跟着变”，断言只是 rpc 取 `revisions.list` 看到有 `kind.set`；人物卡的“对象种类”与统计没看。viewer 验收 14 要求的“选的依据段之前的阅读位置看不到变化、之后看到”完全没有测：用例里没有换过阅读位置。
+  3. 用例 3 的“连到另一个对象”只测了失败路径（`999.1`），成功路径没有；“挪称呼”模式整个没有用例，所以 F2 里称呼默认值、`name` 重置、前 8 个限制都测不到。改种类用的 `e3-2` 是 persona，掩盖了 F2 的“人物改种类”。
+  4. 用例 4 标题“更多带角标”“待确认页单列”“点卡片从底部拉起人物卡”：角标圆点（`.revisions-dot`）没有断言，只断言完整导航里有“待确认”；单列只断言没有横向滚动；人物卡不是点卡片拉起的，是 `open(page, "/book/fox/roster?…&entity=e30-1")` 直接带地址进的。删掉圆点、把卡片改成不可点，用例仍通过。
+  5. 用例 1“确认后头部变成同一身份”（viewer 验收 14）没有断言 `card-identities`；“刷新后修订还在”只是刷新后用 rpc 查服务端，页面没重新断言。
+  6. 没有断言：`busy` 期间按钮禁用（输出 62）、写入后滚动与抽屉不变（输出 62）、`stale`/“丢弃”、来源筛选、空态（F7）、已处理里的“后文已确认”、位置在 30.61 之前时无候选与无角标（F1）。
+  7. 状态依赖：四个用例共用一个书库与阅读状态。用例 1、2 靠“撤销”把候选还原成待确认，用例 4 又依赖候选此时是待确认；用例 3 留下的 `kind.set` 不还原。`workers: 1`、`retries: 0`，某条中途失败后，Playwright 会重启 worker 并重跑 `beforeAll`（新书库），所以不会级联，但用例本身没有声明依赖顺序。用例 4 里用 `if (await …isVisible()) scrim.click()` 条件分支处理“前面用例存下的抽屉”，掩盖了状态依赖；`keyboard.press("Escape")` 后 `mouse.click(300, 400)` 是盲点坐标，导航面板没有 Escape 处理（代码里只有点遮罩关闭），而且紧接着 `page.goto` 整页重载，这两行没有作用。
+  8. 没有固定等待（无 `waitForTimeout`）；断言都走 `expect` 轮询，这点没问题。
+- 为什么是问题：Spec 验收 14 里最有风险的两条（按位置生效、手机上从卡片进入）恰好没测；标题写了的行为没有断言，给人“已验证”的错觉。
+- 建议改法：每个用例的标题与断言一一对应；给用例 3 补阅读位置前后两次 `entities.list`/人物卡的断言，补一条人物对象改种类、一条挪称呼成功、一条连接成功；用例 4 点卡片进入并断言圆点；删掉盲点击与条件关闭，改用例前显式清抽屉或用独立书库。
+
+## F18 称呼模式下换称呼，已选的依据段不会重置
+- 严重程度：建议　类别：正确性
+- 位置：`src/web/shell/ReviseDialog.vue:46`（`paragraphs` 的 `text: name`）、`:49`（`ready`）
+- 现象：依据段列表在挪称呼模式下按所选称呼过滤（`text: name`）；换称呼会让列表重取，但已点选的 `evidence` 不会清，也不会校验它仍在新列表里，选中行从界面上消失，按钮仍可点，提交的是一个可能与所选称呼无关的段落。
+- 如何核实：读 `watch`/`computed` 依赖；从代码推断。
+- 建议改法：`name` 变化时把 `evidence` 清空，或 `ready` 里要求所选段在当前列表里。
+
+---
+
+## 与 Spec 逐条对照（viewer 输出 58 到 62、验收 14）的结果
+
+| 条 | Spec 要求 | 实现 | 对应问题 |
+|---|---|---|---|
+| 58 | 导航“待确认”+角标（待确认加对不上的、0 不显示） | 有，但是全书的数 | F1 |
+| 58 | 两个页签与来源筛选 | 有；筛选后空态错 | F7 |
+| 58 | 卡片：来源徽标、标题、要做的改动、依据原文与可点出处、按钮 | 有 | 无 |
+| 58 | “对不上”项写明原因、按钮“丢弃” | 有（徽标写“对不上，已不套用”） | 无 |
+| 58 | 点卡片在抽屉打开人物卡，抽屉里同一条候选高亮 | 打开有，抽屉里没有高亮 | F6 |
+| 58 | 已处理有各自时间，已确认与已驳回有“撤销”，后文已确认没有 | 时间没有显示 | F6 |
+| 58 | 没有项时写“没有需要确认的”；页头“拨到全部读完可以看到全书的” | 有 | F7（筛选后失效） |
+| 59 | “可能就是 X”（X 可点）、章与来源、依据一句、两个按钮、一行生效说明 | X 不可点，其余有 | F5 |
+| 59 | 记录里同一条说法带“候选”标记；确认后“你确认的”标记；页面下方带撤销的提示 | 都没有（提示在头部块里） | F5 |
+| 60 | “⋯”菜单四项，第四项“这个对象的修订（N）” | 缺 N，跳到未过滤的页面 | F4 |
+| 60 | 三个对话框、依据段默认列已读章里出现的段、手写“章.段”、晚于阅读位置不能选、对话框里写“修订从这一段起生效” | 手写没有按阅读位置限制 | F3 |
+| 60 | 底部“改完会怎样” | 静态泛称 | F16 |
+| 60 | 失败写在对话框里不关闭 | 有，但位置违反 UI 规范 | F9 |
+| 61 | 手机：待确认页单列、“更多”带角标、完整导航里有“待确认”、人物卡从底部拉起 | 有（卡片里按钮在右侧竖排，评审板是在下方；窄屏文字列只剩约 200px，从代码推断） | F1（角标数）、F17 |
+| 62 | 写入期间禁用对应按钮、成功后刷新数据且位置、滚动、抽屉不变、失败写原因 | 有，但对话框可被取消、失败不刷新 | F8、F13 |
+| 62 | 抽取提交一章不让已显示的待确认项消失或重排 | 未验证：写入后的 `book.refresh()` 会一并换成抽取已提交的新章数据，等于隐式“点更新”；没有用例，也没有说明 | 未验证 |
+| 验收 14 | 候选确认、撤销、人物卡上改种类与挪称呼、手机宽度 | 挪称呼、按位置生效、人物卡“同一身份”均无用例 | F17 |
+
+## 未发现问题的方面
+- 包规则“网页只引 `src/contract/`”：`host/revise.ts`、`RevisionsPage.vue`、`ReviseDialog.vue` 等新增文件只引 `../../contract/contract` 与 nb-ui/本包 web 内部，没有越界。
+- `useStoryQuery`/`usePagedQuery` 的“阅读位置变化时丢弃旧请求”对新增查询同样成立（参数含 `at`，中止旧请求）；待确认页三个 `usePagedQuery` 切页签与来源时从第一页重来，旧结果不会污染；`cursor_invalid` 沿用既有的刷新收口。
+- `entities.list` 结果排除自己的做法 `!item.entities.includes(props.entity)` 在合并点下是对的（`entities` 是点的成员，`props.entity` 取卡片代表 id；已合并成一个点的对象排除掉也符合“不能连到自己”）。
+- 人物卡对 `DrawerCard` 用 `:key="entity"` 挂载，换对象时 `CandidateBlock` 的 `done` 状态不会串到别的对象。
+- `RefLink` 的 `@click.stop` 使卡片里点出处不会同时触发“打开人物卡”。
+- 没有固定等待，`bun run typecheck` 通过（五段全部退出 0）。
+- 暗色与主题：新增样式都用了主题变量（除 F12 的圆角兜底），没有硬编码颜色。
+
+## 数量
+- 共 18 条：阻断 0、重要 10（F1 F2 F3 F4 F5 F6 F7 F8 F11 F17）、建议 8（F9 F10 F12 F13 F14 F15 F16 F18）。
+- 未在浏览器里复现的：F2（Vue 的 watch 语义用 SSR 小脚本印证）、F8、F9 的读屏部分、F10 的窄屏溢出、F13、F14 的第 2 点、F15、F17 的“仍通过”推演，均为从代码推断；F1 与 F7 的第 1 点用 `nbstory revisions list` 的实际输出印证了数据一侧。

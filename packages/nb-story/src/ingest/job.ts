@@ -16,6 +16,8 @@ import {featuresOf, type Dataset, type SourceChapter} from "../core/dataset";
 import {StoryError} from "../core/errors";
 import type {Library} from "../core/library";
 import {consolidate, extractChapter, IngestBadReply, STEP_NAMES, type ChapterRun, type RecallSource, type Step} from "./chapter";
+import {tagPersonaOrigins} from "./persona-check";
+import type {PersonaHistory, PersonaOutcome} from "./persona-check";
 import {compile} from "./compile";
 import type {RawDraft} from "./draft-tools";
 import {chapterWaits} from "./retry-policy";
@@ -38,6 +40,8 @@ export interface CommittedChapter {
     problems: string[];
     /** 说法怎么选的（w00024 t10 起）；没有这一项的章是之前的做法（全部已有记录），不用迁移。 */
     recall?: {source: RecallSource; ids: string[]};
+    /** 马甲核对问了谁、连上了谁、谁答了不是马甲（输出 20，w00024 t35 起）；没有这一项的章当作没问过。 */
+    personas?: PersonaOutcome;
 }
 
 export type IngestEvent =
@@ -57,6 +61,8 @@ export interface JobOptions {
     price: Price | null;
     /** 挑相关说法用的模型；null 时不挑（默认）。用量按它自己的单价记。 */
     recall: {endpoint: ModelEndpoint; price: Price | null} | null;
+    /** 马甲核对开不开（输出 20）；默认值在配置解析处定。用抽取的模型与单价。 */
+    personaCheck: boolean;
     /** 这次任务的编号（用量记账用）。 */
     run: string;
     signal: AbortSignal;
@@ -68,6 +74,17 @@ export interface JobOptions {
     chapterWaitsMs?: readonly number[];
     /** 替换渠道失败与限流的延迟表（测试用）。 */
     delaysMs?: ChapterRun["delaysMs"];
+}
+
+/** 已提交各章的核对记录汇成选择马甲用的历史（输出 20）：每个马甲上次被问的章、答过不是马甲的。 */
+function personaHistory(chapters: readonly CommittedChapter[]): PersonaHistory {
+    const lastAsked = new Map<string, number>();
+    const notPersona = new Set<string>();
+    for (const item of chapters) {
+        for (const id of item.personas?.asked ?? []) lastAsked.set(id, item.chapter);
+        for (const id of item.personas?.notPersona ?? []) notPersona.add(id);
+    }
+    return {lastAsked, notPersona};
 }
 
 /** 这一章值得整章重做的失败：回复不成形，或渠道失败重试用完（网络类）。认证、额度、限流（已退避过）、本机错误重做也没用。 */
@@ -150,7 +167,8 @@ async function extractAll(options: JobOptions, ledger: Ledger, markChapter: (cha
         const sources = sourcesThrough(chapter);
         // 一章失败（回复不成形、渠道失败重试用完）时在这里等一会儿、从头重做这一章：记忆图顺序累积，不跳章；
         // 这一章没提交，书的数据不变，重做在同一把锁、同一个任务里，用量与用时自然累计。
-        const {result, drafts, consolidations, dataset, problems} = await redoing(options, chapter, checkStop, ledger, async run => {
+        const history = options.personaCheck ? personaHistory(data.chapters) : undefined;
+        const {result, drafts, consolidations, dataset, problems} = await redoing(options, chapter, checkStop, ledger, history, async run => {
             const result = await extractChapter({source: source.chapters[chapter - 1]!, prior, features: book.features, compileWith: candidate => compile(book, sources, [...data.drafts, candidate], data.consolidations)}, run);
             const drafts = [...data.drafts, result.draft];
             let consolidations = data.consolidations;
@@ -175,22 +193,23 @@ async function extractAll(options: JobOptions, ledger: Ledger, markChapter: (cha
         });
         await ledger.settle();
         checkStop();
-        const next: ExtractionData = {through: chapter, drafts, consolidations, chapters: [...data.chapters, {chapter, dropped: result.dropped, problems, recall: result.recall}]};
-        const commit = await library.commitExtraction({id: store.id, title: source.title, generation, dataset, through: chapter, extraction: JSON.stringify(next)});
+        const next: ExtractionData = {through: chapter, drafts, consolidations, chapters: [...data.chapters, {chapter, dropped: result.dropped, problems, recall: result.recall, ...(result.personas ? {personas: result.personas} : {})}]};
+        const tagged = tagPersonaOrigins(dataset, next.chapters);
+        const commit = await library.commitExtraction({id: store.id, title: source.title, generation, dataset: tagged, through: chapter, extraction: JSON.stringify(next)});
         markChapter(null, "committed");
         generation = commit.generation;
         data = next;
-        prior = dataset;
+        prior = tagged;
         options.onEvent({type: "committed", chapter, total, dropped: result.dropped, generation: commit.generation, revision: commit.revision});
     }
 }
 
 /** 做一遍这一章；`redoable` 的失败按 `chapterWaitsMs` 等一会儿重做，次数用完才把失败抛出去（输出 10）。 */
-async function redoing<T>(options: JobOptions, chapter: number, checkStop: () => void, ledger: Ledger, build: (run: ChapterRun) => Promise<T>): Promise<T> {
+async function redoing<T>(options: JobOptions, chapter: number, checkStop: () => void, ledger: Ledger, history: PersonaHistory | undefined, build: (run: ChapterRun) => Promise<T>): Promise<T> {
     const waits = options.chapterWaitsMs ?? chapterWaits(3);
     for (let redo = 0; ; redo++) {
         let step: Step = "beats";
-        const run = chapterRun(options, chapter, checkStop, ledger);
+        const run: ChapterRun = {...chapterRun(options, chapter, checkStop, ledger), ...(history ? {personaCheck: history} : {})};
         const onStep = run.onStep;
         run.onStep = next => {
             step = next;
@@ -224,6 +243,7 @@ function chapterRun(options: JobOptions, chapter: number, checkStop: () => void,
             checkStop();
             options.onEvent({type: "step", chapter, step});
         },
+        beforeRequest: () => checkStop(),
         onRetry: (step, info) => options.onEvent({type: "retry", chapter, step, attempt: info.attempt, waitMs: info.waitMs, message: info.error.message}),
         // 坏回复只是诊断：留不下来（只读目录、磁盘满）时写一行到标准错误，不让抽取失败，也不让错误信息指向不存在的文件。
         onBadReply: async record => {

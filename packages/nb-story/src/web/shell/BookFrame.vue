@@ -16,6 +16,7 @@ import {StoryCallError, useStoryClient} from "../host/client";
 import {readDrawerWidth, readNavCollapsed, writeDrawerWidth, writeNavCollapsed} from "../host/prefs";
 import {LAYOUT_MOTION} from "../host/motion";
 import ReadingControl from "../parts/ReadingControl.vue";
+import RevisionBadge from "../parts/RevisionBadge.vue";
 import ThemeMenu from "../parts/ThemeMenu.vue";
 import DrawerCard from "./DrawerCard.vue";
 import DrawerNode from "./DrawerNode.vue";
@@ -40,6 +41,7 @@ const NAV: ReadonlyArray<{id: Page; label: string; icon: string}> = [
     {id: "episodes", label: "情节", icon: "i-lucide-list-tree"},
     {id: "source", label: "原文", icon: "i-lucide-book-open"},
     {id: "qa", label: "问答", icon: "i-lucide-messages-square"},
+    {id: "revisions", label: "待确认", icon: "i-lucide-list-checks"},
     {id: "stats", label: "说明与统计", icon: "i-lucide-info"},
 ];
 /** 导航只列这本书开着的页（输出 2）：关掉数值或秘密的书没有那一页。 */
@@ -57,6 +59,7 @@ const PAGES: Record<Page, ReturnType<typeof defineAsyncComponent>> = {
     "book-graph": defineAsyncComponent(() => import("../pages/BookGraphPage.vue")),
     roster: defineAsyncComponent(() => import("../pages/RosterPage.vue")),
     secrets: defineAsyncComponent(() => import("../pages/SecretsPage.vue")),
+    revisions: defineAsyncComponent(() => import("../pages/RevisionsPage.vue")),
     ledger: defineAsyncComponent(() => import("../pages/LedgerPage.vue")),
     questions: defineAsyncComponent(() => import("../pages/QuestionsPage.vue")),
     timeline: defineAsyncComponent(() => import("../pages/TimelinePage.vue")),
@@ -83,9 +86,13 @@ onMounted(() => {
     });
     if (root.value) observer.observe(root.value);
 });
-// 浮层抽屉按 Escape 关掉（输出 32、33）。
+// 浮层抽屉按 Escape 关掉（输出 32、33）。有 nb-ui 浮层开着时（例如抽屉里记录等级的依据，焦点可能还在抽屉里的色块上），
+// Escape 先归浮层：它们的 Escape 监听也挂在 window 上、注册得比这里晚，既不阻止事件也不标记，只能看还有没有开着的浮层
+// （reka-ui 给每个开着的浮层元素标 `data-dismissable-layer`）。抽屉改用 nb-ui 的浮层组件后，这一段可以去掉。
 function onKey(event: KeyboardEvent): void {
-    if (event.key === "Escape" && overlayDrawer.value && book.drawer.value) book.closeDrawer();
+    if (event.key !== "Escape" || !overlayDrawer.value || !book.drawer.value) return;
+    if (document.querySelector("[data-dismissable-layer]")) return;
+    book.closeDrawer();
 }
 window.addEventListener("keydown", onKey);
 onBeforeUnmount(() => {
@@ -247,12 +254,13 @@ watch(notice, value => {
                 <template #panel-nav>
                     <nav class="flex h-full flex-col gap-0.5 overflow-y-auto py-2" :class="navIsCollapsed ? 'items-center px-1' : 'px-2'" aria-label="页面">
                         <button
-                            v-for="item in nav" :key="item.id" type="button" class="nav-item flex items-center gap-2 rounded-[var(--radius-control)] py-1.5 text-[length:var(--text-sm)]"
+                            v-for="item in nav" :key="item.id" type="button" class="nav-item relative flex items-center gap-2 rounded-[var(--radius-control)] py-1.5 text-[length:var(--text-sm)]"
                             :class="[book.page.value === item.id ? 'is-active' : '', navIsCollapsed ? 'justify-center px-1.5' : 'px-2']"
                             :title="item.label" :aria-current="book.page.value === item.id ? 'page' : undefined" :data-page="item.id" @click="goPage(item.id)"
                         >
                             <span :class="item.icon" class="shrink-0" />
                             <span v-if="!navIsCollapsed" class="truncate">{{ item.label }}</span>
+                            <RevisionBadge v-if="item.id === 'revisions'" :variant="navIsCollapsed ? 'dot' : 'badge'" :class="navIsCollapsed ? '' : 'ml-auto'" />
                         </button>
                         <div class="flex-1" />
                         <!-- 设置入口（t27）：收起导航时叠在收起按钮上方，展开时与它并排。 -->
@@ -312,13 +320,13 @@ watch(notice, value => {
                 <button v-for="item in PHONE_TABS" :key="item.id" type="button" class="flex flex-1 flex-col items-center py-1 text-[length:var(--text-2xs)]" :class="book.page.value === item.id ? 'text-[var(--accent-text)]' : ''" @click="goPage(item.id)">
                     <span :class="item.icon" />{{ item.label }}
                 </button>
-                <button type="button" class="flex flex-1 flex-col items-center py-1 text-[length:var(--text-2xs)]" @click="navSheet = true"><span class="i-lucide-menu" />更多</button>
+                <button type="button" class="flex flex-1 flex-col items-center py-1 text-[length:var(--text-2xs)]" @click="navSheet = true"><span class="relative"><span class="i-lucide-menu" /><RevisionBadge variant="dot" /></span>更多</button>
             </nav>
             <template v-if="tier === 'phone' && navSheet">
                 <div class="absolute inset-0 z-20 bg-[var(--overlay-bg)]" @click="navSheet = false" />
                 <nav class="absolute inset-y-0 left-0 z-30 flex w-[220px] flex-col gap-0.5 bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-panel)]" aria-label="页面">
                     <button v-for="item in nav" :key="item.id" type="button" class="nav-item flex items-center gap-2 rounded-[var(--radius-control)] px-2 py-2 text-[length:var(--text-sm)]" :class="book.page.value === item.id ? 'is-active' : ''" @click="goPage(item.id)">
-                        <span :class="item.icon" />{{ item.label }}
+                        <span :class="item.icon" />{{ item.label }}<RevisionBadge v-if="item.id === 'revisions'" class="ml-auto" />
                     </button>
                     <div class="flex-1" />
                     <button type="button" class="nav-item flex items-center gap-2 rounded-[var(--radius-control)] px-2 py-2 text-[length:var(--text-sm)]" data-testid="nav-settings-sheet" @click="router.push('/settings')"><span class="i-lucide-settings" />设置</button>

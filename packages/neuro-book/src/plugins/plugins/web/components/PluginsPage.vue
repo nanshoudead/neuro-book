@@ -7,6 +7,8 @@ import type {RemoteFailureCode} from "@notnotype/nb-runtime/remote";
 import {Badge, Button, Dialog, Input, Spinner, Switch} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef} from "vue";
 
+import {useText} from "@notnotype/nb-ui/text-port";
+
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {compareVersions} from "nbook/plugin-platform/shared/versions";
@@ -15,6 +17,7 @@ import type {WindowPlugins} from "nbook/shared/host";
 import type {BlockedPlugin, InstallPreview, PendingChange, PluginFailureCode, PluginListEntry, PluginListItem, PluginProblem, PluginsRegistry} from "../../shared/contracts";
 import {usePluginsText} from "../text";
 import type {PluginsTextKey} from "../text";
+import {BUILTIN_PLUGIN_NAMES} from "../builtin-names";
 
 defineOptions({name: "PluginsPage"});
 
@@ -84,6 +87,14 @@ type Problem = {readonly serial: number; readonly code: string; readonly reason:
 
 /** 本插件目录里的一段文字，按窗口的当前语言。 */
 const text = usePluginsText();
+const port = useText();
+/** 显示名与说明：第三方插件取清单里的；内置插件清单里没有，取页面这侧的名称表（builtin-names.ts）。 */
+const builtinText = (item: PluginListEntry, field: "name" | "description"): string | null => {
+    const known = item.source === "builtin" ? BUILTIN_PLUGIN_NAMES[item.id] : undefined;
+    return known === undefined ? null : port.t(known[field]);
+};
+const displayNameOf = (item: PluginListEntry): string | null => item.displayName ?? builtinText(item, "name");
+const descriptionOf = (item: PluginListEntry): string | null => item.description ?? builtinText(item, "description");
 /** 列表按界面语言连接（“a、b和c”“a, b, and c”）。 */
 const list = (items: ReadonlyArray<string>): string => new Intl.ListFormat(props.locale, {type: "conjunction"}).format(items);
 const BLOCKED_KEYS: Readonly<Record<BlockedPlugin["reason"], PluginsTextKey>> = {
@@ -403,7 +414,7 @@ onMounted(() => {
                         <div class="plugins-page__meta">
                             <div class="plugins-page__heading">
                                 <span class="plugins-page__id">{{ item.id }}</span>
-                                <span v-if="item.displayName !== null" class="plugins-page__display-name" data-plugin-display-name>{{ item.displayName }}</span>
+                                <span v-if="displayNameOf(item) !== null" class="plugins-page__display-name" data-plugin-display-name>{{ displayNameOf(item) }}</span>
                                 <span class="plugins-page__version">{{ item.version }}</span>
                                 <Badge v-if="item.source === 'builtin'" size="sm" variant="soft">{{ text('row.builtin') }}</Badge>
                                 <Badge v-for="change in item.pending" :key="change.kind" class="plugins-page__badge" size="sm" variant="soft" tone="warning" :data-plugin-pending="change.kind">{{ pendingText(change, item.version) }}</Badge>
@@ -413,7 +424,7 @@ onMounted(() => {
                                 <Badge v-if="catalogCount(item) > 0" class="plugins-page__badge" size="sm" variant="soft" tone="warning" data-plugin-problems="catalogs">{{ text('row.catalogProblems', {count: catalogCount(item)}) }}</Badge>
                             </div>
                             <p v-if="item.notLoaded !== null && NOT_LOADED[item.notLoaded.code].showDetail" class="plugins-page__reason">{{ item.notLoaded.detail }}</p>
-                            <p v-if="item.description !== null" class="plugins-page__description" :title="item.description" data-plugin-description>{{ item.description }}</p>
+                            <p v-if="descriptionOf(item) !== null" class="plugins-page__description" :title="descriptionOf(item) ?? undefined" data-plugin-description>{{ descriptionOf(item) }}</p>
                             <p v-for="line in problemsOf(item).map(problemLine)" :key="line" class="plugins-page__reason" data-plugin-problem-line>{{ line }}</p>
                         </div>
                         <div v-if="item.source === 'third-party' && item.state !== 'uninstalling'" class="plugins-page__actions">

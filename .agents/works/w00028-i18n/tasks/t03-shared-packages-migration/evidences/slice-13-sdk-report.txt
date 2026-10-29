@@ -1,0 +1,124 @@
+w00028 t03「SDK 与通知」片 交付报告（编码 Agent，未 commit）
+
+worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n（分支 feat/w00028-i18n）。没有 commit、push、stash、切分支。
+
+== 改了哪些文件 ==
+
+新增
+- packages/neuro-book/src/sdk/text.ts：SDK 纯入口 `/text`
+- packages/neuro-book/src/sdk/text-browser.ts：SDK 浏览器入口 `/text/browser`
+- packages/neuro-book/plugin-sdk/third-party-text.dom.test.ts：验收（用 tarball 在仓库外构建第三方插件、装进宿主、切换语言）
+- packages/neuro-book/plugin-sdk/examples/plugins/{snippets,focus,counter}/locales/{zh-CN,en-US}.json
+- packages/neuro-book/plugin-sdk/template/locales/{zh-CN,en-US}.json
+
+SDK 接线
+- src/sdk/entries.ts（子路径表加 `./text`、`./text/browser`，表头注释）
+- src/sdk/index.ts（根入口去掉 formatText、localize、pluginText、CatalogKey、DisplayLocale、LocalizedText 与 Text 的再导出）
+- tsconfig.json、tsconfig.web.json（两条别名）；tsconfig.json 另排除 `plugin-sdk/*.dom.test.ts`，tsconfig.browser-test.json 收进它
+- src/web/host/plugin-modules.ts、src/backend/plugin-host-modules.ts（两端宿主模块表）
+- plugin-sdk/testing/browser-artifact.ts（Bun 用的模块表加两项；registeredFactory、runFactory 可传模块表）
+- plugin-sdk/examples/testing/workbench.ts（替身改用产品的贡献点定义，见验证第 2 条）、examples/README.md 第 156 行
+- plugin-sdk/testing/author.ts（REPO_MODULES 不写 `new URL(…, import.meta.url)`，见“与计划不同之处”）
+- vitest.config.ts（include 加 `plugin-sdk/*.dom.test.ts`）
+- src/shared/use-plugin-text.ts（`Source` 缺省 `Catalog`，不写时键不核对）
+- 构建预设外部引用与 pack.ts 的导出、声明路径都由子路径表生成，没有手改；tarball 里实测有 text.js、text.d.ts、text/browser.js、text/browser.d.ts 与对应 exports。
+
+去掉 localize、formatText
+- src/shared/localized-text.ts（删两个函数）
+- src/plugins/commands/shared/plugin.ts（reasonOf 改用 resolveLocaleMap，注释写服务端没有端口）
+
+测试与名单
+- src/sdk/sdk.test.ts、src/sdk/surface.test.ts、plugin-sdk/pack.test.ts（导出面、闭包表、声明名单；pack.test 的作者源码加 `/text` 与 `/text/browser` 的用法、键写错的 @ts-expect-error，构建产物 required 名单加两项）
+- src/web/host/plugin-modules.dom.test.ts（身份核对两项；插件组件经 `/text/browser` 取到窗口端口、切换语言跟着换）
+- src/convention-keys.test.ts（声明测试加一例：带目录的示例插件的约定键都在示例自己的目录里）
+- plugin-sdk/build-plugin.test.ts（snippets 产物文件名单多了 locales/*.json）
+- scripts/ci/message-catalogs.ts、scripts/ci/message-catalogs.test.ts（见“与计划不同之处”第 4 条）
+
+示例与模板
+- examples/plugins/snippets：package.json（l10n，说明移进目录 manifest.description）、shared/contracts.ts、web/plugin.ts、web/SnippetsEditor.vue、web/SnippetsPage.vue、web/SnippetsPage.dom.test.ts
+- examples/plugins/focus：package.json、shared/contracts.ts、web/plugin.ts（声明的双语对象改为约定键与目录）
+- examples/plugins/counter：package.json、shared/contracts.ts（命令标题改约定键；公开键 reason 留语言映射并写明理由）
+- examples/README.md
+- template：_package.json（l10n；displayName 移进目录 manifest.displayName）、tsconfig.json（resolveJsonModule）、shared/contracts.ts、web/plugin.ts、web/HelloView.vue、README.md
+- plugin-sdk/README.md（入口表、目录结构、新增“界面文字”一节、常用名字、服务端可用的子路径）
+
+通知
+- packages/nb-ui/src/composables/useNotification.ts、packages/nb-ui/src/components/feedback/NotificationStack.vue 与同名 .md
+- src/plugins/workbench/shared/contracts.ts、web/notifications.ts、web/plugin.ts、web/notifications.dom.test.ts
+- src/plugins/projects/shelf-page.test.ts、src/plugins/projects/projects.test.ts（createNotifications 多一个参数；书架测试的 notices() 按端口翻）
+
+Spec
+- docs/specs/workbench/notifications.md（输入改 Text、输出 9、验收 4、兼容、证据）
+- docs/specs/runtime/plugin-api.md（SDK 子路径、作者怎么取文字、去掉的导出、批准依据）
+- docs/specs/runtime/plugin-code-loading.md（宿主模块表与共享入口）
+- docs/specs/ui/i18n.md（目录与键、目录检查的范围、边界与兼容、验收 5、证据）
+
+== 两个入口的最终形态与理由 ==
+
+`@notnotype/nb-plugin-sdk/text`（server: true，不连带 Vue，surface.test 闭包只有 shared/plugin-text.ts）
+- 类型：Text、TextRef、LocaleMap、TextParams（nb-ui ./text）、CatalogKey
+- 值：pluginText
+
+`@notnotype/nb-plugin-sdk/text/browser`（server: false）
+- 值：useText（nb-ui ./text-port）、usePluginText
+- 类型：TextPort、BoundText
+
+宿主那一份：两端宿主模块表各登记，浏览器表的 `/text/browser` 是 `nbook/sdk/text-browser` 本身，再导出宿主 nb-ui 的 useText；plugin-modules.dom.test.ts 按身份核对（`table["…/text/browser"].useText === useText`），并用真实引擎验证插件组件经表里的 usePluginText 取到窗口根注入的端口、切换语言跟着换。第三方产物经 require 取这两个子路径（验收测试与 pack.test 的 required 名单都核对），不打进自己。TEXT_PORT_KEY 本身是 Symbol.for，即使多一份 nb-ui 也是同一个键；模块表给宿主那一份是第一道保证。
+
+为什么保留 pluginText 而不是“激活适配层绑定的 text()”：pluginText<typeof 源语言目录>(插件 id) 键写错编译不过，在声明（模块顶层，服务端也执行）里就能用，不需要激活上下文与额外的运行时适配；代价是作者要传一次 plugin.id。激活绑定的 text() 只在 activate 里可用，声明里的 description 用不上，也没有键类型。所以把 pluginText 从根入口移到 `/text`，根入口不再导出，不在两处各导出一份。提案第 209 行附近写的“加 text()”与现状不一致，提案不在本片改动范围，留给主会话决定是否改提案。
+
+== 与计划不同之处 ==
+
+1. 文字构造函数用 pluginText（理由见上），没有做激活绑定的 text()。
+2. 验收测试放在 Vitest（happy-dom）里：Bun 没有 DOM，组件要真实渲染与切换语言。生成 SDK 包与构建用子进程跑 Bun（与 e2e/plugin-authoring.e2e.ts 同一写法）。沿用 testing/author.ts 的 authorDirectory、cliOf，testing/browser-artifact.ts 的 registeredFactory、runFactory（加了可选的模块表参数，传窗口真正用的 hostModules()，组件与注入键都是宿主那一份）。目录按产物清单的 l10n 与 dist/locales 登记进宿主引擎，没有走真实服务端的目录端点（那条路径由 window-catalogs.test.ts 负责）。
+3. testing/author.ts 的 `new URL("../../../../node_modules/", import.meta.url)` 改为 `join(dirname(fileURLToPath(import.meta.url)), …)`：Vitest 在 happy-dom 环境里把 `new URL(字面量, import.meta.url)` 当静态资源改写成 http 地址，fileURLToPath 报 “The URL must be of scheme file”。行为不变，Bun 与 Playwright 用法不受影响。
+4. 目录检查脚本（scripts/ci/message-catalogs.ts）原来要求 package.json 的 l10n 同时写 source 与 locales，而构建预设要求作者的 package.json 只写 source（写 locales 构建失败）。示例插件第一次带目录就撞上这条矛盾。改为：没写 locales 时按 locales/ 里的文件查（与构建预设同一规则），写了的仍按列出的查；形状不对的报一条（文案改为“l10n 要写 source；写了 locales 时要是语言标签的数组”）。模板的清单是 `_package.json`，把 template/locales 登记进 CATALOG_DIRECTORIES。补了一条测试，Spec i18n.md 的“目录检查”同步。
+5. 示例的约定键原来没有任何检查覆盖（声明测试只查内置插件），在 convention-keys.test.ts 的声明测试里加了一例覆盖 counter、focus、snippets；做过变异核对（把 focus 目录的 views、groups 改名，报出两条 missing-key，已还原）。
+6. snippets 页面的失败提示原来存拼好的字符串，改为存失败本身（码与详情），模板里按当前语言拼：切换语言后还在的提示也跟着换。SnippetsPage.dom.test.ts 第一例补了切换语言后的断言（状态行、添加按钮、下移按钮的读屏名称）。
+7. 模板的显示名从 _package.json 移进源语言目录的 manifest.displayName（构建预设规定有目录时只能写在那里）；template.test 断言的清单显示名 “Hello World” 与说明 null 不变。模板 tsconfig 加 resolveJsonModule（`typeof import("../locales/zh-CN.json")` 需要）。
+8. 示例场地的工作台替身（plugin-sdk/examples/testing/workbench.ts）改为直接用产品的 viewsPoint、statusbarItemsPoint。这是本片自己引入的回归，不是负载问题：focus 的视图、状态栏条目去掉 title 之后，07-focus 场景两例稳定失败。原因是替身原来自己拼贡献点，只带 validate，没有真实工作台的 complete（补约定键）和 idPrefix，于是把不写 title 的声明拒了。改后替身补约定键、做校验都和真实工作台一样，没有放宽任何断言。替身的文件头注释与 examples/README.md 第 156 行同步。另外确认了脚手架 create-plugin 的 fill 作用于模板里每个文件，locales/en-US.json 里的 __DISPLAY_NAME__ 同样被替换。
+
+== 验证命令与结果 ==
+
+都在 packages/neuro-book 里跑，docs:check、governance:check 在仓库根跑；日志在 /tmp/w00028-t03/ 下。
+
+1. bun run typecheck（tsc、vue-tsc web、vue-tsc browser-test）：exit=0。
+2. bun run test:bun：第一次 1616 pass 3 fail（日志 test-bun.log）。
+   - 07-focus 两例超时（“等待超时（5000ms）：状态栏显示今天的个数”）。单独重跑稳定复现，所以不是负载问题。原因：示例场地的工作台替身
+     plugin-sdk/examples/testing/workbench.ts 自己拼了视图与状态栏的贡献点，只带 validate，没有真实工作台的 complete（约定键补全）。
+     focus 的视图、状态栏条目不再写 title 之后，替身拒收了这两条声明，条目一直交不到。修法：替身直接用产品的 viewsPoint、
+     statusbarItemsPoint（shared/views.ts、shared/items.ts），文件头注释与 examples/README.md 第 156 行同步。修后
+     `bun test plugin-sdk/examples/scenarios/`：31 pass 0 fail。
+   - src/plugins/explorer/browse.test.ts 的“展开的目录改名：子树在新地址继续展开，选择跟随”断言选择为空。本片没改 explorer；单独重跑三次是
+     15/1、16/0、16/0，是间歇失败，与本片无关，没有处理。
+   - 改替身之后重跑全量 bun run test:bun（日志 test-bun-2.log）：1620 pass 0 fail，exit=0（178 s）。explorer 那条这次也过了。
+   - 用加了引号的 grep 查了 plugin-sdk、src、e2e、scripts、lab，找自己拼视图或状态栏贡献点、却不带 complete 的替身：只有
+     examples/testing/workbench.ts 这一个，已经改过。
+3. bun run test:vitest：Test Files 69 passed，Tests 400 passed，exit=0。另单独跑了 third-party-text、SnippetsPage、notifications、
+   plugin-modules 四个 dom 测试：4 files，12 tests 全过。
+4. bun test plugin-sdk/pack.test.ts plugin-sdk/external-examples.test.ts plugin-sdk/build-plugin.test.ts plugin-sdk/template.test.ts：
+   45 pass 0 fail，exit=0（81 s）。
+5. 仓库根 bun run docs:check：failures []，warnings []，exit=0（另有 183 条存量警告不在改动范围）。
+6. 仓库根 bun run governance:check：failures []，warnings []，exit=0（存量 296 条不在改动范围）。
+7. 早先单跑：scripts/ci/message-catalogs.test.ts 7 pass；src/convention-keys.test.ts 6 pass，用变异核对过能报出缺键。
+
+禁止清单自查
+- 不按错误文案分支、不静默 catch：新代码没有 catch。验收测试 run() 失败时带全部输出抛错。
+- 没跳过测试、没放宽断言、产品代码里没加测试分支。替身的改动是让它与产品合同一致，不是放宽：它现在会和真实工作台一样补约定键、做同样的校验。
+- 没删任务之外的代码与注释；改了的注释只限本片改动的那几行。
+- 收口语句保留：afterAll 删临时根、wrapper.unmount、notifications.dispose。
+- 跨包只经包名与公开入口（@notnotype/nb-ui/text、./text-port、@notnotype/neuro-book-test-support/tmp）。
+- 调试时写过一个临时文件 plugin-sdk/examples/scenarios/zz-debug.test.ts，git ls-files 确认未跟踪后用 rm 单个删除。没有对仓库目录用过 rm -rf
+  （验收测试的 afterAll 删的是系统临时根下的目录）。
+- 测试没有用 mock、spy、假计时器或固定等待。通知测试原有的 vi.waitFor 是等可观察状态；场景用的是场地自带的注入时钟。
+
+== 没做的与遗留 ==
+
+- focus 的 FocusPanel.vue 与状态栏条目的 text()、tooltip() 是只有中文的字面文字（不是双语对象、也没有 locale 属性），本片没有迁进目录：运行期文字要改成 pluginText 引用，07-focus 场景在 Bun 里断言的是翻好的字符串（“专注 25:00”），要连场地的翻译一起改，超出本片。
+- counter 公开键的 reason 保留语言映射：命令可用性在服务端判断、原因随结果返回，服务端不翻译文字引用（external-examples.test 断言 “计数已经是 0”）。
+- examples/external/declarative/package.json 是手写清单里的语言映射，没改（清单里的语言映射是合法的 Text）；e2e 不在本片运行。
+- `/settings` 的 displayLocale 仍在 SDK 上（sdk.test 名单里有），本片没有删：snippets 不再用它，是否从 SDK 去掉留给主会话。
+- 通知的调用方（各内置插件）仍传自己翻好的字符串，没有改成直接传 TextRef；通知队列与显示已经支持，调用方迁移不在本片。
+- 提案 docs/proposals/i18n-message-catalogs.md 第 209 行附近写的 “text()” 没改（不在允许范围），见“两个入口”。
+- e2e/plugin-authoring.e2e.ts 断言的模板文字（“已经打过 0 次招呼”“Hello World：打个招呼”）按 zh-CN 目录仍是同样的字，未运行 e2e 验证。
+- src/plugins/explorer/browse.test.ts“展开的目录改名”一例间歇失败（与本片无关，三次里失败一次），没有处理。

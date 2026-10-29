@@ -185,7 +185,7 @@ export class IngestStore {
     async writeBadReply(record: BadReplyRecord): Promise<string> {
         const dir = join(this.dir, "bad-replies");
         await mkdir(dir, {recursive: true});
-        const name = `${record.chapter}-${record.step}.json`;
+        const name = `${record.chapter}-${record.step}${record.subject ? `-${record.subject}` : ""}.json`;
         const temp = join(dir, `${name}.${randomUUID()}.tmp`);
         await writeFile(temp, JSON.stringify(record, null, 2));
         await rename(temp, join(dir, name));

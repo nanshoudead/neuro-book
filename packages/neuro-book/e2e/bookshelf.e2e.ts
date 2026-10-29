@@ -167,14 +167,16 @@ test("新建作品：缺省放进文档目录下的 NeuroBook（建出来）、�
     await window.locator("[data-project-color] [data-color-swatch='#b8423a']").click();
     await window.locator("[data-project-cover-input]").setInputFiles({name: "cover.png", mimeType: "image/png", buffer: PNG});
     await page.locator("[data-project-confirm]").click();
-    await expect(window).toHaveCount(0);
-    await expect(card(page, "长夜行")).toHaveCount(1);
-    await expect(card(page, "长夜行")).toContainText("雪线以北的驿站。");
-    // 封面上传后书架刷新，卡片显示图而不是排版封面。
-    await expect(card(page, "长夜行").locator("[data-book-cover] img")).toBeVisible();
+    // 建好、写完封面之后直接打开新作品（输出 11）：整页进入它的工作台。
+    await expect(page.locator("[data-workbench-project]")).toHaveCount(1);
+    expect(new URL(page.url()).searchParams.get("project")).not.toBeNull();
     const identity = JSON.parse(await readFile(join(library, "长夜行", ".nbook", "project.json"), "utf8")) as {title?: string; color?: string; cover?: string};
     expect(identity).toMatchObject({title: "长夜行", color: "#b8423a", cover: "cover.png"});
     await access(join(library, "长夜行", "cover.png"));
+    await openShelf(page);
+    await expect(card(page, "长夜行")).toHaveCount(1);
+    await expect(card(page, "长夜行")).toContainText("雪线以北的驿站。");
+    await expect(card(page, "长夜行").locator("[data-book-cover] img")).toBeVisible();
 
     await page.locator("[data-shelf-create]").click();
     await expect(window).toBeVisible();
@@ -306,7 +308,8 @@ test.describe("窄屏", () => {
         await expect(root(page)).toHaveAttribute("data-workbench-home", "nbook.projects.bookshelf");
         await expect(page.locator("[data-shelf-list]")).toBeVisible();
         await expect(page.locator("[data-shelf-cards]")).toHaveCount(0);
-        await expect(page.locator("[data-shelf-list]")).toContainText("尚未统计");
+        // 新鲜度说明三种之一（前面的用例新建的作品已打开过、统计过）。
+        await expect(page.locator("[data-shelf-list]")).toContainText(/统计于|尚未统计|正在统计/u);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     });
 });

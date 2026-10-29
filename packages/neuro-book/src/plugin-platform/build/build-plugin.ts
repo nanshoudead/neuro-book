@@ -476,6 +476,8 @@ async function buildEntry(input: {
                 lib: browser ? {entry: shell, formats: ["cjs"], fileName: () => `${located.entry.id}.js`, cssFileName: located.entry.id} : undefined,
                 rolldownOptions: {
                     external,
+                    // 插件耗时提示（PLUGIN_TIMINGS）说的是构建预设自带的各个 Vite 插件回调花了多久，作者改不了它们，只会以为构建出了问题。
+                    checks: {pluginTimings: false},
                     output: {
                         codeSplitting: false,
                         sourcemapPathTransform: (source, sourcemapPath) => sourcePath(resolve(dirname(sourcemapPath), source), input.root, input.workDir),

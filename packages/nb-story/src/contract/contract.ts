@@ -76,6 +76,8 @@ const BookInfo = Type.Object({
     /** 这次查询实际用的阅读位置。 */
     at: PositionSchema,
     features: Features,
+    /** 待确认的修订数（按阅读位置算）与对不上、已不套用的数（docs/specs/story/revisions.md）。 */
+    revisions: Type.Object({pending: Type.Integer(), stale: Type.Integer()}),
 });
 
 const BookStats = Type.Object({
@@ -123,7 +125,7 @@ const EntityCard = Type.Object({
     entities: Type.Array(Type.String()),
     names: Type.Array(Type.Object({text: Type.String(), ref: RefSchema})),
     /** 读者此时知道的同一身份：组成这个点的其它对象，各带连接成立的出处。 */
-    identities: Type.Array(Type.Object({id: Type.String(), label: Type.String(), ref: RefSchema})),
+    identities: Type.Array(Type.Object({id: Type.String(), label: Type.String(), ref: RefSchema, mark: Type.Union([oneOf(["confirmed", "added"] as const), Type.Null()])})),
     facets: Type.Array(Type.Object({facet: oneOf(FACETS), through: Type.Integer(), items: Type.Array(Type.String())})),
     secrets: Type.Array(Type.Object({id: Type.String(), title: Type.String(), state: AwarenessSchema, ref: Type.Union([RefSchema, Type.Null()])})),
     counts: Type.Object({relations: Type.Integer(), knowledge: Type.Integer(), statements: Type.Integer(), episodes: Type.Integer()}),
@@ -142,6 +144,31 @@ const KnowledgeItem = Type.Object({
     chapter: Type.Integer(),
 });
 
+// ---- 记录等级（docs/specs/story/queries.md 的“记录等级”） ----
+
+export const TierSchema = Type.Union([Type.Literal(1), Type.Literal(2), Type.Literal(3)]);
+const TierFlagSchema = oneOf(["unconfirmed", "foreshadow"] as const);
+const EvidenceSchema = oneOf(["unknown", "none", "some", "strong"] as const);
+
+const TierExplain = Type.Object({
+    id: Type.String(),
+    kind: oneOf(["statement", "episode"] as const),
+    /** 情节没有先验时为 null（不分级）。 */
+    tier: Type.Union([TierSchema, Type.Null()]),
+    prior: Type.Union([TierSchema, Type.Null()]),
+    flag: Type.Union([TierFlagSchema, Type.Null()]),
+    /** 以下只有说法有，情节为 null。 */
+    ev: Type.Union([EvidenceSchema, Type.Null()]),
+    window: Type.Union([Type.Integer(), Type.Null()]),
+    signals: Type.Union([
+        Type.Object({
+            refs: Type.Object({confirms: Type.Integer(), contradicts: Type.Integer(), revises: Type.Integer(), knowers: Type.Integer(), secrets: Type.Integer(), answers: Type.Integer()}),
+            echo: Type.Object({count: Type.Integer(), phrases: Type.Array(Type.String())}),
+        }),
+        Type.Null(),
+    ]),
+});
+
 const StatementItem = Type.Object({
     id: Type.String(),
     text: Type.String(),
@@ -150,9 +177,14 @@ const StatementItem = Type.Object({
     holder: Type.Union([NodeRefSchema, Type.Null()]),
     refs: Type.Array(RefSchema),
     chapter: Type.Integer(),
+    tier: TierSchema,
+    tierFlag: Type.Union([TierFlagSchema, Type.Null()]),
+    /** 修订相关的标记（docs/specs/story/revisions.md）：`candidate` 还是候选，`confirmed` 你确认的，`added` 你加的；没有为 null。 */
+    mark: Type.Union([oneOf(["candidate", "confirmed", "added"] as const), Type.Null()]),
 });
 
-const EpisodeBrief = Type.Object({id: Type.String(), title: Type.String(), chapter: Type.Integer(), refs: Type.Array(RefSchema)});
+/** `tier` 是情节的先验等级，没有为 null。 */
+const EpisodeBrief = Type.Object({id: Type.String(), title: Type.String(), chapter: Type.Integer(), refs: Type.Array(RefSchema), tier: Type.Union([TierSchema, Type.Null()])});
 
 // ---- 两个对象之间的关系（输出 20、21） ----
 
@@ -285,6 +317,7 @@ const EpisodeItem = Type.Object({
     /** 所属主线（当前这一批里的 id，可以有几条）；为空表示“未归入主线”。 */
     arcs: Type.Array(Type.String()),
     refs: Type.Array(RefSchema),
+    tier: Type.Union([TierSchema, Type.Null()]),
 });
 
 const ArcsList = Type.Object({
@@ -368,6 +401,43 @@ const Storyline = Type.Object({
     dots: Type.Array(Type.Object({episode: Type.String(), title: Type.String(), chapter: Type.Integer(), lane: Type.String()})),
 });
 
+// ---- 图的修订 ----
+
+const RevisionState = oneOf(["pending", "adopted", "rejected", "closed", "stale", "withdrawn"] as const);
+const RevisionSource = oneOf(["persona-check", "extraction", "user", "scan"] as const);
+export const RevisionItemSchema = Type.Object({
+    /** 待确认与自动关闭的候选是 `st:<说法编号>`，有决定或用户自己的修订是 `r<n>`。 */
+    id: Type.String(),
+    op: oneOf(["identity.candidate", "identity.confirm", "identity.reject", "identity.link", "kind.set", "name.move"] as const),
+    state: RevisionState,
+    source: RevisionSource,
+    by: Type.Union([Type.Literal("user"), Type.Literal("auto"), Type.Null()]),
+    summary: Type.String(),
+    /** 涉及的对象与它们在依据位置的显示名：候选与连接是两个，改种类是一个，挪称呼是 from 与 to。 */
+    entities: Type.Array(Type.Object({id: Type.String(), label: Type.String()})),
+    evidence: RefSchema,
+    /** 依据那一段原文（截到 120 字）。 */
+    quote: Type.String(),
+    refs: Type.Array(RefSchema),
+    decidedAt: Type.Union([Type.String(), Type.Null()]),
+    undoable: Type.Boolean(),
+});
+const RevisionCounts = Type.Object({pending: Type.Integer(), adopted: Type.Integer(), rejected: Type.Integer(), closed: Type.Integer(), stale: Type.Integer()});
+const RevisionWritten = Type.Object({revision: RevisionItemSchema, version: Type.Integer()});
+const RevisionWriteErrors = {
+    book_not_found: Type.Object({}),
+    book_ambiguous: Type.Object({}),
+    unsupported_format: Type.Object({}),
+    invalid_params: Type.Object({}),
+    revision_target_not_found: Type.Object({}),
+    revision_not_candidate: Type.Object({}),
+    revision_conflict: Type.Object({}),
+    revision_not_found: Type.Object({}),
+    evidence_invalid: Type.Object({}),
+    entity_ambiguous: Type.Object({candidates: Type.Array(Type.Object({id: Type.String(), label: Type.String(), note: Type.String()}))}),
+};
+const WriteBook = {book: BookParams.book};
+
 // ---- 方法清单 ----
 
 const BookErrors = {book_not_found: Type.Object({}), book_ambiguous: Type.Object({}), position_out_of_range: Type.Object({}), invalid_params: Type.Object({})};
@@ -407,8 +477,9 @@ export const STORY_METHODS = {
         errors: {...EntityErrors, ...PageErrors},
     },
     "entity.statements": {
-        input: Type.Object({...BookParams, ...PageParams, entity: Type.String({minLength: 1}), query: Type.Optional(Type.String())}, strict),
-        output: page(StatementItem),
+        input: Type.Object({...BookParams, ...PageParams, entity: Type.String({minLength: 1}), query: Type.Optional(Type.String()), maxTier: Type.Optional(TierSchema)}, strict),
+        /** `tiers`：满足 `query` 的说法里 1、2、3 级各几条，不随 `maxTier` 与分页变；`total` 是按 `maxTier` 过滤后的。 */
+        output: Type.Object({...page(StatementItem).properties, tiers: Type.Tuple([Type.Integer(), Type.Integer(), Type.Integer()])}),
         effect: "read",
         errors: {...EntityErrors, ...PageErrors},
     },
@@ -458,6 +529,12 @@ export const STORY_METHODS = {
         effect: "read",
         errors: {...BookErrors, beyond_position: Type.Object({})},
     },
+    "tier.explain": {
+        input: Type.Object({book: BookParams.book, at: BookParams.at, id: Type.String({minLength: 1})}, strict),
+        output: TierExplain,
+        effect: "read",
+        errors: {...BookErrors, record_not_found: Type.Object({})},
+    },
     "source.records": {
         input: Type.Object({...BookParams, chapter: Type.Integer(), paragraph: Type.Integer()}, strict),
         output: Type.Object({records: Type.Array(RecordItem)}),
@@ -483,6 +560,34 @@ export const STORY_METHODS = {
         errors: BookErrors,
     },
     "graph.storyline": {input: Type.Object({...BookParams}, strict), output: Storyline, effect: "read", errors: BookErrors},
+    "revisions.list": {
+        input: Type.Object({...BookParams, ...PageParams, state: Type.Optional(oneOf(["pending", "adopted", "rejected", "closed", "stale", "processed"] as const)), source: Type.Optional(RevisionSource), entity: Type.Optional(Type.String({minLength: 1}))}, strict),
+        output: Type.Object({items: Type.Array(RevisionItemSchema), total: Type.Integer(), next: Type.Union([Type.String(), Type.Null()]), counts: RevisionCounts}),
+        effect: "read",
+        errors: {...BookErrors, ...PageErrors},
+    },
+    "revisions.evidence": {
+        input: Type.Object({...BookParams, ...PageParams, entity: Type.String({minLength: 1}), text: Type.Optional(Type.String({minLength: 1}))}, strict),
+        output: page(Type.Object({ref: RefSchema, text: Type.String(), names: Type.Array(Type.String())})),
+        effect: "read",
+        errors: {...EntityErrors, ...PageErrors},
+    },
+    "revisions.confirm": {input: Type.Object({...WriteBook, statement: Type.String({minLength: 1})}, strict), output: RevisionWritten, effect: "write", errors: RevisionWriteErrors},
+    "revisions.reject": {input: Type.Object({...WriteBook, statement: Type.String({minLength: 1}), reason: Type.Optional(Type.String({minLength: 1}))}, strict), output: RevisionWritten, effect: "write", errors: RevisionWriteErrors},
+    "revisions.link": {
+        input: Type.Object({...WriteBook, a: Type.String({minLength: 1}), b: Type.String({minLength: 1}), evidence: Type.String({minLength: 1}), certainty: oneOf(["candidate", "certain"] as const)}, strict),
+        output: RevisionWritten,
+        effect: "write",
+        errors: RevisionWriteErrors,
+    },
+    "revisions.kind": {input: Type.Object({...WriteBook, entity: Type.String({minLength: 1}), kind: EntityKindSchema, evidence: Type.String({minLength: 1})}, strict), output: RevisionWritten, effect: "write", errors: RevisionWriteErrors},
+    "revisions.moveName": {
+        input: Type.Object({...WriteBook, text: Type.String({minLength: 1}), from: Type.String({minLength: 1}), to: Type.String({minLength: 1}), evidence: Type.String({minLength: 1})}, strict),
+        output: RevisionWritten,
+        effect: "write",
+        errors: RevisionWriteErrors,
+    },
+    "revisions.undo": {input: Type.Object({...WriteBook, revision: Type.String({minLength: 1})}, strict), output: RevisionWritten, effect: "write", errors: RevisionWriteErrors},
 } as const;
 
 // ---- 抽取（docs/specs/story/ingest.md 的“网页”） ----
@@ -508,7 +613,7 @@ const IngestStatusSchema = Type.Object({
     current: Type.Union([
         Type.Object({
             chapter: Type.Union([Type.Integer(), Type.Null()]),
-            step: Type.Union([oneOf(["recall", "beats", "draft", "review", "repair", "consolidation"] as const), Type.Null()]),
+            step: Type.Union([oneOf(["recall", "beats", "draft", "review", "repair", "persona", "consolidation"] as const), Type.Null()]),
             retry: Type.Union([Type.Object({attempt: Type.Integer(), waitMs: Type.Number(), until: Type.String()}), Type.Null()]),
         }),
         Type.Null(),

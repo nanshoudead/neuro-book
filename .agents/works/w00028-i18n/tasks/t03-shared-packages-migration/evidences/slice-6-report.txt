@@ -1,0 +1,140 @@
+# w00028 t03 第 6 片交付报告（约定键、SDK 贡献助手、运行期 Text、远程列表 v2、目录检查脚本）
+
+工作区：/home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n（未提交）
+
+## 进度（每块做完追加）
+
+### 块 A：远程命令列表 v2 与命令、公开状态的文字放宽（已完成，typecheck 通过，相关测试通过）
+
+- src/plugins/commands/shared/contracts.ts：声明 title、category 改为 TextSchema；RemoteCommandSchema.title 改为 Text，新增 category（Text 或 null）；commandsRemoteContract 版本 2。
+- src/plugins/commands/shared/plugin.ts：远程 list 带 category；公开状态 reason 是文字引用时用窗口文字引擎（可选依赖 windowTextKey）翻译，服务端没有引擎时不翻译（不产出该原因串）。
+- src/shared/window-text-key.ts（新）：不依赖 vue 的 windowTextKey 与 WindowText 类型，服务端可引用；src/shared/window-text.ts 改为再导出。
+- src/plugins/state/shared/{plugin,contracts}.ts：reason 放宽为 Text。
+- 调用方：settings/shared/contracts.ts（switchSetting 的 title 改 DisplayText）、workbench/web/commands/{failure-notice.ts,WorkbenchCommandHost.vue}（标题经 TextResolver 翻译）、lab 命令场景两处（改用 resolverFor + defaultTextPort）。
+- 测试：commands/shared/registry.test.ts（不合格声明换成真正不合格的值；新增“改为接受任何文字值”）；commands/shared/remote.test.ts（新增 v1 调用方调 v2 得 version-changed；list 返回带 category）。
+
+### 块 B：状态栏与标题栏条目运行期 text()/tooltip() 返回 Text（已完成）
+
+- src/plugins/workbench/web/contracts.ts：ItemImplementation.text()/tooltip() 返回 Text。
+- src/plugins/workbench/web/items/registry.ts：#render 时用文字引擎翻译。
+- src/plugins/editor/web/status-items.ts：编辑器自己的条目仍给字符串，类型收窄为 ResolvedItem，测试照旧读字符串。
+- plugin-sdk/examples/scenarios/07-focus.test.ts：读取条目文字的辅助函数返回类型改为 unknown（示例给的是字符串，断言不变）。
+
+### 块 C：约定键与命名空间只在宿主登记时补（已完成，typecheck 通过）
+
+内核（nb-runtime）：
+- packages/nb-runtime/src/plugins/contracts.ts：ContributionPointDefinition 新增可选 `complete?(descriptor): unknown`。
+- packages/nb-runtime/src/plugins/host.ts：#validation 在 idPrefix 之后、schema 之前调用 complete，抛出即 invalid-declaration；结果按“登记记录 + 贡献点对象”缓存在 WeakMap 里，schema、validate、declarations.get/list 与两处句柄（入口实现、顶层声明）拿到同一份补好的对象；检查视图 host.contribution()/catalog() 仍给写下的原样（加了注释）。
+- packages/nb-runtime/src/plugin-manifest/build.ts：第三方贡献点写了 complete 时报“函数进不了清单”（同 validate）。
+- 测试：src/plugins/declarations.test.ts 新增“贡献点补全声明 complete”（补出的声明经 schema/validate/查询/句柄一致、检查视图给原样、抛出即被拒、每条只补一次）；src/plugin-manifest/plugin-manifest.test.ts 加一例“贡献点写了 complete”。
+
+应用：
+- src/shared/convention-keys.ts（新）：conventionLocalId、conventionCompleter(rule | null)（先补命名空间再补必填字段的约定键）、withTextNamespace、textRefsOf、catalogKeyProblems（声明测试用：按定义里的贡献点补全每条声明，核对引用在所属命名空间源语言目录里，复数键认 `_other`）。
+- 各贡献点挂 complete：
+  - commands（commands.<本地 id>.title）
+  - settings.properties（settings.<名>.title、settings.<名>.choices.<String(值)>.title，本地 id 取 `/` 后的名）
+  - settings.sections（settingsSections.<id>.title、.groups.<小组 id>.title）
+  - settings.pages（settingsPages.<id>.title）
+  - workbench.views（views.<id>.title、.actions.<命令 id>.title）
+  - 状态栏、标题栏、活动栏条目（statusItems/titlebarItems/activityItems.<id>.title）
+  - workbench.home（home.<id>.title）
+  - editor.pages（editorPages.<id>.title）、editor.editors（editors.<id>.title）
+  - 菜单位置（工作台两处、编辑区两处、资源管理器右键）与公开状态只补命名空间（conventionCompleter(null)）。
+- 设置的类型拆分：SettingDeclaration（已接受，title: Text 必有）与 WrittenSettingDeclaration（写下的，title 可省）；SettingOptions.title 可省；defineSetting 按 completeSettingDeclaration 补全后的样子做加载期校验，但存下写下的样子。DeclaredSetting 收写下的类型（层规则不看文字），新增 AcceptedSetting；acceptedSettings 返回 AcceptedSetting；新增 acceptedSettingOf（Lab 与测试不经登记时照登记补全并校验）。
+- 新增 SettingsService.declaration(setting)：本实例接受的声明（补全过）或 null。SettingsRow 从它取标题、说明、选项名（插件页面传进来的是自己写下的定义，省略的标题只在接受的声明里）。
+- 文字翻译的渲染处：SettingsRow 用 resolverFor(locale, useText())；setting-text 的 settingChoices/settingValueText 收 TextResolver；setting-form 的 settingHints 把选项文字翻成当前语言再交给 nb-form（nb-form 还不认 TextRef），settingForm 改为按“声明 + 语言”缓存。
+- Lab：settings-host、SettingsRowFixture、SampleModelsPage 改用接受的声明。
+
+### 块 D：SDK 贡献助手与 pluginText（已完成，typecheck 通过，src/sdk 的 bun 与 vitest 测试通过）
+
+- src/sdk/plugin.ts：`Text` 改为再导出 nb-ui 的 `Text`；删去 `localizedText`（仓库里只有 6 个助手用它）。
+- 6 个助手（command-helpers.ts、settings-helpers.ts 的 section/setting、settings-browser-helpers.ts 的 settingsPage、workbench-helpers.ts 的 view/statusItem）：文字原样写进声明，`title`（分区的小组 `title`、视图的标题动作 `title`）可省略，省略时声明里没有这个字段，由宿主登记时补。
+- 写下的声明类型：src/shared/convention-keys.ts 新增 `Written<Declaration, Fields>`；commands 用已有的 `WrittenCommandDeclaration`；sections.ts 新增 `WrittenSettingsSectionDeclaration`、`WrittenSettingsPageDeclaration`；views.ts 新增 `WrittenViewDeclaration`；viewContribution、settingsPageContribution 收写下的声明。
+- src/shared/plugin-text.ts（新）：`pluginText<Source = Catalog>(ns)` 返回 `(key: CatalogKey<Source>, params?) => TextRef`；`CatalogKey` 把嵌套目录展开成点号路径、复数形归到不带后缀的键，宽泛的 Catalog 退化成 string。SDK 根入口导出 `pluginText` 与 `CatalogKey` 类型。测试 src/shared/plugin-text.test.ts（含三条编译期反例）。
+- 快照：sdk.test.ts 根入口导出名加 `pluginText`；surface.test.ts 的闭包：根入口加 shared/plugin-text.ts，commands、settings、settings/browser、workbench 加 shared/convention-keys.ts（贡献点的 complete 随合同模块分发，是有意的；commands 闭包不再带 localized-text.ts）。
+- 测试改动：src/sdk/plugin.test.ts、browser-helpers.dom.test.ts 的期望从“字符串改写成双语映射”改为“原样写进声明”，并加省略标题的设置项与命令的声明里没有 title。
+- 作者文档 plugin-sdk/README.md 第 135 行一句：文字可以写目录键、带目录时 title 可省（约定键）、运行时文字用 `pluginText`。
+
+### 验收测试（已写，通过）
+
+- src/convention-keys.test.ts（新）：
+  - “约定键经真实运行实例进入消费表”：一个服务端运行实例（诊断、公开状态、配置、命令系统真插件）装三种来源：内置代码写法（直接写贡献与 defineSetting）、SDK 助手（command、setting）、手写清单（JSON 经 manifestFormat.read 读入、thirdPartyDefinitionAt 登记；入口代码由装载器参数给出，不经文件装载）。命令服务 get(id).title 与配置服务 declaration(设置项).title 都是所属插件的约定键引用。
+  - “各贡献点补出的键与 Spec 的键表一致”：13 个点各一例，含选项、小组、标题动作、id 不以插件 id 开头、菜单项只补命名空间、显式的别的命名空间不改。
+  - “声明测试”：全部内置插件定义（同 command-args.test.ts 的收集法）对 builtinPluginCatalogs 报 []；合成样本报出 missing-key 与 no-catalog 两条，复数 `_other` 不报。
+- src/plugins/workbench/web/items/registry.test.ts：新增一例：真实内核里贡献方经贡献交出的实现每次返回同一个 TextRef 对象，声明省略标题；用宿主引擎（createTextEngine）与 resolverFor 在 computed 里读条目，切换语言后标题与文字都换成英文。
+- 发现：手写清单的设置项要写全 layers 与 applies（defineSetting 会补缺省，清单没有这一步），这是现状，不在本片改。
+
+### 块 E：目录检查脚本（已完成，测试通过，scripts 的 tsc 通过）
+
+- scripts/ci/message-catalogs.ts（新）：
+  - `catalogFailures(set)`：以源语言为准查缺键与多余键（复数形按不带后缀的键比）、占位符集合一致、每种语言按 `Intl.PluralRules` 的类别要齐（英文因此要 `_one` 与 `_other`，中文只要 `_other`）、值不含 `$t(`、键不含 `:`、给了码表时 `errors.<码>` 恰好覆盖。复数形只认同层也写了 `_other` 的键，`step_two` 这类名字不误判。
+  - `messageCatalogFailures(repoRoot, directories)`：查带 `l10n` 的插件 package.json 列出的目录，加 `CATALOG_DIRECTORIES` 登记的不经清单的目录（现在登记了宿主目录 packages/neuro-book/src/web/locales，源语言 zh-CN，现有内容通过）；packages/ 下没登记的 `locales/*.json` 报为未登记；登记了但仓库里没有的目录不查（治理检查的临时仓库）；没有目录的插件放行。
+  - 单独运行 `bun scripts/ci/message-catalogs.ts [--repo-root]`，有问题时打印并以 1 退出；`governance:check` 里并入 failures（scripts/ci/agent-governance.ts 两行），scripts/tsconfig.json 的 include 加一行。
+- scripts/ci/message-catalogs.test.ts（新，vitest）：仓库通过；合格样本通过；七种坏样本（缺键、多键、占位符不一致、英文缺 `_one`、`$t(`、闭合码缺文案、闭合码多文案）各报一条；命令行对五种目录坏样本退出 1 并写出问题、合格时退出 0；清单列的文件不存在、多出清单没列的语言、未登记目录逐条报出；登记目录按登记的源语言查。
+- 取舍：目录格式规则（键不含 `:`、值不含 `$t(`）与 nb-runtime 的 `catalogProblems` 同一套，但脚本没有复用它：仓库根的 package.json 没有声明依赖 nb-runtime，脚本只靠 git 与 Node 内置模块，与现有 scripts/ci 一致。
+- 未接上：闭合码的码表来自各插件的远程合同（`errors` 键），脚本不导入应用代码，所以仓库扫描时还没有码表来源；核心函数与登记表都收 `closedCodes`，现在没有一项填。等内置插件有目录时，在 CATALOG_DIRECTORIES 填码表，或者在应用的声明测试里从合同取码表再调用同一规则（要决定放哪边）。
+
+### 块 F：Spec（已完成；docs:check 与 governance:check 在改动范围内无失败、无警告）
+
+全部在 worktree 的 docs/specs/ 下，Spec 正文与证据都不引用 Task（批准依据只引提案）。
+- workbench/commands.md：title、category 改为 Text；新增“约定键”一节（commands.<本地 id>.title，只补必填字段）；远程 list 合同版本 2、title/category 原样交出、version-changed 的兼容说明；验收 19、20；实现合同与证据。
+- workbench/menus.md：label 为 Text；新增输出 9（只补命名空间，没有约定键）。
+- workbench/views.md：标题为 Text；新增“约定键”（views.<id>.title、.actions.<命令 id>.title）；公开入口补 WrittenViewDeclaration（补全函数 completeViewDeclaration 没有导出，不列）。
+- workbench/editor.md：新增“约定键”（editorPages、editors；菜单位置指向 menus 输出 9）。
+- workbench/quick-open.md：显示语言一条与“与命令系统”一行改为按当前语言翻译 Text。
+- ui/workbench-shell.md：输出 33（statusItems、titlebarItems 的约定键；text()、tooltip() 返回 Text、渲染时翻译；运行期文字用 pluginText）、输出 36（home）、输出 40（activityItems）；新增验收 45（省略标题的状态栏条目、text() 返回固定引用，切换语言后两者都换）；证据里 registry.test.ts 标注验收 45。
+- settings/settings-window.md：声明里 LocalizedText 改为 Text；接口块写登记后的形状（title 必有），注明作者写下的形状 WrittenSettingsSectionDeclaration、WrittenSettingsPageDeclaration 里 title 可省；实现合同的公开入口补上这两个类型与 completeSectionDeclaration、completePageDeclaration；新增“约定键”一节（键表：settings.<名>.title、.choices.<String(值)>.title、settingsSections.<id>.title、.groups.<小组 id>.title、settingsPages.<id>.title；本地 id、名里的点、选项值转段、可选字段不补、只补不核对、设置行从 declaration() 取）；验收 8；证据并入“合同测试”。
+- settings/configuration.md：公开入口补 WrittenSettingDeclaration、WrittenSettingChoice 与 completeSettingDeclaration（AcceptedSetting、acceptedSettingOf 在 plugins/settings/shared 内部，不是公开入口，不列）；字段表 title 可省、写了原样保留、省略补约定键；choices 的 title 可省；接口加 declaration(setting)；示例的 defineSettings 改为一条省略 title、一条字面字符串（themeSetting 示例保持与真实代码一致，未改）；输出 1、21 的“缺语言”改为“不是文字”（声明校验在第 4 片已换成 TextSchema，Spec 文字没跟上）。证据里原有的“整份读写（输出 24）”一行因 docs:check 的固定标签警告并入“合同测试”行，内容未改。
+- state/public-state.md：reason 改为 Text，登记处补命名空间、没有约定键、只在窗口翻译（服务端与项目实例里命令系统改用通用原因，与块 A 的实现一致）。代码注释 plugins/state/shared/contracts.ts 的锚点从“输出 1”改为“声明”（原来指错了位置）。
+- runtime/plugin-api.md：“文字与缺省值”一条：原样交给贡献点、省略标题补约定键、助手不再要求标题、pluginText 与 CatalogKey。
+- ui/i18n.md：非目标一条改写；新增“目录与键”（嵌套、复数、textRef、pluginText 与 CatalogKey、运行期文字要自带命名空间）、“约定键”（通则、补命名空间与跳过的字段、写了的原样保留、只补不核对、11 个贡献点的总表）、输出 12、“目录检查”（脚本范围、检查项、声明测试）；验收 3、4；Smoke 加 governance:check；证据加实现入口与合同测试。代码注释里的“目录与键”“约定键”“目录检查”三个锚点都对得上。
+- runtime/plugins.md：定义与查询一条加 complete（时机、只补一次、检查视图给原样、抛错即拒、进不了清单）；证据 declarations.test.ts 标注 complete。
+- runtime/plugin-manifest.md（计划列表外，随代码改动补的三处）：代码定义里的函数含补全函数；第三方贡献点不能写补全函数；输出 10 的顺序加“补全函数”一步。
+
+## 验收与测试的对应
+
+- 省略标题按约定取键、三种写法结果相同（i18n 验收 3、commands 验收 19、settings-window 验收 8）：src/convention-keys.test.ts 第一组（真实服务端运行实例，命令服务与配置服务读出）。
+- 各贡献点的键表（各 Spec 的“约定键”）：src/convention-keys.test.ts 第二组（13 个补全函数）。
+- 缺键报告（声明测试）：src/convention-keys.test.ts 第三组。
+- 内核 complete 的时机、缓存、检查视图（runtime/plugins）：packages/nb-runtime/src/plugins/declarations.test.ts “贡献点补全声明 complete”；第三方贡献点写 complete 被生成清单拒绝：plugin-manifest.test.ts。
+- 远程命令合同 v2、title/category 为 Text（commands 验收 20）：src/plugins/commands/shared/remote.test.ts（v1 调用方得 version-changed、list 带 category）与 registry.test.ts（接受任何文字值）。
+- 状态栏 text() 返回 Text、切换语言（workbench-shell 验收 45）：items/registry.test.ts 新增一例（真实内核与宿主文字引擎）。
+- pluginText 与 CatalogKey：src/shared/plugin-text.test.ts；SDK 根入口快照：src/sdk/sdk.test.ts、surface.test.ts。
+- 目录检查（i18n 验收 4）：scripts/ci/message-catalogs.test.ts；governance:check 实际运行通过。
+- 全部验收测试用真实运行实例与真实文字引擎，没有 mock、spy、假时钟与固定等待（governance:check 的测试规则在改动范围内无警告）。
+
+## 验证（主会话复跑为准；以下是本片自己跑的结果）
+
+- packages/neuro-book：`bun run typecheck` 通过（tsc + 两份 vue-tsc）；`bun run test:bun` 第一次 1578 pass、1 fail：plugin-sdk/pack.test.ts“类型导出的名字”的快照 DECLARED 没有 `CatalogKey`、`pluginText`（生成包的 index.d.ts 多出这两个名字，是本片有意加的导出）；把两个名字加进 DECLARED 后该文件 12 pass。`bunx vitest run --testTimeout=30000`：65 个文件、379 个测试全过。`bun test plugin-sdk`：76 pass、0 fail。build-plugin.test.ts 输出里的“Build failed”“合同模块算不出来”是该测试有意构造的失败样本，不是失败。
+- packages/nb-runtime：`bun run typecheck` 通过；`bun run test` 406 pass、0 fail。
+- 仓库根：`bun run docs:check` failures []、改动范围内 warnings []；`bun run governance:check` failures []、warnings []（含新接入的目录检查；测试规则在改动范围内无 mock、spy、假时钟、固定等待的警告）。
+- scripts：`bunx vitest run scripts/ci/message-catalogs.test.ts` 6 个全过。
+- 修 pack 快照后按 brief 的串联命令复跑：typecheck 通过；test:bun 1578 pass、1 fail，失败的是 src/plugins/explorer/browse.test.ts“展开的目录改名：子树在新地址继续展开，选择跟随”（改名后选择为空）。这个测试第一轮全量时通过，单独连跑三次 16/16 通过；本片在资源管理器里只给右键菜单贡献点加了 `complete`（只补命名空间），不碰浏览控制器与选择，判断为负载下的时序抖动（从运行结果推断，未定位根因）。串联在这里中断，vitest 部分单独再跑：65 个文件、379 个测试全过。请主会话复跑时留意这一例。
+
+## 禁止清单自查
+
+- 没有提交、push、stash、切分支；没有 `rm -rf`（调试用的临时 console.log 是从 /tmp 备份恢复的，不是删目录）。
+- 不按错误文案分支：脚本按结构判断；测试断言的是报告文字，属于可观察输出，不是程序分支。没有静默 catch：message-catalogs.test.ts 的 runScript 捕获 execFile 的非零退出并返回退出码与 stderr 供断言，不吞错。
+- 没有放宽断言、跳过测试或加测试专用分支：改动的期望（plugin.test.ts、browser-helpers.dom.test.ts、sdk/surface/pack 快照）都是本片合同变化带来的新行为。
+- 没有删除任务之外的代码、配置或注释。范围外的改动只有两处文档顺手修正，已在块 F 写明：configuration.md 证据一节把原有“整份读写”行并入“合同测试”行（docs:check 对改动文件给固定标签警告）；state/contracts.ts 注释里我自己前一块写错的锚点。
+- 没有跨包深导入：nb-runtime 只加了类型与钩子，仍只依赖 TypeBox；脚本不导入应用或 nb-runtime 源码；plugin-platform 没有新依赖 nb-ui。
+- 清理语句：内核 host.ts 的补全结果用 WeakMap 随登记记录回收，原有释放与停止路径未动。
+
+## 按推荐实现的待决定项（请主会话确认）
+
+1. 只给必填的文字字段补约定键（title、选项与小组的 title），可选字段（description、placeholder、keywords、命令 category）省略就是没有。提案第 2 节的例子列了 `.description`、`.placeholder`、`.keywords`、`.category`；全补会让每条声明在目录里多出一批必须存在的键（声明测试会逐条报缺），推荐先只补必填的，需要时再加。
+2. 键缺不缺不在登记时拒绝（补全是纯函数，三个运行位置结果一致；内置目录只在浏览器构建里）：由声明测试与窗口缺键诊断报出。
+3. RemoteCommandSchema 新增 `category`（Text 或 null），随版本 2 一起。
+4. 选项值含 `.` 时照样拆成键路径（与 flattenCatalog 的展开一致），Spec 写明“需要平铺的键时显式写 title”。
+5. 约定键的通则与总表放在 ui/i18n.md，各贡献点 Spec 只写自己的键；settings 的三个贡献点集中写在 settings-window.md 的“约定键”（代码注释的锚点指向那里），configuration.md 只链接。
+6. runtime/plugins.md、settings/configuration.md、runtime/plugin-manifest.md 不在计划列出的 Spec 里，因代码改了它们描述的合同（complete 钩子、title 可省与 declaration()、清单不收 complete）一并更新。
+7. 新增 SettingsService.declaration(setting)：设置行要取补全后的标题，插件手里的定义是写下的样子。
+8. 闭合错误域的码表来源未接上（见块 E）：规则与参数都有，登记表里没有填码表。
+9. 目录检查脚本不复用 nb-runtime 的 catalogProblems（仓库根没有声明这个依赖）；两处的格式规则（键不含 `:`、值不含 `$t(`）现在是两份实现，改规则时要同改。若接受仓库根依赖 nb-runtime，可以合成一份。
+
+## 未完成与遗留
+
+- 内置插件现在没有目录（builtinPluginCatalogs 是 {}），所以内置声明还都写着字面文字或语言映射；把它们改成约定键属于后续按插件迁移，不在本片。
+- 闭合码的码表来源（待决定 8）。
+- src/shared/settings.ts 第 67、68 行 ui 提示的 `placeholder`、`unit` 类型仍是 LocalizedText（schema 已是 TextSchema，第 4 片遗留），本片没有改，留给后续一并收尾。
+- 手写清单的设置项要写全 layers 与 applies（defineSetting 会补缺省，清单读入没有这一步）：现状，记录在案，不在本片改。

@@ -1,0 +1,156 @@
+# w00028 t03 第 7 片（试点）交付报告：nbook.plugins 迁到消息目录
+
+状态：已完成，未提交。要求的验证都通过（见文末）。
+
+## 改动文件（worktree /home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n）
+
+新增
+- packages/neuro-book/src/plugins/plugins/locales/zh-CN.json、en-US.json：插件目录，82 个键（迁移前 82 处双语字面量，一处一键；三个数量键在 en-US 各有 _one、_other）。
+- packages/neuro-book/src/plugins/plugins/web/text.ts：静态导入两份目录，导出 `pluginsCatalogs`（`PluginCatalogs` 形状）、`pluginsText = pluginText<typeof zhCN>(descriptor.id)`、键类型 `PluginsTextKey`。
+- packages/neuro-book/src/plugins/plugins/locales.test.ts：“文字没变”测试（对照表从 HEAD 8dfda688b 抽出）、复数形、`errors.*` 恰好覆盖 registry 合同的业务失败码。
+- packages/neuro-book/src/shared/testing/text-port.ts：组件测试用的端口辅助 `testTextPort(locale, {插件id: catalogs})`、`provideText(port)`。
+
+修改
+- packages/neuro-book/src/plugins/plugins/web/components/PluginsPage.vue：删掉 TEXT、PREVIEW_TEXT、PENDING_TEXT、FAILURE_TEXT、BLOCKED_TEXT、BLOCKED_REASON、CATALOG_REASON、REJECTED_REASON 八张文字表与 `text`/`format`（localize、formatText）两个取文字函数；改成按码查“键表”（值是 `PluginsTextKey`），统一经 `text(key, params)` = `useText().t(pluginsText(key, params))` 翻译。`locale` 属性保留，只用于 `Intl.ListFormat`。数量参数 `count` 改传数字（原来是 `String(n)`）。
+- packages/neuro-book/src/plugins/plugins/web/components/PluginsPage.md：标签加 `state:inject`，隐藏通道理由补一条，Props 里 `locale` 的说明改为只管列表连接。
+- packages/neuro-book/src/plugins/plugins/web/components/PluginsPage.dom.test.ts：挂载时注入 `testTextPort(locale, {"nbook.plugins": pluginsCatalogs})`；原有中文断言一条没改（现在经严格模式的宿主引擎翻出来）；新增一条英文界面用例（英文目录、`_one` 复数形、英文列表连接、确认框标题）。
+- packages/neuro-book/src/plugins/plugins/web/plugin.ts：设置页声明改为 `WrittenSettingsPageDeclaration`，`title` 省略（登记时补约定键 `settingsPages.installed.title`），`description` 写 `pluginsText("settingsPages.installed.description")`（可选字段不自动补键）。
+- packages/neuro-book/src/web/plugins.ts：`builtinPluginCatalogs` 登记 `"nbook.plugins": pluginsCatalogs`。
+- packages/neuro-book/src/plugins/lab/web/fixtures/PluginsPageFixture.vue：场景里另建 `createHostTextEngine`、登记本插件目录、`provide(TEXT_PORT_KEY, …)`，语言跟场景的 `locale` 属性，并 `watch` 同步。
+- scripts/ci/message-catalogs.ts：`CATALOG_DIRECTORIES` 加 `packages/neuro-book/src/plugins/plugins/locales`（不登记会报“目录没有登记”）。
+
+没有改的：backend/plugin.ts、shared/contracts.ts、plugins.test.ts（服务端合同测试，没有界面文字）；Lab 的 fixtures/index.ts（场景输入照旧给 `locale`）。
+
+## 验证
+见文末“验证结果”：typecheck、test:bun、vitest、plugin-sdk、docs:check、governance:check 都通过；e2e 与截图没跑。
+
+## 迁移指南（给后续插件：workbench、projects、explorer、settings、editor、lab 与其余）
+
+### 0. 先做的事
+1. 读：docs/specs/ui/i18n.md（“目录与键”“约定键”“目录检查”）、src/shared/plugin-text.ts、src/shared/convention-keys.ts、src/web/host/text-engine.ts。参照实现是 src/plugins/plugins/（本片 diff）。
+2. 列全目标插件的文字：`grep -rn '"en-US"' src/plugins/<插件>/`（`.ts` 与 `.vue` 都要），再看 `.vue` 模板里有没有写死的中文（`grep -nP '[\x{4e00}-\x{9fff}]' <文件>.vue`，排除注释）。
+3. 用脚本从 HEAD 抽出全部旧字面量，不要手抄。本片用的两个一次性脚本在 /tmp/w00028-t03/7a/：
+   - extract.ts：`bun extract.ts <HEAD 版本的文件…>`，逐行找 `{"zh-CN": "…", "en-US": "…"}`，按“所在 const 名.行首键[.子字段]”输出 JSON，最后打印总数。与 grep 的数对上再继续。它只认单行的字面量；多行、模板字符串、拼接的要人工补。
+   - build.ts：手写“旧名 → 新键”的映射表，脚本校验旧名一个不漏、新键不重复、嵌套不撞（同一路径既是字符串又是对象报 collision），然后写出两份目录（`{x}` 换成 `{{x}}`，数量键按语言拆复数形）与测试用的对照表常量（legacy-table.ts.txt）。改路径与映射即可复用。
+   先 `git show HEAD:<路径> > /tmp/...` 取迁移前的版本再抽，对照表才来自旧代码。
+
+### 1. 目录文件与键的命名
+- 位置：`src/plugins/<插件>/locales/zh-CN.json`、`en-US.json`；源语言 zh-CN；JSON 四空格缩进、末尾换行（同 src/web/locales）。
+- en-US、zh-CN 的值逐字沿用旧字面量，只做 `{name}` → `{{name}}`。看到错字、生硬的英文也不改，记进报告。
+- 声明字段：按 Spec 的约定键 `<短名>.<本地 id>.<字段>`（短名见 i18n.md 的表：commands、settings、settingsSections、settingsPages、views、statusItems、titlebarItems、activityItems、home、editorPages、editors）。本地 id = 贡献 id 去掉 `<插件 id>.` 前缀（`nbook.plugins.installed` → `installed`）；设置项 `<插件>/<名>` 取名。
+  - 必填字段（表里“补的字段”，基本都是 `title`）：从声明里删掉，登记时自动补成约定键。
+  - 可选字段（如设置页的 `description`、`keywords`）不自动补：照约定键的形状起键（本片 `settingsPages.installed.description`），声明里写 `pluginsText("…")`。
+  - 列表字段里每项的必填文字（视图动作、设置选项、分区小组）键在 `<短名>.<本地 id>.<列表字段>.<项的段>.<字段>`。
+- 界面文字：按用途分组的嵌套键。本片用了 `page.*`（页面级说明）、`install.*`、`groups.*`、`row.*`（列表行，含 `row.pending.<种类>`、`row.notLoaded.<码>`）、`problems.*`（含 `problems.blockedReasons.<原因>` 等）、`preview.*`（含 `preview.<关系>.title|confirm`）、`uninstall.*`、`dialog.*`。按码区分的文字用 `<组>.<码>`，码原样作键段（连字符没问题；键里不能有 `.` 以外的分层，也不能有 `:`）。
+- 同一路径不能既是文字又是对象：旧的 `blocked`（列表标题）与按原因的 `blockedVersion` 等，本片拆成 `preview.blockedTitle` 与 `preview.blockedReasons.<原因>`。
+- 失败码：插件自己的远程合同 `errors` 里声明的业务码放 `errors.<码>`，并写一条测试断言 `errors` 下的键恰好等于码表（本片 locales.test.ts 第三条，码表取 `installFailureDetails`、`manageFailureDetails` 的键）。路由层的码（`REMOTE_FAILURE_CODES` 里的 unavailable、timeout、unknown-outcome…）按提案归宿主目录，宿主目录还没有这一组时先放 `remoteErrors.<码>`，不要混进 `errors.*`；不认识的码的兜底文字放别处（本片 `failures.unknown`）。
+- 数量：参数叫 `count` 的写复数形。zh-CN 只写 `<键>_other`；en-US 写 `<键>_one` 与 `<键>_other`（目录检查要求英文两种都在）。旧英文没区分单复数（如 “entry point(s)”）时两种都写旧原文，不趁机改写。调用处 `count` 必须传数字。
+- 两种语言相同的文字（示例路径）也进目录，保持“一处一键”，方便对照测试。
+- 参数名避开 i18next 的选项名：`ns`、`lng`、`lngs`、`defaultValue`、`context`、`ordinal`、`replace`、`keyPrefix` 等（引擎把参数与 `ns` 合进同一个选项对象）。本片用到的 id、key、locale、reason、detail、entry、location、plugin、entries、range、service、version、plugins、capability、count 实测没问题。
+
+### 2. 代码改写的各种形状
+- 取文字的模块：每个插件一个 `web/text.ts`（只给浏览器用，服务端不翻译 `TextRef`），照抄本片：
+  ```ts
+  import type {PluginCatalogs} from "nbook/shared/convention-keys";
+  import {pluginText} from "nbook/shared/plugin-text";
+  import type {CatalogKey} from "nbook/shared/plugin-text";
+  import enUS from "../locales/en-US.json";
+  import zhCN from "../locales/zh-CN.json";
+  import {descriptor} from "../plugin";
+  export const xxxCatalogs: PluginCatalogs = {source: "zh-CN", catalogs: {"zh-CN": zhCN, "en-US": enUS}};
+  export const xxxText = pluginText<typeof zhCN>(descriptor.id);
+  export type XxxTextKey = CatalogKey<typeof zhCN>;
+  ```
+  插件在 `shared/` 里也要构造引用（例如经合同交出的 `Text`）时，放 `shared/text.ts`；服务端仍只产出、不翻译。
+- 登记两处，缺一不可：`src/web/plugins.ts` 的 `builtinPluginCatalogs` 加 `"<插件 id>": xxxCatalogs`（窗口才翻得出）；`scripts/ci/message-catalogs.ts` 的 `CATALOG_DIRECTORIES` 加 `{path: "packages/neuro-book/src/plugins/<插件>/locales", source: "zh-CN"}`（目录检查才查它，不登记直接报“目录没有登记”）。
+- 声明（贡献的 declaration）：类型换成该贡献点的 `Written…Declaration`（如 `WrittenSettingsPageDeclaration`，从 `nbook/plugins/settings/shared/sections` 用 `import type` 取；跨插件只要是 type import，architecture.test 不拦），删必填文字字段，可选字段写 `xxxText("…")`。也可以写不带 ns 的 `{kind: "text", key}`，登记时补 ns；用 `xxxText` 的好处是键有类型核对。
+- `.vue` 里的文字表（`const TEXT = {...} satisfies Record<string, LocalizedText>`）与 `localize`/`formatText`：
+  - `<script setup>` 里：`const port = useText();`、`const text = (key: XxxTextKey, params?: TextParams): string => port.t(xxxText(key, params));`。`useText` 来自 `@notnotype/nb-ui/text-port`，`TextParams` 来自 `@notnotype/nb-ui/text`。
+  - 模板里 `text(TEXT.foo)` → `text('group.foo')`，`format(TEXT.bar, {id})` → `text('group.bar', {id})`。vue-tsc 核对模板里的键（实测写错键报 TS2345）。
+  - 按码查文字的表（`Record<Code, LocalizedText>`）改成按码查键的表（`Record<Code, XxxTextKey>`），保留“查不到就是未知码”的分支（`FAILURE_KEYS[code] ?? "failures.unknown"`）；不要拼 `` `errors.${code}` `` 碰运气，未知码靠表决定。表里混着非文字字段（tone、showDetail）的，只把文字换成键。
+  - 在渲染期或事件里调 `text()`，不在模块顶层折成字符串：渲染期调用才会随语言切换更新。已有的“失败那一刻存成字符串”的状态（本片 `problem.reason`、`loadFailure`）照旧，切换语言后不更新，迁移前就是这样。
+- `messages.ts` 一类的表加取文字函数（`editorText(locale, key, params)`）：表变成目录；函数删掉，调用处改成组件里的 `text(key, params)` 或纯 TS 里经 `TextResolver`。不保留旧函数做转发。
+- 纯 TS 函数：参数从 `locale: DisplayLocale` 改成 `resolver: TextResolver`（`nbook/shared/localized-text`，`{t, variants}`），内部 `resolver.t(xxxText(key, params))`；组件里传 `useText()`，插件激活里传 `await windowTextPort(context.services, fallback)`（依赖要声明 `{key: windowTextKey, required: false}`）。
+- `locale` 属性：只用于取文字就删（连同调用方、Lab 场景输入、`.md` 的 Props）；还用于 `Intl.*` 格式化（本片 `Intl.ListFormat`）就保留，在属性注释与 `.md` 里写明“只用于格式化，文字经端口”。保留时插件入口照旧用 `windowLocale(...)` 传，与端口同一来源。
+- 组件 `.md`：标签加 `state:inject`，“隐藏通道理由”写一条注入的翻译端口（参照 web/FailurePage.md 与本片 PluginsPage.md）。
+
+### 3. 测试
+- “文字没变”测试（每片必须有）：参照 src/plugins/plugins/locales.test.ts。对照表常量粘 build.ts 生成的 legacy-table.ts.txt，键是新键、值是旧字面量（旧的 `{name}` 写法）。断言两件事：目录展开后的键（复数形归到不带后缀的键）与表的键集合相等（双向，新编的文字也抓得到）；每个目录值等于表值换成 `{{name}}` 之后。再加复数形与 `errors.*` 覆盖码表各一条。写完做一次变异自检：改一个目录值，确认变红，再改回。
+- 组件测试（`*.dom.test.ts`，Vitest）：挂载时注入端口，原来的中文断言不动：
+  ```ts
+  import {provideText, testTextPort} from "nbook/shared/testing/text-port";
+  const port = testTextPort(locale, {"<插件 id>": xxxCatalogs});
+  mount(Comp, {props, global: {provide: provideText(port)}});
+  ```
+  `testTextPort` 用窗口同一个 `createHostTextEngine`（已登记 nb-ui 与 nbook.host），`strict: true`：缺键、缺插值参数直接抛错，测试因此也核对了键与参数名。组件还用到别的插件的文字时，把那个插件的目录一起传。要测语言切换就自己建引擎：`createHostTextEngine({locale, strict: true})`，再 `engine.setLocale(...)`。
+  - 不注入时组件拿到 nb-ui 的缺省端口：没有插件目录，显示键名，中文断言全挂。
+  - 建议加一条英文界面用例，覆盖 en 的 `_one` 与带参数的句子。
+- bun 测试里的纯 TS 函数：`textIn(locale, {"<插件 id>": xxxCatalogs.catalogs})`（src/shared/testing/text.ts，最小实现，第二个参数是“命名空间 → 语言 → 目录”）。
+- 声明测试：src/convention-keys.test.ts 的“声明测试”读 `builtinPluginCatalogs`，登记之后自动覆盖该插件的约定键与显式键，不用另写。自检：把目录里约定键改个名，`bun test src/convention-keys.test.ts` 报 missing-key（本片做过）。
+- 目录检查：仓库根 `bun scripts/ci/message-catalogs.ts`，无输出、退出 0 为通过。
+
+### 4. Lab 场景
+- Lab 窗口的端口跟着 Lab 窗口自己的界面语言，`-english` 场景不会自动变英文。迁过的组件在 fixture 里要自己注入端口（fixture 不是测试，不能引 `shared/testing/`；可以引 `nbook/web/host/text-engine` 与别的插件的 `web/`、`shared/`）：
+  ```ts
+  import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
+  import {createHostTextEngine} from "nbook/web/host/text-engine";
+  const sceneLocale = (): string => (typeof bindings.value.locale === "string" ? bindings.value.locale : "zh-CN");
+  const text = createHostTextEngine({locale: sceneLocale()});
+  text.register("<插件 id>", xxxCatalogs.catalogs, xxxCatalogs.source);
+  provide(TEXT_PORT_KEY, text.port);
+  watch(sceneLocale, (locale) => text.setLocale(locale));
+  ```
+  组件的 `locale` 属性删掉了的，fixtures/index.ts 场景输入里的 `locale` 也要删（`defineLabFixture<typeof X>` 会类型报错），fixture 改按场景名（`-english` 后缀）定语言。几个 fixture 都要这段时，可以抽成 lab/web/fixtures 下的一个小函数（本片只有一个，没抽）。
+- 本片在 Vitest 里临时挂载过 fixture：中文场景、英文场景、改 `locale` 后切回中文，三种都对；临时测试已删除。截图对照没做。
+
+### 5. 坑与解决
+- `count` 原来传 `String(n)`：迁移后必须传数字，否则引擎按 param-dropped 上报、不走复数，严格模式下取 `<键>` 不到会抛错。
+- 嵌套键撞名（同一路径既是叶子又是对象）：build.ts 报 collision，改键名。
+- 新目录不登记进 `CATALOG_DIRECTORIES`，governance 的目录检查直接失败。
+- 声明里的可选文字字段不会自动补键：只删必填字段，可选的要写引用，否则界面上就没了说明，而且没有测试会报。
+- `.vue` 模板属性绑定里只能用单引号字符串；统一用单引号最省事。
+- 后台跑全量 Vitest 时别在 src 里放临时测试文件，Vitest 会一起跑。
+- 参数值超过 500 字会被引擎截断并上报（Spec 输出 3）。服务端原文（激活错误消息、拒绝详情）以前不截，迁移后会截：Spec 允许，报告里写一句。
+
+### 6. 验证命令（packages/neuro-book 下，除非写明）
+- `bun run typecheck`（tsc 加两次 vue-tsc，模板里的键也核对）
+- `bun test src/plugins/<插件> src/convention-keys.test.ts src/architecture.test.ts`
+- `bunx vitest run src/plugins/<插件> --testTimeout=30000`；动了 Lab 场景时加 `src/plugins/lab`
+- 全量：`bun run test:bun && bunx vitest run --testTimeout=30000`；`bun test plugin-sdk`
+- 仓库根：`bun scripts/ci/message-catalogs.ts`、`bun run docs:check`、`bun run governance:check`
+- e2e 里断言了该插件中文文字的（`grep -rn '<中文片段>' e2e/`），交主会话构建后跑对应文件。
+
+## 需要主会话决定的点
+1. 路由层失败码 unavailable、timeout、unknown-outcome 的文字暂放本插件 `remoteErrors.*`（逐字沿用）。提案说归宿主目录：宿主目录加了这一组之后，这三条和各插件里同类的文字要合并过去。
+2. 闭合码检查没有用 `CATALOG_DIRECTORIES` 的 `closedCodes`（那要在脚本里再抄一份码表），改成包内测试断言 `errors` 的键等于 `installFailureDetails` 与 `manageFailureDetails` 的键。后续插件统一这样做，还是让脚本能从包里取码表，请定。
+3. `locale` 属性按说明保留（只用于 `Intl.ListFormat`）。端口本身有 `locale`，改读 `useText().locale` 就能删掉这个属性、`web/plugin.ts` 里的 `windowLocale` 与设置依赖、Lab 场景输入里的 `locale`，变成真正只有一个语言来源。要不要这样做（以及其它“只用于格式化”的 `locale` 属性是否统一处理），请定。
+4. 英文的三个数量徽标仍是 “entry point(s)” 式写法，`_one`/`_other` 相同。可以改成真正的单复数（"1 entry point not running" / "2 entry points not running"），属于改文案，没做。
+5. 参数截断：激活错误消息、拒绝详情等服务端原文超过 500 字会被截断（以前不截）。是否接受，或这类参数要不要豁免。
+6. 失败说明（`problem.reason`、`loadFailure`）是失败那一刻的字符串快照，切换语言后不更新（迁移前同样如此）。要不要改成存键与参数、渲染期翻译。
+7. 前几片迁过的组件（SettingsRow、WorkbenchShell、WorkbenchCommandPalette、EditorArea 等用了 `useText()`）的 `.md` 没有标 `state:inject`，本片只给 PluginsPage 补了。要不要统一补（以及 governance 是否该机检）。
+8. Lab 场景截图对照没做（留给主会话）；e2e/plugins.e2e.ts、plugin-authoring.e2e.ts、plugin-code.e2e.ts 断言了插件页的中文文字，没跑，需要构建后跑一次，确认窗口登记的目录生效。
+
+## 禁止清单自查
+- 不按错误文案做分支：失败分支按 `code` 查键表，未知码靠查表结果为 undefined，没有比较文字。
+- 不静默吞错：没有新增 catch。
+- 不放宽断言、不跳过测试、不加测试专用分支：原有 dom 断言一条没动，新增一条英文用例与目录测试；产品代码里没有测试分支（测试端口只在 shared/testing/）。
+- 不改写文字：两份目录由脚本从 HEAD 生成，“文字没变”测试逐字核对并做过变异自检。没有发现需要报的错字。
+- 不删改任务之外的代码、配置、注释：只改了上面列的文件；PluginsPage.vue 里与文字无关的逻辑与注释原样保留。
+- 不跨包深导入：只用 `@notnotype/nb-ui/text`、`@notnotype/nb-ui/text-port` 公开子路径；跨插件只有 `import type` 与 Lab 允许的 web/shared 运行时导入，architecture.test 通过。
+- 不留旧入口第二条路径：本插件里已无 `localize`、`formatText` 引用，被替换的八张表与两个取文字函数都删了。
+- 保留清理收口：`onBeforeUnmount(() => stopWindow?.())` 等原样保留。
+- 测试规则：新测试没有 mock、spy、假计时器与固定等待。
+
+## 验证结果（2026-10-28，worktree 基于 8dfda688b，未提交）
+packages/neuro-book：
+- `bun run typecheck`：通过（tsc、vue-tsc web、vue-tsc browser-test 都通过）。另做过一次变异：模板里写错键 `page.retryX`，vue-tsc 报 TS2345。
+- `bun run test:bun`：1582 pass，0 fail（175 个文件）。
+- `bunx vitest run --testTimeout=30000`：65 个文件，380 个测试全部通过。
+- `bun test plugin-sdk`：76 pass，0 fail（日志里的 “Build failed” 与 “合同模块算不出来” 是 build-plugin.test 故意构造的失败用例的输出）。
+- `bun test src/architecture.test.ts src/convention-keys.test.ts src/plugins/plugins`：17 pass。变异自检：改 en-US 一个值，“文字没变”测试变红；把约定键 `settingsPages.installed.title` 改名，声明测试报 missing-key；改完都已复原。
+- Lab fixture：临时写过一个 Vitest 用例挂载 PluginsPageFixture（blocked 中文、blocked-english、改 locale 后切回中文），三项断言都通过，临时文件已删（git status 里没有）。
+仓库根：
+- `bun scripts/ci/message-catalogs.ts`：退出 0，没有输出。
+- `bun run docs:check`：failures []、warnings []。
+- `bun run governance:check`：failures []、warnings []（存量警告不在本次范围）。
+没跑的：e2e（plugins、plugin-authoring、plugin-code 三个文件断言了插件页的中文）、Lab 截图对照。

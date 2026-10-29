@@ -87,6 +87,7 @@ export type Finding = {
         | "publish_config"
         | "repository"
         | "internal_dependency"
+        | "lockfile_version"
         | "undeclared_import"
         | "dependency_cycle";
     message: string;
@@ -176,10 +177,30 @@ export function checkReleasePackages(root: string, packages: readonly ReleasePac
         }
         for (const finding of undeclaredImports(entry)) report("undeclared_import", finding);
     }
+    findings.push(...staleLockfileVersions(root, packages));
     try {
         publishOrder(packages);
     } catch (error) {
         findings.push({package: "*", code: "dependency_cycle", message: (error as Error).message});
+    }
+    return findings;
+}
+
+/**
+ * `bun publish` 把 `workspace:^` 改写成 `^<版本>` 时用的是 `bun.lock` 里记的工作区版本，不是 `package.json` 的：改了版本号
+ * 没跑 `bun install` 刷新锁文件，发出去的依赖范围就是旧的（nb-story 0.2.0 发出去依赖 `nb-runtime ^0.1.0`，冒烟用 file: 的
+ * tarball 覆盖了依赖，查不出来）。没有锁文件（测试的临时仓库）时不查。
+ */
+function staleLockfileVersions(root: string, packages: readonly ReleasePackage[]): Finding[] {
+    const lock = readOptional(join(root, "bun.lock"))?.toString("utf8");
+    if (lock === undefined) return [];
+    const findings: Finding[] = [];
+    for (const entry of packages) {
+        const match = new RegExp(`"${entry.repositoryDirectory.replace(/[.*+?^${}()|[\]\\/]/gu, "\\$&")}": \\{\\s*"name": "[^"]+",\\s*"version": "([^"]+)"`, "u").exec(lock);
+        const recorded = match?.[1];
+        if (recorded !== undefined && recorded !== entry.manifest.version) {
+            findings.push({package: entry.manifest.name, code: "lockfile_version", message: `bun.lock 里记的版本是 ${recorded}，package.json 是 ${entry.manifest.version}：先跑 bun install 刷新锁文件，否则 workspace:^ 会被改写成旧版本`});
+        }
     }
     return findings;
 }

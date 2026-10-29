@@ -70,18 +70,18 @@ describe("关系图（输出 16、验收 3）", () => {
 });
 
 describe("泛称与无名对象（输出 22）", () => {
-    /** 样例里加一个只有泛称“学姐”的人物，并给它五处“学姐”的出场。 */
-    async function withAnonymous(): Promise<TestBook> {
+    /** 样例里加一个只有泛称（缺省“学姐”）的人物，并给它五处这个称呼的出场。 */
+    async function withAnonymous(name = "学姐"): Promise<TestBook> {
         const dataset = await smallDataset(20, "anon");
         const template = dataset.entities.find(entity => entity.id === "e4-2")!;
         const at = {chapter: 5, paragraph: 1};
-        dataset.entities.push({...template, id: "e5-900", label: "负责登记的学姐", names: [{text: "学姐", at, primary: true}], mergedFrom: []} as never);
-        for (let paragraph = 1; paragraph <= 5; paragraph += 1) dataset.mentions.push({entity: "e5-900", text: "学姐", at: {chapter: 5, paragraph}, start: 0, end: 2, via: "match"} as never);
+        dataset.entities.push({...template, id: "e5-900", label: "负责登记的学姐", names: [{text: name, at, primary: true}], mergedFrom: []} as never);
+        for (let paragraph = 1; paragraph <= 5; paragraph += 1) dataset.mentions.push({entity: "e5-900", text: name, at: {chapter: 5, paragraph}, start: 0, end: name.length, via: "match"} as never);
         return openTestBook("anon", dataset);
     }
 
-    test("只有泛称的人物是无名：关系图默认不画，includeAnonymous 时画出并带标记；对象列表照列、带标记；泛称的出现不计出场", async () => {
-        const anon = await withAnonymous();
+    test.each(["学姐", "志愿者学姐"])("只有泛称（%s；几个泛称连写也算）的人物是无名：关系图默认不画，includeAnonymous 时画出并带标记；对象列表照列、带标记；泛称的出现不计出场", async name => {
+        const anon = await withAnonymous(name);
         try {
             const plain = await anon.ok("graph.relations", {at: {chapter: 20}});
             expect(plain.nodes.some(node => node.id === "e5-900")).toBe(false);

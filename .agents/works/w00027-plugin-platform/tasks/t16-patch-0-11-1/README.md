@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t16-patch-0-11-1
-status: active
+status: done
 updated: 2026-10-27
 ---
 
@@ -24,8 +24,11 @@ updated: 2026-10-27
 - S3 `1d6791e87`：新建作品写完封面与作品目录后打开它；插件页的内置插件按界面语言显示名称与说明（`builtin-names.ts`，表里不含只在开发模式出现的 Lab：`check:dist` 不许生产产物里有它的名字）。验证：插件页 DOM 16 例、名称表对照产品清单、书架与插件 e2e（书架窄屏那例原先碰巧依赖一部没打开过的书，改成任一新鲜度说明）。Spec `6f39221eb`。
 - S4 `23f34d66c`：nb-story 的 `GraphLayout` 挪进 `src/web/graph/layout.ts`，typecheck 恢复。验证：nb-story typecheck 与测试（负载 19 时两例 5 秒超时，单独重跑 22 例过）。
 - S5 `a342d7f36`：0.11.1；两个 npm 包补 keywords、homepage、bugs，应用包描述改中文；README 写明没有文档目录时的作品目录；发布文档写明 Bun 的 bin 警告无害。验证：打包测试 68 例。
-- 收口：`test:affected --since 9f8b355af --typecheck` 在负载 30 时一例 Markdown DOM 测试超时，单独重跑过；全量 e2e 排队等负载降下来；实现审查（Sonnet）已派出。
+- 实现审查（Sonnet，[evidences/impl-review.txt](evidences/impl-review.txt)）：阻断 0、重要 2、建议 7，处理见 [plan.md 第 9 节](plan.md)，修正 `63b74fa4c`，Spec `fc1e3f2ad`、`cda85af83`。
+- 收口：`test:affected --typecheck` 全过；全量 e2e 294 例全过（33 分钟）。合入 master（`5ad28f876`）时与 w00024 在 `relations-view.ts` 的导入冲突，两边的导入都保留，nb-story typecheck 通过；nb-story 的命令行测试在另一个会话占满 CPU 时有 3 例 5 秒超时（每次不是同一批，每例都是新起 bun 子进程），本 Task 对 nb-story 只挪了一个类型（运行时擦除）；负载降到 3.2 后重跑这两个文件 37 例全过。
+
+- 发布（开发者 2026-10-27 授权）：推 master，主工作区 `release:smoke` 通过，`@notnotype/nb-plugin-sdk@0.11.1`、`@notnotype/neuro-book@0.11.1` 发到 npm（`latest`）；`release:smoke --from registry` 全部通过；临时目录里从 npm 装 0.11.1 核对了帮助对齐与“NeuroBook 已停止。”。发布期间 nb-story 下未跟踪的西游记文件挪开后已原样挪回。门禁照旧提醒 nb-runtime、nb-harness、nb-story 的源码改过但没提版本号（这次不发它们）。
 
 ## 下一步
 
-按 plan.md 的切片 S1 到 S5 实施，收口后派 Sonnet 做实现审查；版本改成 0.11.1 后停下，发布交开发者。
+完成。

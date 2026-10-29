@@ -2,7 +2,7 @@
 /**
  * 人物卡记录“在主区打开”的宽表格（docs/specs/story/viewer.md 输出 10）：筛选与人物卡相同，多出“怎么知道的”一列。
  */
-import {Input, IconButton, SegmentedControl} from "@notnotype/nb-ui/components";
+import {Badge, Input, IconButton, SegmentedControl} from "@notnotype/nb-ui/components";
 import {ref} from "vue";
 
 import {useBook} from "../host/book";
@@ -11,6 +11,11 @@ import PagedList from "../parts/PagedList.vue";
 import RecordTags from "../parts/RecordTags.vue";
 import RefLink from "../parts/RefLink.vue";
 import StateBadge from "../parts/StateBadge.vue";
+import FoldedBar from "../parts/FoldedBar.vue";
+import TierBadge from "../parts/TierBadge.vue";
+import {FLAG_WORDS} from "../parts/tier-words";
+import {useMinorCount, useShowMinorRecords} from "../host/show-minor";
+import {MARK_WORDS} from "../host/revise";
 
 const props = defineProps<{entity: string}>();
 const book = useBook();
@@ -20,7 +25,10 @@ const state = ref("");
 const text = ref("");
 const card = useStoryQuery("entity.card", () => ({entity: props.entity}));
 const knowledge = usePagedQuery("entity.knowledge", () => (kind.value === "knowledge" ? {entity: props.entity, ...(state.value ? {state: state.value as "knows"} : {}), ...(text.value.trim() ? {query: text.value.trim()} : {})} : null), 200);
-const statements = usePagedQuery("entity.statements", () => (kind.value === "statements" ? {entity: props.entity, ...(text.value.trim() ? {query: text.value.trim()} : {})} : null), 200);
+/** 次要（3 级）说法与抽屉共用一个开关（viewer 输出 56）。 */
+const showMinor = useShowMinorRecords();
+const statements = usePagedQuery("entity.statements", () => (kind.value === "statements" ? {entity: props.entity, ...(text.value.trim() ? {query: text.value.trim()} : {}), ...(showMinor.value ? {} : {maxTier: 2 as const})} : null), 200);
+const minor = useMinorCount(statements.extra, () => JSON.stringify([props.entity, text.value.trim(), book.at.value]), showMinor);
 </script>
 
 <template>
@@ -35,6 +43,7 @@ const statements = usePagedQuery("entity.statements", () => (kind.value === "sta
                 <SegmentedControl v-if="kind === 'knowledge'" v-model="state" size="xs" :options="STATES" aria-label="按状态筛" />
                 <div class="w-44"><Input v-model="text" size="sm" icon-class="i-lucide-search" placeholder="按字搜" /></div>
             </div>
+            <FoldedBar v-if="kind === 'statements' && minor.visible.value" v-model:open="showMinor" :count="minor.count.value" class="mb-1" data-testid="toggle-minor-records" />
             <table class="story-table w-full">
                 <thead>
                     <tr v-if="kind === 'knowledge'"><th>章</th><th>状态</th><th>知道了什么</th><th>怎么知道的</th><th>标记</th><th>出处</th></tr>
@@ -47,8 +56,9 @@ const statements = usePagedQuery("entity.statements", () => (kind.value === "sta
                     </tr>
                 </tbody>
                 <tbody v-else>
-                    <tr v-for="item in statements.items.value" :key="item.id" data-testid="wide-record">
-                        <td>{{ item.chapter }}</td><td>{{ item.text }}</td><td><RecordTags :tags="item.tags" /></td><td><RefLink v-for="ref in item.refs" :key="ref" :ref-text="ref" class="mr-1" /></td>
+                    <tr v-for="item in statements.items.value" :key="item.id" data-testid="wide-record" :data-tier="item.tier" :class="item.tier === 3 ? 'text-[var(--text-secondary)]' : ''">
+                        <td>{{ item.chapter }}</td><td><TierBadge :tier="item.tier" :flag="item.tierFlag" :explain="item.id" :family="item.family" />{{ item.text }}</td>
+                        <td><RecordTags :tags="item.tags" /><Badge v-if="item.tierFlag" size="sm" variant="soft" tone="neutral" class="ml-1">{{ FLAG_WORDS[item.tierFlag] }}</Badge><Badge v-if="item.mark" size="sm" variant="soft" :tone="item.mark === 'candidate' ? 'warning' : 'success'" class="ml-1">{{ MARK_WORDS[item.mark] }}</Badge></td><td><RefLink v-for="ref in item.refs" :key="ref" :ref-text="ref" class="mr-1" /></td>
                     </tr>
                 </tbody>
             </table>

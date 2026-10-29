@@ -172,7 +172,8 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 projectName,
                 home: homeSlot,
                 reportHome: (message) => diagnostics.record({level: "warn", event: "workbench.home", message, source: {plugin: descriptor.id}}),
-                reportPart: (message) => diagnostics.record({level: "error", event: "workbench.page", message, source: {plugin: descriptor.id}}),
+                // 入口停止后（窗口整页离开、实例停止）外壳还在加载会被正在停止的 store 拒绝：那是页面在离开，不是加载失败。
+                reportPart: (message) => diagnostics.record({level: context.signal.aborted ? "debug" : "error", event: "workbench.page", message, source: {plugin: descriptor.id}}),
             });
             const pages = new PageTable([
                 {path: "/", title: "NeuroBook", load: async () => workbenchPages.home},
