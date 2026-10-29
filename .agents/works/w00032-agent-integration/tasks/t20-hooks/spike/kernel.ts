@@ -70,6 +70,18 @@ export function estimateTokens(text: string): number {
     return Math.ceil(text.length / 2);
 }
 
+/**
+ * Profile 与扩展清单的内容哈希：清单、顺序、声明、事件版本与代码都算进去（spike 用函数源码代表代码；
+ * 产品里用插件包的版本与内容哈希）。同 id 但内容变了，哈希就变。
+ */
+function contentHash(profile: ProfileDef<any>, exts: Extension[]): string {
+    const code = (f: unknown): unknown => (typeof f === "function" ? f.toString() : f && typeof f === "object" ? Object.fromEntries(Object.entries(f).map(([k, v]) => [k, code(v)])) : f);
+    return Bun.hash(JSON.stringify({
+        profile: {id: profile.id, system: profile.system, tools: profile.tools, globalExtensions: profile.globalExtensions, render: code(profile.render), prompt: code(profile.prompt)},
+        exts: exts.map((x) => ({id: x.id, deps: x.dependsOn, events: x.events, state: x.state, reduce: code(x.reduce), react: code(x.react), contribute: code(x.contribute), render: code(x.render), intercept: code(x.intercept), sample: code(x.sample)})),
+    })).toString(16);
+}
+
 /** 运行被中止：模型、工具、反应在等的 Promise 都以它拒绝；迟到的结果不再写日志。 */
 export class AbortedError extends Error {}
 
@@ -115,12 +127,18 @@ function sortByDependencies(plugins: Extension[]): Extension[] {
     return out;
 }
 
-/** 冻结新产生的状态：遇到已冻结的对象就停（持久链表的尾巴早已冻结），所以每次只冻结新的部分。 */
+/**
+ * 冻结新产生的状态：遇到已冻结的对象就停（持久链表的尾巴早已冻结），所以每次只冻结新的部分。
+ * 状态只能是普通数据（对象、数组、字符串、数字、布尔、null）：Map、Set、Date 与类的实例冻结不住内部，
+ * 原地修改会绕过事件，遇到就报错（归约里报错按“归约出错”处理：那一片保持原值）。
+ */
 function freezeNew(v: unknown): void {
     const stack = [v];
     while (stack.length) {
         const x = stack.pop();
         if (x === null || typeof x !== "object" || Object.isFrozen(x)) continue;
+        const proto = Object.getPrototypeOf(x);
+        if (proto !== Object.prototype && proto !== Array.prototype && proto !== null) throw new TypeError(`状态只能是普通数据，遇到了 ${proto?.constructor?.name ?? "未知对象"}`);
         Object.freeze(x);
         for (const k of Object.keys(x)) stack.push((x as Record<string, unknown>)[k]);
     }
@@ -167,6 +185,13 @@ export class Session {
     private history!: Loaded;
     private volatileSlots = new Set<string>();
     private inbox: Inbox[] = [];
+    /** 单写者：所有写入口排进同一条队列，前一个做完（包括它引出的全部反应）后一个才开始。 */
+    private lock: Promise<unknown> = Promise.resolve();
+    private serial<T>(fn: () => Promise<T>): Promise<T> {
+        const run = this.lock.then(fn, fn);
+        this.lock = run.catch(() => undefined);
+        return run;
+    }
     private controller: AbortController | null = null;
     private readonly seenDiag = new Set<string>();
 
@@ -257,6 +282,14 @@ export class Session {
                         value = undefined;
                     }
                 }
+                if (value !== undefined && value !== cur[name] && this.opts.freeze !== false) {
+                    try {
+                        freezeNew(value);
+                    } catch (err) {
+                        this.diag({level: "error", code: "reduce-failed", ext: x.def.id, entry: e.id, message: `${x.def.id} 的片 ${name} 在 ${e.id} 上得到的值不是普通数据：${(err as Error).message}；这一片保持原值`});
+                        value = undefined;
+                    }
+                }
                 if (value !== undefined && value !== cur[name]) (changed ??= {...cur})[name] = value;
             }
             if (changed) (next ??= {...snap})[x.def.id] = changed;
@@ -295,18 +328,31 @@ export class Session {
     /** 写进日志。来源是扩展时，类型必须以 `<扩展 id>/` 开头：扩展写不出内核事件，也撞不了别人的名字。 */
     private readonly keys = new Map<string, Entry>();
 
-    private check(out: EventOut, source: string): void {
+    /**
+     * 谁能写什么：内核事件只能由内核自己的写入口（internal）写；扩展只能写以自己 id 开头的类型，
+     * 而且来源必须是已装配的扩展——未知来源一律拒绝，不能借它写出内核事件。
+     */
+    private check(out: EventOut, source: string, internal = false): void {
+        if (internal) {
+            if (!KERNEL_TYPES.has(out.type)) throw new Error(`内核不认识的事件类型 ${out.type}`);
+            return;
+        }
         const ext = this.exts.find((x) => x.def.id === source);
-        if (ext && out.type.slice(0, out.type.lastIndexOf("/")) !== source) throw new Error(`${source} 写的事件类型 ${out.type} 不以 ${source}/ 开头`);
-        if (!ext && !KERNEL_TYPES.has(out.type)) throw new Error(`内核不认识的事件类型 ${out.type}`);
+        if (!ext) throw new Error(`来源 ${source} 不是已装配的扩展`);
+        if (out.type.slice(0, out.type.lastIndexOf("/")) !== source) throw new Error(`${source} 写的事件类型 ${out.type} 不以 ${source}/ 开头`);
+        if (!["conv", "ext"].includes(out.cls) || !["path", "session"].includes(out.scope)) throw new Error(`${source} 写的事件 ${out.type} 类别或作用域不对`);
     }
 
-    /** 写进日志；带幂等键的，同一来源同一个键已经写过就返回已有的那条、不再写。 */
-    private append(out: EventOut, source: string, cause?: {cause: string; depth: number}): Entry {
-        this.check(out, source);
+    /** 写进日志；带幂等键的，同一来源同一个键已经写过就返回已有的那条、不再写（inserted: false，调用方不再派发）。 */
+    private append(out: EventOut, source: string, cause?: {cause: string; depth: number}, internal = false): Entry {
+        return this.appendOrHit(out, source, cause, internal).entry;
+    }
+
+    private appendOrHit(out: EventOut, source: string, cause?: {cause: string; depth: number}, internal = false): {entry: Entry; inserted: boolean} {
+        this.check(out, source, internal);
         if (out.key !== undefined) {
             const hit = this.keys.get(`${source}|${out.key}`);
-            if (hit) return hit;
+            if (hit) return {entry: hit, inserted: false};
         }
         const e: Entry = {
             id: `e${++this.seq}`,
@@ -327,7 +373,7 @@ export class Session {
         this.byId.set(e.id, e);
         if (e.key !== undefined) this.keys.set(`${source}|${e.key}`, e);
         this.apply(e);
-        return e;
+        return {entry: e, inserted: true};
     }
 
     private apply(e: Entry): void {
@@ -350,7 +396,7 @@ export class Session {
     }
 
     private kernel<T extends KernelType>(type: T, data: unknown, source = "kernel", cls: "conv" | "ctrl" = "ctrl", scope: "path" | "session" = "path"): Entry {
-        return this.append({cls, type, scope, data}, source);
+        return this.append({cls, type, scope, data}, source, undefined, true);
     }
 
     /**
@@ -359,11 +405,19 @@ export class Session {
      */
     load(entries: Entry[]): void {
         const seen = new Set<string>();
+        const keys = new Set<string>();
         let lastSeq = 0;
         for (const e of entries) {
             if (seen.has(e.id)) throw new Error(`日志损坏：id ${e.id} 重复`);
             if (e.seq <= lastSeq) throw new Error(`日志损坏：${e.id} 的 seq ${e.seq} 不大于前一条 ${lastSeq}`);
             if (e.scope === "path" && e.parent !== null && !seen.has(e.parent)) throw new Error(`日志损坏：${e.id} 的父节点 ${e.parent} 不在它之前`);
+            if (!["conv", "ctrl", "ext"].includes(e.cls) || !["path", "session"].includes(e.scope) || typeof e.type !== "string" || typeof e.source !== "string" || typeof e.data !== "object" || e.data === null)
+                throw new Error(`日志损坏：${e.id} 的形状不对`);
+            if (KERNEL_TYPES.has(e.type) === (e.type.includes("/"))) throw new Error(`日志损坏：${e.id} 的类型 ${e.type} 既不是内核事件也不带扩展前缀`);
+            if (e.key !== undefined) {
+                if (keys.has(`${e.source}|${e.key}`)) throw new Error(`日志损坏：${e.source} 的幂等键 ${e.key} 出现了两次`);
+                keys.add(`${e.source}|${e.key}`);
+            }
             seen.add(e.id);
             lastSeq = e.seq;
         }
@@ -380,7 +434,7 @@ export class Session {
     async rewind(id: string | null): Promise<void> {
         if (this.running) throw new Error("运行中不能回退");
         if (id !== null && !this.byId.has(id)) throw new Error(`没有 ${id}`);
-        await this.dispatch([this.kernel(K.leafChanged, {leaf: id}, "user", "ctrl", "session")]);
+        await this.serial(() => this.dispatch([this.kernel(K.leafChanged, {leaf: id}, "user", "ctrl", "session")]));
     }
 
     /**
@@ -389,6 +443,10 @@ export class Session {
      */
     async reconfigure(profile: ProfileDef<any>, plugins: Extension[] = this.opts.plugins ?? []): Promise<void> {
         if (this.running) throw new Error("运行中不能换 Profile：等这次运行收口");
+        return this.serial(() => this.reconfigureNow(profile, plugins));
+    }
+
+    private async reconfigureNow(profile: ProfileDef<any>, plugins: Extension[]): Promise<void> {
         this.install(profile, plugins, this.opts.core ?? []);
         this.snaps = new Map();
         this.sessionSnap = this.initialSnap("session");
@@ -399,7 +457,7 @@ export class Session {
         this.leaf = leaf;
         this.leafSnap = this.stateAt(leaf);
         const ids = this.exts.map((x) => x.def.id);
-        await this.dispatch([this.kernel(K.profileChanged, {profile: profile.id, extensions: ids, hash: Bun.hash(JSON.stringify([profile.id, ids])).toString(16)}, "kernel", "ctrl", "session")]);
+        await this.dispatch([this.kernel(K.profileChanged, {profile: profile.id, extensions: ids, hash: contentHash(profile, this.exts.map((x) => x.def))}, "kernel", "ctrl", "session")]);
     }
 
     /**
@@ -407,6 +465,10 @@ export class Session {
      * “结果未知”，发出但没有回复的模型请求写 model_failed，最后写 run_ended（interrupted）。
      */
     async recover(): Promise<string[]> {
+        return this.serial(() => this.recoverNow());
+    }
+
+    private async recoverNow(): Promise<string[]> {
         const path = this.pathTo(this.leaf);
         const start = path.findLastIndex((e) => is(e, K.runStarted));
         if (start < 0 || path.slice(start).some((e) => is(e, K.runEnded))) return [];
@@ -480,8 +542,9 @@ export class Session {
         try {
             const timeout = x.def.timeoutMs ?? this.opts.reactTimeoutMs ?? 30_000;
             let timer: ReturnType<typeof setTimeout> | undefined;
+            const signal = this.controller?.signal ?? NEVER;
             const r: Reaction = await Promise.race([
-                Promise.resolve(x.def.react(e, this.ctxFor(x, p))),
+                raceAbort(x.def.react(e, this.ctxFor(x, p)), signal),
                 new Promise<never>((_, reject) => {
                     timer = setTimeout(() => reject(new Error(`超过 ${timeout} ms`)), timeout);
                 }),
@@ -490,6 +553,7 @@ export class Session {
             if (Array.isArray(r)) return {events: r, continue: false};
             return {events: r.events ?? [], continue: !!r.continue};
         } catch (err) {
+            if (err instanceof AbortedError) throw err;
             this.diag({level: "error", code: "react-failed", ext: x.def.id, entry: e.id, message: `${x.def.id} 对 ${e.id}（${e.type}）的反应失败：${(err as Error).message}；这次反应的结果丢弃`});
             return {events: [], continue: false};
         }
@@ -528,8 +592,8 @@ export class Session {
             }
             const next: Entry[] = [];
             for (const {x, ev, cause} of pending) {
-                const e = this.append(ev, x.def.id, {cause: cause.id, depth: depth + 1});
-                if (e.cause === cause.id) next.push(e);   // 幂等键命中已有的条目时不再派发
+                const {entry, inserted} = this.appendOrHit(ev, x.def.id, {cause: cause.id, depth: depth + 1});
+                if (inserted) next.push(entry);   // 幂等键命中已有的条目时不再派发
             }
             batch = next;
         }
@@ -543,12 +607,18 @@ export class Session {
     }
 
     async create(): Promise<void> {
-        await this.dispatch([this.kernel(K.sessionCreated, {initial: this.opts.initial ?? null})]);
-        await this.open();
+        await this.serial(async () => {
+            await this.dispatch([this.kernel(K.sessionCreated, {initial: this.opts.initial ?? null})]);
+            await this.openNow();
+        });
     }
 
     /** “会话已打开”不进日志：反应照常跑。 */
     async open(): Promise<void> {
+        await this.serial(() => this.openNow());
+    }
+
+    private async openNow(): Promise<void> {
         const pseudo: Entry = {id: "runtime", seq: 0, at: (this.opts.clock ?? Date.now)(), parent: null, scope: "path", cls: "ctrl", type: K.sessionOpened, source: "kernel", data: {}};
         this.pairs.set(pseudo, {path: this.leafSnap, session: this.sessionSnap, settings: this.settingsCache});
         const results = await Promise.all(this.exts.map(async (x) => ({x, ...await this.runReact(x, pseudo, this.pairs.get(pseudo)!)})));
@@ -559,13 +629,17 @@ export class Session {
 
     /** 外部事实（宿主或插件发现的），例如文件被用户改了：以扩展的身份写一条它自己的事件。运行中先排队。 */
     async external(extId: string, out: EventOut): Promise<void> {
+        this.check(out, extId);   // 未知来源、别人的前缀在入口就拒绝
         if (this.running) return void this.inbox.push({kind: "external", ext: extId, out});
-        await this.dispatch([this.append(out, extId)]);
+        await this.serial(async () => {
+            const {entry, inserted} = this.appendOrHit(out, extId);
+            if (inserted) await this.dispatch([entry]);   // 幂等键命中：事实已经在了，反应也不再跑
+        });
     }
 
     async changeSettings(patch: Record<string, unknown>): Promise<void> {
         if (this.running) return void this.inbox.push({kind: "settings", patch});
-        await this.dispatch([this.kernel(K.settingsChanged, {patch}, "user", "ctrl", "session")]);
+        await this.serial(() => this.dispatch([this.kernel(K.settingsChanged, {patch}, "user", "ctrl", "session")]));
     }
 
     /** 插话（t07）：只在运行中有效，在下一次模型请求之前送达。 */
@@ -582,7 +656,10 @@ export class Session {
     private async drain(): Promise<void> {
         while (this.inbox.length) {
             const item = this.inbox.shift()!;
-            if (item.kind === "external") await this.dispatch([this.append(item.out, item.ext)]);
+            if (item.kind === "external") {
+                const {entry, inserted} = this.appendOrHit(item.out, item.ext);
+                if (inserted) await this.dispatch([entry]);
+            }
             else if (item.kind === "settings") await this.dispatch([this.kernel(K.settingsChanged, {patch: item.patch}, "user", "ctrl", "session")]);
             else await this.dispatch([this.kernel(K.steer, {text: item.text}, "user", "conv")]);
         }
@@ -826,6 +903,10 @@ export class Session {
     /** 压缩（t11）：经压缩拦截链，最里层是压缩方法；结果写成一条压缩事件，历史投影据此替换前面的内容。 */
     async compact(method = "summary", instructions: string[] = []): Promise<void> {
         if (this.running) throw new Error("运行中的压缩由循环触发；spike 只在两次运行之间压缩");
+        return this.serial(() => this.compactNow(method, instructions));
+    }
+
+    private async compactNow(method: string, instructions: string[]): Promise<void> {
         const p = this.pairAt(this.leaf);
         const before = this.read(p, this.history.def.id, "before") as Entry[];
         const layers = this.exts.filter((x) => x.def.intercept?.compaction);
@@ -836,14 +917,18 @@ export class Session {
         const run = (i: number, j: CompactionJob): Promise<CompactionResult> => (i === layers.length ? terminal(j) : layers[i]!.def.intercept!.compaction!(j, (n: CompactionJob) => run(i + 1, n), this.ctxFor(layers[i]!, p)));
         const result = await run(0, {method, entries: before, instructions});
         const tokensBefore = before.reduce((a, e) => a + estimateTokens(JSON.stringify(e.data)), 0);
-        await this.dispatch([this.kernel(K.compaction, {method, ...result, tokensBefore, tokensAfter: estimateTokens(result.summary)})]);
+        await this.dispatch([this.kernel(K.compaction, {method, ...result, tokensBefore, tokensAfter: estimateTokens(result.replacement)})]);
     }
 
     // ---------- 一次运行 ----------
 
     async send(input: UserInput | string | null): Promise<void> {
         if (this.running) throw new Error("正在运行：应按插话或排队处理（t07）");
-        this.running = true;
+        this.running = true;   // 在排队之前置上：这之后到达的外部事实进 inbox，在边界写
+        return this.serial(() => this.runNow(input));
+    }
+
+    private async runNow(input: UserInput | string | null): Promise<void> {
         this.controller = new AbortController();
         const signal = this.controller.signal;
         let ended = false;
@@ -888,13 +973,14 @@ export class Session {
                 let rec: RecordedRequest | undefined;
                 let response: ModelResponse;
                 try {
-                    const out = await this.modelChain(request, pair, async (r, modifiedBy) => {
+                    // 整条拦截链都接中止：卡在某个拦截里也能收口
+                    const out = await raceAbort(this.modelChain(request, pair, async (r, modifiedBy) => {
                         this.validate(r);
                         rec = this.record(leaf, now, samples, r);
                         // 发出之前落一条：崩溃后知道“请求已发出、结果未知”；视图的输入与修改记录一起记下
                         this.kernel(K.modelStarted, {request: this.requests.length - 1, hash: Bun.hash(JSON.stringify(r)).toString(16), now, samples: this.hashSamples(samples), modifiedBy});
                         return await raceAbort(this.opts.model(r, signal), signal);
-                    }, false);
+                    }, false), signal);
                     response = out.response;
                     rec!.modifiedBy = out.modifiedBy;
                 } catch (err) {
@@ -921,19 +1007,24 @@ export class Session {
             await end("completed");
         } catch (err) {
             if (err instanceof AbortedError) {
+                // 收口的反应不再受这次中止信号影响（否则写 run_ended 时反应也被中止）
+                this.controller = null;
                 if (!ended) await end("aborted");
                 return;
             }
             if (!ended) await end("error", (err as Error).message);
             throw err;
         } finally {
-            this.running = false;
-            this.controller = null;
-            // 运行结束后还在排队的外部事实与设置照常写入；插话没送达的，写成普通的排队（这里简化成丢弃并诊断）
+            // 收尾仍在队列里、running 仍为 true：这期间到达的写入继续进 inbox，不会与收尾交错
             const steers = this.inbox.filter((i) => i.kind === "steer");
             this.inbox = this.inbox.filter((i) => i.kind !== "steer");
-            if (steers.length) this.diag({level: "warn", code: "steer-dropped", message: `运行已结束，${steers.length} 条插话没有送达`});
-            await this.drain();
+            if (steers.length) this.diag({level: "warn", code: "steer-dropped", message: `运行已结束，${steers.length} 条插话没有送达（产品里转成排队的下一条输入，t07）`});
+            this.controller = null;
+            try {
+                await this.drain();
+            } finally {
+                this.running = false;
+            }
         }
     }
 
@@ -953,7 +1044,11 @@ export class Session {
             if (err instanceof AbortedError) settle();
             throw err;
         }
-        await this.dispatch(settle());
+        const written = settle();
+        // 每条结果的反应都看整批写完之后的状态：同一批的结果彼此可见，反应不取决于调用的先后
+        const after = this.pairAt(this.leaf);
+        for (const e of written) this.pairs.set(e, after);
+        await this.dispatch(written);
     }
 
     private async runBatch(calls: ToolCall[], p: Pair, signal: AbortSignal, results: (ToolResult & {args?: unknown; raw?: string})[]): Promise<void> {

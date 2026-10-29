@@ -1,0 +1,152 @@
+# w00032 t20 事件模型第二轮设计审查
+
+## 第一轮核对
+
+| 编号 | 结论 | 依据 |
+|---:|---|---|
+| 1 | 部分解决 | `check.ts:345-356` 覆盖模型异常并写 `model_failed`/`run_ended`，`check.ts:298-317` 覆盖反应与工具拦截失败；但 `compact()` 失败不走统一运行收口，工具批次与扩展拦截仍有未覆盖异常。 |
+| 2 | 部分解决 | `kernel.ts:781-793` 已落 `model_started`/`model_failed`，`api.ts:56-57` 有 partial 字段；但 spike README 明确不做流式，`ModelResponse` 仍丢 OMP 增量、终态和部分工具调用。 |
+| 3 | 部分解决 | `check.ts:378-397` 与 `kernel.ts:835-864` 已实现 shared 并行、exclusive 排程和稳定结果顺序；但公开 `tools` 仍是 `string[]`，批次反应看到的逐条 Pair 语义未定。 |
+| 4 | 已解决 | `kernel.ts:570-640,658-670` 把目标叶子的 Pair 贯穿 view/modelChain，`check.ts:179-188` 预览两轮旧叶子得到原模型。session 级状态仍取当前会话值，提案需单独写清。 |
+| 5 | 已解决 | `REACT_DEPTH_LIMIT` 与 `dispatch()` 的 `depth >=` 检查在 `check.ts:399-415` 验证只写 a/b/c，并写 `reaction_limit`，不再落第 4 层事件。 |
+| 6 | 已解决 | `Pair`、`pairs.set()` 和 `dispatch()` 位于 `kernel.ts:47-51,318-334,485-517`；`check.ts:417-432` 验证同批两个 session 设置时首条反应看到 `[1,0]`。 |
+| 7 | 部分解决 | `leaf_changed`、加载父节点校验与 `check.ts:434-449` 已修复回退重启；但 `load()` 仍未校验事件 schema/version、重复幂等键、树连通性等 t03 迁移合同。 |
+| 8 | 部分解决 | `core.ts:63-71` 与 `check.ts:451-466` 已让 `firstKept` 前内容换摘要并重写种子；但没有 t11 要求的 `replacement/details`、自动触发、方法失败换下一个、文件/Skill 公共恢复流程。 |
+| 9 | 已解决 | `freezeNew()`（`kernel.ts:115-124`）递归冻结新状态，`core.ts:13-23` 冻结 selector 数组；`check.ts:468-479` 验证原地修改失败且状态/日志不变。 |
+| 10 | 部分解决 | `install()` 与 `check.ts:495-499` 已拒绝 core/Profile 重复 id；但 `sortByDependencies()` 先用 `Map` 折叠重复插件，两个插件同 id 不会进入最终重复检查。 |
+| 11 | 部分解决 | `reconfigure()`（`kernel.ts:370-387`）已停运行、换清单、重放并写 `profile_changed`，`check.ts:481-493` 证明新扩展可从日志归约；没有版本化 reducer、内容 hash、dispose、迁移和进行中资源的 barrier。 |
+| 12 | 改成设计层待定项 | 提案第 5 节与待定项 12 已承认要把 OMP `streamSimple` 映射为适配器并决定审计粒度；但 `api.ts:167-170`/spike 仍是假 `ModelResponse`，真实流式终态尚未落合同。 |
+| 13 | 改成设计层待定项 | 提案待定项 13 列出图片、思考、工具 schema、tool choice 和 provider 选项；但 `api.ts:159-166` 仍只有文本块、字符串工具和两种参数，尚未完成 canonical 请求合同。 |
+| 14 | 部分解决 | `api.ts:44-45`、`kernel.ts:866-892` 与 `check.ts:584-596` 已记录实际工具参数和原始结果；模型响应被拦截器改写时仍只有 `model_started.modifiedBy`，没有 raw/final 回复审计事件。 |
+| 15 | 部分解决 | `runReact()` 有 timeout/catch，工具拦截有 `onFailure`（`kernel.ts:461-478,866-884`），场景 19 通过；sample、model/compaction 拦截没有同等超时/失败策略。 |
+| 16 | 部分解决 | `inbox`/`drain` 与场景 33-34 已实现运行中 external/settings/steer 的基本边界；但 `running=false` 后 finally 仍异步 drain，外部入口可并发直写，且未送达 steer 被丢弃，尚非 t07 的完整单写者合同。 |
+| 17 | 部分解决 | `raceAbort()`、signal 传递、场景 35 和 `toolBatch()` 已覆盖基本中止与迟到工具结果；但没有 t07 约 2 秒宽限/强制接管，sample、react、model/tool interceptor 自身也不能被统一中止。 |
+| 18 | 改成设计层待定项 | 提案待定项 16 已明确“子 Agent 是独立会话”及 child 事件方向；spike/API 仍没有 parent session、回流、审批冒泡和幂等实现，须由 t14 定形。 |
+| 19 | 部分解决 | `record()`（`kernel.ts:688-723`）已按目标路径找前次请求并比较模型/参数/header/tools/块，场景 37 通过；token 只是估算，provider cache key、参数规范化和“最近祖先请求”仍未形成合同。 |
+| 20 | 部分解决 | `core.history` 持久链表、结构共享快照和新基准改善了复制；`bun bench.ts 1200` 实测 16,806 条日志、all 打开 126.6 ms、单次 8.43 ms、每条新事件 18.79 ms，仍是全历史投影/比较，`snapshots:none` 回退算请求 40.0 ms，10 万事件预算尚未验证。 |
+| 21 | 部分解决 | `contribute` 已把声明与内容合并，模板 active branch、`*` 档位和诊断去重在 `template.ts:105-127,193`，场景 13 通过；同名槽的 owner/合并与稳定性冲突仍只诊断，且按请求贡献值无结构 schema。 |
+| 22 | 部分解决 | `EventSpec.v`/自动前缀和加载 id/seq/parent 校验已加入（`api.ts:92-102, kernel.ts:344-360`）；`load()` 仍接受缺版本、未知类型、任意 data/scope/class，未做迁移器或 schema 校验。 |
+| 23 | 已解决 | `model_started` 持久记录 `now/samples`，`preview()` 从目标叶子的该条事件恢复，场景 36 重启后通过；当前 settings/tools/profile 变化是否允许旧请求预览不同仍需另定。 |
+| 24 | 部分解决 | core.history 可替换且场景 7 能拦未配对工具调用；`validate()`（`kernel.ts:643-656`）仍不校验完整 canonical content、工具 schema/参数、provider metadata，替换投影仍可把更多非法请求送到适配器。 |
+| 25 | 已解决 | `template.ts:148-170,175-190` 不再合并相邻 user 消息，块保留来源；场景 4 验证推荐布局与输入前槽的缓存差异。 |
+| 26 | 已解决 | `api.ts:231-255` 允许一个扩展声明多个 path/session 片，场景 15 的 workspace 用一个扩展同时持有两种作用域。 |
+| 27 | 部分解决 | `Entry` 已有 `cause/depth/key`，场景 39 验证幂等与因果；仍没有统一 run/request/tool-batch/provider-attempt id、跨会话回流键和批次原子提交语义。 |
+| 28 | 已解决 | 提案第 8 节把可替换能力收窄为 `core.history`，compaction/title 不再列为 replaces；`api.ts:234` 与场景 9 一致，历史替换仍走内核校验。 |
+| 29 | 部分解决 | `BaseCtx` 已有 `signal/read/file/set/message`，`own` 与 selector 也在 `kernel.ts:434-456,616-620`；主动接口 `complete/invokeTool/ask/compact` 仍只在提案文字/待定项 8，未进公开 API。 |
+| 30 | 已解决 | 提案第 12 节新增参照机制映射表，覆盖 provider、工具批次、重试、压缩、interrupt/resume、子会话和流式观察；spike 场景 23-40 对部分边界有证据，未覆盖项已显式标待定/非实现。 |
+| 31 | 没解决 | 提案决策记录仍同时保留“视图加 attach”（第 526 行）与“去掉 attach、并进槽”（第 529 行），第三稿修订虽选了后者但没有删除冲突记录；t20 README 也仍写 attach。 |
+| 32 | 部分解决 | `dependsOn`、稳定拓扑排序、缺失/成环检查和场景 40 已加入；Profile 扩展仍按列表顺序，最终顺序/hash 未记录依赖来源，且重复插件 id 在 `sortByDependencies()` 的 Map 中被静默折叠。 |
+
+## 第二版新发现
+
+### 1. 空闲入口与收尾仍可并发写日志
+- **严重程度**：阻断；**类别**：不变量 / 正确性
+- **位置**：`spike/kernel.ts:537-565,819-827`。
+- **现象**：`external()`、`changeSettings()` 在 `running` 为 false 时直接 `append` 并启动各自的 `dispatch()`；`send()` 的 finally 先把 `running` 置 false，再异步 `drain()`。没有统一写锁。临时实验同时调用两个 idle `external()`，第二条反应先写，第一条反应随后挂到第二条事件上：输出为 `second(parent=e3,cause=e3)`、`first(parent=e4,cause=e2)`。
+- **为什么是问题**：同一会话不再有唯一提交顺序；反应完成时的当前叶子可能已经被另一入口推进，因果链、父节点和回放顺序取决于 Promise 时序。finally drain 与新 external 也能交错，违反 t03/t07 的单写者合同。
+- **如何核实**：运行 `/tmp/review-w00032-t20-design/r2/lab-omp/new-findings.ts`，查看 `idle-race`；静态对照 `external()` 的直接 `append` 与 `dispatch()` 的异步反应。
+- **建议改法**：所有入口，包括 idle、finally drain、open、rewind、reconfigure，都进入同一个提交队列；队列拥有 append、apply、dispatch、边界和收尾，禁止任何公开入口直接 append。
+### 2. 幂等键命中后仍重复派发旧事件
+- **严重程度**：阻断；**类别**：正确性 / 幂等
+- **位置**：`spike/kernel.ts:289-315,536-540`。
+- **现象**：`append()` 命中 `source|key` 时返回已有 Entry；`external()` 不区分“新写入”和“已命中”，仍把该 Entry 交给 `dispatch()`。同一个 `key` 两次 external 的日志只有一条事实，但反应事件写了两次；实验输出 `duplicate-dispatch 2`。
+- **为什么是问题**：幂等合同要求重复通知既不重复事实，也不重复副作用。当前文件监听重连会重复检索、提醒或写文件；如果反应输出没有 key，还会让日志出现重复对话，重放和实时结果分叉。
+- **如何核实**：运行临时脚本的 `duplicate-dispatch` 场景；第一轮场景 39 只断言事实条数，没有断言重复 external 后的反应条数。
+- **建议改法**：append 返回 `{entry, inserted}`；幂等命中时不 dispatch、不更新因果链。load 也要拒绝同一作用域内重复 `(source,key)`，或定义可验证的迁移规则。
+### 3. 中止无法接管挂起的 sample 与扩展调用
+- **严重程度**：阻断；**类别**：正确性 / 中止
+- **位置**：`spike/kernel.ts:570-587,461-478,658-670`；`api.ts:194-195`。
+- **现象**：`view()` 直接 await `sample`，`runReact()` 只用 timeout，`modelChain()` 不包整个拦截链的 abort race。`abort()` 只 abort 当前 controller。临时实验让 sample 永不完成：`abort()` 后 60 ms 仍为 `timeout`，`running=true`，日志停在 `session_created/run_started/user`。
+- **为什么是问题**：t07 要求宽限后运行回到空闲并写中止收口；现在一个失控插件就能永久占住会话，后续输入、回退和恢复都无法执行。仅把 signal 放进 ctx 不等于内核会接管不合作的 Promise。
+- **如何核实**：运行 `/tmp/review-w00032-t20-design/r2/lab-omp/new-findings.ts` 的 `abort-sample`；检查 sample 与 react 的 await 路径没有 race/代次屏障。
+- **建议改法**：每个 sample/react/interceptor 建立带代次的调用控制器；宽限到期由单写者强制收口，迟到结果只能诊断、不能写日志，并明确不可中断 I/O 的副作用结算。
+### 4. 未知 source 可以伪造内核事件
+- **严重程度**：重要；**类别**：安全 / 正确性
+- **位置**：`spike/kernel.ts:280-287,536-540`。
+- **现象**：`check()` 只有在 `source` 能在已装配扩展中找到时才检查扩展前缀；未知 source 走 `!ext` 分支，只要 `type` 属于 `KERNEL_TYPES` 就放行。公开 `external("ghost", {type: K.user, ...})` 被接受，路径出现伪造的 user，实验输出 `unknown-source-kernel ["forged"]`。
+- **为什么是问题**：提案明确扩展写不出内核事件。宿主或插件 id 配置错误时会静默绕过这条边界，伪造输入、设置或运行控制事件，污染历史投影和反应计数。
+- **如何核实**：运行临时脚本的 `unknown-source-kernel`；逐行对照 `check()` 对未知 source 的分支。
+- **建议改法**：内核事件只允许内部不可伪造的写入口；`external()` 必须先查已登记扩展并拒绝未知 id，扩展事件同时校验声明的 cls/scope/version，不能只按字符串前缀。
+### 5. 工具批次的反应快照不是批次完成后的同一状态
+- **严重程度**：重要；**类别**：不变量 / API
+- **位置**：`spike/kernel.ts:835-847,318-334,485-492`。
+- **现象**：`toolBatch()` 先逐条 `kernel(tool_result)`，再一次 `dispatch(settle())`；但每条 Entry 在 append 时就把 Pair 存进 WeakMap。批次反应因此分别读到自己的结果之前状态。实验两个工具结果的反应读到 `transcript:2`、`transcript:3`，而不是同一份完整批次状态。
+- **为什么是问题**：代码注释和提案都把工具结果定义为“整批完成后派发”。扩展若在结果反应中更新计数、检索或判断是否继续，会因调用顺序看到不同世界；批次重放与并发执行的状态语义不明确。
+- **如何核实**：运行临时脚本的 `batch-reaction`；现有场景 25 只检查工具拦截的发送前快照，没有检查 tool_result 反应快照。
+- **建议改法**：明确合同：若批次反应应看完整批次，先原子写入全部结果并为整批生成一个 post-batch Pair；若保留逐条 Pair，就不要称为批次级反应，并在 API 中显式暴露顺序语义。
+### 6. reconfigure 的 hash 不能识别 Profile 内容变化
+- **严重程度**：重要；**类别**：正确性 / 恢复
+- **位置**：`spike/kernel.ts:374-387`。
+- **现象**：`profile_changed.hash` 只对 `[profile.id, extensions.map(id)]` 做 hash。两个同 id、同扩展清单但 system 文本分别为 A/B 的 Profile 重配置后，实验输出同一个 hash `4e594d0795145c2c`。
+- **为什么是问题**：日志无法证明重放时使用了哪一版 Profile；提示词、工具声明、依赖顺序或 reducer 代码变化可以改变归约/请求，却被记录成同一配置。进程重启或换实例不能按 hash 校验合同。
+- **如何核实**：运行临时脚本的 `reconfigure-hash`；静态读 hash 输入没有 `system/tools/extensions` 内容。
+- **建议改法**：记录规范化的 Profile/扩展清单版本与内容 hash，包含工具声明、模板/渲染与依赖顺序；代码实现版本变化要有迁移或拒绝加载的规则，不能把 id 当内容版本。
+### 7. freezeNew 对 Map/Set 只冻结外壳
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`spike/kernel.ts:115-124`；`api.ts:124-131`。
+- **现象**：`freezeNew()` 通过 `Object.keys()` 递归普通对象；`Object.freeze(new Map())` 不冻结 Map 的内部槽。`path(new Map())` 合法，扩展在冻结状态上执行 `ctx.mine.m.set("x", 1)` 不报错，状态在无事件情况下变成 1，实验输出 `map-freeze [] 1`。
+- **为什么是问题**：提案承诺状态和选择器只读、原地修改应失败。任意 Map/Set/Date/自定义可变容器都会绕过冻结，破坏日志归约和回退确定性。
+- **如何核实**：运行 `/tmp/review-w00032-t20-design/r2/lab-omp/freeze.ts`；类型层 `SliceSpec<T>` 对 T 没有限制。
+- **建议改法**：限制状态为可验证的 immutable 数据形状并在注册/加载时 schema 校验，或对 Map/Set 转不可变表示、选择器输出做深不可变封装；不要把浅 `Readonly` 与运行时只读混作同一合同。
+### 8. 模型拦截失败没有扩展诊断或 model_failed
+- **严重程度**：重要；**类别**：失败语义 / 可观测性
+- **位置**：`spike/kernel.ts:658-670,781-818`。
+- **现象**：模型拦截器抛错直接穿过 `modelChain()`；`send()` 只追加 `run_ended(error)`，不写扩展诊断，也没有 `model_started/model_failed`，实验输出 `model-interceptor-error [] ["user","run_ended"]`。
+- **为什么是问题**：提案把拦截器纳入失败与超时合同，开发者无法知道是哪个扩展拒绝/崩溃；更换模型、重试或审批失败也无法从日志区分“未发 provider 请求”与“provider 请求失败”。
+- **如何核实**：运行临时脚本的 `model-interceptor-error`；对照工具拦截专门的 catch（`kernel.ts:875-884`）。
+- **建议改法**：每层拦截统一捕获、带扩展 id/request id 写结构化诊断，并按钩子类型应用 deny/ignore/abort 策略；模型链未到 terminal 时写可重放的失败原因。
+### 9. load 不检查幂等键唯一性，回放后 key 索引可漂移
+- **严重程度**：重要；**类别**：日志完整性 / 幂等
+- **位置**：`spike/kernel.ts:344-360`。
+- **现象**：`load()` 只检查 id、seq、父节点，遇到两个相同 `source|key` 的已持久条目时直接逐条写入 `keys`，后者覆盖前者；日志本身保留两条事实，下一次 append 的幂等命中对象取决于最后一条。
+- **为什么是问题**：幂等键是跨重启去重依据，索引与日志不一致会让重启前后的重复通知行为不同，并掩盖存储损坏或迁移重复。
+- **如何核实**：静态读 `load()` 没有 `(source,key)` 集合校验；构造两条合法 seq、不同 id 但同 source/key 的 Entry 即可观察覆盖。
+- **建议改法**：加载时校验 `(source,key)` 唯一性并报结构化损坏/迁移错误；若允许同键多版本，定义 scope、替换规则和可验证索引重建。
+
+## 交开发者之前必须解决的
+
+当前稿**不能按“第三稿已可定方向、实现细节以后再说”直接通过**。事件溯源、Profile 作为最终组装者、扩展四种能力这条大方向可以保留，但以下合同必须先补清并在 spike 或真实运行时验证：
+
+1. **单写者与提交边界**：修复第 1 条新发现，并覆盖第一轮第 16 条。所有 idle/运行中/finally/open/rewind/reconfigure 写入必须经过同一队列，明确外部事实、插话、设置与收尾的顺序。
+2. **幂等与事件权威**：修复第 2、4、9 条新发现，并补第一轮第 22、27 条。幂等命中不能再次派发；未知 source 不能写内核事件；load 必须校验 key、版本、类型、scope、data 与树结构。
+3. **中止、失败和收口**：修复第 3、8 条新发现，并补第一轮第 1、15、17 条。sample、react、每层 interceptor、模型流、工具批次都要有超时/取消/宽限/迟到结果屏障；所有失败都要有可重放的失败事实和 `run_ended`。
+4. **模型适配器的 canonical 边界**：在接受“只用 `streamSimple`、内核自写循环”之前，必须定 ModelRequest 与 OMP stream 的完整转换合同，至少不能丢图片、思考、工具 schema、终态、usage、partial/error 与 provider attempt。第一轮第 2、12、13、24 目前只能算待定，不是已解决。
+5. **换 Profile 的版本与迁移**：修复第 6 条新发现，并补第一轮第 11、22 条。`profile_changed` 必须能识别实际配置/扩展语义，且要定义旧 reducer、dispose、资源 barrier、状态迁移和未知版本的处理。
+6. **压缩的公共恢复合同**：补第一轮第 8 条。必须与 t11 的三种方法、失败换下一个、统一条目形状和压缩后公共恢复流程对齐，不能只验证 summary + firstKept 的最小投影。
+7. **状态不可变与批次快照语义**：修复第 5、7 条新发现。明确允许的状态数据形状并真正冻结/封装；明确工具批次结果反应看到逐条状态还是整批完成状态。
+8. **删除文档冲突**：修复第一轮第 31 条。`attach` 已删除还是仍存在必须只保留一个结论，README、决策记录、提案正文和修订记录一致后，开发者才有可审查的合同。
+
+## 可以后定的
+
+以下不阻断上述方向，但必须进入后续 Spec/实现任务，不能继续以当前 spike 的最小形状当成产品合同：
+
+- canonical 请求的具体 provider 专有字段、完整附件/图片块、tool choice 与 tokenizer 细节；先定“不丢信息、适配器负责转换”的边界。
+- `complete`、`invokeTool`、`ask`、`compact` 等主动接口的具体事件形状，以及审批等待的 UI/RPC 细节。
+- t14 多 Agent 的 child session、结果回流、审批冒泡和连带中止；第一轮第 18 条已写入待定项 16。
+- 压缩提示词、`details/replacement` 的展示格式、请求完整录制与脱敏策略。
+- 诊断的完整 code/level schema、槽冲突 owner、辅助函数事件句柄和 Profile 扩展的最终类型推断。
+- 稀疏 checkpoint、渲染缓存、增量 hash 与 10 万事件预算；`bun bench.ts 1200` 只能提供当前基线。
+- 真实日志存储、真实 OMP 适配器、进程重启和多窗口 RPC 的验收；spike README 明确仍是内存日志和假模型。
+
+## 数量
+
+第一轮 32 条核对：已解决 9，部分解决 19，改成设计层待定项 3，没解决 1。
+
+本轮新增有效发现：阻断 3（1、2、3），重要 6（4、5、6、7、8、9），建议 0，共 9 条。
+
+第一轮未完全关闭的条目：1、2、3、7、8、10、11、12、13、14、15、16、17、18、19、20、21、22、24、27、29、31、32。
+
+## 未发现问题的方面
+
+- 40/40 场景检查通过；其中场景 23-40 对失败收口、恢复、并行工具、深度、session Pair、叶子、压缩、只读、换 Profile、单写者、插话、中止、重启预览、缓存、审计、幂等、依赖排序提供了第二版证据。
+- `tsc -p tsconfig.json` 通过；`typetest.ts` 的 7 个 `@ts-expect-error` 均被消费。
+- `bun bench.ts 1200` 完成：16,806 条日志、3,600 次请求；快照 all 打开 126.6 ms、算请求 8.43 ms，snapshots none 回退后算请求 40.0 ms；这些是基线，不是产品预算。
+- 回退后的 path 状态、显式 continue、结构化输入、Profile 级 render、槽声明与内容合并、一个扩展多片状态、内核/扩展事件名前缀等第一轮方向性修订均有场景证据。
+
+## 核对更正
+
+- **更正第一轮第 10 条**：`sortByDependencies()` 中的 `byId` 只用于依赖查找，实际排序仍遍历原 `plugins` 数组；重复插件 id 会进入 `install()` 的统一重复检查。临时实验输出 `duplicate-plugin 扩展 id 重复：lab.same（插件或内置 与 插件或内置）`。因此第 10 条结论应为**已解决**；Profile 同时声明多个 `replaces: "core.history"` 是本轮未另行验证的后续边界。
+- **更正第一轮第 32 条**：`dependsOn`、拓扑排序、同层 id 排序、缺失依赖和成环在场景 40 已完整覆盖；Profile 扩展按列表顺序是提案明确的独立规则。第 32 条结论应为**已解决**。`profile_changed` 内容 hash 不完整属于本轮新发现第 6 条，不回写为第一轮依赖排序问题。
+- 以上更正后的第一轮统计：已解决 11，部分解决 17，改成设计层待定项 3，没解决 1；本轮新增发现仍为阻断 3、重要 6、建议 0。
+- 更正后的第一轮未完全关闭条目：1、2、3、7、8、11、12、13、14、15、16、17、18、19、20、21、22、24、27、29、31。
+有效发现编号：本轮新增 1-9；第一轮仍有实质缺口的条目见上方更正后的未关闭清单。

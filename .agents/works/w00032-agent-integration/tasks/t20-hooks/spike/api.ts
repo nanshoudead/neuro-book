@@ -46,8 +46,8 @@ export interface KernelData {
     tool_result: {callId: string; tool: string; text: string; isError?: boolean; args?: unknown; raw?: string};
     steer: {text: string};
     settings_changed: {patch: Record<string, unknown>};
-    /** 压缩：firstKept 之前（不含）的历史换成 summary；firstKept 为 null 表示全部换掉。 */
-    compaction: {method: string; summary: string; firstKept: string | null; tokensBefore: number; tokensAfter: number};
+    /** 压缩（形状照 t11 决定 8）：firstKeptEntryId 之前（不含）的历史换成 replacement；为 null 表示全部换掉。 */
+    compaction: {method: string; firstKeptEntryId: string | null; replacement: string; tokensBefore: number; tokensAfter: number; details?: unknown};
     /** 回退、切分支：只移动叶子（t03），session 作用域，重启后照它恢复当前叶子。 */
     leaf_changed: {leaf: string | null};
     /** Profile 或扩展清单变了：记下新的清单与内容哈希；各片照新清单从日志重新归约。 */
@@ -228,8 +228,9 @@ export interface CompactionJob {
     instructions: string[];
 }
 export interface CompactionResult {
-    summary: string;
-    firstKept: string | null;
+    replacement: string;
+    firstKeptEntryId: string | null;
+    details?: unknown;
 }
 
 /** sample 可能失败或超时：值是可选的，作者要处理“这次没取到”。 */

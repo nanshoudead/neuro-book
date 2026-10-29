@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import {conv, defineExtension, defineProfile, is, K, path, session as sessionSlice, type Extension, type ModelRequest, type ModelResponse, type ProfileDef} from "./api.ts";
+import {conv, defineExtension, defineProfile, ext, is, K, path, session as sessionSlice, type Extension, type ModelRequest, type ModelResponse, type ProfileDef} from "./api.ts";
 import {Session, ProtocolError, type SessionOptions} from "./kernel.ts";
 import {coreHistory} from "./core.ts";
 import {allPlugins, fileNotice, quota, quotaService, router, sneaky, sqlSchema, usage, workspace} from "./examples/plugins.ts";
@@ -449,9 +449,9 @@ await check("重启后的叶子（R1o-7）：回退写 leaf_changed；重新打�
 });
 
 // 29. 压缩（R1o-8）
-await check("压缩（R1o-8）：firstKept 之前的换成摘要，旧输入不会被带回；种子在压缩后重写", async () => {
+await check("压缩（R1o-8）：firstKeptEntryId 之前的换成摘要，旧输入不会被带回；种子在压缩后重写", async () => {
     const m = scripted({text: "一"}, {text: "二"}, {text: "三"});
-    const s = new Session({profile: writer, core: [coreHistory], model: m.model, tools, files: {"正文/第3章.md": "x".repeat(4000)}, compactor: (j) => ({summary: `前 ${j.entries.length} 条的摘要`, firstKept: j.entries.findLast((e) => is(e, K.user))!.id})});
+    const s = new Session({profile: writer, core: [coreHistory], model: m.model, tools, files: {"正文/第3章.md": "x".repeat(4000)}, compactor: (j) => ({replacement: `前 ${j.entries.length} 条的摘要`, firstKeptEntryId: j.entries.findLast((e) => is(e, K.user))!.id})});
     await s.create();
     await s.send("第一轮");
     await s.send("第二轮");
@@ -746,6 +746,89 @@ await check("空输入（R2-12）：没有文字也没有 payload 的输入不�
     assert.ok(!s.pathTo(s.leaf).some((e) => is(e, K.user)));
     assert.ok(!m.seen[0]!.messages.some((x) => x.content.some((bk) => bk.text === "")));
     assert.ok(s.diagnostics.some((d) => d.code === "render-unknown-type" && d.message.includes("writer/contineu")));
+});
+
+// ---------- 第二轮 omp 审查（R2o-<编号>）----------
+
+// 48. 空闲时的并发写入（R2o-1）
+await check("单写者（R2o-1）：空闲时两个入口同时写，第二个等第一个连同它的反应都做完；因果与父节点不交错", async () => {
+    const slowEcho = defineExtension({id: "lab.echo", events: {fact: ext<{n: number}>(), echo: ext<{n: number}>()}, async react(e, ctx) {
+        if (ctx.ev.fact.is(e)) {
+            await Bun.sleep(e.data.n === 1 ? 30 : 1);   // 第一条的反应更慢
+            return [ctx.ev.echo({n: e.data.n})];
+        }
+    }});
+    const s = new Session({profile: writer, plugins: [slowEcho], core: [coreHistory], model: () => ({text: ""})});
+    await s.create();
+    await Promise.all([s.external("lab.echo", slowEcho.ev.fact({n: 1})), s.external("lab.echo", slowEcho.ev.fact({n: 2}))]);
+    const seq = s.pathTo(s.leaf).filter((e) => e.source === "lab.echo").map((e) => `${e.type.split("/")[1]}${(e.data as any).n}`);
+    assert.deepEqual(seq, ["fact1", "echo1", "fact2", "echo2"]);
+});
+
+// 49. 幂等命中不再派发（R2o-2）与加载时的键唯一（R2o-9）
+await check("幂等（R2o-2、R2o-9）：同一个键的外部事实第二次到达，事实与反应都不重复；日志里同一键出现两次拒绝打开", async () => {
+    const s = session(writer, scripted({text: "好"}).model, {plugins: [fileNotice]});
+    await s.create();
+    const before = s.entries.length;
+    await s.external("nbook.history", {...fileNotice.ev.fileChanged({path: "a"}), key: "w:1"});
+    await s.external("nbook.history", {...fileNotice.ev.fileChanged({path: "a"}), key: "w:1"});
+    assert.equal(s.entries.length - before, 1);
+    const log = s.entries.map((e) => ({...e}));
+    const dup = [...log, {...log.find((e) => e.key === "w:1")!, id: "e999", seq: 999}];
+    assert.throws(() => session(writer, scripted().model, {plugins: [fileNotice]}).load(dup), /幂等键 w:1 出现了两次/);
+});
+
+// 50. 中止能接管卡住的反应（R2o-3）
+await check("中止（R2o-3）：卡在反应里的运行，abort 后照样以 aborted 收口、回到空闲", async () => {
+    const hang = defineExtension({id: "lab.hang", timeoutMs: 60_000, react(e) {
+        if (is(e, K.user)) return new Promise<never>(() => {});
+    }});
+    const s = new Session({profile: writer, plugins: [hang], core: [coreHistory], model: () => ({text: "好"}), tools});
+    await s.create();
+    const run = s.send("你好");
+    await Bun.sleep(20);
+    s.abort();
+    await run;
+    assert.equal((s.pathTo(s.leaf).at(-1)!.data as any).reason, "aborted");
+    assert.equal(s.running, false);
+});
+
+// 51. 未知来源（R2o-4）
+await check("未知来源（R2o-4）：没有装配的来源写不了事件，也写不出内核事件", async () => {
+    const s = new Session({profile: writer, core: [coreHistory], model: () => ({text: ""})});
+    await s.create();
+    await assert.rejects(s.external("ghost", {cls: "conv", type: K.user, scope: "path", data: {text: "伪造"}}), /不是已装配的扩展/);
+    assert.ok(!s.entries.some((e) => is(e, K.user)));
+});
+
+// 52. 工具批次的反应看整批（R2o-5）
+await check("工具批次（R2o-5）：每条结果的反应都看整批写完之后的状态", async () => {
+    const seen: number[] = [];
+    const w = defineExtension({id: "lab.batch", react(e, ctx) {
+        if (is(e, K.toolResult)) seen.push((ctx.read("core.history", "transcript") as unknown[]).length);
+    }});
+    const m = scripted({text: "读两个", toolCalls: [{id: "b1", name: "read", args: {path: "a"}}, {id: "b2", name: "read", args: {path: "b"}}]}, {text: "完"});
+    const s = new Session({profile: writer, plugins: [w], core: [coreHistory], model: m.model, tools, files: {"正文/第3章.md": "x".repeat(4000)}});
+    await s.create();
+    await s.send("读");
+    assert.equal(seen.length, 2);
+    assert.equal(seen[0], seen[1]);
+});
+
+// 53. 内容哈希（R2o-6）与普通数据（R2o-7）
+await check("换 Profile（R2o-6）：同 id、同清单但内容不同，profile_changed 的哈希不同；状态（R2o-7）只能是普通数据，Map 被拒绝", async () => {
+    const s = new Session({profile: writer, core: [coreHistory], model: () => ({text: ""})});
+    await s.create();
+    await s.reconfigure({...writer, system: "A"});
+    await s.reconfigure({...writer, system: "B"});
+    const hashes = s.entries.filter((e) => e.type === "profile_changed").map((e) => (e.data as any).hash);
+    assert.notEqual(hashes[0], hashes[1]);
+    const mapper = defineExtension({id: "lab.map", state: {m: path<Record<string, number>>({})}, reduce: {m: (_, e) => (is(e, K.user) ? (new Map([["x", 1]]) as any) : undefined)}});
+    const s2 = new Session({profile: writer, plugins: [mapper], core: [coreHistory], model: () => ({text: "好"}), tools});
+    await s2.create();
+    await s2.send("你好");
+    assert.ok(s2.diagnostics.some((d) => d.code === "reduce-failed" && d.ext === "lab.map" && d.message.includes("Map")));
+    assert.deepEqual(s2.stateAt(s2.leaf)["lab.map"]!.m, {});
 });
 
 void ({} as Extension);

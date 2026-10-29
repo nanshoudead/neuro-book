@@ -230,19 +230,21 @@ summary { cursor: pointer; font-weight: 600; }
 <a href="#s-hello">3. 演示：说一句“你好”</a>
 <a href="#s-event">4. 一条事件怎么处理</a>
 <a href="#s-sandbox">5. 沙盒：写手续写第 3 章</a>
-<a href="#s-state">6. 状态：共享与私有</a>
-<a href="#s-view">7. 视图与缓存</a>
-<a href="#s-chain">8. 拦截链</a>
-<a href="#s-life">9. 生命周期</a>
-<a href="#s-code">10. 写一个扩展</a>
-<a href="#s-leader">11. 对照：旧 leader.default</a>
-<a href="#s-pitfall">12. 常见错误</a>
-<a href="#s-status">13. 状态与待定</a>
+<a href="#s-state">6. 状态：片、作用域、共享</a>
+<a href="#s-view">7. 视图：模板、槽与缓存</a>
+<a href="#s-chain">8. 副作用与拦截</a>
+<a href="#s-kernel">9. 内核的保证</a>
+<a href="#s-life">10. 生命周期</a>
+<a href="#s-code">11. 写一个扩展</a>
+<a href="#s-leader">12. 对照：旧 leader.default</a>
+<a href="#s-pitfall">13. 常见错误</a>
+<a href="#s-review">14. 原型与审查</a>
+<a href="#s-status">15. 状态与待定</a>
 </nav>
 <main>
 
 <h1>NeuroBook Agent harness 内核：图解与演示</h1>
-<p class="sub">给 NeuroBook 开发者与插件作者。依据提案 <code>docs/proposals/agent-harness-event-model.md</code>（draft，2026-10-29）。接口名字与签名还是草稿，以提案与之后的 Spec 为准；页面里的演示用浏览器里的一个小引擎真的跑归约与反应，不调模型。</p>
+<p class="sub">给 NeuroBook 开发者与插件作者。依据提案 <code>docs/proposals/agent-harness-event-model.md</code>（第三稿，2026-10-29）与 spike（<code>.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/</code>，53 个场景检查通过，两位审查者审了两轮）。接口以 spike 的 <code>api.ts</code> 为准，定稿后以 Spec 为准；页面里的演示用浏览器里的一个小引擎真的跑归约与反应，不调模型。</p>
 
 <!-- 1 -->
 <h2 id="s-loop">1. 一句话：一个循环</h2>
@@ -286,14 +288,14 @@ summary { cursor: pointer; font-weight: 600; }
 <h2 id="s-four">2. 扩展只做四件事</h2>
 <p>Profile 与插件都是“扩展”，用同一套接口；Profile 排在最后、地位最高。四样都是可选的，用到哪个写哪个。页面里这四种颜色固定代表它们。</p>
 <div class="four">
-<div class="cap reduce"><h3>归约</h3><div class="sig">reduce(state, entry) → state</div>
-<dl><dt>什么时候跑</dt><dd>每条事件写进日志之后，全部扩展都跑</dd><dt>能做什么</dt><dd>维护自己那一片状态：计数、记下没送达的改动</dd><dt>不能做什么</dt><dd>I/O；看别人的状态；改日志</dd></dl></div>
-<div class="cap react"><h3>反应</h3><div class="sig">react(entry, ctx) → 新事件[]</div>
-<dl><dt>什么时候跑</dt><dd>这条事件被全部扩展归约之后</dd><dt>能做什么</dt><dd>I/O（检索、读文件、调小模型），返回要追加的事件：种子、提醒、通知、“接着写”</dd><dt>不能做什么</dt><dd>改已经写下的事件；阻止模型消息与工具结果写入</dd></dl></div>
-<div class="cap view"><h3>视图</h3><div class="sig">contribute(mine, input) → {slots, tail, attach}</div>
-<dl><dt>什么时候跑</dt><dd>只在要发请求、或预览的时候</dd><dt>能做什么</dt><dd>交片段：往 Profile 留的槽里填稳定内容；在请求末尾放只对这一次有效的内容。布局归 Profile 的 <code>prompt</code></dd><dt>不能做什么</dt><dd>I/O；写日志</dd></dl></div>
-<div class="cap intercept"><h3>拦截</h3><div class="sig">model(request, next, ctx) → response</div>
-<dl><dt>什么时候跑</dt><dd>接受输入、调用模型、执行工具、压缩这四个副作用发生时</dd><dt>能做什么</dt><dd>改请求与结果、拦下、重试、换模型；日志会记下谁改了什么</dd><dt>不能做什么</dt><dd>改服务商格式的原始请求体；盖过用户配置的拒绝与只读模式</dd></dl></div>
+<div class="cap reduce"><h3>归约</h3><div class="sig">reduce: {片名: (值, e, ev, 兄弟片) =&gt; 新值 | undefined}</div>
+<dl><dt>什么时候跑</dt><dd>每条事件写进日志之后，全部扩展都跑</dd><dt>能做什么</dt><dd>维护自己的片：计数、记下没送达的改动；返回 undefined 表示不变；简单的值直接用 <code>ctx.set</code></dd><dt>不能做什么</dt><dd>I/O；看别的扩展；看另一个作用域的片</dd></dl></div>
+<div class="cap react"><h3>反应</h3><div class="sig">react(e, ctx) =&gt; 事件[] | {events, continue}</div>
+<dl><dt>什么时候跑</dt><dd>这条事件被全部扩展归约之后，同一份状态上并发</dd><dt>能做什么</dt><dd>I/O（检索、读文件），返回要追加的事件：种子、提醒、通知；要模型接着做写 <code>continue: true</code></dd><dt>不能做什么</dt><dd>改已经写下的事件；写别的扩展或内核的事件类型</dd></dl></div>
+<div class="cap view"><h3>视图</h3><div class="sig">contribute: {槽名: {volatile?, value}}，sample: {名字: async}</div>
+<dl><dt>什么时候跑</dt><dd>只在要发请求、或预览的时候</dd><dt>能做什么</dt><dd>往槽里交内容（稳定的、会变的）；每次请求前现取外部数据（<code>sample</code>）。布局归 Profile 的 <code>prompt</code></dd><dt>不能做什么</dt><dd>在 <code>contribute</code> 里 I/O；写日志</dd></dl></div>
+<div class="cap intercept"><h3>拦截</h3><div class="sig">model(request, next, ctx) =&gt; response</div>
+<dl><dt>什么时候跑</dt><dd>接受输入、调用模型、执行工具、压缩这四个副作用发生时</dd><dt>能做什么</dt><dd>改请求与结果、拦下、重试、换模型；日志记下谁改了什么</dd><dt>不能做什么</dt><dd>改服务商格式的原始请求体；盖过用户配置的拒绝与只读模式</dd></dl></div>
 </div>
 
 <!-- 3 -->
@@ -323,6 +325,10 @@ summary { cursor: pointer; font-weight: 600; }
 <div class="controls"><button id="tlPlay" class="primary">播放</button><span class="sub">横轴是时间（示意）。</span></div>
 <div class="tl" id="tl"></div>
 <div class="note"><b>同一轮看不到彼此追加的事件。</b> 上图里 nb-memory 的检索结果与 nbook.history 的通知是同一轮的反应，谁也看不到谁这一轮追加的东西；要看到，得等那条事件自己被归约、反应的时候。这样结果不取决于谁先跑完。</div>
+<div class="two" style="margin-top:12px">
+<div class="box"><h4>上限与出错</h4><ul><li>根事件是第 0 层，反应写的是第 1 层，最多写到第 3 层；再往下不写，留一条 <code>reaction_limit</code></li><li>反应有时限（缺省 30 秒）；出错或超时，这次的输出丢弃，写带扩展 id 的诊断，运行继续</li><li>一个扩展对一条事件的输出是一个整体：有一条不合规矩，这次的全部不写</li></ul></div>
+<div class="box"><h4>“接着做”要显式写</h4><p>对最终回复的反应返回 <code>{events, continue: true}</code> 才会再请求一次，连续最多 3 次。只写了事件、没写 <code>continue</code> 的（例如回复后补一张角色卡），下一次用户发言时才被看到，不会让模型多跑一次。</p></div>
+</div>
 
 <!-- 5 -->
 <h2 id="s-sandbox">5. 沙盒：写手续写第 3 章</h2>
@@ -344,45 +350,66 @@ summary { cursor: pointer; font-weight: 600; }
 <div class="panel"><div class="ph">状态片 <span class="sub">由路径归约出来；刚变的闪一下</span></div><div id="sState"></div></div>
 <div class="panel"><div class="ph">本次请求 <span class="sub">视图算出的</span></div><div id="sReq"></div></div>
 </div>
-<p class="sub">图例：<span class="pill cls-conv">对话</span> 进模型上下文；<span class="pill cls-ctrl">控制</span> 运行与设置；<span class="pill cls-ext">扩展</span> 不进上下文，扩展自己归约。请求里绿色左边线是与上一次请求相同的前缀（缓存命中），橙色是新增的，半绿半橙是只命中前半段（上一次 attach 附在它后面），虚线框是 <code>attach</code>（只这一次有效、不进日志）。</p>
+<p class="sub">图例：<span class="pill cls-conv">对话</span> 缺省投影成消息；<span class="pill cls-ctrl">控制</span> 运行、请求与工具的开始等事实；<span class="pill cls-ext">扩展</span> 扩展自己归约。每条日志下面写着事件类型（扩展事件带扩展 id 前缀）、来源与由哪条事件引出。请求里绿色左边线是与同一路径上一次请求相同的前缀（缓存命中），橙色是新增的，虚线框是会变的槽（只这一次有效、不进日志）。真实系统里回退会写一条树外的 <code>leaf_changed</code>，沙盒省略了。</p>
 
 <!-- 6 -->
-<h2 id="s-state">6. 状态：共享与私有</h2>
+<h2 id="s-state">6. 状态：片、作用域、共享</h2>
+<p>一个扩展可以有几片状态，每片一个作用域：</p>
 <div class="share">
-<div class="box"><h4>内置的片 <span class="pill p-ok">全部扩展只读</span></h4>
-<ul><li>历史：沿当前路径的消息，处理过压缩</li><li>工具集</li><li>会话设置：模型、推理档、审批模式、Agent 模式（会话级，不跟路径走）</li><li>运行状态与待处理事项</li></ul>
-<p class="sub">只有内核能改，由对应的控制事件推动。</p></div>
-<div class="box"><h4>扩展的片 <span class="pill p-warn">默认私有</span></h4>
-<p>只有它自己的 <code>reduce</code> 能改，只有它自己读得到原样。</p>
-<p>想给别人看，导出一个只读的选择器：</p>
-<div class="codebox"><pre><code class="ts">exports: {pendingChanges: (s) =&gt; s.pending}</code></pre></div>
-<p>别的扩展这样读：</p>
-<div class="codebox"><pre><code class="ts">ctx.state.read("nbook.history", "pendingChanges")</code></pre></div>
-<p class="sub">选择器的返回类型就是公开接口，内部结构随便改。</p></div>
+<div class="box"><h4><code>path(初值)</code> <span class="pill p-reduce">跟着对话路径走</span></h4>
+<p>回退、fork 之后自动回到那一刻的值。例如提醒的计数、没送达的改动、写手记下的字数、“工作区焦点送达到哪了”。</p>
+<p class="sub">收 path 事件：用户消息、回复、工具结果、运行开始与结束、会话创建……</p></div>
+<div class="box"><h4><code>session(初值)</code> <span class="pill p-warn">在树外</span></h4>
+<p>不随回退变。例如人设、库结构、工作区焦点本身。</p>
+<p class="sub">只收 session 事件：<code>settings_changed</code>、<code>leaf_changed</code>、<code>profile_changed</code> 与扩展声明成 session 的事件。要从 path 事件得到一个不随回退变的值，在反应里 <code>ctx.set</code> 写进 session 的片（否则回退后再走一遍会重复计数）。</p></div>
 <div class="box"><h4>不是状态的东西</h4>
-<ul><li><b>内存缓存</b>：数据库连接、索引句柄，放在 <code>setup</code> 的闭包里；丢了要能从状态重建</li><li><b>配置</b>：Profile 设置、插件设置，经 <code>ctx</code> 读，用户在设置里改</li><li><b>作用域 session</b> 的片（<code>scope: "session"</code>）：和标题一样在树外，回退不影响，例如“记忆已索引到哪一章”</li></ul></div>
+<ul><li><b>内存缓存</b>：连接、索引句柄；丢了要能重建</li><li><b>配置</b>：经 <code>ctx.settings</code> 读</li><li><b>内核的状态</b>：工具集、运行状态经 <code>ctx.tools</code>、<code>ctx.run</code>；历史经 <code>core.history</code> 的选择器</li></ul></div>
 </div>
-<div class="note"><b>为什么状态由日志归约，而不另存一份？</b> 状态要跟着对话路径走：回退到第 3 次发言，提醒计数也要回到 3。存在内存里，回退和重启都不对；另存状态文件，要给树上每个节点存一份才回得去（那就是又一份日志），而且日志写成了、状态没写成时两边会对不上。只有日志一个真相源，换一片叶子重新归约就对。代价是 <code>reduce</code> 要守纯函数的纪律，扩展事件要带版本（改了事件含义就升版本，否则旧会话重新归约出来的状态会变）。</div>
+<div class="two" style="margin-top:12px">
+<div class="box"><h4>默认私有，经选择器共享</h4>
+<p>别的扩展只能读 <code>exports</code> 导出的选择器：<code>ctx.read("nbook.history", "pendingChanges")</code>。插件经声明合并登记它导出了什么，读的一方得到类型，名字拼错是编译错误。同一个 Profile 自带的扩展之间可以读原样（<code>ctx.own(id)</code>、Profile 模板里的 <code>state.own(id)</code>，也有类型）。</p></div>
+<div class="box"><h4>只读、确定</h4>
+<ul><li>状态与选择器的结果都是只读的；开发模式下冻结，原地修改直接失败</li><li>归约出错不挡日志：叶子照样前进，那一片保持原值并写诊断；重放时同样出错、同样保持</li><li>每条事件写入时记下它之后的 path 与 session 状态这一对；反应读的就是这一对</li></ul></div>
+</div>
+<div class="note"><b>为什么状态由日志归约，而不另存一份？</b> 状态要跟着对话路径走：回退到第 3 次发言，提醒计数也要回到 3。存在内存里，回退和重启都不对；另存状态文件，要给树上每个节点存一份才回得去（那就是又一份日志），而且日志写成了、状态没写成时两边会对不上。只有日志一个真相源，换一片叶子重新归约就对；换 Profile 或插件清单时也照日志从头重新归约，新加的扩展立刻知道过去发生了什么。</div>
 
 <!-- 7 -->
-<h2 id="s-view">7. 视图与缓存</h2>
-<p>“视图”指整个“状态 → 请求”这一步，由两样东西一起完成：Profile 的 <code>prompt</code> 定布局，扩展的 <code>contribute</code> 交片段。布局只有一个拥有者，否则谁先谁后会影响结果；要改整个请求，用模型拦截。</p>
+<h2 id="s-view">7. 视图：模板、槽与缓存</h2>
+<p>“视图”指整个“状态 → 请求”这一步：<code>core.history</code> 把日志投影成消息并按时间切成三段，扩展往有名字的槽里交内容，Profile 的 <code>prompt</code> 是模板，决定这些摆在哪。请求的内容是<b>块</b>，每块记着来源（事件 id、<code>slot:名字@扩展</code>、<code>fixed</code>），所以模型分得清哪句是用户说的，缓存比对也能定位到块。</p>
 <table>
-<tr><th>谁</th><th>产出</th><th>去处</th><th>放什么</th></tr>
-<tr><td>Profile <code>prompt</code>（可选）</td><td>TSX</td><td>系统提示词、历史的位置与渲染、固定消息</td><td>能读全部状态、按模型能力写条件、<code>&lt;History render filter&gt;</code> 控制每条怎么渲染。不写就用缺省布局：系统提示词加全部槽，再接历史</td></tr>
-<tr><td>扩展 <code>contribute</code></td><td><code>slots</code></td><td>Profile 留的同名 <code>&lt;Slot&gt;</code></td><td>稳定的内容：书的设定、记忆的长期摘要。Profile 没留这个槽就丢弃并写诊断</td></tr>
-<tr><td></td><td><code>tail</code></td><td>接在历史末尾的消息</td><td>每次都变的内容，只对这一次有效</td></tr>
-<tr><td></td><td><code>attach</code></td><td>附在请求最末尾那条消息里（用户消息或工具结果）</td><td>同上，但不想多出一条消息。只附在最末尾：附在更早的消息上，内容一变，它之后的整段历史都失去缓存</td></tr>
-<tr><td>扩展 <code>render</code></td><td>消息</td><td>历史里它自己的事件</td><td>例如检索结果存结构化数据，渲染成 <code>&lt;memory&gt;</code> 块；Profile 可以覆盖</td></tr>
+<tr><th>节点</th><th>取什么</th><th>本轮第一次请求</th><th>ReAct 中途的请求</th></tr>
+<tr><td><code>&lt;History /&gt;</code></td><td>本轮开始之前的全部对话事件（处理过压缩）</td><td>以前各轮</td><td>不变</td></tr>
+<tr><td><code>&lt;Input /&gt;</code></td><td>本轮的用户输入；没有新输入的“继续”运行为空</td><td>有值</td><td>仍是同一条</td></tr>
+<tr><td><code>&lt;Transcript /&gt;</code></td><td>本轮里除输入之外的对话事件：持久的提醒、回复、工具结果、插话</td><td>只有持久的提醒</td><td>越来越长</td></tr>
+<tr><td><code>&lt;Slot name&gt;</code></td><td>扩展交的内容，每次请求现算</td><td>当前值</td><td>当前值；上一次的值不留下</td></tr>
 </table>
-<h3>为什么会变的内容不能放进系统提示词</h3>
-<p>服务商的提示词缓存按前缀命中：两次请求从头开始相同的部分越长，越便宜越快。下面是同一会话里连续两次请求。</p>
+<div class="two" style="margin-top:12px">
+<div class="box"><h4>缺省布局（Profile 不写 <code>prompt</code> 时）</h4><div class="codebox"><pre><code class="tsx">&lt;System&gt;{system}&lt;Slot name="*" stable /&gt;&lt;/System&gt;
+&lt;History /&gt;&lt;Input /&gt;&lt;Transcript /&gt;
+&lt;Slot name="*" volatile /&gt;</code></pre></div>
+<ul><li>只写了 <code>&lt;History /&gt;</code> 时，<code>&lt;Input /&gt;</code>、<code>&lt;Transcript /&gt;</code> 依次接在后面</li><li>单轮模板可以不放 <code>&lt;History /&gt;</code>，把 <code>&lt;Input /&gt;</code> 放进一条固定消息；输入带的 <code>payload</code>（例如选区）从 <code>read("core.history", "input")</code> 读</li><li>容器（<code>System</code>、<code>User</code>）里每个子节点一段；行内（<code>P</code>、<code>Tag</code>）的文字与表达式直接相连</li></ul></div>
+<div class="box"><h4>槽、现取的数据与渲染</h4><ul>
+<li><code>contribute: {"word-count": {volatile: true, value}}</code>：声明与内容写在一起；<code>*</code> 必须写 stable 或 volatile</li>
+<li>两个扩展交同名的槽各成一块；有意共用都写 <code>shared: true</code>，否则写“槽撞名”诊断</li>
+<li><code>sample</code>：每次请求前现取（剩余额度、选区），值按内容寻址存一次，记进 <code>model_started</code>；预览过去的请求用记下的值</li>
+<li><code>render</code> 写在 Profile 与扩展上，对历史、本轮输入、本轮记录一律生效；写在 <code>&lt;History&gt;</code> 节点上是模板错误（事件从本轮挪进历史时会变样）</li></ul></div>
+</div>
+<h3>缓存：放在哪里，代价是多少</h3>
+<p>服务商的提示词缓存按前缀命中。内核拿每次请求与同一条路径上最近的那次请求比（模型、参数、工具集也算前缀），算出要重算的 token，超过阈值写诊断并写出两侧的来源。下面是同一会话里连续两次请求：</p>
 <div class="controls"><label><input type="checkbox" id="cWrong"> 错误示范：把“本章当前字数”放进系统提示词的槽</label></div>
 <div class="card" id="cache"></div>
+<table style="margin-top:12px">
+<tr><th>写法</th><th>同一轮里</th><th>下一轮</th></tr>
+<tr><td>会变的槽放在最末尾（缺省布局）</td><td>只丢最末尾的槽</td><td>只丢最末尾的槽</td></tr>
+<tr><td>会变的内容由反应写成事件（持久的提醒）</td><td>全部命中</td><td>全部命中</td></tr>
+<tr><td>会变的槽放在 <code>&lt;Input /&gt;</code> 前面</td><td>从槽开始往后全部失效</td><td>上一轮整段失效一次</td></tr>
+<tr><td>会变的槽放在系统提示词里</td><td>全部失效</td><td>全部失效</td></tr>
+</table>
+<p class="sub">spike 三轮对话：缺省布局重算 0 token；槽放在输入前约 4,300 token 并给出诊断。确实要这样放的（单轮任务，或明知代价）写 <code>&lt;Slot name="outline" cacheCost="accepted" /&gt;</code>，诊断降为 info。</p>
 
 <!-- 8 -->
-<h2 id="s-chain">8. 拦截链</h2>
-<p>四个副作用（输入、模型调用、工具执行、压缩）各有一条拦截链，一层套一层：外层是插件，里面是 Profile，最里层是真正干活的。每层拿到 <code>next</code>：改了再调、调两次（重试）、不调（拦下）都可以。</p>
+<h2 id="s-chain">8. 副作用与拦截</h2>
+<p>四个副作用（输入、模型调用、工具执行、压缩）各有一条拦截链，一层套一层：外层是插件（按依赖排序、同层按 id），里面是 Profile，最里层是真正干活的。每层拿到 <code>next</code>：改了再调、调两次（重试）、不调（拦下）都可以。</p>
 <div class="controls">
 <select id="oKind"><option value="model">模型调用</option><option value="tool">工具执行</option></select>
 <span id="oOptsModel"><label><input type="checkbox" id="oRoute" checked> 装了路由插件</label> <label>问题 <select id="oQ"><option value="simple">简单</option><option value="hard">难</option></select></label></span>
@@ -393,265 +420,274 @@ summary { cursor: pointer; font-weight: 600; }
 <div id="onion"></div>
 <div class="card" style="margin-top:0"><div style="font-weight:700;margin-bottom:6px">每层做了什么</div><div class="chainlog" id="oLog"><div class="sub">点“运行”。</div></div></div>
 </div>
-<div class="note">审批永远在工具链的最里层：扩展的放行只能免掉审批模式本来要弹的询问，盖不过用户配置的拒绝、工具声明的拒绝与只读模式。预览时模型链也会跑，只是最里层不发请求、把请求截下来，所以预览看到的就是最终请求。</div>
+<div class="two" style="margin-top:12px">
+<div class="box"><h4>各入口读到的是哪一刻的状态</h4><table>
+<tr><td><code>reduce</code></td><td>这条事件之前的自己那片</td></tr>
+<tr><td><code>react</code></td><td>这条事件写入之后</td></tr>
+<tr><td><code>sample</code>、<code>contribute</code>、<code>prompt</code>、模型拦截</td><td>这次请求所在的叶子（预览时是被预览的叶子）</td></tr>
+<tr><td>工具拦截</td><td>发出这批调用的回复所在的叶子：同一批调用看到的世界相同</td></tr></table></div>
+<div class="box"><h4>出错时</h4><table>
+<tr><td><code>reduce</code></td><td>那一片保持原值，叶子照样前进</td></tr>
+<tr><td><code>react</code>、<code>sample</code>、<code>contribute</code></td><td>这次的结果丢弃或缺席</td></tr>
+<tr><td><code>render</code></td><td>用缺省渲染</td></tr>
+<tr><td>输入拦截、模型拦截</td><td>跳过这一层；模型拦截在 <code>next</code> 之后出错用里层的回复（模型已经回复、花了钱，不丢）</td></tr>
+<tr><td>工具拦截</td><td>缺省拒绝这次调用</td></tr>
+<tr><td>Profile 的 <code>prompt</code></td><td>这次请求算不出来，运行以 error 收口</td></tr></table>
+<p class="sub">每条都写带扩展 id 的诊断。</p></div>
+</div>
+<div class="note">审批永远在工具链的最里层：扩展的放行只能免掉审批模式本来要弹的询问，盖不过用户配置的拒绝、工具声明的拒绝与只读模式。预览时模型链也会跑，只是最里层不发请求、把请求截下来，所以预览看到的就是最终请求。模型链的最里层是 <code>nbook.models</code> 的适配器：把 <code>ModelRequest</code> 转成 OMP 的 <code>Context</code>，调 <code>streamSimple</code>，消费事件流（增量推界面，<code>done</code> 得到完整回复，<code>error</code> 与中止交回失败）。</div>
 
 <!-- 9 -->
-<h2 id="s-life">9. 生命周期</h2>
-<div class="card lifecycle">
-<div class="lc-row"><span class="lbl">扩展</span><span class="chip">插件激活</span><span class="arrow">→</span><span class="chip">声明登记</span><span class="arrow">→</span><span class="chip hot">每个会话 setup</span><span class="arrow">→</span><span class="chip hot">dispose</span><span class="arrow">→</span><span class="chip">插件停用</span></div>
-<div class="lc-row"><span class="lbl">会话</span><span class="chip">创建（一次）</span><span class="arrow">→</span><span class="chip hot">打开（每次加载，含重启后）</span><span class="arrow">⇄</span><span class="chip">空闲 / 运行中 / 等用户</span><span class="arrow">→</span><span class="chip">关闭</span></div>
-<div class="lc-row"><span class="lbl">运行</span><span class="chip">受理</span><span class="arrow">→</span><span class="chip">输入</span><span class="arrow">→</span><span class="chip hot">循环：请求 → 回复 → 工具 × N</span><span class="arrow">→</span><span class="chip">准备结束</span><span class="arrow">→</span><span class="chip">结束</span><span class="sub">（循环中随时可能压缩；中止或出错时收口）</span></div>
-<div class="lc-row"><span class="lbl">一条事件</span><span class="chip">写进日志</span><span class="arrow">→</span><span class="chip" style="border-color:var(--c-reduce);color:var(--c-reduce)">全部归约</span><span class="arrow">→</span><span class="chip" style="border-color:var(--c-react);color:var(--c-react)">全部反应</span><span class="arrow">→</span><span class="chip">追加的事件各走一遍</span></div>
+<h2 id="s-kernel">9. 内核的保证</h2>
+<p>缺省行为尽量做成和插件同一个形状的内置扩展；内核只留下必须固定的部分。下面是它对扩展作者做的保证，每一条在 spike 里都有对应的场景检查。</p>
+<table>
+<tr><th>保证</th><th>怎么做到</th></tr>
+<tr><td><b>事实先落盘</b>：崩溃后知道发生到哪了</td><td>发模型请求前写 <code>model_started</code>，执行工具前写 <code>tool_started</code>；重新打开时 <code>recover()</code> 把开始了但没结果的工具调用结算为“结果未知”，没回复的请求写 <code>model_failed</code>，运行以 <code>interrupted</code> 收口，之后的请求合乎协议</td></tr>
+<tr><td><b>单写者</b>：日志顺序不取决于谁先到</td><td>所有写入口（发送、外部事实、设置、回退、换 Profile、压缩、恢复）排进同一条队列，前一个连同它的反应做完后一个才开始；运行中到达的进运行的收件箱，在下一个边界（下一次模型请求之前）按到达顺序写入</td></tr>
+<tr><td><b>中止可收口</b></td><td><code>ctx.signal</code> 贯穿反应、<code>sample</code>、拦截、模型与工具；不合作、卡住不返回的由内核接管（内核等的每个 Promise 都与中止赛跑）；没完成的工具调用写“已中止，结果未知”，运行以 <code>aborted</code> 收口，迟到的结果不写日志</td></tr>
+<tr><td><b>并行工具</b></td><td>一个回复里的工具调用是一批：<code>shared</code> 的并行、<code>exclusive</code> 的单独跑；结果按调用顺序写入，整批写完后派发反应，每条结果的反应都看整批写完之后的状态</td></tr>
+<tr><td><b>重启后一样</b></td><td>加载前校验日志（id 唯一、seq 递增、父节点在前、形状合法、幂等键不重复），不过就拒绝打开；当前叶子照 <code>leaf_changed</code> 恢复；预览过去的请求用那次请求记下的 now、samples、session 状态与设置</td></tr>
+<tr><td><b>名字撞不了、来源可信</b></td><td>扩展事件自动带扩展 id 前缀，内核事件只能由内核写；未知来源写不了事件；扩展 id 有格式、不能重复；同一来源同一个幂等键只写一次，命中时反应也不再跑</td></tr>
+<tr><td><b>状态确定</b></td><td>状态只能是普通数据（Map、Set、Date 被拒绝），只读；归约出错那一片保持原值、叶子照样前进；换 Profile 时照日志从头重新归约，<code>profile_changed</code> 记下内容哈希</td></tr>
+<tr><td><b>请求合乎协议</b></td><td>最终请求过内核校验：工具调用与结果成对、角色顺序、工具名合乎服务商规则；历史投影被替换过也一样</td></tr>
+<tr><td><b>防循环、防卡死</b></td><td>反应链最多 3 层、“接着做”连续最多 3 次、反应与 <code>sample</code> 有时限</td></tr>
+<tr><td><b>审批不可绕过</b></td><td>审批与只读模式在工具链最里层</td></tr>
+</table>
+<div class="two" style="margin-top:12px">
+<div class="box"><h4>内置扩展</h4><table>
+<tr><td><code>core.history</code></td><td>历史投影；Profile 用 <code>render</code>、<code>filter</code> 定制，确实需要时整个替换（只有 Profile 能，插件不能）</td></tr>
+<tr><td><code>core.compaction</code></td><td>压缩的触发、方法顺序、恢复流程；不能替换，方法经 <code>agent.compactionMethods</code> 贡献</td></tr>
+<tr><td><code>core.title</code></td><td>标题；用户设置里关掉</td></tr></table></div>
+<div class="box"><h4>压缩</h4><p>经压缩拦截链，最里层是压缩方法。结果是一条压缩事件 <code>{method, summary, firstKept, …}</code>：<code>core.history</code> 把 <code>firstKept</code> 之前的换成摘要、之后的原样保留；种子由 Profile 对压缩事件的反应重写。旧的条目都还在日志里，界面照样能看。</p></div>
 </div>
-<p>没有单独的钩子点：“会话已创建”“运行开始”“最终回复”“压缩完成”“运行结束”都是日志里的事件，扩展在 <code>react</code> 里按 <code>entry.type</code> 处理。<code>setup</code> 在每次打开会话时调用（包括服务端重启后），所以扩展的内存缓存要在这里建、在 <code>dispose</code> 里放。</p>
-<h3><code>ctx</code> 给什么、不给什么</h3>
+
+<!-- 10 -->
+<h2 id="s-life">10. 生命周期</h2>
+<div class="card lifecycle">
+<div class="lc-row"><span class="lbl">扩展</span><span class="chip">插件激活</span><span class="arrow">→</span><span class="chip">声明登记</span><span class="arrow">→</span><span class="chip hot">每个会话装配（id 格式与重复、依赖排序、replaces 权限）</span><span class="arrow">→</span><span class="chip">换 Profile 或插件停用时摘下</span></div>
+<div class="lc-row"><span class="lbl">会话</span><span class="chip">创建（session_created 带 initial）</span><span class="arrow">→</span><span class="chip hot">打开（校验、归约、recover）</span><span class="arrow">⇄</span><span class="chip">空闲 / 运行中 / 等用户</span><span class="arrow">→</span><span class="chip">关闭</span></div>
+<div class="lc-row"><span class="lbl">运行</span><span class="chip">受理</span><span class="arrow">→</span><span class="chip">输入</span><span class="arrow">→</span><span class="chip hot">循环：边界 → 请求 → 回复 → 工具批次</span><span class="arrow">→</span><span class="chip">结束</span><span class="sub">（出错、中止都收口）</span></div>
+<div class="lc-row"><span class="lbl">一条事件</span><span class="chip">写进日志</span><span class="arrow">→</span><span class="chip" style="border-color:var(--c-reduce);color:var(--c-reduce)">全部归约</span><span class="arrow">→</span><span class="chip" style="border-color:var(--c-react);color:var(--c-react)">全部反应</span><span class="arrow">→</span><span class="chip">追加的事件各走一遍（最多 3 层）</span></div>
+</div>
+<p>没有单独的钩子点：“会话已创建”“会话已打开”（不进日志）“运行开始”“最终回复”“压缩完成”“运行结束”都是事件，扩展在 <code>react</code> 里按类型处理。<b>换 Profile 或插件清单</b>（运行收口之后）：内核换上新的扩展，照日志从头重新归约，写 <code>profile_changed</code>（新的清单、顺序与内容哈希）；旧扩展写的事件留在日志里，没有扩展认它们就不起作用，改了含义的靠版本区分。</p>
 <div class="two">
-<div class="box"><h4>给</h4><ul>
-<li>读：内置的片、自己的片、别人导出的选择器、工具、当前模型、上下文用量、<code>read(uri)</code></li>
-<li>主动：<code>complete</code>（不进会话的模型调用）、<code>invokeTool</code>（走审批）、<code>ask</code>、<code>send</code>（插话或排队）、<code>emit</code>、<code>compact</code>、<code>abort</code>、<code>setTitle</code>、诊断</li>
-<li>会话身份、<code>preview</code> 标志、中止信号</li></ul></div>
+<div class="box"><h4><code>ctx</code> 给</h4><ul>
+<li>自己的：<code>mine</code>（各片）、<code>ev</code>（自己的事件构造与守卫）、<code>set</code>、<code>message</code></li>
+<li>读：<code>read</code>（别人导出的选择器）、<code>own</code>（同一 Profile 的兄弟扩展）、<code>settings</code>、<code>tools</code>、<code>run</code>、<code>file(uri)</code></li>
+<li><code>preview</code> 标志、<code>signal</code></li>
+<li>主动接口 <code>complete</code>、<code>invokeTool</code>、<code>ask</code>、<code>compact</code>：实现时定（待定项 8）</li></ul></div>
 <div class="box"><h4>不给</h4><ul>
 <li>改工具绑定（归用户）</li>
 <li>改会话设置（归用户；按请求换模型用模型拦截）</li>
 <li>服务商格式的原始请求体</li>
+<li>读别的扩展的原样</li>
 <li>定时器与界面（插件自己的入口与贡献点能做）</li></ul></div>
 </div>
 
-<!-- 10 -->
-<h2 id="s-code">10. 写一个扩展</h2>
-<h3>文件改动通知：归约加反应</h3>
-<div class="codebox"><pre><code class="ts">export default defineAgentExtension({
-    id: "nbook.history.file-notice",
-    setup: () =&gt; ({
-        state: {
-            initial: {pending: [] as string[]},
-            // 只看得到自己这一片与这条事件；不认识的事件原样返回
-            reduce(s, e) {
-                if (e.type === "nbook.history/file-changed") return {pending: [...s.pending, e.data.path]};
-                if (e.type === "nbook.history/notice-delivered") return {pending: []};
-                return s;
-            },
-            exports: {pendingChanges: (s) =&gt; s.pending},
-        },
-        // 用户发言之后：有没送达的改动就追加一条通知，再记“已送达”
-        async react(e, ctx) {
-            const {pending} = ctx.state.mine();
-            if (e.type !== "user" || pending.length === 0) return;
-            return [
-                {kind: "message", role: "user", content: await describeChanges(pending, ctx)},
-                {kind: "extension", type: "nbook.history/notice-delivered", v: 1},
-            ];
-        },
-    }),
-});</code></pre></div>
-<p>回退到用户发言之前，“已送达”那条不在路径上，<code>pending</code> 自动恢复，下次发言时模型会重新收到通知。这里没有一行处理回退的代码。</p>
-<h3>只想存一个值：<code>pathState</code></h3>
-<div class="codebox"><pre><code class="ts">const outline = pathState&lt;{chapter: number}&gt;({initial: {chapter: 1}});
+<!-- 11 -->
+<h2 id="s-code">11. 写一个扩展</h2>
+<h3>文件改动通知：片、事件、归约、反应、导出</h3>
+<div class="codebox"><pre><code class="ts">export const fileNotice = defineExtension({
+    id: "nbook.history",
+    tags: ["history"],
+    state: {pending: path&lt;string[]&gt;([])},
+    events: {
+        fileChanged: ext&lt;{path: string}&gt;(),   // 类型是 "nbook.history/fileChanged"
+        notice: conv(),
+        delivered: ext(),
+    },
+    reduce: {
+        // 返回 undefined 表示不变，不必写“不认识的事件原样返回”
+        pending: (p, e, ev) =&gt; (ev.fileChanged.is(e) ? [...p, e.data.path] : ev.delivered.is(e) ? [] : undefined),
+    },
+    exports: {pendingChanges: (m) =&gt; m.pending},
+    react(e, ctx) {
+        if (!is(e, K.user) || ctx.mine.pending.length === 0) return;
+        return [ctx.ev.notice({text: `用户改过这些文件：${ctx.mine.pending.join("、")}`}), ctx.ev.delivered({})];
+    },
+});
 
-defineAgentExtension({
-    id: "demo.outline",
-    setup: () =&gt; ({
-        state: outline.slice,                                  // 内核生成的 reduce：取路径上最后一次 set
-        async react(e, ctx) {
-            if (e.type === "tool_result" &amp;&amp; e.tool === "outline.move") await outline.set(ctx, {chapter: e.data.to});
-        },
-        contribute: (mine) =&gt; ({slots: {outline: `当前写到第 ${mine.chapter} 章`}}),
-    }),
+// 别的插件读它导出的选择器：登记一次，读的一方得到类型，名字拼错是编译错误
+declare module "nb-harness" {
+    interface ExtensionExports {"nbook.history": ExportsOf&lt;typeof fileNotice&gt;}
+}</code></pre></div>
+<p>回退到用户发言之前，“已送达”那条不在路径上，<code>pending</code> 自动恢复，下次发言时模型会重新收到通知。这里没有一行处理回退的代码。</p>
+<h3>剩余额度：每次请求现取</h3>
+<div class="codebox"><pre><code class="ts">export const quota = defineExtension({
+    id: "demo.quota",
+    // 每次算视图前取一次：有时限、接中止；没取到这次请求里它缺席（类型上是可选的）
+    sample: {balance: async (ctx) =&gt; (await billing.balance({signal: ctx.signal})).tokens},
+    contribute: {
+        quota: {volatile: true, value: (_m, view) =&gt; (view.sample.balance === undefined ? null : `剩余额度：约 ${view.sample.balance} token`)},
+    },
 });</code></pre></div>
-<h3>Profile：布局加自带的扩展</h3>
-<div class="codebox"><pre><code class="tsx">export default defineProfile({
+<h3>写手：Profile 加自带的扩展</h3>
+<div class="codebox"><pre><code class="ts">export const writerCore = defineExtension({
     id: "writer",
-    tools: {required: ["read", "edit"], optional: ["grep"]},
-    globalExtensions: {exclude: []},
-    prompt: ({state, model}) =&gt; (
-        &lt;&gt;
-            &lt;System&gt;
-                你是本书的写手，只改正文目录。
-                {model.capabilities.vision &amp;&amp; "用户可能贴图，按图写场景。"}
-                &lt;Slot name="memory" /&gt;
-            &lt;/System&gt;
-            &lt;History render={{"nb-memory/result": (e) =&gt; `&lt;memory&gt;${e.data.text}&lt;/memory&gt;`}} /&gt;
-        &lt;/&gt;
-    ),
-    // 自带的扩展：每项和插件的扩展同一个形状，排在全局扩展之后
+    state: {words: path(0), continues: path(0)},
+    events: {continue: conv()},
+    reduce: {continues: (n, e, ev) =&gt; (ev.continue.is(e) ? n + 1 : is(e, K.user) ? 0 : undefined)},
+    react(e, ctx) {
+        // 读文件是 I/O：在反应里读，ctx.set 写成事件；值没变内核不写
+        if (is(e, K.user) || (is(e, K.toolResult) &amp;&amp; e.data.tool === "edit")) return [ctx.set("words", wordCount(ctx))];
+        if (is(e, K.assistant) &amp;&amp; !e.data.toolCalls.length &amp;&amp; ctx.mine.words &lt; 3000 &amp;&amp; ctx.mine.continues &lt; 3)
+            return {events: [ctx.ev.continue({text: "请接着写完"})], continue: true};
+    },
+    render: {continue: (e) =&gt; e.data.text},
+    contribute: {"word-count": {volatile: true, value: (m) =&gt; `本章当前字数：${m.words}`}},
+    intercept: {
+        async tool(call, next) {
+            if (call.name === "edit" &amp;&amp; !call.args.path.startsWith("project://正文/")) return {text: "写手只改正文目录", isError: true};
+            return next(call);
+        },
+    },
+});
+
+export const writer = defineProfile({
+    id: "writer",
+    system: "你是本书的写手，只改正文目录。",      // 不写 prompt：缺省布局
+    tools: {required: ["read", "edit"]},
     extensions: [
-        {
-            id: "writer/words",
-            setup: () =&gt; ({
-                state: words.slice,                                // 字数在反应里读、写成事件（略）
-                // 只对这一次请求有效、不进日志、总在请求末尾
-                contribute: (mine) =&gt; ({attach: [{type: "text", text: `本章当前字数：${mine.words}`}]}),
-            }),
-        },
-        {
-            id: "writer/edit-scope",
-            setup: () =&gt; ({
-                intercept: {
-                    async tool(call, next) {
-                        if (call.name === "edit" &amp;&amp; !call.args.path.startsWith("project://正文/"))
-                            return {isError: true, content: "写手只改正文目录"};    // 不调 next：拦下
-                        return next(call);
-                    },
-                },
-            }),
-        },
+        seed({id: "writer.seed", on: [K.sessionCreated, K.compaction], messages: (e) =&gt; [
+            "正文在 project://正文/。",
+            is(e, K.sessionCreated) &amp;&amp; e.data.initial ? `&lt;input_context&gt;${JSON.stringify(e.data.initial)}&lt;/input_context&gt;` : null,
+        ]}),
+        writerCore,
     ],
 });</code></pre></div>
 
-<!-- 11 -->
-<h2 id="s-leader">11. 对照：改写旧应用的 leader.default</h2>
-<p>用旧应用的默认主创 Profile（<code>packages/neuro-book-legacy/assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx</code>）检验新设计。提示词正文不改，只看结构：能不能做到旧版能做的，多了什么，写起来是否更顺。</p>
-<div class="two">
-<div><div class="sub" style="margin-bottom:4px">旧版：<code>context()</code> 一段约 120 行（这里删减了）</div><div class="codebox"><pre><code class="tsx">export default defineAgentProfile({
-    manifest: profileManifest,
-    settingsForm: LeaderDefaultSettingsForm,      // 含 fileChangeAwareness
-    tools: toolset(builtin.file.read, builtin.file.write, /* …共 25 项 */ ...plotWriteBindings),
-    runtimeDefaults: {
-        summarizer: {enabled: true, trigger: "afterInvocation",
-                     interval: {kind: "sourceInvocation", value: 16}},
-    },
-    async context(ctx) {
-        // 每次渲染都读一次人设文件
-        const personaBody = await ctx.home.readText(personaKey);
-        return (
-            &lt;ProfilePrompt&gt;
-                &lt;System&gt;
-                    {[customTop, persona, collaboration, familiarity,
-                      question, LEADER_SYSTEM_PROMPT].filter(Boolean).join("\n\n")}
-                &lt;/System&gt;
-                &lt;HistorySet&gt;         {/* 只在历史为空时写入 */}
-                    &lt;Message&gt;&lt;AgentCatalog /&gt;&lt;/Message&gt;
-                    &lt;Message&gt;&lt;Import path="reference/agent/profile-routing.md" /&gt;&lt;/Message&gt;
-                    &lt;Message&gt;&lt;SkillCatalog /&gt;&lt;/Message&gt;
-                    {/* …共 14 条 */}
-                &lt;/HistorySet&gt;
-                &lt;ModelContext&gt;       {/* 不落盘，每次请求插在本轮追加消息之前 */}
-                    &lt;Message&gt;&lt;SqlSchemaSummary /&gt;&lt;/Message&gt;
-                &lt;/ModelContext&gt;
-                &lt;AppendingSet&gt;       {/* 每轮写进日志 */}
-                    &lt;WorkspaceFocusReminder /&gt;
-                    &lt;FileChangeNotice mode={ctx.settings.fileChangeAwareness} /&gt;
-                    &lt;ModeAvailabilityReminder /&gt;
-                    &lt;LinkedAgentsReminder /&gt;
-                    &lt;TaskReminder stateKey="agent.tasks" repeatEveryTurns={8} /&gt;
-                    &lt;ModeReminder stateKey="agent.mode" /&gt;
-                    &lt;Message&gt;&lt;MentionedSkillsReminder /&gt;&lt;/Message&gt;
-                &lt;/AppendingSet&gt;
-            &lt;/ProfilePrompt&gt;
-        );
-    },
-});</code></pre></div></div>
-<div><div class="sub" style="margin-bottom:4px">新版：与上下文有关的部分约 60 行</div><div class="codebox"><pre><code class="tsx">const persona = sessionState&lt;string&gt;({id: "leader.default/persona", initial: DEFAULT_LEADER_PERSONA});
-
-export default defineProfile({
+<!-- 12 -->
+<h2 id="s-leader">12. 对照：改写旧应用的 leader.default</h2>
+<p>用旧应用的默认主创 Profile（<code>packages/neuro-book-legacy/assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx</code>）检验新设计。旧版的 <code>context()</code> 每次渲染都读人设文件，返回置顶与人设、只在历史为空时写入的 14 条种子、不落盘的库结构摘要（每次请求插在本轮之前）、七种每轮写进日志的提醒；另有每 16 次调用跑一次 summarizer。新版与上下文有关的部分：</p>
+<div class="codebox"><pre><code class="tsx">export const leaderCore = defineExtension({
     id: "leader.default",
-    name: "主创",
-    settingsSchema: SettingsSchema,     // 去掉 fileChangeAwareness：它归 nbook.history
-    tools: {
-        required: ["read", "write", "edit", "shell", "ask", "todo", "agent.invoke"],
-        optional: ["world.execute", "plot.*", "sql.execute", "workflow.run"],
+    state: {persona: session("熟悉、活泼、直率。")},            // 人设不随回退变
+    react(e, ctx) {
+        const file = `profile://${ctx.settings.leaderPersonaPreset}`;
+        if (is(e, K.sessionOpened) || is(e, K.settingsChanged) || isFileChanged(e, file))
+            return [ctx.set("persona", ctx.file(file) ?? "熟悉、活泼、直率。")];   // 值没变内核不写
     },
-    // 纯函数：不读盘，预览与回放都一样
+    intercept: {
+        // 旧版只能在提示词里说“写作必须交给 writer”；现在能挡住
+        async tool(call, next) {
+            if (["write", "edit"].includes(call.name) &amp;&amp; call.args.path.startsWith("project://正文/"))
+                return {text: "正文交给 writer：用 agent.invoke 调用 writer", isError: true};
+            return next(call);
+        },
+    },
+});
+
+export const leader = defineProfile({
+    id: "leader.default",
+    tools: {required: ["read", "edit", "todo", "agent.invoke"], optional: ["world.execute", "plot.*", "sql.execute"]},
+    // 覆盖模式提醒的措辞：写在 Profile 上，历史、本轮输入、本轮记录里都一样
+    render: {[modeReminder.ev.reminder.type]: (e) =&gt; `&lt;mode&gt;${e.data.text}&lt;/mode&gt;`},
     prompt: ({state, settings}) =&gt; (
         &lt;&gt;
             &lt;System&gt;
-                {settings.customTopSystemPrompt &amp;&amp;
-                    &lt;Tag name="custom_top_system_prompt"&gt;{settings.customTopSystemPrompt}&lt;/Tag&gt;}
-                &lt;Tag name="leader_persona"&gt;{state.read("leader.default/persona")}&lt;/Tag&gt;
+                {settings.customTopSystemPrompt &amp;&amp; &lt;Tag name="custom_top_system_prompt"&gt;{settings.customTopSystemPrompt}&lt;/Tag&gt;}
+                &lt;Tag name="leader_persona"&gt;{state.own("leader.default").persona}&lt;/Tag&gt;
                 {COLLABORATION[settings.collaborationMode]}
-                {FAMILIARITY[settings.neuroBookFamiliarity]}
-                {QUESTION_STRATEGY[settings.questionStrategy]}
                 {LEADER_SYSTEM_PROMPT}
                 &lt;If tool="world.execute"&gt;{WORLD_ENGINE_SECTION}&lt;/If&gt;
-                &lt;Slot name="sql-schema" /&gt;  {/* nbook.sql 填；库结构变了才变 */}
+                &lt;Slot name="sql-schema" /&gt;
+                &lt;Slot name="*" stable /&gt;
             &lt;/System&gt;
-            {/* 覆盖模式提醒的措辞；任何扩展的事件都能这样覆盖 */}
-            &lt;History render={{"nbook.agent/mode-reminder": leaderModeReminder}} /&gt;
+            &lt;History /&gt;
+            {/* &lt;Input /&gt;、&lt;Transcript /&gt; 没写，接在 &lt;History /&gt; 后面 */}
+            &lt;Slot name="*" volatile /&gt;
         &lt;/&gt;
     ),
     extensions: [
-        // 人设：会话打开、设置变化、人设文件被改时读一次，写成事件；值没变不写
-        persona.loader({
-            on: ["session_opened", "settings_changed",
-                 fileChanged(({settings}) =&gt; `profile://${settings.leaderPersonaPreset}`)],
-            load: (ctx) =&gt; ctx.read(`profile://${ctx.settings.leaderPersonaPreset}`),
-        }),
-        // 种子：会话创建与压缩完成后各写一次
-        seed({
-            on: ["session_created", "compaction_done"],
-            messages: async (ctx) =&gt; [
-                await agentCatalog(ctx),
-                await ctx.read("docs://builtin/agent/profile-routing.md"),
-                await skillCatalog(ctx),
-                // …其余 11 条照旧，路径改用 t08 的地址
-            ],
-        }),
-        // 旧版只能在提示词里说“写作必须交给 writer”；现在能挡住
-        {
-            id: "leader.default/writer-only",
-            setup: () =&gt; ({
-                intercept: {
-                    async tool(call, next) {
-                        if (["write", "edit"].includes(call.name) &amp;&amp;
-                            call.args.path.startsWith("project://正文/"))
-                            return {isError: true, content: "正文交给 writer：用 agent.invoke 调用 writer"};
-                        return next(call);
-                    },
-                },
-            }),
-        },
+        seed({id: "leader.seed", on: [K.sessionCreated, K.compaction], messages: async (_e, ctx) =&gt; [
+            await agentCatalog(ctx),
+            ctx.file("docs://builtin/agent/profile-routing.md"),
+            await skillCatalog(ctx),
+            // ……其余 11 条照旧，路径改用 t08 的地址
+        ]}),
+        leaderCore,
     ],
-    // 七种提醒、文件变更、库结构、记忆总结：都不在这里，见下面的表
-});</code></pre></div></div>
-</div>
-<h3>旧机制去了哪里</h3>
-<table>
+    // 七种提醒、文件变更、库结构、记忆总结：都不在这里，由全局扩展提供
+});</code></pre></div>
+<table style="margin-top:12px">
 <tr><th>旧机制</th><th>新设计</th><th>变化</th></tr>
-<tr><td>七种提醒写在 <code>AppendingSet</code> 里，每个 Profile 各列一遍（<code>WorkspaceFocusReminder</code> 出现在 9 个内置 Profile 里）</td><td>归拥有那份数据的插件，作为全局扩展：工作区焦点归宿主、文件变更归 nbook.history、模式归 nbook.agent、任务归 todo 工具所在的插件、已关联 Agent 归多 Agent、提到的 Skill 归 Skill</td><td>Profile 里这部分是零行；不要的按标签排除；插件不改 Profile 就能给它加上下文</td></tr>
-<tr><td><code>TaskReminder</code> 靠 <code>stateKey: "agent.tasks"</code> 字符串读 <code>customState</code>，工具往同一个键写</td><td>任务的状态片由 todo 工具的结果归约而来，提醒和工具在同一个插件里</td><td>没有跨模块的字符串约定</td></tr>
-<tr><td><code>ModelContext</code>（库结构摘要）不落盘，每次请求插在本轮追加消息之前；下一轮它挪到新一轮之前，上一轮那段的缓存就失效（从 <code>prompt-order.ts</code> 推断）</td><td>nbook.sql 扩展从状态填系统提示词里的 <code>&lt;Slot name="sql-schema"&gt;</code>，库结构变了才变</td><td>每轮不再丢一段缓存</td></tr>
-<tr><td><code>context()</code> 每次渲染读一次人设文件</td><td>人设是 <code>sessionState</code>，在会话打开、设置变化、文件被改时读一次，写成事件</td><td><code>prompt</code> 是纯函数，预览不读盘，回放用记下的值</td></tr>
-<tr><td><code>HistorySet</code> 只在历史为空时写入</td><td><code>seed()</code> 在会话创建与压缩完成时写</td><td>压缩后种子自动重写</td></tr>
-<tr><td>“写作任务必须交给 writer”只写在提示词里</td><td>自带的工具拦截：改 <code>project://正文/</code> 时返回错误结果</td><td>从“请模型遵守”变成能挡住</td></tr>
-<tr><td>模式提醒的措辞经 <code>ModeReminder</code> 专用的 <code>ModeSlot</code> 定制</td><td>通用的 <code>&lt;History render&gt;</code> 覆盖任何扩展事件的渲染</td><td>一种机制覆盖所有扩展</td></tr>
-<tr><td>文件变更感知的档位是主创自己的设置项</td><td>是 nbook.history 扩展的设置，用户在 Profile 设置里按 Profile 配</td><td>每个 Profile 不必各写一遍</td></tr>
-<tr><td>固定顺序 History → ModelContext → AppendingSet → CurrentUserInput</td><td>布局由 <code>prompt</code> 定；提醒是日志里真实的事件，按写入顺序出现</td><td>顺序看日志就知道</td></tr>
-<tr><td><code>runtimeDefaults.summarizer</code> 每 16 次调用跑一次</td><td>nb-memory 扩展归约“运行结束”计数，到 16 次启动 summarizer（后台运行等 t22）</td><td>记忆归记忆插件</td></tr>
+<tr><td>七种提醒写在 <code>AppendingSet</code>，每个 Profile 各列一遍（<code>WorkspaceFocusReminder</code> 在 9 个内置 Profile 里）</td><td>各归拥有那份数据的插件，作为全局扩展</td><td>Profile 里零行；插件不改 Profile 就能加上下文</td></tr>
+<tr><td><code>TaskReminder</code> 靠 <code>"agent.tasks"</code> 字符串读 <code>customState</code></td><td>任务清单由 todo 工具的结果归约，提醒和工具在同一个插件里</td><td>没有跨模块的字符串约定</td></tr>
+<tr><td><code>ModelContext</code> 每次插在本轮之前，下一轮挪位置，上一轮那段缓存失效（从 <code>prompt-order.ts</code> 推断）</td><td><code>nbook.sql</code> 交稳定的槽，库结构变了才变</td><td>每轮不再丢一段缓存</td></tr>
+<tr><td><code>context()</code> 每次渲染读人设</td><td>人设是 session 的片，打开、设置变化、文件被改时读一次</td><td><code>prompt</code> 是纯函数</td></tr>
+<tr><td><code>HistorySet</code> 只在历史为空时写</td><td><code>seed()</code> 在会话创建与压缩后写；能读调用方给的 <code>initial</code></td><td>压缩后种子自动重写</td></tr>
+<tr><td>“写作必须交给 writer”只写在提示词里</td><td>自带的工具拦截挡住</td><td>能挡住</td></tr>
+<tr><td><code>ModeReminder</code> 专用的 <code>ModeSlot</code></td><td>Profile 级 <code>render</code> 覆盖任何扩展事件，键用扩展导出的事件类型</td><td>一种机制</td></tr>
+<tr><td>固定顺序 History → ModelContext → AppendingSet → CurrentUserInput</td><td>模板定位置；提醒是日志里真实的事件</td><td>顺序看日志就知道</td></tr>
 </table>
 <div class="two" style="margin-top:12px">
-<div class="note" style="margin-top:0"><b>强在哪里</b><ul><li>规则能挡住（工具拦截）</li><li>插件能给不认识的 Profile 加上下文</li><li>回退与预览自动正确，压缩后种子重写</li><li>缓存不再每轮丢一段</li><li>写法上要学的只有 <code>sessionState</code>、<code>seed</code>、<code>&lt;Slot&gt;</code>、<code>&lt;History render&gt;</code> 四样</li></ul></div>
-<div class="note warn" style="margin-top:0"><b>代价</b><ul><li>主创收到的完整上下文分散在多个插件里，要靠预览看全（每条标了来源）</li><li>人设改了，系统提示词跟着变，缓存失效一次（用户改的，可以接受）</li><li>扩展的设置要能在 Profile 设置里按 Profile 显示</li><li>验证中改了一处写法：Profile 自带的扩展写成 <code>extensions</code> 列表（待定项 10）</li></ul></div>
+<div class="note" style="margin-top:0"><b>强在哪里</b><ul><li>规则能挡住（工具拦截）</li><li>插件能给不认识的 Profile 加上下文</li><li>回退、重启、预览自动正确，压缩后种子重写</li><li>缓存不再每轮丢一段</li><li>主创的上下文部分约 120 行 → 约 60 行；Opus 照新 API 重写的四个例子合计 200 行 → 130 行</li></ul></div>
+<div class="note warn" style="margin-top:0"><b>代价</b><ul><li>完整上下文分散在多个插件里，要靠预览看全（每块标了来源）</li><li>人设改了，系统提示词跟着变，缓存失效一次</li><li>扩展的设置要能在 Profile 设置里按 Profile 显示</li><li>公开 API 的名字比第一版多（约 56 → 77），换来类型、诊断与组合</li></ul></div>
 </div>
 
-<!-- 12 -->
-<h2 id="s-pitfall">12. 常见错误</h2>
+<!-- 13 -->
+<h2 id="s-pitfall">13. 常见错误</h2>
+<p>多数写错的地方现在会被编译器或内核诊断抓到，剩下的靠纪律：</p>
 <table>
-<tr><th>写法</th><th>后果</th><th>改成</th></tr>
-<tr><td>在 <code>reduce</code> 里读文件、查数据库、取当前时间</td><td>重放与回退得到不同的状态</td><td>在 <code>react</code> 里做 I/O，把结果作为事件写进日志</td></tr>
-<tr><td>在 <code>prompt</code>、<code>contribute</code> 里调 <code>ctx.complete</code> 或读文件</td><td>预览会发请求；每次请求结果不同</td><td>同上；视图只读状态</td></tr>
-<tr><td>把字数、时间放进 <code>slots</code></td><td>系统提示词每次都变，缓存从头失效</td><td><code>tail</code> 或 <code>attach</code></td></tr>
-<tr><td>读别的扩展的内部状态</td><td>对方改了结构，你悄悄坏掉</td><td>用对方导出的选择器</td></tr>
-<tr><td>改了扩展事件的含义却没升版本</td><td>旧会话重新归约出来的状态和当时不一样</td><td>升 <code>v</code>，<code>reduce</code> 对旧版本按旧含义处理</td></tr>
-<tr><td>在反应里无条件追加“接着做”</td><td>死循环</td><td>按状态判断；内核也有上限（连续 3 次）</td></tr>
-<tr><td>在 <code>setup</code> 闭包里的变量当真相</td><td>重启、回退后丢失或不对</td><td>真相放状态片，闭包只放能重建的缓存</td></tr>
+<tr><th>写法</th><th>后果</th><th>谁抓</th></tr>
+<tr><td>在 <code>reduce</code>、<code>contribute</code>、<code>prompt</code> 里读文件、取当前时间</td><td>重放与回退得到不同的结果</td><td>纪律：I/O 放 <code>react</code> 或 <code>sample</code>，时间用 <code>view.now</code></td></tr>
+<tr><td>session 的片去归约用户消息</td><td>永远是初值（session 的片只收 session 事件）</td><td>纪律：在反应里 <code>ctx.set</code></td></tr>
+<tr><td>把字数、时间放进系统提示词的槽</td><td>每次请求整段缓存失效</td><td>诊断 <code>volatile-in-system</code>、<code>cache-miss</code></td></tr>
+<tr><td>片名、事件字段、选择器名、自带扩展 id 拼错</td><td>—</td><td>编译错误（<code>typetest.ts</code> 八种）</td></tr>
+<tr><td>Profile <code>render</code> 的事件类型拼错</td><td>覆盖静默失效</td><td>装配诊断 <code>render-unknown-type</code></td></tr>
+<tr><td>在 <code>&lt;History&gt;</code> 上写 <code>render</code></td><td>事件从本轮挪进历史时变样</td><td>模板错误</td></tr>
+<tr><td>想让模型接着写，却只返回了事件</td><td>不会再请求</td><td>纪律：返回 <code>{events, continue: true}</code></td></tr>
+<tr><td>两个插件用了同一个槽名</td><td>内容混在一起</td><td>诊断 <code>slot-collision</code>（有意共用写 <code>shared</code>）</td></tr>
+<tr><td>单轮模板没写 <code>globalExtensions: "none"</code></td><td>别的插件的提醒进了请求</td><td>info 诊断</td></tr>
+<tr><td>改了扩展事件的含义却没升版本</td><td>旧会话重新归约出来的状态不同</td><td>纪律：升 <code>v</code></td></tr>
 </table>
 
-<!-- 12 -->
-<h2 id="s-status">13. 状态与待定</h2>
-<p>提案是 draft（第二稿）。开发者已同意的方向与细节见提案的“决策记录”；还待定的：</p>
+<!-- 14 -->
+<h2 id="s-review">14. 原型与审查</h2>
+<p>这一版的设计经过一个 spike 与两位审查者两轮审查。审查报告在 t20 的 <code>evidences/</code>。</p>
+<table>
+<tr><th>轮次</th><th>审查者与角度</th><th>结果</th></tr>
+<tr><td>第一轮</td><td>omp（gpt-6.1-sol）：架构、不变量、性能</td><td>32 条（阻断 9、重要 21、建议 2）：失败与崩溃收口、流式、并行工具、预览读错叶子、反应深度差一层、session 片快照、加载丢叶子、压缩不替换、状态可原地改……</td></tr>
+<tr><td>第一轮</td><td>Claude Opus：照 API 写四个例子，看 API 形状与好用程度</td><td>17 条（重要 8、建议 9）：隐式“接着做”、事件名可伪造、类型全 any、相邻 user 合并抹掉来源、现取数据没写法、调用参数无处放、一个扩展一片状态……</td></tr>
+<tr><td>第二轮</td><td>Opus：用新 API 重写四个例子</td><td>第一轮 17 条里 10 条已解决、7 条部分解决；新 12 条（阻断 1：归约出错让会话损坏）都已改</td></tr>
+<tr><td>第二轮</td><td>omp：核对第一轮、找剩下的阻断</td><td>第一轮 32 条里已解决 11、部分解决 17（多是“spike 做了最小版本，产品合同要写全”）、改为待定项 3；新 9 条（阻断 3：空闲写入可交错、幂等命中重复派发、中止接管不了卡住的扩展）都已改；它要求写清的适配器合同、压缩与 t11 的对齐、换 Profile 的版本与资源已写进提案</td></tr>
+</table>
+<div class="two" style="margin-top:12px">
+<div class="box"><h4>spike 验证了什么</h4><ul><li>53 个场景检查：回退、重启、预览一致、反应顺序、缓存、单轮模板、替换历史、协议校验、审批、修改记录、并行工具、崩溃恢复、中止、插话、压缩、换 Profile、幂等、依赖排序、出错隔离……</li><li><code>typetest.ts</code>：八种写错的地方都是编译错误</li></ul></div>
+<div class="box"><h4>性能（假模型，本机）</h4><ul><li>1 万条日志、最后一次请求约 37 万 token：打开约 13 ms，算一次请求约 3 ms</li><li>第三版多了块、校验与冻结：1,200 轮（16,806 条、最后一次请求约 39 万 token）打开 70–240 ms、算一次请求 6–15 ms、每条新事件 18–25 ms</li><li>每次请求都是 O(历史长度)；真实模型以秒计，不是瓶颈；产品里做渲染记忆、增量哈希、稀疏检查点（待定项 14）</li></ul></div>
+</div>
+
+<!-- 15 -->
+<h2 id="s-status">15. 状态与待定</h2>
+<p>提案第三稿（draft）。<b>没有在 spike 里验证、实施时第一个切片要验证的</b>：真实 OMP <code>streamSimple</code> 的适配器、压缩的触发与方法顺序及之后的公共流程、真实的日志存储与进程重启、扩展的 <code>dispose</code>。</p>
+<p>按审查改动、<b>改变了已定写法、需要你确认的</b>：</p>
 <ol>
-<li>名字叫“扩展”还是“钩子”（推荐扩展）。</li>
-<li>Profile 在拦截链的最里层（推荐）还是最外层。</li>
-<li>归约的快照存在压缩点（推荐）还是每 N 条。</li>
-<li>反应链深度最多 3 层、“接着做”连续最多 3 次。</li>
+<li>扩展从单片状态改为多片（<code>path</code>、<code>session</code>），<code>pathState</code>、<code>sessionState</code> 改为片的构造函数与 <code>ctx.set</code>。</li>
+<li>扩展事件改由 <code>events</code> 声明，类型自动带扩展 id 前缀。</li>
+<li><code>render</code> 从 <code>&lt;History&gt;</code> 节点上移到 Profile 与扩展上。</li>
+<li>“接着做”要显式写 <code>continue</code>。</li>
+<li>相邻的 user 消息不再在内核里拼接，内容改为块。</li>
+<li>预览的“视图输入”记进日志（<code>model_started</code>）。</li>
+</ol>
+<p>还待定的（提案“待定项”，括号里是推荐）：</p>
+<ol>
+<li>名字叫“扩展”（推荐）还是“钩子”。</li>
+<li>Profile 在拦截链最里层（推荐）。</li>
+<li>持久化快照：压缩点加稀疏检查点（推荐）。</li>
+<li>上限：反应 3 层、“接着做”3 次、时限 30 秒。</li>
 <li>请求录制缺省关（推荐）。</li>
 <li><code>reminder()</code> 缺省写进历史（推荐）。</li>
-<li>工具拦截里附加的说明写进日志（推荐）。</li>
-<li>反应直接调 <code>ctx</code> 做 I/O、内核给每个动作记一条日志（推荐），还是像 Elm 那样只返回动作的描述。</li>
-<li>不经事件就会变的数据（当前时间、字数）：扩展的在反应里读、写成事件（沙盒里写手的字数就是这样）；时间这类通用的由内核在算视图前取一次、记进请求记录。</li>
-<li>Profile 自带的扩展写成 <code>extensions</code> 列表、辅助函数各返回一个扩展（推荐），还是只有一个 <code>setup</code>。</li>
+<li>工具拦截附加的说明写进日志（推荐）。</li>
+<li>反应的主动接口（<code>complete</code>、<code>invokeTool</code>、<code>ask</code>、<code>compact</code>）怎样进日志。</li>
+<li>很大的 <code>sample</code> 值是否另存到日志之外。</li>
+<li>Profile 自带扩展用列表（已按此实现）。</li>
+<li>流式输出不给扩展看（推荐），以后需要再加只读观察。</li>
+<li>适配器的审计粒度：一次逻辑请求一条 <code>model_started</code>（推荐）。</li>
+<li>请求的完整形状：图片、思考块、工具 schema、<code>tool_choice</code>（实现 t04、t05 时定）。</li>
+<li>性能预算（例如 10 万条事件打开在 1 秒内）。</li>
+<li>审计与脱敏：脱敏的原文是否只记哈希。</li>
+<li>多 Agent：子 Agent 是独立会话，父会话写结果回流事件（t14 定）。</li>
 </ol>
-<p class="sub">循环由内核自己写，与服务商通信只用 OMP 的 <code>streamSimple</code>（2026-10-29 已定）。</p>
 </main>
 </div>
 
@@ -710,20 +746,20 @@ const HELLO = [
         chat: {u: "sending"}, code: `{"method": "agent.send",\n "params": {"sessionId": "s_8f2", "text": "你好", "clientId": "c_17"}}`},
     {lane: "run", t: "运行控制受理", d: "会话还没加载就先读日志、沿当前叶子归约出状态、对每个扩展调 setup。会话空闲就开始一次运行；正在运行就按插话或排队处理。",
         chat: {u: "sending"}, code: `会话空闲 → 开始一次运行\n写入控制事件 {"type": "run_started"}`},
-    {lane: "chain", t: "输入拦截链", d: "扩展可以在这里改写或拦下用户的话。这个会话里没有扩展拦截输入，直接 next。",
-        chat: {u: "sending"}, code: `input(input, next) → 没有扩展 → next(input)`},
+    {lane: "chain", t: "输入拦截链", d: "扩展可以在这里改写用户的话（原文记在 original），或返回 {reject: 理由} 拦下。这个会话里没有扩展拦截输入，直接 next。",
+        chat: {u: "sending"}, code: `input({text: "你好"}, next) → 没有扩展 → next(input)`},
     {lane: "log", t: "写进日志", d: "用户消息作为对话事件追加一行。日志只追加，写下的条目谁都不能改。",
-        chat: {u: "sending"}, code: `{"id": "e2", "parent": "e1", "type": "message",\n "message": {"role": "user", "content": "你好"},\n "source": "user", "clientId": "c_17"}`},
+        chat: {u: "sending"}, code: `{"id": "e2", "parent": "e1", "cls": "conv", "type": "user",\n "data": {"text": "你好"}, "source": "user", "clientId": "c_17"}`},
     {lane: "ext", t: "全部扩展归约，再反应", d: "每个扩展的 reduce 看一眼 e2：认识就更新自己那片，不认识就原样返回。然后各扩展的 react 拿到同一份状态，决定要不要追加事件。这里都没有追加。",
-        chat: {u: "sending"}, code: `reduce：reminder.turns 0 → 1；其它原样\nreact：全部返回空`},
+        chat: {u: "sending"}, code: `reduce：提醒的 turns 0 → 1；其它返回 undefined（不变）\nreact：全部返回空`},
     {lane: "ui", t: "推给窗口", d: "e2 推给订阅这个会话的窗口，界面按 clientId 把“发送中”换成正式消息。",
         chat: {u: "ok"}, code: `push {"entry": "e2", "clientId": "c_17"}`},
-    {lane: "view", t: "视图：算出请求", d: "没有新事件了，要请求模型。Profile 的 prompt 定布局、各扩展的 contribute 交片段，从状态算出与服务商无关的请求。纯函数，预览也是这一步。",
-        chat: {u: "ok"}, code: `{\n  "model": {"provider": "deepseek", "id": "deepseek-flash"},\n  "params": {"maxTokens": 8192},\n  "headers": {},\n  "system": "你是 NeuroBook 的写作助手。……",\n  "messages": [{"role": "user", "content": "你好"}],\n  "tools": [{"name": "read"}, {"name": "edit"}, …]\n}`},
-    {lane: "chain", t: "模型拦截链（往里）", d: "请求从外往里穿过每层拦截：可以改模型、参数、header、系统提示词、消息。日志记下谁改了哪几项与最终请求的哈希。",
-        chat: {u: "ok"}, code: `修改记录：{"modifiedBy": [], "hash": "sha256:9c1e…"}`},
-    {lane: "adapter", t: "模型适配器", d: "最里层是 nbook.models：解析模型、从凭据库取密钥，调 OMP 的 streamSimple。工具名里的 . 在这里换成 __。",
-        chat: {u: "ok"}, code: `streamSimple(model,\n  {systemPrompt: [system], messages, tools},\n  {apiKey, signal, maxTokens: 8192, headers, reasoning})`},
+    {lane: "view", t: "边界与视图：算出请求", d: "先在边界写入运行中排队的外部事实、设置变化、插话；再并发取各扩展的 sample，core.history 投影，各扩展 contribute 交片段，Profile 的 prompt 摆位置，得到与服务商无关的请求。内容是块，每块记着来源。预览也是这一步。",
+        chat: {u: "ok"}, code: `{\n  "model": "deepseek-flash",\n  "params": {"maxTokens": 8192},\n  "headers": {},\n  "system": [{"text": "你是 NeuroBook 的写作助手。……", "origin": "fixed"}],\n  "messages": [{"role": "user", "content": [{"text": "你好", "origin": "e2"}]}],\n  "tools": [{"name": "read", …}, {"name": "edit", …}]\n}`},
+    {lane: "chain", t: "模型拦截链（往里）", d: "请求从外往里穿过每层拦截：可以改模型、参数、header、系统提示词、消息。到了最里层，内核先写 model_started：崩溃后据此知道“请求已发出、结果未知”，预览过去的请求也照它重算。",
+        chat: {u: "ok"}, code: `{"id": "e3", "type": "model_started",\n "data": {"request": 0, "hash": "9c1e…", "now": 1793260800000,\n          "samples": {}, "modifiedBy": []}}`},
+    {lane: "adapter", t: "模型适配器", d: "最里层是 nbook.models：把 ModelRequest 转成 OMP 的 Context 与选项，取密钥，调 streamSimple，消费它返回的事件流。工具名里的 . 在这里换成 __；相邻的 user 消息要合成一条多块消息的，也在这里做。",
+        chat: {u: "ok"}, code: `const stream = streamSimple(model, context,\n  {apiKey, signal, maxTokens: 8192, headers, reasoning});\nfor await (const ev of stream) { /* 增量推界面；done → 完整回复；error → 失败 */ }`},
     {lane: "provider", t: "发出 HTTP 请求", d: "pi-ai 按服务商的协议转换。DeepSeek 走 OpenAI 兼容接口。这一层的原始请求体不开放给扩展。",
         chat: {u: "ok"}, code: `POST https://api.deepseek.com/v1/chat/completions\nAuthorization: Bearer ****\n\n{"model": "deepseek-flash", "stream": true,\n "max_tokens": 8192,\n "messages": [{"role": "system", "content": "你是 NeuroBook 的写作助手。……"},\n              {"role": "user", "content": "你好"}],\n "tools": [{"type": "function", "function": {"name": "read", …}}, …]}`},
     {lane: "adapter", t: "解析流式回复", d: "服务商回 SSE，pi-ai 解析成文字、思考、工具调用的增量。",
@@ -733,9 +769,9 @@ const HELLO = [
     {lane: "chain", t: "模型拦截链（往外）", d: "完整回复由内往外穿过拦截链，外层可以改写。改写过的话，原文与改后都记进日志。",
         chat: {u: "ok", a: "streaming", text: "你好！今天想写点什么？"}, code: `回复没有被改写`},
     {lane: "log", t: "回复写进日志", d: "完整的助手消息写成 e3，带模型、推理档与用量。",
-        chat: {u: "ok", a: "streaming", text: "你好！今天想写点什么？"}, code: `{"id": "e3", "parent": "e2", "type": "message",\n "message": {"role": "assistant", "content": "你好！今天想写点什么？"},\n "model": "deepseek/deepseek-flash", "usage": {"input": 812, "output": 9}}`},
-    {lane: "ext", t: "归约、反应：最终回复", d: "回复里没有工具调用，所以是最终回复。扩展可以在这里追加“接着做”，没有扩展追加，运行可以结束。",
-        chat: {u: "ok", a: "streaming", text: "你好！今天想写点什么？"}, code: `react(e3)：全部返回空 → 运行结束`},
+        chat: {u: "ok", a: "streaming", text: "你好！今天想写点什么？"}, code: `{"id": "e4", "parent": "e3", "type": "assistant",\n "data": {"text": "你好！今天想写点什么？", "toolCalls": [],\n          "model": "deepseek-flash", "usage": {"input": 812, "output": 9}}}`},
+    {lane: "ext", t: "归约、反应：最终回复", d: "回复里没有工具调用，所以是最终回复。扩展要模型接着做，得返回 {events, continue: true}；没有扩展这样要求、也没有没送达的插话，运行结束。",
+        chat: {u: "ok", a: "streaming", text: "你好！今天想写点什么？"}, code: `react(e4)：没有扩展要求 continue → 运行结束`},
     {lane: "log", t: "写入运行结束", d: "",
         chat: {u: "ok", a: "streaming", text: "你好！今天想写点什么？"}, code: `{"type": "run_ended", "reason": "completed"}`},
     {lane: "ui", t: "界面完成", d: "界面用日志里的正式版本替换流式显示的文字。下一句话的请求是 [system][user 你好][assistant …][user 下一句]，前缀和这次相同，服务商的缓存命中。",
@@ -818,72 +854,80 @@ const HELLO = [
 
 // ---------- 5. 沙盒：一个真的跑归约与反应的小引擎 ----------
 const CLS = {conv: ["对话", "cls-conv"], ctrl: ["控制", "cls-ctrl"], ext: ["扩展", "cls-ext"]};
-// 扩展顺序：插件按依赖顺序，Profile 最后。反应追加的事件按这个顺序写入。
+// 扩展顺序：内置 → 插件（按依赖排序、同层按 id）→ Profile 自带。反应追加的事件按这个顺序写入。
+// 事件类型都带扩展 id 前缀（内核事件除外）；扩展写不出内核事件，也撞不了别人的名字。
 const EXTS = [
-    {
-        id: "nbook.history", initial: {pending: []},
-        reduce(s, e) {
-            if (e.type === "file_changed") return {pending: [...s.pending, e.data.path]};
-            if (e.type === "notice_delivered") return {pending: []};
-            return s;
-        },
-        react(e, c) {
-            if (e.type !== "user" || c.mine.pending.length === 0) return [];
-            return [
-                {cls: "conv", type: "notice", text: `用户刚修改了${c.mine.pending.join("、")}（附改动摘要）`},
-                {cls: "ext", type: "notice_delivered", text: "已送达"},
-            ];
-        },
-    },
     {
         id: "nb-memory", initial: null,
         react(e) {
             if (e.type !== "user") return [];
             const hit = /打斗|剑|手/.test(e.text) ? "林舟左手有旧伤，不能持剑" : "林舟与沈澜在第 2 章结下梁子";
-            return [{cls: "conv", type: "memory_result", text: hit}];
+            return [{cls: "conv", type: "nb-memory/result", text: hit}];
         },
         render: (e) => `<memory>${e.text}</memory>`,
     },
     {
-        id: "reminder", initial: {turns: 0, lastAt: 0},
+        id: "nbook.history", initial: {pending: []},
+        // 每片一个归约函数；返回 undefined 表示不变
         reduce(s, e) {
-            if (e.type === "user") return {...s, turns: s.turns + 1};
-            if (e.type === "reminder") return {...s, lastAt: s.turns};
-            return s;
+            if (e.type === "nbook.history/fileChanged") return {pending: [...s.pending, e.data.path]};
+            if (e.type === "nbook.history/delivered") return {pending: []};
+            return undefined;
         },
         react(e, c) {
-            if (e.type === "user" && c.mine.turns - c.mine.lastAt >= 3) return [{cls: "conv", type: "reminder", text: "文风提醒：短句，少用形容词"}];
+            if (e.type !== "user" || c.mine.pending.length === 0) return [];
+            return [
+                {cls: "conv", type: "nbook.history/notice", text: `用户刚修改了${c.mine.pending.join("、")}（附改动摘要）`},
+                {cls: "ext", type: "nbook.history/delivered", text: "已送达"},
+            ];
+        },
+    },
+    {
+        id: "style.reminder", initial: {turns: 0, lastAt: 0},
+        reduce(s, e) {
+            if (e.type === "user") return {...s, turns: s.turns + 1};
+            if (e.type === "style.reminder/reminder") return {...s, lastAt: s.turns};
+            return undefined;
+        },
+        react(e, c) {
+            if (e.type === "user" && c.mine.turns - c.mine.lastAt >= 3) return [{cls: "conv", type: "style.reminder/reminder", text: "文风提醒：短句，少用形容词"}];
             return [];
         },
     },
     {
-        id: "Profile：写手", initial: {words: 0, continues: 0},
+        id: "writer", initial: {words: 0, continues: 0},
         reduce(s, e) {
-            if (e.type === "words") return {...s, words: e.data.words};
-            if (e.type === "continue") return {...s, continues: s.continues + 1};
+            if (e.type === "writer/$set") return {...s, words: e.data.value};
+            if (e.type === "writer/continue") return {...s, continues: s.continues + 1};
             if (e.type === "user") return {...s, continues: 0};
-            return s;
+            return undefined;
         },
         react(e, c) {
-            if (e.type === "session_created") return [{cls: "conv", type: "seed", text: "你是本书的写手；正文在 project://正文/，只改正文目录。"}];
-            // 读文件是 I/O，所以在反应里读，结果作为事件写进日志；视图只读状态
-            if (e.type === "user" || (e.type === "tool_result" && e.data && e.data.tool === "edit")) return [{cls: "ext", type: "words", text: `本章字数 ${world.words}`, data: {words: world.words}}];
-            if (e.type === "assistant" && !e.data.tool && c.mine.words < 3000 && c.mine.continues < 3) return [{cls: "conv", type: "continue", text: `请接着写完（本章 ${c.mine.words} 字，不到 3000 字）`}];
+            if (e.type === "session_created") return [{cls: "conv", type: "writer/seed", text: "你是本书的写手；正文在 project://正文/，只改正文目录。"}];
+            // 读文件是 I/O，在反应里读，用 ctx.set 写成事件；值没变内核不写
+            if (e.type === "user" || (e.type === "tool_result" && e.data && e.data.tool === "edit"))
+                return world.words === c.mine.words ? [] : [{cls: "ext", type: "writer/$set", text: `ctx.set("words", ${world.words})`, data: {slice: "words", value: world.words}}];
+            // “接着做”要显式写 continue: true；只写事件不会让模型再跑一次
+            if (e.type === "assistant" && !e.data.tool && c.mine.words < 3000 && c.mine.continues < 3) {
+                lastContinue = true;
+                return [{cls: "conv", type: "writer/continue", text: `请接着写完（本章 ${c.mine.words} 字，不到 3000 字）`}];
+            }
             return [];
         },
-        contribute: (s) => ({attach: [`本章当前字数：${s.words}`]}),
+        // 会变的槽：每次请求现算，缺省布局把它放在请求最末尾
+        contribute: (s) => ({"word-count": `本章当前字数：${s.words}`}),
     },
 ];
-let world, entries, seq, leaf, prevReq, prevState, freshIds;
-function resetEngine() { world = {words: 0}; entries = []; seq = 0; leaf = null; prevReq = null; prevState = null; freshIds = new Set(); }
+let world, entries, seq, leaf, prevReq, prevState, freshIds, lastContinue, reqCount;
+function resetEngine() { world = {words: 0}; entries = []; seq = 0; leaf = null; prevReq = null; prevState = null; freshIds = new Set(); lastContinue = false; reqCount = 0; }
 function byId(id) { return entries.find((e) => e.id === id); }
 function pathTo(id) { const p = []; for (let e = id && byId(id); e; e = e.parent && byId(e.parent)) p.unshift(e); return p; }
 function foldPath(path) {
     const st = {};
-    for (const x of EXTS) st[x.id] = path.reduce((s, e) => (x.reduce ? x.reduce(s, e) : s), x.initial);
+    for (const x of EXTS) st[x.id] = path.reduce((s, e) => (x.reduce ? (x.reduce(s, e) ?? s) : s), x.initial);
     let running = false;
     for (const e of path) { if (e.type === "run_started") running = true; if (e.type === "run_ended") running = false; }
-    st["内置：运行状态"] = running ? "运行中" : "空闲";
+    st["内核：运行状态"] = running ? "运行中" : "空闲";
     return st;
 }
 function append(input) {
@@ -891,17 +935,16 @@ function append(input) {
     entries.push(e); leaf = e.id; freshIds.add(e.id);
     return e;
 }
-// 一批事件：先全部写入，再逐条（按写入顺序）拿到它那一刻的状态快照做反应；追加的事件作为下一批，最多 3 层
+// 一批事件：先全部写入，再逐条拿到它写入之后的状态做反应；追加的事件按扩展顺序作为下一批，最多写到第 3 层
 function dispatch(inputs) {
-    let batch = inputs, depth = 0;
-    while (batch.length && depth <= 3) {
-        const written = batch.map(append);
+    let batch = inputs.map(append), depth = 0;
+    while (batch.length && depth < 3) {
         const next = [];
-        for (const e of written) {
+        for (const e of batch) {
             const st = foldPath(pathTo(e.id));
-            for (const x of EXTS) if (x.react) for (const out of x.react(e, {mine: st[x.id]}) || []) next.push({...out, source: x.id});
+            for (const x of EXTS) if (x.react) for (const out of x.react(e, {mine: st[x.id]}) || []) next.push({...out, source: x.id, cause: e.id});
         }
-        batch = next; depth++;
+        batch = next.map(append); depth++;
     }
 }
 function renderMsg(e) {
@@ -909,47 +952,49 @@ function renderMsg(e) {
         case "user": return {role: "user", text: e.text};
         case "assistant": return {role: "assistant", text: e.text + (e.data.tool ? `\n→ 调用 ${e.data.tool}(${e.data.path})` : "")};
         case "tool_result": return {role: "tool", text: e.text};
-        case "seed": case "notice": case "reminder": return {role: "user", text: `<system-reminder>${e.text}</system-reminder>`};
-        case "memory_result": return {role: "user", text: EXTS[1].render(e)};
-        case "continue": return {role: "user", text: e.text};
+        case "writer/seed": case "nbook.history/notice": case "style.reminder/reminder": return {role: "user", text: `<system-reminder>${e.text}</system-reminder>`};
+        case "nb-memory/result": return {role: "user", text: EXTS[0].render(e)};
+        case "writer/continue": return {role: "user", text: e.text};
         default: return null;
     }
 }
 function buildRequest(path, st) {
     const msgs = path.filter((e) => e.cls === "conv").map((e) => ({...renderMsg(e), from: e.source, id: e.id}));
-    const attach = EXTS[3].contribute(st[EXTS[3].id]).attach;
-    // attach 只附在最末尾那条（用户消息或工具结果）：附在更早的消息上，内容一变它之后的历史全失去缓存
-    return {system: "你是本书的写手，只改正文目录。", slot: "（memory 槽：长期记忆摘要，稳定）", msgs, attach, at: msgs.length - 1};
+    const slot = EXTS[3].contribute(st.writer)["word-count"];
+    return {system: "你是本书的写手，只改正文目录。", stableSlot: "（sql-schema 槽：库结构摘要，稳定）", msgs, slot};
 }
 function showReq(path) {
     const st = foldPath(path);
     const req = buildRequest(path, st);
-    // 前缀按“同一条、内容也相同”比；上一次带着 attach 的那条，这次只命中到 attach 之前
+    // 前缀按“同一条事件”比；上一次末尾那个会变的槽本来就该换掉，不算浪费
     let same = 0;
-    if (prevReq) while (same < req.msgs.length && same < prevReq.msgs.length && req.msgs[same].id === prevReq.msgs[same].id && same !== prevReq.at) same++;
-    const part = prevReq && same === prevReq.at && req.msgs[same] && req.msgs[same].id === prevReq.msgs[same].id ? same : -1;
-    let html = `<div class="msg sys${prevReq ? " same" : ""}"><div class="role">system · Profile prompt</div>${esc(req.system)} <span class="slot">${esc(req.slot)}</span></div>`;
+    if (prevReq) while (same < req.msgs.length && same < prevReq.msgs.length && req.msgs[same].id === prevReq.msgs[same].id) same++;
+    let html = `<div class="msg sys${prevReq ? " same" : ""}"><div class="role">system · 块：fixed + slot:sql-schema@nbook.sql</div>${esc(req.system)} <span class="slot">${esc(req.stableSlot)}</span></div>`;
     req.msgs.forEach((m, i) => {
-        const cls = prevReq ? (i < same ? "same" : i === part ? "part" : "new") : "";
-        html += `<div class="msg ${cls}"><div class="role">${m.role} · ${esc(m.id)} · 来自 ${esc(m.from)}${i === part ? " · 命中到上次的 attach 之前" : ""}</div>${esc(m.text).replace(/\n/g, "<br>")}${
-            i === req.at ? req.attach.map((a) => `<div class="att">attach（Profile：写手 的 contribute）：${esc(a)}</div>`).join("") : ""}</div>`;
+        const cls = prevReq ? (i < same ? "same" : "new") : "";
+        html += `<div class="msg ${cls}"><div class="role">${m.role} · 块 ${esc(m.id)} · 来自 ${esc(m.from)}</div>${esc(m.text).replace(/\n/g, "<br>")}</div>`;
     });
+    html += `<div class="msg"><div class="att">user · 块 slot:word-count@writer（会变的槽，缺省放在最末尾；只这一次有效、不进日志）：${esc(req.slot)}</div></div>`;
     html += `<div class="msg sys"><div class="role">tools</div>read, edit, grep</div>`;
-    if (prevReq) html += `<div class="sub">与上一次请求相同的前缀：system + ${same} 条消息${part >= 0 ? "，再加上一条的前半段" : ""}</div>`;
+    if (prevReq) html += `<div class="sub">与同一路径上一次请求相同的前缀：system + ${same} 条消息；上一次末尾的会变槽换成了新的</div>`;
     $("sReq").innerHTML = html;
     prevReq = req;
+}
+// 发请求之前，内核先写 model_started：崩溃后据此知道“请求已发出、结果未知”
+function requestFact() {
+    append({cls: "ctrl", type: "model_started", text: `第 ${++reqCount} 次请求已发出（记下哈希、now、samples、修改记录）`, source: "内核"});
 }
 function render(showRequest) {
     const path = pathTo(leaf), onPath = new Set(path.map((e) => e.id));
     $("sLog").innerHTML = entries.map((e) => {
         const [n, c] = CLS[e.cls];
         return `<div class="logrow ${onPath.has(e.id) ? "" : "off"} ${e.id === leaf ? "leaf" : ""} ${freshIds.has(e.id) ? "fresh" : ""}" data-id="${e.id}">
-<span class="id">${e.id}</span><span class="pill ${c}">${n}</span><span class="txt">${esc(e.text)}<div class="src">${esc(e.source)}${e.parent ? " · 父 " + e.parent : ""}</div></span></div>`;
+<span class="id">${e.id}</span><span class="pill ${c}">${n}</span><span class="txt">${esc(e.text)}<div class="src">${esc(e.type)} · ${esc(e.source)}${e.parent ? " · 父 " + e.parent : ""}${e.cause ? " · 由 " + e.cause + " 引出" : ""}</div></span></div>`;
     }).join("") || `<div class="sub">还没有事件</div>`;
     const st = foldPath(path);
     $("sState").innerHTML = Object.entries(st).map(([k, v]) => {
         const changed = prevState && JSON.stringify(prevState[k]) !== JSON.stringify(v);
-        const tag = k.startsWith("内置") ? "内核维护" : (v === null ? "没有状态（只有反应）" : "私有");
+        const tag = k.startsWith("内核") ? "内核维护" : (v === null ? "没有状态（只有反应）" : "path 片，私有");
         return `<div class="slice ${changed ? "changed" : ""}"><div class="sh"><span>${esc(k)}</span><span class="tag">${tag}</span></div><div class="sv">${esc(v === null ? "—" : JSON.stringify(v))}</div></div>`;
     }).join("");
     prevState = st;
@@ -957,17 +1002,17 @@ function render(showRequest) {
     freshIds = new Set();
 }
 const SCRIPT = [
-    {n: "<b>创建会话。</b>内核写“会话已创建”；写手对它反应，追加种子。", run: () => dispatch([{cls: "ctrl", type: "session_created", text: "会话已创建", source: "内核"}])},
-    {n: "<b>用户在编辑器里改了第 3 章</b>（还没说话）。nbook.history 写一条扩展事件，它那片状态记下 pending。扩展事件不进模型上下文：模型现在什么都不知道。", run: () => { world.words = 2100; dispatch([{cls: "ext", type: "file_changed", text: "第 3 章被用户修改", source: "nbook.history", data: {path: "第 3 章"}}]); }},
-    {n: "<b>用户说“续写第 3 章”。</b>先写“运行开始”，再写用户消息。全部扩展归约（reminder 计数 +1），再对同一份状态反应：nbook.history 追加通知与“已送达”，nb-memory 追加检索结果，写手读字数（I/O）写成扩展事件。", run: () => { dispatch([{cls: "ctrl", type: "run_started", text: "运行开始", source: "内核"}]); dispatch([{cls: "conv", type: "user", text: "续写第 3 章", source: "用户"}]); }},
-    {n: "<b>没有新事件了，算请求（视图）。</b>右边是视图算出来的：种子、用户消息、通知、检索结果（经 nb-memory 的 render 渲染成 &lt;memory&gt;）；写手的 contribute 把字数 attach 在请求最末尾那条消息里，只这一次有效、不进日志。", req: true},
+    {n: "<b>创建会话。</b>内核写“会话已创建”；写手对它反应，追加种子（事件类型 <code>writer/seed</code>，带扩展 id 前缀）。", run: () => dispatch([{cls: "ctrl", type: "session_created", text: "会话已创建", source: "内核"}])},
+    {n: "<b>用户在编辑器里改了第 3 章</b>（还没说话）。nbook.history 写一条扩展事件，它那片状态记下 pending。扩展事件不进模型上下文：模型现在什么都不知道。", run: () => { world.words = 2100; dispatch([{cls: "ext", type: "nbook.history/fileChanged", text: "第 3 章被用户修改", source: "nbook.history", data: {path: "第 3 章"}}]); }},
+    {n: "<b>用户说“续写第 3 章”。</b>先写“运行开始”，再写用户消息。全部扩展归约（提醒计数 +1），再对同一份状态并发反应：nb-memory 追加检索结果，nbook.history 追加通知与“已送达”，写手读字数（I/O）用 <code>ctx.set</code> 写成事件。追加的顺序按扩展顺序，与谁先跑完无关；每条都记下由哪条事件引出。", run: () => { dispatch([{cls: "ctrl", type: "run_started", text: "运行开始", source: "内核"}]); dispatch([{cls: "conv", type: "user", text: "续写第 3 章", source: "用户"}]); }},
+    {n: "<b>边界之后，算请求（视图）。</b>右边是视图算出来的：种子、用户消息、检索结果（经 nb-memory 的 render 渲染成 &lt;memory&gt;）、通知；写手交的会变的槽 <code>word-count</code> 放在请求最末尾，只这一次有效、不进日志。发出之前内核写 <code>model_started</code>。", req: true},
     {n: "<b>模型拦截链 → 服务商 → 回复。</b>回复里有工具调用 edit，写成对话事件。", run: () => dispatch([{cls: "conv", type: "assistant", text: "我先接着写打斗那段。", source: "模型", data: {tool: "edit", path: "project://正文/第3章.md"}}])},
-    {n: "<b>工具拦截链。</b>写手检查路径在 project://正文/ 下，调 next；审批在最里层，写入默认放行；执行，结果写进日志。写手对工具结果反应，重新读字数。", run: () => { world.words = 2900; dispatch([{cls: "conv", type: "tool_result", text: "已写入 800 字", source: "工具 edit", data: {tool: "edit"}}]); }},
-    {n: "<b>第二次请求。</b>绿色左边线是与上一次相同的前缀，缓存命中；橙色是新增的。字数变了，但它在 attach 里、总在最末尾，只影响最后一小段。", req: true},
-    {n: "<b>最终回复。</b>没有工具调用。写手对最终回复反应：字数 2900 不到 3000，追加“请接着写完”，循环继续（连续最多 3 次）。", run: () => dispatch([{cls: "conv", type: "assistant", text: "第 3 章续写了约 800 字。", source: "模型"}])},
+    {n: "<b>工具批次。</b>内核先写 <code>tool_started</code>（崩溃后据此把它结算为“结果未知”），再走工具拦截链：写手检查路径在 project://正文/ 下，调 next；审批在最里层，写入默认放行；执行，结果写进日志。写手对工具结果反应，重新读字数。", run: () => { append({cls: "ctrl", type: "tool_started", text: "开始执行 edit", source: "内核"}); world.words = 2900; dispatch([{cls: "conv", type: "tool_result", text: "已写入 800 字", source: "工具 edit", data: {tool: "edit"}}]); }},
+    {n: "<b>第二次请求。</b>绿色左边线是与同一路径上一次请求相同的前缀，缓存命中；橙色是新增的。字数变了，但它在最末尾的槽里，只影响最后一小段。", req: true},
+    {n: "<b>最终回复。</b>没有工具调用。写手对最终回复反应：字数 2900 不到 3000，追加“请接着写完”并返回 <code>continue: true</code>，循环继续（连续最多 3 次）。只写事件、不写 continue 的扩展不会让模型多跑一次。", run: () => dispatch([{cls: "conv", type: "assistant", text: "第 3 章续写了约 800 字。", source: "模型"}])},
     {n: "<b>第三次请求</b>，带着“请接着写完”。", req: true},
-    {n: "<b>又一次工具调用与结果。</b>字数到 3400。", run: () => { dispatch([{cls: "conv", type: "assistant", text: "补上结尾。", source: "模型", data: {tool: "edit", path: "project://正文/第3章.md"}}]); world.words = 3400; dispatch([{cls: "conv", type: "tool_result", text: "已写入 500 字", source: "工具 edit", data: {tool: "edit"}}]); }},
-    {n: "<b>最终回复，运行结束。</b>字数够了，写手不再追加；内核写“运行结束”。<br>剧本放完了。<b>试试点日志里的 e3</b>（第 3 章被改之后、用户说话之前）：“已送达”不在路径上，nbook.history 的 pending 自动回来，reminder 计数回到 0。再在下面发一句话，看通知重新送达。", run: () => { dispatch([{cls: "conv", type: "assistant", text: "第 3 章写完了，共 3400 字。", source: "模型"}]); dispatch([{cls: "ctrl", type: "run_ended", text: "运行结束", source: "内核"}]); }},
+    {n: "<b>又一次工具调用与结果。</b>字数到 3400。", run: () => { dispatch([{cls: "conv", type: "assistant", text: "补上结尾。", source: "模型", data: {tool: "edit", path: "project://正文/第3章.md"}}]); append({cls: "ctrl", type: "tool_started", text: "开始执行 edit", source: "内核"}); world.words = 3400; dispatch([{cls: "conv", type: "tool_result", text: "已写入 500 字", source: "工具 edit", data: {tool: "edit"}}]); }},
+    {n: "<b>最终回复，运行结束。</b>字数够了，写手不再要求接着做；内核写“运行结束”。<br>剧本放完了。<b>试试点日志里的 e3</b>（第 3 章被改之后、用户说话之前）：“已送达”不在路径上，nbook.history 的 pending 自动回来，提醒计数回到 0。再在下面发一句话，看通知重新送达。", run: () => { dispatch([{cls: "conv", type: "assistant", text: "第 3 章写完了，共 3400 字。", source: "模型"}]); dispatch([{cls: "ctrl", type: "run_ended", text: "运行结束", source: "内核"}]); }},
 ];
 (() => {
     let step = -1, timer = null;
@@ -975,14 +1020,15 @@ const SCRIPT = [
     // 前 n 步静默重放，闪烁标记只留给第 n 步新写的条目与刚变的状态
     function replayTo(n) {
         resetEngine();
-        for (let i = 0; i < n; i++) { if (SCRIPT[i].run) SCRIPT[i].run(); if (SCRIPT[i].req) showReq(pathTo(leaf)); }
+        for (let i = 0; i < n; i++) { if (SCRIPT[i].run) SCRIPT[i].run(); if (SCRIPT[i].req) { showReq(pathTo(leaf)); requestFact(); } }
         freshIds = new Set(); prevState = foldPath(pathTo(leaf));
         if (n >= 0 && SCRIPT[n].run) SCRIPT[n].run();
+        if (n >= 0 && SCRIPT[n].req) { showReq(pathTo(leaf)); requestFact(); }
     }
     function draw() {
         if (step >= 0) replayTo(step); else resetEngine();
         render(false);
-        if (step >= 0 && SCRIPT[step].req) showReq(pathTo(leaf)); else if (!prevReq) $("sReq").innerHTML = `<div class="sub">要请求模型时，这里显示视图算出的请求。</div>`;
+        if (!prevReq) $("sReq").innerHTML = `<div class="sub">要请求模型时，这里显示视图算出的请求。</div>`;
         $("sNarr").innerHTML = step >= 0 ? SCRIPT[step].n : "点“下一步”开始。";
         $("sProg").textContent = `${step + 1} / ${SCRIPT.length}`;
         $("sPrev").disabled = step < 0; $("sNext").disabled = step >= SCRIPT.length - 1;
@@ -994,8 +1040,8 @@ const SCRIPT = [
             const s = SCRIPT[n];
             step = n;
             if (s.run) s.run();
+            if (s.req) { showReq(pathTo(leaf)); requestFact(); }
             render(false);
-            if (s.req) showReq(pathTo(leaf));
             $("sNarr").innerHTML = s.n;
             $("sProg").textContent = `${step + 1} / ${SCRIPT.length}`;
             $("sPrev").disabled = false; $("sNext").disabled = step >= SCRIPT.length - 1;
@@ -1032,21 +1078,21 @@ const SCRIPT = [
         if (foldPath(pathTo(leaf))["内置：运行状态"] === "运行中") { $("sNarr").innerHTML = "正在运行：真实系统里这句话会按插话或排队处理（t07）；沙盒里先点“模拟一次最终回复”。"; return; }
         dispatch([{cls: "ctrl", type: "run_started", text: "运行开始", source: "内核"}]);
         dispatch([{cls: "conv", type: "user", text, source: "用户"}]);
-        render(false); showReq(pathTo(leaf));
+        showReq(pathTo(leaf)); requestFact(); render(false);
         $("sNarr").innerHTML = "<b>用户消息写入、归约、反应，然后算出请求。</b>到这里就是“预览”：不调模型。点“模拟一次最终回复”继续。";
     };
     $("fReply").onclick = () => {
         if (foldPath(pathTo(leaf))["内置：运行状态"] !== "运行中") { $("sNarr").innerHTML = "现在没有在运行，先发一句话。"; return; }
-        const before = entries.length;
+        lastContinue = false;
         dispatch([{cls: "conv", type: "assistant", text: "（模拟的最终回复）", source: "模型"}]);
-        const cont = entries.slice(before).some((e) => e.type === "continue");
+        const cont = lastContinue;
         if (!cont) dispatch([{cls: "ctrl", type: "run_ended", text: "运行结束", source: "内核"}]);
+        if (cont) { showReq(pathTo(leaf)); requestFact(); }
         render(false);
-        if (cont) showReq(pathTo(leaf));
-        $("sNarr").innerHTML = cont ? "<b>写手追加了“请接着写完”</b>（字数不够），运行继续，右边是下一次请求。再点一次“模拟一次最终回复”。" : "<b>运行结束。</b>";
+        $("sNarr").innerHTML = cont ? "<b>写手追加了“请接着写完”并要求 continue</b>（字数不够），运行继续，右边是下一次请求。再点一次“模拟一次最终回复”。" : "<b>运行结束。</b>";
     };
     $("fEdit").onclick = () => {
-        dispatch([{cls: "ext", type: "file_changed", text: "第 5 章被用户修改", source: "nbook.history", data: {path: "第 5 章"}}]);
+        dispatch([{cls: "ext", type: "nbook.history/fileChanged", text: "第 5 章被用户修改", source: "nbook.history", data: {path: "第 5 章"}}]);
         render(false);
         $("sNarr").innerHTML = "nbook.history 记下第 5 章的改动。下一句话发出时它会追加通知。";
     };
@@ -1060,7 +1106,7 @@ const SCRIPT = [
         const sys1 = wrong ? "system（槽里：字数 2100）" : "system", sys2 = wrong ? "system（槽里：字数 2900）" : "system";
         const r1 = [[sys1, 22], ["种子", 10], ["user 续写", 10], ["通知", 10], ["记忆", 10]];
         const r2 = [[sys2, 22], ["种子", 10], ["user 续写", 10], ["通知", 10], ["记忆", 10], ["assistant edit", 13], ["tool 结果", 10]];
-        const tail1 = wrong ? null : ["attach 字数 2100", 12], tail2 = wrong ? null : ["attach 字数 2900", 12];
+        const tail1 = wrong ? null : ["会变的槽：字数 2100", 12], tail2 = wrong ? null : ["会变的槽：字数 2900", 12];
         const bar = (segs, kinds, tail) => `<div class="req-bar">${segs.map(([t, w], i) => `<div class="seg ${kinds[i]}" style="flex:0 0 ${w}%">${esc(t)}</div>`).join("")}${tail ? `<div class="seg fresh" style="flex:0 0 ${tail[1]}%;border-style:dashed">${esc(tail[0])}</div>` : ""}</div>`;
         const k1 = r1.map(() => "plain");
         const k2 = r2.map((_, i) => wrong ? "miss" : (i < r1.length ? "hit" : "fresh"));
@@ -1068,7 +1114,7 @@ const SCRIPT = [
         $("cache").innerHTML = `<div class="sub">第 1 次请求</div>${bar(r1, k1, tail1)}<div class="sub" style="margin-top:10px">第 2 次请求</div>${bar(r2, k2, tail2)}
 <p style="margin-top:12px">${wrong
             ? `<span class="pill p-bad">前缀命中 0%</span> 系统提示词在最前面，里面的字数一变，后面的全部都要重算。预览与诊断会给“不利于缓存”的警告。`
-            : `<span class="pill p-ok">前缀命中约 ${hitPct}%</span> 系统提示词与历史只追加不变，字数放在最后的 attach 里，只影响最后一小段。`}</p>`;
+            : `<span class="pill p-ok">前缀命中约 ${hitPct}%</span> 系统提示词与历史只追加不变，字数在最末尾那个会变的槽里，只影响最后一小段。`}</p>`;
     }
     $("cWrong").onchange = draw; draw();
 })();
@@ -1095,11 +1141,11 @@ const SCRIPT = [
                 [0, "→", route ? (simple ? "最后一条用户消息很简单：request.model = deepseek-flash，next(request)" : "问题难，不改，next(request)") : "（没装路由插件，这层不存在）next(request)"],
                 [1, "→", "记下开始时间，next(request)"],
                 [2, "→", "Profile 最后拍板：写正文要长回复，params.maxTokens = 8192，next(request)"],
-                [3, "·", `发出请求（model = ${model}），收到回复`],
+                [3, "·", `内核先写 model_started（哈希、now、samples、修改记录），适配器调 streamSimple（model = ${model}），收到回复`],
                 [2, "←", "最先拿到原始回复：不改"],
                 [1, "←", "记用量：输入 812、输出 640"],
                 [0, "←", "不改"],
-                [-1, "✓", `日志：回复写成新事件；修改记录 ${route && simple ? "{路由: model, 写手: params.maxTokens}" : "{写手: params.maxTokens}"}`],
+                [-1, "✓", `日志：回复写成 assistant 事件；model_started 里的修改记录 ${route && simple ? "{路由: model, 写手: params.maxTokens}" : "{写手: params.maxTokens}"}`],
             ];
         }
         const path = $("oPath").value, ask = $("oAppr").value === "ask";
@@ -1110,6 +1156,7 @@ const SCRIPT = [
             [-1, "✓", "日志：工具结果（错误）。模型下一次请求能看到，会改成写正文。审批与执行都没发生"],
         ];
         return [
+            [-1, "·", "内核先写 tool_started（崩溃后据此结算为“结果未知”）"],
             [0, "→", "记下调用 edit(project://正文/第3章.md)，next(call)"],
             [1, "→", "路径在正文目录下，next(call)"],
             [2, "→", ask ? "要询问：写审批请求事件，运行进入“等用户”；用户批准，写应答事件，继续" : "写入默认放行（t06），继续"],
@@ -1117,7 +1164,7 @@ const SCRIPT = [
             [2, "←", "—"],
             [1, "←", "不改结果"],
             [0, "←", "记录结果"],
-            [-1, "✓", "日志：工具结果写成新事件，再归约、反应"],
+            [-1, "✓", "日志：工具结果写成新事件（拦截改过参数或结果时，实际的参数与原本的结果也记下）；整批写完再归约、反应"],
         ];
     }
     function run() {

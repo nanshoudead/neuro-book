@@ -63,10 +63,10 @@ export function historyExtension<const Id extends string>(o: {id: Id; replaces?:
                 if (is(e, K.runStarted)) return {before: flush(s), input: null, transcript: null, inRun: true};
                 if (is(e, K.runEnded)) return {before: flush(s), input: null, transcript: null, inRun: false};
                 if (is(e, K.compaction)) {
-                    // firstKept 之前的换成摘要；之后的原样保留
+                    // firstKeptEntryId 之前的换成摘要；之后的原样保留
                     const all = toArray(flush(s));
-                    const idx = e.data.firstKept === null ? all.length : all.findIndex((x) => x.id === e.data.firstKept);
-                    let before: List<Entry> = cons({...e, cls: "conv", type: `${o.id}/summary`, data: {text: e.data.summary}} as Entry, null);
+                    const idx = e.data.firstKeptEntryId === null ? all.length : all.findIndex((x) => x.id === e.data.firstKeptEntryId);
+                    let before: List<Entry> = cons({...e, cls: "conv", type: `${o.id}/summary`, data: {text: e.data.replacement}} as Entry, null);
                     for (const x of all.slice(idx < 0 ? all.length : idx)) before = cons(x, before);
                     return {before, input: null, transcript: null, inRun: s.inRun};
                 }
