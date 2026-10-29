@@ -1,0 +1,214 @@
+第 14 片 workbench 运行期文字 交付报告
+
+== 结论 ==
+任务说明 1 到 4 的要求都已完成，只有一处偏离：“外壳当前不可调整”没有迁，理由见“没做的与遗留”。
+- CommandResult/CommandFailure 的 reason 放宽为 Text，由显示它的一方翻译。
+- 远程合同 nbook.commands/remote 仍为 v2：原因在窗口一侧按当前语言翻成字符串后再交出。
+- 标题栏的 4 个菜单项名字、运行期中文文字、全角标点拼接都已改为走目录。
+- 英文按 VS Code 的说法统一。
+- 验证全部通过。全量 bun 测试里只有已知的间歇失败“展开的目录改名”，单独重跑通过。
+- 没有 commit。
+
+== 改动文件 ==
+路径都在 /home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n 下，共 47 个文件。
+
+Spec：
+- docs/specs/workbench/commands.md
+  - 结果合同：reason 是文字值，由显示方翻译。
+  - 跨实例列出与执行：原因是字符串，在窗口里按窗口语言翻译；没有翻译端口时写成键名；远程合同的形状不变。
+- docs/specs/workbench/menus.md
+  - 输出 2：不可用原因是文字值，按当前显示语言翻译，切换语言后随之更新。
+  - label 在之前的片里已经是 Text，本片没有再改。
+
+commands 插件（packages/neuro-book/src/plugins/commands/shared/）：
+- contracts.ts
+  - CommandResult/CommandFailure 的 reason 改为 Text，并补了注释。
+  - 远程 schema 不变。
+- registry.ts
+  - 命令返回的原因：是文字值就原样交出，其他值用 String() 转换。
+  - 新增类型 RegistrationResult：登记被拒时 reason 仍是 string。
+- plugin.ts
+  - 新增 remoteCommands(registry, reasonString)，list 与 execute 的原因都经它翻成字符串。
+  - 没有翻译端口时，文字引用写成键名。
+- menus.ts
+  - arrangeMenu 按 facts.text.t 翻译原因。
+- registry.test.ts
+  - 原因是文字引用、语言映射时原样返回；是数字时转成字符串。
+- remote.test.ts
+  - 新增 describe：失败原因是文字引用时，有引擎的窗口得到中文句子；setLocale 后得到英文；没有引擎的窗口得到键名。
+
+shared（packages/neuro-book/src/shared/）：
+- localized-text.ts
+  - 新增 diagnosticText(Text)，只用于诊断与 Lab 检视，不用于界面。
+  - 规则：字符串原样；语言映射取中文；文字引用写成 ns:key 加参数。
+
+workbench 插件（packages/neuro-book/src/plugins/workbench/）：
+- 目录：locales/zh-CN.json、locales/en-US.json。
+- 测试：locales.test.ts
+  - 拆成 LEGACY、RUNTIME、REVISED 三张表。
+  - 新增两个用例：“REVISED 登记的键都在目录里”和“工作台自己的标题栏菜单项名字走目录”。
+  - 复数用例的期望改为 Merge 1 view。
+- testing/text.ts：新增 failureText(result, locale)。
+- shared/contracts.ts：QuickPickResult 的 unavailable reason 改为 DisplayText。
+- 命令（web/commands/）：
+  - open-commands.ts：palette.unavailable。
+  - panel-commands.ts、part-commands.ts、view-commands.ts：noLayout、partial、stale、unknownView、unplaced 改走目录。
+  - app-commands.ts：返回 TextRef，去掉了 text 参数；web/plugin.ts 的调用相应修改。
+  - failure-notice.ts：只改了注释。
+  - WorkbenchCommandHost.vue、keymap.ts：诊断改用 diagnosticText。
+- 命令测试（web/commands/）：
+  - part-commands.test.ts、panel-commands.test.ts、view-commands.test.ts：断言中文与英文两种语言。
+  - WorkbenchCommandHost.dom.test.ts：palette.unavailable 断言两种语言。新增一个用例：原因是文字引用时，通知正文原样交出，两种语言都翻得出来，诊断写成键名。
+- 组件（web/components/）：
+  - WorkbenchTitleBar.vue：项目与搜索的 aria-label 改为整句。
+  - WorkbenchItemStrip.vue：新增 titled()，aria-label 与“更多”菜单里的纯文字项都用它。
+  - WorkbenchItemStrip.md：state:inject 一节写明目录也包含条目名与文字连成的那一句。
+  - WorkbenchShell.vue：frameActions 的原因改为翻译后的文字。
+- 组件测试（web/components/）：
+  - WorkbenchTitleBar.dom.test.ts：新增用例，用宿主引擎切换语言后 aria-label 原地更新，并覆盖不带快捷键的情况。
+  - WorkbenchItemStrip.dom.test.ts：挂载时注入翻译端口；新增中文切到英文、冒号原地更新的用例。
+- 标题栏：
+  - web/titlebar/menu-items.ts：4 个菜单项的 label 改为 workbenchText(...)。
+  - web/titlebar/titlebar-source.ts：两处 disabledReason 改为 text.t(reason)。
+
+类型放宽带来的必要修改（只为过类型检查或在显示处翻译，没有改行为）：
+- editor 插件（任务说明要求不碰；reason 一放宽，不改就过不了类型检查，所以只改了使用处）：
+  - editor/web/commands.ts：unavailable 的参数改为 DisplayText。
+  - editor/web/plugin.ts：诊断改用 diagnosticText。
+  - editor/web/tab-menu.ts：原因用 text.t，诊断用 diagnosticText。
+  - editor/web/title-actions.ts：原因用 text.t。
+- explorer 插件：
+  - explorer/web/controller.ts：open-failed 的 reason 改为 DisplayText。
+  - explorer/web/feedback-text.ts：显示时用 text.t。
+  - explorer/web/view-host.ts：诊断改用 diagnosticText。
+- projects 插件：
+  - projects/web/plugin.ts、projects/web/welcome.ts：显示时用 text.t。
+- lab 插件：
+  - lab/web/fixtures/command-scene/editor-commands.ts：返回 RegistrationResult。
+  - lab/web/fixtures/command-scene/lab-command-scene.ts：显示用 diagnosticText；事件里的 reason 保留原值。
+  - lab/web/fixtures/WorkbenchCommandPaletteFixture.vue：显示用 diagnosticText。
+  - Lab 场景的 id 与输入集合都没有变。
+
+== 新增键 ==
+新增 13 个，删除 1 个。中英两份目录的键集一致：zh-CN 从 139 到 151，en-US 从 140 到 152，英文多出的那 1 个是复数 _one。
+
+新增：
+- titlebar.projectButton：项目：{{name}} / Project: {{name}}
+  - 替代被删的 titlebar.project。旧代码是 `${项目}：${name}` 拼出来的。
+- titlebar.searchWithShortcut：搜索命令（{{shortcut}}）/ Search commands ({{shortcut}})
+- titlebar.menuItems.sidebar：侧栏 / Sidebar
+- titlebar.menuItems.auxiliarybar：右栏 / Secondary Side Bar
+- titlebar.menuItems.activitybar：活动栏 / Activity Bar
+- titlebar.menuItems.panel：面板 / Panel
+- palette.unavailable：当前页面没有命令面板 / This page has no command palette
+- layout.notOpen：工作台布局没有打开（这个窗口没有显示外壳）/ The workbench layout is not open (this window does not show the shell)
+  - panel-commands、part-commands、view-commands 三处共用。
+- viewCommands.unknownView：没有这个视图（没有已接受的声明）：{{viewId}} / No such view (no accepted declaration): {{viewId}}
+- viewCommands.unplaced：视图不在布局里：{{viewId}} / The view is not in the layout: {{viewId}}
+- viewCommands.partial：要么都不给，要么给 viewId、sourceContainerId 和 targetContainerId、newContainerIn 中的一个 / Give nothing, or give viewId, sourceContainerId and one of targetContainerId and newContainerIn
+- viewCommands.stale：视图已经不在发起时的容器里，没有移动 / The view is no longer in the container it was in when the move started, so it was not moved
+- items.titled：{{title}}：{{text}} / {{title}}: {{text}}
+
+中文都逐字等于 HEAD a4a94a451 的旧字面量或拼接结果。测试里，locales.test 的 LEGACY 与 RUNTIME 两张表逐键核对。
+
+== reason / label 类型变化与理由 ==
+1. CommandResult.reason 与 CommandFailure.reason 从 string 改为 Text
+   - 理由：命令在执行时不一定知道显示语言（例如 appCommands 原来要注入 TextResolver，现在已去掉）。返回文字引用后，菜单、按钮提示、通知在显示时翻译，切换语言后已显示的通知随之更新（通知服务输出 9 已支持文字值）。
+   - 显示方：
+     - 按语言翻译的有 arrangeMenu、titlebar-source、WorkbenchShell frameActions、editor tab-menu/title-actions、explorer、projects。
+     - failureNotice 把原因原样作为通知正文交出，由视口翻译。
+     - 诊断用 diagnosticText。
+   - registry 规范化命令返回的值：是文字值就原样交出，其他值用 String() 转换。之前是一律 String()，语言映射与文字引用会变成 [object Object]。
+2. 登记结果 RegistrationResult：reason 保持 string
+   - 理由：登记被拒的原因是命令表自己写的诊断，调用方会把它直接塞进 Error 或日志。分开定义类型，可以避免改动其他插件的测试。
+3. 远程合同 nbook.commands/remote 不升版本
+   - 理由：原因主要给 Agent 读，服务端没有窗口的目录，翻不了文字引用。所以在窗口一侧 remoteCommands 的出口按窗口此刻的显示语言翻成字符串，线上仍是 Type.String()。
+   - 没有翻译端口时写成键名，与 i18n 输出 4 里缺键时的显示一致。
+4. QuickPickResult 的 unavailable reason 改为 DisplayText，因为命令面板缺席时给的是同一个文字引用 palette.unavailable。
+5. MenuItemDeclaration.label：之前的片已经是 DisplayText 加 TextSchema，menus.md 写的也是 label?: Text，本片只把 menu-items.ts 的 4 项改走目录。
+6. commands 插件的 when 原因 REASONS（undeclared、notBoolean、notTrue）没有迁
+   - 它们已经是中英两份的语言映射，按显示语言解析，英文界面不会出现中文。
+   - 内容是写给作者与开发者的，会点出内部键名，例如“上下文键 x 没有登记”。
+   - 服务端也会对它们求值，而服务端没有翻译端口；commands 插件本身也没有目录。
+   - 所以保持现状。
+
+== 英文统一清单 ==
+（左边是 HEAD，右边是现在；都登记在 locales.test 的 REVISED 里）
+- titlebar.toggle.auxiliarybar：Toggle Auxiliary Bar → Toggle Secondary Side Bar
+- titlebar.menuItems.auxiliarybar：Auxiliary Bar（旧声明里的字面量）→ Secondary Side Bar
+- panelCommands.alignments.right：Right (with the auxiliary bar) → Right (with the secondary side bar)
+- partCommands.parts.auxiliarybar：Auxiliary Bar → Secondary Side Bar
+- state.auxiliaryBarVisible.reason：The auxiliary bar is hidden or dragged closed → The secondary side bar is hidden or dragged closed
+- shell.moveTo：Move To → Move to
+- shell.drop.mergeContainer_one：Merge {{count}} views → Merge {{count}} view
+  - _other 仍是 Merge {{count}} views。
+  - 测试：count=1 得到 Merge 1 view，count=3 得到 Merge 3 views，中文都是“并入 N 个视图”。
+
+Follow System 与 System：两处的中文都是“跟随系统”，意思相同，只是语境不同（设置项的选项与命令的选择项）。按任务说明保持各自原样，没有改。
+
+列出但没有改的：
+- 侧栏的英文目录里写 Sidebar，VS Code 写 Primary Side Bar 或 Side Bar，本片没有统一。
+- 给 Agent 看的命令 description（例如 part-commands 里写的 the auxiliary bar）是稳定的英文语义说明，不是界面文字，没有动。
+- 用 grep -rn "Move To\|Auxiliary\|auxiliary bar" packages/*/src --include='*.json' 查遍各插件与 nb-ui 的目录，没有剩下的 "Move To"、"Auxiliary Bar"，本片的统一在目录范围内是完整的。
+
+== 验证 ==
+- bun run typecheck（tsc + vue-tsc web + vue-tsc browser-test）：没有输出，退出码 0。
+- bun run test:bun：1622 pass，1 fail，11373 expect() calls，Ran 1623 tests across 183 files [185.96s]
+  - 失败的是 explorer/browse.test.ts 的“展开的目录改名：子树在新地址继续展开，选择跟随”，即已知的间歇失败。
+  - 单独重跑 bun test src/plugins/explorer/browse.test.ts：16 pass，0 fail。
+  - 日志开头的 “✗ Build failed / 合同模块算不出来” 是 plugin-sdk/build-plugin.test.ts 有意制造的失败，测试本身通过。
+- SDK 快照，单独跑 bun test src/sdk/sdk.test.ts src/sdk/surface.test.ts plugin-sdk/pack.test.ts：17 pass，0 fail。导出名没有变，快照不用更新。
+- bun run test:vitest：Test Files 69 passed (69)，Tests 403 passed (403)
+- bun scripts/ci/message-catalogs.ts：没有输出，退出码 0。
+- 仓库根 bun run docs:check：failures []，warnings []，只有存量 stockWarnings。
+- 仓库根 bun run governance:check：failures []，warnings []，只有存量 stockWarnings。
+- 全量验证跑完后，只撤回了 commands/shared/plugin.ts 里 reasonText 那段文档注释的一处改写（那段属于任务之外），这是纯注释，没有再跑全量。
+- 完整日志：/tmp/w00028-t03/s14/test-bun.log、/tmp/w00028-t03/s14/test-vitest.log
+- 草稿目录 /tmp/w00028-t03/s14/ 里有目录编辑脚本 edit-catalogs.py，不在仓库内。
+
+== 禁止清单自查 ==
+- 不按错误文案分支：本片没有新增按文案做的判断，失败都按 code 处理。
+- 不静默吞错：原有的诊断与 report 都保留，只把 reason 改为经 diagnosticText 写入。
+- 不掩盖问题：
+  - 没有跳过测试，没有放宽断言。
+  - 原来 toEqual 字符串的断言，改为 toMatchObject 核对 code，再用 failureText 逐语言核对整句，没有变松。
+  - 产品代码里没有测试专用分支。
+- 不改任务之外的代码与注释：
+  - 误改的 reasonText 注释已撤回。
+  - editor、explorer、projects、lab 的修改都是类型放宽后必须改的使用处，见“改动文件”。
+  - ItemStrip 测试原有的 locale 属性是之前的片留下的，本片没有动。
+- 清理与收口语句都保留，没有第二条路径。
+  - remoteCommands 的 execute：成功结果原样交出，失败结果只翻译 reason。
+- 没有跨包深导入：只用了 @notnotype/nb-ui/text、@notnotype/nb-ui/text-port 这两个公开子路径，以及本包内的 nbook/... 别名。
+- 没有用 rm 删除仓库内的文件；目录用脚本修改，先 dry-run 再写入。
+- 没有新增 .vue 注入：TitleBar 与 ItemStrip 原本就用 useText()，同名 .md 里原本就标了 state:inject。
+
+== 没做的与遗留 ==
+1. “外壳当前不可调整”（WorkbenchShellLayout.vue 的 acceptGesture）没有迁，这偏离了任务说明。理由：
+   - 它只流进 nb-ui 网格宿主的落账诊断（data-layout-diagnostics），同一路的原因都是 nb-ui 的中文开发者诊断，例如“本次调整没有落账”“布局已变化（版本 …）”，以及同文件的“手势未落账：…”。
+   - 外壳禁用时不会开始手势，这条实际上几乎走不到。
+   - 迁的话要给纯布局组件加一条注入，还会让同一路诊断中英混杂。
+     - 已核实：WorkbenchShellLayout.vue 没有 useText 或 workbenchText，同名 .md 的标签是 [state:local, env:portal]。
+     - 所以迁这一条要新增一条注入，并在 .md 里加 state:inject。
+   - 如果要迁，应当连同 nb-ui 布局诊断一起，另开一片做。
+2. commands 命令表自己写的原因没有迁：
+   - “未登记的命令”“参数校验失败…”“命令执行抛错…”等。
+   - when 原因合并时用全角“；”连接（validateWhen/availability 里），英文界面多个原因时会出现全角分号。
+   - commands 插件目前没有目录，要迁得先给它建目录。
+3. 这些失败原因仍是单语中文字符串，没有迁：
+   - workbench/web/commands/intents.ts 经 resultOf 交出的拒绝原因。
+   - views/registry.ts 的“未登记的视图”“宿主没有提供入口状态”。
+   - theme-commands/switchSetting 的配置写入失败原因（来自 settings 插件）。
+4. failureNotice 的标题仍在生成通知时按当时的语言取好：命令名要作为参数代入，而参数只收字符串。切换语言后，已显示的通知正文会换语言，标题不换。
+5. 侧栏的英文没有统一（Sidebar 与 Primary Side Bar 之争），交给开发者决定。
+6. Lab 命令场景（lab-command-scene.ts 的 failure、WorkbenchCommandPaletteFixture.vue 的 lastResult）显示失败原因用的是 diagnosticText。
+   - 现在场景里登记的命令只返回中文字符串，when 原因也已经按语言取成字符串，所以显示的都是可读的句子，不会出现键名。
+   - editor 片开始返回文字引用之后，这两处显示要改用端口的 t（例如 resolverFor(LAB_LOCALE)），才能满足 commands.md 验收 10 的“可读的不可用原因”。
+   - 事件载荷里的 reason 仍保留原值。
+7. 没有跑 e2e，也没有拍 Lab 截图。
+   - 中文文字逐字不变，由 locales.test 与 dom 测试保证；e2e/workbench-titlebar.e2e.ts 按中文菜单名比对。
+   - 英文的读屏名称和菜单名只有 dom 测试与单元测试覆盖。
+8. 第 7 片报告“没迁移的”与“决定点”逐条对照：
+   - 本片已做：没迁移的 1、2，决定点 1、2。其中第 1 条里的“外壳当前不可调整”见本节第 1 条。
+   - 不属本片：没迁移的 3、4，决定点 3 到 6。
+9. 远程合同仍是字符串：服务端拿到的原因是窗口当时语言的句子；没有翻译端口的窗口拿到的是键名。如果以后要让服务端按自己的语言翻译，需要把远程合同升为 v3 并改为文字值。
