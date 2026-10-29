@@ -235,13 +235,14 @@ summary { cursor: pointer; font-weight: 600; }
 <a href="#s-chain">8. 拦截链</a>
 <a href="#s-life">9. 生命周期</a>
 <a href="#s-code">10. 写一个扩展</a>
-<a href="#s-pitfall">11. 常见错误</a>
-<a href="#s-status">12. 状态与待定</a>
+<a href="#s-leader">11. 对照：旧 leader.default</a>
+<a href="#s-pitfall">12. 常见错误</a>
+<a href="#s-status">13. 状态与待定</a>
 </nav>
 <main>
 
 <h1>NeuroBook Agent harness 内核：图解与演示</h1>
-<p class="sub">给 NeuroBook 开发者与插件作者。依据提案 <code>docs/proposals/agent-harness-event-model.md</code>（draft，第二稿，2026-10-29）。接口名字与签名还是草稿，以提案与之后的 Spec 为准；页面里的演示用浏览器里的一个小引擎真的跑归约与反应，不调模型。</p>
+<p class="sub">给 NeuroBook 开发者与插件作者。依据提案 <code>docs/proposals/agent-harness-event-model.md</code>（draft，2026-10-29）。接口名字与签名还是草稿，以提案与之后的 Spec 为准；页面里的演示用浏览器里的一个小引擎真的跑归约与反应，不调模型。</p>
 
 <!-- 1 -->
 <h2 id="s-loop">1. 一句话：一个循环</h2>
@@ -289,8 +290,8 @@ summary { cursor: pointer; font-weight: 600; }
 <dl><dt>什么时候跑</dt><dd>每条事件写进日志之后，全部扩展都跑</dd><dt>能做什么</dt><dd>维护自己那一片状态：计数、记下没送达的改动</dd><dt>不能做什么</dt><dd>I/O；看别人的状态；改日志</dd></dl></div>
 <div class="cap react"><h3>反应</h3><div class="sig">react(entry, ctx) → 新事件[]</div>
 <dl><dt>什么时候跑</dt><dd>这条事件被全部扩展归约之后</dd><dt>能做什么</dt><dd>I/O（检索、读文件、调小模型），返回要追加的事件：种子、提醒、通知、“接着写”</dd><dt>不能做什么</dt><dd>改已经写下的事件；阻止模型消息与工具结果写入</dd></dl></div>
-<div class="cap view"><h3>视图</h3><div class="sig">view(mine, input) → {slots, tail, attach}</div>
-<dl><dt>什么时候跑</dt><dd>只在要发请求、或预览的时候</dd><dt>能做什么</dt><dd>往 Profile 留的槽里填稳定内容；在请求末尾放只对这一次有效的内容</dd><dt>不能做什么</dt><dd>I/O；写日志</dd></dl></div>
+<div class="cap view"><h3>视图</h3><div class="sig">contribute(mine, input) → {slots, tail, attach}</div>
+<dl><dt>什么时候跑</dt><dd>只在要发请求、或预览的时候</dd><dt>能做什么</dt><dd>交片段：往 Profile 留的槽里填稳定内容；在请求末尾放只对这一次有效的内容。布局归 Profile 的 <code>prompt</code></dd><dt>不能做什么</dt><dd>I/O；写日志</dd></dl></div>
 <div class="cap intercept"><h3>拦截</h3><div class="sig">model(request, next, ctx) → response</div>
 <dl><dt>什么时候跑</dt><dd>接受输入、调用模型、执行工具、压缩这四个副作用发生时</dd><dt>能做什么</dt><dd>改请求与结果、拦下、重试、换模型；日志会记下谁改了什么</dd><dt>不能做什么</dt><dd>改服务商格式的原始请求体；盖过用户配置的拒绝与只读模式</dd></dl></div>
 </div>
@@ -365,11 +366,11 @@ summary { cursor: pointer; font-weight: 600; }
 
 <!-- 7 -->
 <h2 id="s-view">7. 视图与缓存</h2>
-<p>请求由两部分算出来：Profile 的 <code>prompt</code> 是主视图，决定整体组装；扩展的 <code>view</code> 往里补三样东西。</p>
+<p>“视图”指整个“状态 → 请求”这一步，由两样东西一起完成：Profile 的 <code>prompt</code> 定布局，扩展的 <code>contribute</code> 交片段。布局只有一个拥有者，否则谁先谁后会影响结果；要改整个请求，用模型拦截。</p>
 <table>
 <tr><th>谁</th><th>产出</th><th>去处</th><th>放什么</th></tr>
-<tr><td>Profile <code>prompt</code></td><td>TSX</td><td>系统提示词、历史的位置与渲染、固定消息</td><td>能读全部状态、按模型能力写条件、<code>&lt;History render filter&gt;</code> 控制每条怎么渲染</td></tr>
-<tr><td>扩展 <code>view</code></td><td><code>slots</code></td><td>Profile 留的同名 <code>&lt;Slot&gt;</code></td><td>稳定的内容：书的设定、记忆的长期摘要。Profile 没留这个槽就丢弃并写诊断</td></tr>
+<tr><td>Profile <code>prompt</code>（可选）</td><td>TSX</td><td>系统提示词、历史的位置与渲染、固定消息</td><td>能读全部状态、按模型能力写条件、<code>&lt;History render filter&gt;</code> 控制每条怎么渲染。不写就用缺省布局：系统提示词加全部槽，再接历史</td></tr>
+<tr><td>扩展 <code>contribute</code></td><td><code>slots</code></td><td>Profile 留的同名 <code>&lt;Slot&gt;</code></td><td>稳定的内容：书的设定、记忆的长期摘要。Profile 没留这个槽就丢弃并写诊断</td></tr>
 <tr><td></td><td><code>tail</code></td><td>接在历史末尾的消息</td><td>每次都变的内容，只对这一次有效</td></tr>
 <tr><td></td><td><code>attach</code></td><td>附在请求最末尾那条消息里（用户消息或工具结果）</td><td>同上，但不想多出一条消息。只附在最末尾：附在更早的消息上，内容一变，它之后的整段历史都失去缓存</td></tr>
 <tr><td>扩展 <code>render</code></td><td>消息</td><td>历史里它自己的事件</td><td>例如检索结果存结构化数据，渲染成 <code>&lt;memory&gt;</code> 块；Profile 可以覆盖</td></tr>
@@ -454,10 +455,10 @@ defineAgentExtension({
         async react(e, ctx) {
             if (e.type === "tool_result" &amp;&amp; e.tool === "outline.move") await outline.set(ctx, {chapter: e.data.to});
         },
-        view: (mine) =&gt; ({slots: {outline: `当前写到第 ${mine.chapter} 章`}}),
+        contribute: (mine) =&gt; ({slots: {outline: `当前写到第 ${mine.chapter} 章`}}),
     }),
 });</code></pre></div>
-<h3>Profile：主视图加自己的扩展</h3>
+<h3>Profile：布局加自带的扩展</h3>
 <div class="codebox"><pre><code class="tsx">export default defineProfile({
     id: "writer",
     tools: {required: ["read", "edit"], optional: ["grep"]},
@@ -472,25 +473,162 @@ defineAgentExtension({
             &lt;History render={{"nb-memory/result": (e) =&gt; `&lt;memory&gt;${e.data.text}&lt;/memory&gt;`}} /&gt;
         &lt;/&gt;
     ),
-    setup: () =&gt; ({
-        // 只对这一次请求有效、不进日志、不破坏前缀
-        view: (mine) =&gt; ({attach: [{type: "text", text: `本章当前字数：${mine.words}`}]}),
-        intercept: {
-            async tool(call, next) {
-                if (call.name === "edit" &amp;&amp; !call.args.path.startsWith("project://正文/"))
-                    return {isError: true, content: "写手只改正文目录"};    // 不调 next：拦下
-                return next(call);
-            },
+    // 自带的扩展：每项和插件的扩展同一个形状，排在全局扩展之后
+    extensions: [
+        {
+            id: "writer/words",
+            setup: () =&gt; ({
+                state: words.slice,                                // 字数在反应里读、写成事件（略）
+                // 只对这一次请求有效、不进日志、总在请求末尾
+                contribute: (mine) =&gt; ({attach: [{type: "text", text: `本章当前字数：${mine.words}`}]}),
+            }),
         },
-    }),
+        {
+            id: "writer/edit-scope",
+            setup: () =&gt; ({
+                intercept: {
+                    async tool(call, next) {
+                        if (call.name === "edit" &amp;&amp; !call.args.path.startsWith("project://正文/"))
+                            return {isError: true, content: "写手只改正文目录"};    // 不调 next：拦下
+                        return next(call);
+                    },
+                },
+            }),
+        },
+    ],
 });</code></pre></div>
 
 <!-- 11 -->
-<h2 id="s-pitfall">11. 常见错误</h2>
+<h2 id="s-leader">11. 对照：改写旧应用的 leader.default</h2>
+<p>用旧应用的默认主创 Profile（<code>packages/neuro-book-legacy/assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx</code>）检验新设计。提示词正文不改，只看结构：能不能做到旧版能做的，多了什么，写起来是否更顺。</p>
+<div class="two">
+<div><div class="sub" style="margin-bottom:4px">旧版：<code>context()</code> 一段约 120 行（这里删减了）</div><div class="codebox"><pre><code class="tsx">export default defineAgentProfile({
+    manifest: profileManifest,
+    settingsForm: LeaderDefaultSettingsForm,      // 含 fileChangeAwareness
+    tools: toolset(builtin.file.read, builtin.file.write, /* …共 25 项 */ ...plotWriteBindings),
+    runtimeDefaults: {
+        summarizer: {enabled: true, trigger: "afterInvocation",
+                     interval: {kind: "sourceInvocation", value: 16}},
+    },
+    async context(ctx) {
+        // 每次渲染都读一次人设文件
+        const personaBody = await ctx.home.readText(personaKey);
+        return (
+            &lt;ProfilePrompt&gt;
+                &lt;System&gt;
+                    {[customTop, persona, collaboration, familiarity,
+                      question, LEADER_SYSTEM_PROMPT].filter(Boolean).join("\n\n")}
+                &lt;/System&gt;
+                &lt;HistorySet&gt;         {/* 只在历史为空时写入 */}
+                    &lt;Message&gt;&lt;AgentCatalog /&gt;&lt;/Message&gt;
+                    &lt;Message&gt;&lt;Import path="reference/agent/profile-routing.md" /&gt;&lt;/Message&gt;
+                    &lt;Message&gt;&lt;SkillCatalog /&gt;&lt;/Message&gt;
+                    {/* …共 14 条 */}
+                &lt;/HistorySet&gt;
+                &lt;ModelContext&gt;       {/* 不落盘，每次请求插在本轮追加消息之前 */}
+                    &lt;Message&gt;&lt;SqlSchemaSummary /&gt;&lt;/Message&gt;
+                &lt;/ModelContext&gt;
+                &lt;AppendingSet&gt;       {/* 每轮写进日志 */}
+                    &lt;WorkspaceFocusReminder /&gt;
+                    &lt;FileChangeNotice mode={ctx.settings.fileChangeAwareness} /&gt;
+                    &lt;ModeAvailabilityReminder /&gt;
+                    &lt;LinkedAgentsReminder /&gt;
+                    &lt;TaskReminder stateKey="agent.tasks" repeatEveryTurns={8} /&gt;
+                    &lt;ModeReminder stateKey="agent.mode" /&gt;
+                    &lt;Message&gt;&lt;MentionedSkillsReminder /&gt;&lt;/Message&gt;
+                &lt;/AppendingSet&gt;
+            &lt;/ProfilePrompt&gt;
+        );
+    },
+});</code></pre></div></div>
+<div><div class="sub" style="margin-bottom:4px">新版：与上下文有关的部分约 60 行</div><div class="codebox"><pre><code class="tsx">const persona = sessionState&lt;string&gt;({id: "leader.default/persona", initial: DEFAULT_LEADER_PERSONA});
+
+export default defineProfile({
+    id: "leader.default",
+    name: "主创",
+    settingsSchema: SettingsSchema,     // 去掉 fileChangeAwareness：它归 nbook.history
+    tools: {
+        required: ["read", "write", "edit", "shell", "ask", "todo", "agent.invoke"],
+        optional: ["world.execute", "plot.*", "sql.execute", "workflow.run"],
+    },
+    // 纯函数：不读盘，预览与回放都一样
+    prompt: ({state, settings}) =&gt; (
+        &lt;&gt;
+            &lt;System&gt;
+                {settings.customTopSystemPrompt &amp;&amp;
+                    &lt;Tag name="custom_top_system_prompt"&gt;{settings.customTopSystemPrompt}&lt;/Tag&gt;}
+                &lt;Tag name="leader_persona"&gt;{state.read("leader.default/persona")}&lt;/Tag&gt;
+                {COLLABORATION[settings.collaborationMode]}
+                {FAMILIARITY[settings.neuroBookFamiliarity]}
+                {QUESTION_STRATEGY[settings.questionStrategy]}
+                {LEADER_SYSTEM_PROMPT}
+                &lt;If tool="world.execute"&gt;{WORLD_ENGINE_SECTION}&lt;/If&gt;
+                &lt;Slot name="sql-schema" /&gt;  {/* nbook.sql 填；库结构变了才变 */}
+            &lt;/System&gt;
+            {/* 覆盖模式提醒的措辞；任何扩展的事件都能这样覆盖 */}
+            &lt;History render={{"nbook.agent/mode-reminder": leaderModeReminder}} /&gt;
+        &lt;/&gt;
+    ),
+    extensions: [
+        // 人设：会话打开、设置变化、人设文件被改时读一次，写成事件；值没变不写
+        persona.loader({
+            on: ["session_opened", "settings_changed",
+                 fileChanged(({settings}) =&gt; `profile://${settings.leaderPersonaPreset}`)],
+            load: (ctx) =&gt; ctx.read(`profile://${ctx.settings.leaderPersonaPreset}`),
+        }),
+        // 种子：会话创建与压缩完成后各写一次
+        seed({
+            on: ["session_created", "compaction_done"],
+            messages: async (ctx) =&gt; [
+                await agentCatalog(ctx),
+                await ctx.read("docs://builtin/agent/profile-routing.md"),
+                await skillCatalog(ctx),
+                // …其余 11 条照旧，路径改用 t08 的地址
+            ],
+        }),
+        // 旧版只能在提示词里说“写作必须交给 writer”；现在能挡住
+        {
+            id: "leader.default/writer-only",
+            setup: () =&gt; ({
+                intercept: {
+                    async tool(call, next) {
+                        if (["write", "edit"].includes(call.name) &amp;&amp;
+                            call.args.path.startsWith("project://正文/"))
+                            return {isError: true, content: "正文交给 writer：用 agent.invoke 调用 writer"};
+                        return next(call);
+                    },
+                },
+            }),
+        },
+    ],
+    // 七种提醒、文件变更、库结构、记忆总结：都不在这里，见下面的表
+});</code></pre></div></div>
+</div>
+<h3>旧机制去了哪里</h3>
+<table>
+<tr><th>旧机制</th><th>新设计</th><th>变化</th></tr>
+<tr><td>七种提醒写在 <code>AppendingSet</code> 里，每个 Profile 各列一遍（<code>WorkspaceFocusReminder</code> 出现在 9 个内置 Profile 里）</td><td>归拥有那份数据的插件，作为全局扩展：工作区焦点归宿主、文件变更归 nbook.history、模式归 nbook.agent、任务归 todo 工具所在的插件、已关联 Agent 归多 Agent、提到的 Skill 归 Skill</td><td>Profile 里这部分是零行；不要的按标签排除；插件不改 Profile 就能给它加上下文</td></tr>
+<tr><td><code>TaskReminder</code> 靠 <code>stateKey: "agent.tasks"</code> 字符串读 <code>customState</code>，工具往同一个键写</td><td>任务的状态片由 todo 工具的结果归约而来，提醒和工具在同一个插件里</td><td>没有跨模块的字符串约定</td></tr>
+<tr><td><code>ModelContext</code>（库结构摘要）不落盘，每次请求插在本轮追加消息之前；下一轮它挪到新一轮之前，上一轮那段的缓存就失效（从 <code>prompt-order.ts</code> 推断）</td><td>nbook.sql 扩展从状态填系统提示词里的 <code>&lt;Slot name="sql-schema"&gt;</code>，库结构变了才变</td><td>每轮不再丢一段缓存</td></tr>
+<tr><td><code>context()</code> 每次渲染读一次人设文件</td><td>人设是 <code>sessionState</code>，在会话打开、设置变化、文件被改时读一次，写成事件</td><td><code>prompt</code> 是纯函数，预览不读盘，回放用记下的值</td></tr>
+<tr><td><code>HistorySet</code> 只在历史为空时写入</td><td><code>seed()</code> 在会话创建与压缩完成时写</td><td>压缩后种子自动重写</td></tr>
+<tr><td>“写作任务必须交给 writer”只写在提示词里</td><td>自带的工具拦截：改 <code>project://正文/</code> 时返回错误结果</td><td>从“请模型遵守”变成能挡住</td></tr>
+<tr><td>模式提醒的措辞经 <code>ModeReminder</code> 专用的 <code>ModeSlot</code> 定制</td><td>通用的 <code>&lt;History render&gt;</code> 覆盖任何扩展事件的渲染</td><td>一种机制覆盖所有扩展</td></tr>
+<tr><td>文件变更感知的档位是主创自己的设置项</td><td>是 nbook.history 扩展的设置，用户在 Profile 设置里按 Profile 配</td><td>每个 Profile 不必各写一遍</td></tr>
+<tr><td>固定顺序 History → ModelContext → AppendingSet → CurrentUserInput</td><td>布局由 <code>prompt</code> 定；提醒是日志里真实的事件，按写入顺序出现</td><td>顺序看日志就知道</td></tr>
+<tr><td><code>runtimeDefaults.summarizer</code> 每 16 次调用跑一次</td><td>nb-memory 扩展归约“运行结束”计数，到 16 次启动 summarizer（后台运行等 t22）</td><td>记忆归记忆插件</td></tr>
+</table>
+<div class="two" style="margin-top:12px">
+<div class="note" style="margin-top:0"><b>强在哪里</b><ul><li>规则能挡住（工具拦截）</li><li>插件能给不认识的 Profile 加上下文</li><li>回退与预览自动正确，压缩后种子重写</li><li>缓存不再每轮丢一段</li><li>写法上要学的只有 <code>sessionState</code>、<code>seed</code>、<code>&lt;Slot&gt;</code>、<code>&lt;History render&gt;</code> 四样</li></ul></div>
+<div class="note warn" style="margin-top:0"><b>代价</b><ul><li>主创收到的完整上下文分散在多个插件里，要靠预览看全（每条标了来源）</li><li>人设改了，系统提示词跟着变，缓存失效一次（用户改的，可以接受）</li><li>扩展的设置要能在 Profile 设置里按 Profile 显示</li><li>验证中改了一处写法：Profile 自带的扩展写成 <code>extensions</code> 列表（待定项 10）</li></ul></div>
+</div>
+
+<!-- 12 -->
+<h2 id="s-pitfall">12. 常见错误</h2>
 <table>
 <tr><th>写法</th><th>后果</th><th>改成</th></tr>
 <tr><td>在 <code>reduce</code> 里读文件、查数据库、取当前时间</td><td>重放与回退得到不同的状态</td><td>在 <code>react</code> 里做 I/O，把结果作为事件写进日志</td></tr>
-<tr><td>在 <code>view</code> 里调 <code>ctx.complete</code> 或读文件</td><td>预览会发请求；每次请求结果不同</td><td>同上；视图只读状态</td></tr>
+<tr><td>在 <code>prompt</code>、<code>contribute</code> 里调 <code>ctx.complete</code> 或读文件</td><td>预览会发请求；每次请求结果不同</td><td>同上；视图只读状态</td></tr>
 <tr><td>把字数、时间放进 <code>slots</code></td><td>系统提示词每次都变，缓存从头失效</td><td><code>tail</code> 或 <code>attach</code></td></tr>
 <tr><td>读别的扩展的内部状态</td><td>对方改了结构，你悄悄坏掉</td><td>用对方导出的选择器</td></tr>
 <tr><td>改了扩展事件的含义却没升版本</td><td>旧会话重新归约出来的状态和当时不一样</td><td>升 <code>v</code>，<code>reduce</code> 对旧版本按旧含义处理</td></tr>
@@ -499,7 +637,7 @@ defineAgentExtension({
 </table>
 
 <!-- 12 -->
-<h2 id="s-status">12. 状态与待定</h2>
+<h2 id="s-status">13. 状态与待定</h2>
 <p>提案是 draft（第二稿）。开发者已同意的方向与细节见提案的“决策记录”；还待定的：</p>
 <ol>
 <li>名字叫“扩展”还是“钩子”（推荐扩展）。</li>
@@ -511,6 +649,7 @@ defineAgentExtension({
 <li>工具拦截里附加的说明写进日志（推荐）。</li>
 <li>反应直接调 <code>ctx</code> 做 I/O、内核给每个动作记一条日志（推荐），还是像 Elm 那样只返回动作的描述。</li>
 <li>不经事件就会变的数据（当前时间、字数）：扩展的在反应里读、写成事件（沙盒里写手的字数就是这样）；时间这类通用的由内核在算视图前取一次、记进请求记录。</li>
+<li>Profile 自带的扩展写成 <code>extensions</code> 列表、辅助函数各返回一个扩展（推荐），还是只有一个 <code>setup</code>。</li>
 </ol>
 <p class="sub">循环由内核自己写，与服务商通信只用 OMP 的 <code>streamSimple</code>（2026-10-29 已定）。</p>
 </main>
@@ -579,7 +718,7 @@ const HELLO = [
         chat: {u: "sending"}, code: `reduce：reminder.turns 0 → 1；其它原样\nreact：全部返回空`},
     {lane: "ui", t: "推给窗口", d: "e2 推给订阅这个会话的窗口，界面按 clientId 把“发送中”换成正式消息。",
         chat: {u: "ok"}, code: `push {"entry": "e2", "clientId": "c_17"}`},
-    {lane: "view", t: "视图：算出请求", d: "没有新事件了，要请求模型。Profile 的 prompt 加各扩展的 view，从状态算出与服务商无关的请求。纯函数，预览也是这一步。",
+    {lane: "view", t: "视图：算出请求", d: "没有新事件了，要请求模型。Profile 的 prompt 定布局、各扩展的 contribute 交片段，从状态算出与服务商无关的请求。纯函数，预览也是这一步。",
         chat: {u: "ok"}, code: `{\n  "model": {"provider": "deepseek", "id": "deepseek-flash"},\n  "params": {"maxTokens": 8192},\n  "headers": {},\n  "system": "你是 NeuroBook 的写作助手。……",\n  "messages": [{"role": "user", "content": "你好"}],\n  "tools": [{"name": "read"}, {"name": "edit"}, …]\n}`},
     {lane: "chain", t: "模型拦截链（往里）", d: "请求从外往里穿过每层拦截：可以改模型、参数、header、系统提示词、消息。日志记下谁改了哪几项与最终请求的哈希。",
         chat: {u: "ok"}, code: `修改记录：{"modifiedBy": [], "hash": "sha256:9c1e…"}`},
@@ -732,7 +871,7 @@ const EXTS = [
             if (e.type === "assistant" && !e.data.tool && c.mine.words < 3000 && c.mine.continues < 3) return [{cls: "conv", type: "continue", text: `请接着写完（本章 ${c.mine.words} 字，不到 3000 字）`}];
             return [];
         },
-        view: (s) => ({attach: [`本章当前字数：${s.words}`]}),
+        contribute: (s) => ({attach: [`本章当前字数：${s.words}`]}),
     },
 ];
 let world, entries, seq, leaf, prevReq, prevState, freshIds;
@@ -778,7 +917,7 @@ function renderMsg(e) {
 }
 function buildRequest(path, st) {
     const msgs = path.filter((e) => e.cls === "conv").map((e) => ({...renderMsg(e), from: e.source, id: e.id}));
-    const attach = EXTS[3].view(st[EXTS[3].id]).attach;
+    const attach = EXTS[3].contribute(st[EXTS[3].id]).attach;
     // attach 只附在最末尾那条（用户消息或工具结果）：附在更早的消息上，内容一变它之后的历史全失去缓存
     return {system: "你是本书的写手，只改正文目录。", slot: "（memory 槽：长期记忆摘要，稳定）", msgs, attach, at: msgs.length - 1};
 }
@@ -793,7 +932,7 @@ function showReq(path) {
     req.msgs.forEach((m, i) => {
         const cls = prevReq ? (i < same ? "same" : i === part ? "part" : "new") : "";
         html += `<div class="msg ${cls}"><div class="role">${m.role} · ${esc(m.id)} · 来自 ${esc(m.from)}${i === part ? " · 命中到上次的 attach 之前" : ""}</div>${esc(m.text).replace(/\n/g, "<br>")}${
-            i === req.at ? req.attach.map((a) => `<div class="att">attach（Profile：写手 的 view）：${esc(a)}</div>`).join("") : ""}</div>`;
+            i === req.at ? req.attach.map((a) => `<div class="att">attach（Profile：写手 的 contribute）：${esc(a)}</div>`).join("") : ""}</div>`;
     });
     html += `<div class="msg sys"><div class="role">tools</div>read, edit, grep</div>`;
     if (prevReq) html += `<div class="sub">与上一次请求相同的前缀：system + ${same} 条消息${part >= 0 ? "，再加上一条的前半段" : ""}</div>`;
@@ -821,7 +960,7 @@ const SCRIPT = [
     {n: "<b>创建会话。</b>内核写“会话已创建”；写手对它反应，追加种子。", run: () => dispatch([{cls: "ctrl", type: "session_created", text: "会话已创建", source: "内核"}])},
     {n: "<b>用户在编辑器里改了第 3 章</b>（还没说话）。nbook.history 写一条扩展事件，它那片状态记下 pending。扩展事件不进模型上下文：模型现在什么都不知道。", run: () => { world.words = 2100; dispatch([{cls: "ext", type: "file_changed", text: "第 3 章被用户修改", source: "nbook.history", data: {path: "第 3 章"}}]); }},
     {n: "<b>用户说“续写第 3 章”。</b>先写“运行开始”，再写用户消息。全部扩展归约（reminder 计数 +1），再对同一份状态反应：nbook.history 追加通知与“已送达”，nb-memory 追加检索结果，写手读字数（I/O）写成扩展事件。", run: () => { dispatch([{cls: "ctrl", type: "run_started", text: "运行开始", source: "内核"}]); dispatch([{cls: "conv", type: "user", text: "续写第 3 章", source: "用户"}]); }},
-    {n: "<b>没有新事件了，算请求（视图）。</b>右边是视图算出来的：种子、用户消息、通知、检索结果（经 nb-memory 的 render 渲染成 &lt;memory&gt;）；写手的 view 把字数 attach 在请求最末尾那条消息里，只这一次有效、不进日志。", req: true},
+    {n: "<b>没有新事件了，算请求（视图）。</b>右边是视图算出来的：种子、用户消息、通知、检索结果（经 nb-memory 的 render 渲染成 &lt;memory&gt;）；写手的 contribute 把字数 attach 在请求最末尾那条消息里，只这一次有效、不进日志。", req: true},
     {n: "<b>模型拦截链 → 服务商 → 回复。</b>回复里有工具调用 edit，写成对话事件。", run: () => dispatch([{cls: "conv", type: "assistant", text: "我先接着写打斗那段。", source: "模型", data: {tool: "edit", path: "project://正文/第3章.md"}}])},
     {n: "<b>工具拦截链。</b>写手检查路径在 project://正文/ 下，调 next；审批在最里层，写入默认放行；执行，结果写进日志。写手对工具结果反应，重新读字数。", run: () => { world.words = 2900; dispatch([{cls: "conv", type: "tool_result", text: "已写入 800 字", source: "工具 edit", data: {tool: "edit"}}]); }},
     {n: "<b>第二次请求。</b>绿色左边线是与上一次相同的前缀，缓存命中；橙色是新增的。字数变了，但它在 attach 里、总在最末尾，只影响最后一小段。", req: true},
