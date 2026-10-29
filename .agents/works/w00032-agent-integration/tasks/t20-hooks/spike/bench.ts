@@ -20,7 +20,7 @@ const model = (_r: ModelRequest): ModelResponse => {
     inRun = 0;
     return {text: "这一轮完成。".repeat(20)};
 };
-const make = (snapshots: "all" | "none") => new Session({profile: leader, plugins: [...allPlugins(), router], core: [coreHistory], model, tools, files: {"正文/第3章.md": "x"}, settings: {leaderPersonaPreset: "p"}, snapshots, cacheWarnTokens: 1e9});
+const make = (snapshots: "all" | "none") => new Session({profile: leader, plugins: [...allPlugins(), router], core: [coreHistory], model, tools, files: {"正文/第3章.md": "x"}, settings: {leaderPersonaPreset: "p"}, snapshots, cacheWarnTokens: 1e9, freeze: process.env.FREEZE !== "0"});
 
 const ms = (t0: number) => `${(performance.now() - t0).toFixed(1)} ms`;
 const mb = (b: number) => `${(b / 1024 / 1024).toFixed(1)} MB`;
@@ -44,12 +44,12 @@ for (const mode of ["all", "none"] as const) {
     Bun.gc(true);
     const heap = process.memoryUsage().heapUsed - heap0;
     t0 = performance.now();
-    for (let i = 0; i < 20; i++) s.buildRequest();
+    for (let i = 0; i < 20; i++) await s.view(s.leaf);
     const req = `${((performance.now() - t0) / 20).toFixed(2)} ms`;
     const mid = log[Math.floor(log.length / 2)]!.id;
     t0 = performance.now();
     s.rewind(mid);
-    s.buildRequest();
+    await s.view(s.leaf);
     const rewind = ms(t0);
     console.log(`快照 ${mode}：打开 ${openTime}，堆增加约 ${mb(heap)}；算一次请求 ${req}；回退到中间并算请求 ${rewind}`);
 }

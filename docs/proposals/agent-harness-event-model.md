@@ -55,6 +55,8 @@ adrs: []
 
 ## 方案
 
+本节是第三稿：第二稿经过一个原型（spike）与两位审查者的审查后改写，改动的来由见“原型与审查”一节。接口的写法以 spike 里跑过的为准（`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/`，`api.ts` 是公开接口）。
+
 ### 1. 基本循环
 
 ```text
@@ -63,92 +65,98 @@ adrs: []
                 └────────────── 反应：新的事件 ◀────────────┘
 ```
 
-循环由 harness 内核自己写，不再套 OMP 的 `Agent`；与服务商通信只用 OMP 的 `streamSimple`（`pi-ai`），由 `nbook.models` 的模型适配器调用（t09）。理由：本稿要求“一条事件的反应全部完成后才算下一次请求”“模型调用可以重试与换模型”“日志是唯一的上下文”，`Agent` 自己的上下文与异步投递的事件和这几条都要对着干，现有的等待逻辑就是证据。代价是内核自己实现并行执行工具、插话（t07）、中止与收口，这些分支里已有可参照的语义。
+循环由内核自己写，不再套 OMP 的 `Agent`；与服务商通信只用 OMP 的 `streamSimple`，由 `nbook.models` 的模型适配器调用（t09，第 5 节）。理由：本稿要求“一条事件的反应全部完成后才算下一次请求”“模型调用可以重试与换模型”“日志是唯一的上下文”，`Agent` 自己的上下文与异步投递的事件和这几条都要对着干，现有的等待逻辑就是证据。代价是内核自己实现并行工具、插话、中止与收口；spike 已把这几样做出最小版本。
 
 一次运行：
 
-1. 用户输入经输入拦截链，作为事件写进日志；所有扩展对它归约、再反应（可能追加新的事件）。
-2. 需要请求模型时，由当前状态算出请求（视图），经模型拦截链发给模型。
-3. 回复作为事件写进日志，归约、反应。
-4. 回复里有工具调用时，每个调用经工具拦截链执行，结果作为事件写进日志，归约、反应；送达插话（t07）；回到第 2 步。
-5. 没有工具调用时，回复是最终回复；扩展对它反应，可以追加“接着做”的消息，回到第 2 步；否则运行结束。
+1. 用户输入经输入拦截链，作为事件写进日志；全部扩展归约、再反应（可能追加新的事件）。
+2. **边界**：运行中到达的外部事实、设置变化、插话，在这里按到达顺序写进日志（第 2 节“单写者”）。
+3. 由当前状态算出请求（视图），经模型拦截链；最里层先写 `model_started`，再发给服务商。
+4. 回复作为事件写进日志，归约、反应。失败写 `model_failed`，运行以 `error` 收口。
+5. 回复里有工具调用时，这些调用是一批：写 `tool_started`，按工具声明的并发执行，全部完成后按调用顺序写结果，再对这一批结果派发反应；回到第 2 步。
+6. 没有工具调用时是最终回复：有没送达的插话就回到第 2 步；有扩展显式要求“接着做”就回到第 2 步（连续最多 3 次）；否则写 `run_ended` 结束。
 
-压缩、审批等待、插话、排队、中止都是这个循环上的事件与副作用（下文逐项说明）。
+任何一步出错、被中止，运行都写 `run_ended`（`error`、`aborted`）收口；进程崩溃留下的半截运行，重新打开时由 `recover()` 结算（第 2 节）。
 
 ### 2. 事件与日志
 
-日志只追加（t03），已经写下的条目谁都不能改。日志记的是事实，模型看到什么由投影决定（第 4 节），两件事分开：日志里有的不一定进请求，请求里的也不一定原样来自日志。
+日志只追加（t03），已经写下的条目谁都不能改。日志记的是事实，模型看到什么由投影决定（第 4 节）：日志里有的不一定进请求，请求里的也不一定原样来自日志。
 
-事件分三类。类别只决定缺省投影，Profile 可以改（`<History filter render>`，或替换 `core.history`）：
+**事件分三类**，类别只决定缺省投影，Profile 可以改：
 
 | 类 | 例子 | 缺省投影 |
 |---|---|---|
-| 对话 | 用户消息、助手回复、工具结果、插话、扩展注入的消息（种子、提醒、文件变更通知、检索结果） | 按顺序变成消息 |
-| 控制 | 运行开始与结束、审批与提问的请求和应答、设置变化、工具集变化、压缩 | 不变成消息；压缩让历史把它之前的内容换成摘要 |
-| 扩展 | 扩展的状态变化、外部事实（“第 3 章被改了”“后台任务结束了”）、插件的自定义记录 | 不变成消息；扩展归约它们，再决定要不要经反应或槽带给模型 |
+| 对话 | 用户消息、助手回复、工具结果、插话、扩展注入的消息（种子、提醒、通知、检索结果） | 按顺序变成消息 |
+| 控制 | 运行开始与结束、模型请求开始与失败、工具开始、审批与提问、设置变化、叶子变化、Profile 变化、压缩 | 不变成消息；压缩让历史把它之前的内容换成摘要 |
+| 扩展 | 扩展的状态变化、外部事实（“第 3 章被改了”）、插件的自定义记录 | 不变成消息；扩展归约它们，再决定要不要经反应或槽带给模型 |
 
-什么时候写进日志（由内核写，时间不开放，见第 8 节）：
+**内核事件**是固定的一组，导出为常量 `K`（`K.user`、`K.runStarted`……），每种的 `data` 有类型；扩展写不出内核事件。**扩展事件**由 `defineExtension` 的 `events` 声明，类型自动带上扩展 id 前缀（`nbook.history/fileChanged`），带版本（缺省 1）：扩展改了事件含义就升版本，`reduce` 对旧版本按旧含义处理。内核拒绝扩展写不以自己 id 开头的类型（spike 场景 18）。
+
+**什么时候写进日志**（由内核写，时间不开放）：
 
 | 东西 | 写入时刻 |
 |---|---|
-| 用户输入 | 输入拦截链走完立刻写，本轮第一次请求之前；每轮一次 |
-| 本轮的记录 | 每完成一样写一样：助手回复在流结束时，工具结果在执行完时，插话在送达时 |
-| 持久的动态内容（提醒、通知、检索结果） | 扩展的反应返回时；写下后就是普通事件 |
-| 临时的动态内容（槽） | 从不写；请求记录里只留哈希 |
-| 流式输出的增量 | 从不写；只推给界面 |
+| 用户输入 | 输入拦截链走完立刻写；改写过的原文记在 `original` |
+| 模型请求 | 发出之前写 `model_started`：请求序号与哈希、视图的输入（`now`、`samples`）、修改记录；失败写 `model_failed` |
+| 助手回复 | 流结束时写完整回复 |
+| 工具 | 执行之前写 `tool_started`；完成后写结果，拦截改过参数时记实际执行的 `args`，改过结果时记工具原本的 `raw` |
+| 插话、外部事实、设置变化 | 运行中到达的，在下一个边界写（见下） |
+| 持久的动态内容（提醒、通知、检索结果） | 扩展的反应返回时 |
+| 回退、切分支 | 写 `leaf_changed`（session 作用域），重启后照它恢复当前叶子 |
+| 临时的动态内容（槽） | 从不写；请求哈希与视图输入在 `model_started` 里 |
+| 流式输出的增量 | 从不写；只推给界面（待定项 11） |
 
-- 对话与大部分扩展事件是树上的节点，跟着路径走；标题、归档、模型与推理档这类会话级事件不进树（t03、t09）。
-- 每条由扩展产生的事件带上来源（扩展 id），界面可以标出“这条是某某加的”。
-- 扩展事件的类型带版本（`type` 加 `v`）。扩展改了事件的含义就升版本，`reduce` 对旧版本按旧含义处理；否则旧会话用新代码重新归约，状态会和当时不一样。
-- 模型实际收到与产出的东西必须全部进日志：被改写过的用户输入、回复、工具参数与结果，改后的与原文都记下。扩展能决定自己加的东西写不写，不能阻止真实的模型消息与工具结果写入。
+**单写者**：一个会话的写入只有一个顺序。运行中，`external()`、`changeSettings()`、`steer()` 不直接写，而是排进队列，在下一个边界（下一次模型请求之前）按到达顺序写入，所以不会插进正在算的请求或正在执行的工具批次（spike 场景 33、34）。
+
+**打开与恢复**：`load()` 先校验日志（id 唯一、seq 递增、父节点在前，版本与格式），再照日志归约，不跑反应；当前叶子取最后一个“path 事件或 `leaf_changed`”指向的节点，不取数组末尾。`recover()` 处理崩溃留下的半截运行：开始执行但没有结果的工具调用写成“结果未知”（工具可能执行了也可能没有），发出但没有回复的模型请求写 `model_failed`，最后写 `run_ended`（`interrupted`）；之后的请求合乎协议（spike 场景 24、28）。
 
 ### 3. 状态与归约
 
 为什么用“日志加 reduce”：扩展的状态必须跟着对话路径走（回退到第 3 次发言，提醒计数也回到 3），重启后要恢复，预览与运行要看到同一份。存在内存里，回退与重启都不对；另存状态文件，要给树上每个节点存一份才回得去（那就是又一份日志），日志写成了、状态没写成时两边还会对不上。由日志归约，只有一个真相源，换一片叶子重新归约就对。
 
-状态是一组片，每片归一个所有者：
-
-- **内置的片**：工具集、会话设置（模型、推理档、审批模式、Agent 模式，t09 定为会话级、不跟路径走）、运行状态与待处理事项（t06）由内核维护；历史由内置扩展 `core.history` 维护（第 8 节），Profile 可以替换它。
-- **扩展的片**：每个扩展一片，例如提醒的计数、还没告诉模型的文件改动、记忆检索的结果。
+**片**：一个扩展可以有多片状态，每片一个作用域：`path(initial)` 跟着对话路径走，`session(initial)` 在树外（会话设置、人设、库结构、工作区焦点这类不随回退变的）。工作区焦点这样“值在树外、送达到哪了跟路径走”的，一个扩展两片就够（spike 场景 15）。
 
 ```ts
-interface StateSlice<S> {
-    initial: S;
-    scope?: "path" | "session";                  // 缺省 path：跟着对话路径走；session：和标题一样在树外
-    reduce(state: S, entry: SessionEntry): S;    // 纯函数；只看得到自己这一片与这条事件；不认识的条目原样返回
-    exports?: {[name: string]: (state: S) => unknown};   // 给别的扩展读的只读选择器
-}
+export const fileNotice = defineExtension({
+    id: "nbook.history",
+    state: {pending: path<string[]>([])},
+    events: {fileChanged: ext<{path: string}>(), notice: conv(), delivered: ext()},
+    reduce: {
+        // 每片一个归约函数：自己那片、这条事件、自己的事件守卫、同一作用域的兄弟片；返回 undefined 表示不变
+        pending: (p, e, ev) => (ev.fileChanged.is(e) ? [...p, e.data.path] : ev.delivered.is(e) ? [] : undefined),
+    },
+    exports: {pendingChanges: (m) => m.pending},
+    react(e, ctx) { /* 第 6 节 */ },
+});
 ```
 
-- **`reduce` 只看自己那一片**：各扩展的 `reduce` 互不依赖，谁先谁后结果都一样。要用别人的数据，在反应或视图里读。
-- **默认私有**：扩展的片只有它自己读得到原样。想给别人看的，经 `exports` 导出选择器，例如 `nbook.history` 导出 `pendingChanges`，别的扩展用 `ctx.state.read("nbook.history", "pendingChanges")` 读；选择器的返回类型是这个扩展的公开接口，内部结构可以随便改。内置的片对所有扩展只读可见。
-- **状态不另外存**：总是由日志归约而来。回退与 fork 时归约到当前叶子为止的路径；重启后照日志重建。平时增量归约：每写入一条，在现有状态上再调一次 `reduce`。打开长会话靠压缩点的快照（待定项 3）。
-- **简化写法**：只想“存一个值、跟着路径走”的扩展不必手写 `reduce`：
-
-  ```ts
-  const notes = pathState<{pending: string[]}>({initial: {pending: []}});
-  // setup 里返回 {state: notes.slice}；反应里 await notes.set(ctx, {pending: []}) 写一条扩展事件
-  ```
-
-  内核生成的 `reduce` 取路径上最后一次 `set` 的值；`sessionState()` 同理、写在树外。手写 `reduce` 只用在对别的事件计数或累积时（例如数用户发言，不必每次发言都写一条事件）。
+- **归约只看自己**：归约函数看得到自己那片与同一扩展里同一作用域的兄弟片，看不到别的扩展，也看不到另一个作用域（path 的片若依赖 session 的值，回退时会用到“现在”的值，归约就不确定了）。各扩展的归约互不依赖，谁先谁后结果都一样。
+- **返回 undefined 表示不变**：不必写“不认识的事件原样返回”，也就不会因为漏写而把状态变成 undefined。
+- **简单的值用 `ctx.set(片, 值)`**：生成一条内核认识的设置事件，归约由内核处理，作者不写归约函数。
+- **默认私有，经选择器共享**：别的扩展只能读 `exports` 导出的选择器；插件经声明合并登记它导出了什么，读的一方得到类型，名字拼错是编译错误（spike `typetest.ts`）。同一个 Profile 自带的扩展之间可以读原样（`ctx.own(id)`）。
+- **只读**：状态、选择器的结果都是只读的，类型上是 `Readonly`，开发模式下冻结，原地修改直接失败（spike 场景 30）。所有状态变化都经事件。
+- **状态不另外存**：总是由日志归约而来。每条事件写入时记下它之后的 path 与 session 状态这一对，反应读的就是这一对（批量写入时每条各有自己的一对，spike 场景 27）。回退、fork 时归约到当前叶子为止的路径；重启后照日志重建；换 Profile 或插件清单时照新的扩展从日志从头重新归约（第 8 节）。
 - 扩展在内存里可以有缓存（连接、索引句柄），但缓存不是真相，丢了要能从状态重算。
 
 ### 4. 视图：请求怎样算出来
 
-视图只在要发请求和预览时算，不跟着每条事件算。请求是状态的纯函数，不做 I/O，不写日志：
+“视图”指整个“状态 → 请求”这一步，只在要发请求和预览时算。它由三样东西一起完成：`core.history` 把日志投影成消息并按时间切成三段，扩展的 `contribute` 往有名字的槽里交内容，Profile 的 `prompt` 是模板，决定这些东西摆在哪。布局只能有一个拥有者，否则谁先谁后会影响结果；要改整个请求的，用模型拦截（第 5 节）。
+
+**请求的形状**与服务商无关，内容是块：
 
 ```ts
 interface ModelRequest {
-    model: ModelRef;
+    model: string;
     params: {temperature?: number; topP?: number; maxTokens?: number; stop?: string[]};
-    headers: {[name: string]: string};
-    system: string;
-    messages: Message[];
-    tools: ToolInfo[];
+    headers: Record<string, string>;
+    system: Block[];
+    messages: {role: "user" | "assistant" | "tool"; content: Block[]; toolCalls?: ToolCall[]; callId?: string}[];
+    tools: ToolInfo[];      // spike 里只有名字；产品里带参数 schema 与并发声明（t04，待定项 13）
 }
+interface Block {text: string; origin: string}   // origin：事件 id、`slot:<名字>` 或 `fixed`
 ```
 
-“视图”指整个“状态 → 请求”这一步，由三样东西一起完成：`core.history` 把日志投影成消息并按时间切成三段，扩展的 `contribute` 往有名字的槽里交内容，Profile 的 `prompt` 是模板，决定这些东西摆在哪。布局只能有一个拥有者，否则谁先谁后会影响结果；要改整个请求的，用模型拦截（下一节）。
+块保留来源：模板写的固定文字、扩展交的槽、用户的原话分在不同的块里，相邻的 user 消息不在内核里拼接（服务商要求时由适配器合成一条多块消息），所以缓存比对能按块定位，模型也分得清哪句是用户说的。
 
 **模板的四个节点**，它们取日志的哪一段：
 
@@ -159,9 +167,9 @@ interface ModelRequest {
 | `<Transcript />` | 本轮里除输入之外的对话事件，按日志顺序：持久的提醒、助手回复、工具结果、插话 | 只有持久的提醒 | 越来越长 |
 | `<Slot name>` | 扩展交的内容，每次请求现算 | 当前值 | 当前值；上一次的值不留下 |
 
-本轮结束后，下一轮的 `<History />` 就包含这一轮的输入与记录，顺序和这一轮里相同。
+本轮结束时，这一轮的输入与记录并进历史，下一轮的 `<History />` 里它们的顺序与样子和这一轮相同。
 
-**Profile 的 `prompt`** 签名是 `(input: {state, settings, tools, model}) => TSX`，可选。不写时用缺省布局：
+**Profile 的 `prompt`** 签名是 `(input) => TSX`，可选。参数里有 `state`（`own(id)` 读自己扩展的原样、`read(id, 选择器)` 读别人的）、`settings`、`tools`、`model`（能力，t05）、`now`。不写时用缺省布局：
 
 ```tsx
 <System>{声明里的 system}<Slot name="*" stable /></System>
@@ -169,317 +177,323 @@ interface ModelRequest {
 <Slot name="*" volatile />
 ```
 
-写的话：
+- 只写了 `<History />` 时，`<Input />` 接在它后面、`<Transcript />` 接在 `<Input />`（或包含它的固定消息）后面。
+- 单轮模板式的 Profile 可以不放 `<History />`，把 `<Input />` 放进一条固定消息里；输入带的结构化数据（`payload`，例如选区）从 `read("core.history", "input")` 读（spike 场景 5）。
+- **文字的拼法**：容器 `<System>`、`<User>`、`<Assistant>` 里每个子节点是一段，段与段空一行；行内 `<P>`、`<Tag>` 里的文字与表达式直接相连（spike 场景 20）。
+- **渲染写在 Profile 上**：`render: {事件类型: (e) => 文字 | null}`，对 `<History>`、`<Input>`、`<Transcript>` 一律生效，覆盖扩展给的缺省渲染。节点上只接受 `filter`；写在节点上的 `render` 是模板错误（同一条事件从本轮挪进历史时会变样，缓存失效，spike 场景 22）。
 
-- 读状态：内置的片、自己扩展的片、别的扩展导出的选择器；例如“有大纲时才放大纲那段”。
-- 按模型能力写条件：`model.capabilities.vision` 等（t05 的模型能力声明）。
-- 摆位置：系统提示词由哪几段组成，槽放在哪，历史、输入、本轮记录放在哪，前后有没有固定的消息（例如示例对话）。只写了 `<History />` 时，`<Input />` 接在它后面、`<Transcript />` 接在 `<Input />` 后面。单轮模板式的 Profile 可以不放 `<History />`，把 `<Input />` 放进一条固定的消息里（例如“请改写下面这段：`<Slot name="selection" />` 要求：`<Input />`”）。
-- 控制每条怎么渲染：`<History render filter>`（`<Input>`、`<Transcript>` 同样接受 `render`）。`render` 是“事件类型 → 渲染函数”的表，只改模型看到的样子，不改日志；例如用户消息套 `<user_request>`、注入的消息包成 `<system-reminder>`、太旧的工具结果只留首行。同一条事件每次渲染的结果必须相同。
-- 模型与参数的缺省值从会话设置与 Profile 设置取。
-
-**扩展的 `contribute`** 返回“槽名 → 内容”，例如 `{"word-count": "本章当前字数：2,100"}`。扩展声明自己交哪些槽、每个槽是稳定的还是会变的：
+**扩展的 `contribute`** 声明槽与内容写在一起：
 
 ```ts
-slots: {"word-count": {volatile: true}, "sql-schema": {}}
+contribute: {
+    "word-count": {volatile: true, value: (mine, view) => `本章当前字数：${mine.words}`},
+    "sql-schema": {value: (mine) => `<sql_schema>${mine.schema}</sql_schema>`},   // 没写 volatile 是稳定的
+}
 ```
 
-- 声明决定 `<Slot name="*" stable />` 与 `<Slot name="*" volatile />` 收哪些槽；Profile 也可以按名字单独摆一个槽。
-- 同一个槽有几个扩展交内容时，按扩展顺序拼接。
-- **Profile 没摆这个槽**（既没有同名的，也没有收它的 `*`）：内容丢弃并写诊断“Profile 没留这个槽”，预览里看得到。
-- **扩展的事件渲染**：扩展可以给自己的对话事件类型提供缺省渲染（`render`），例如检索结果在日志里存结构化数据，渲染成 `<memory>…</memory>`；Profile 的 `render` 可以覆盖。
+- `<Slot name="*" stable />`、`<Slot name="*" volatile />` 按声明收没有按名字摆的槽；`*` 不写档位是模板错误。
+- 同一个槽有几个扩展交内容时按扩展顺序拼接；它们对稳定还是会变说法不一致时写诊断。
+- Profile 没摆某个槽：内容丢弃并写诊断；会变的槽被放进系统提示词：写诊断“整段缓存失效”（spike 场景 13）。
 
-**缓存靠检查，不靠结构**：服务商的提示词缓存按前缀命中。预览与运行时比对同一会话里相邻两次请求，找出第一处不同的位置，换算成不能命中缓存的 token 数，超过阈值给出诊断并指出是模板里哪个节点变了。几种常见情形：
+**每次请求现取的数据**（剩余额度、阅读位置、选区、当前时间）：
+
+- 扩展声明 `sample: {名字: async (ctx) => 值}`，内核在每次算视图前并发调用一次，值记进 `model_started`，`contribute` 从 `view.sample` 读；`sample` 可以 I/O，不能有副作用。
+- 当前时间由内核取，`view.now`，同样记进 `model_started`。
+- 预览过去的请求（包括重启之后）用记下的值，不再去取（spike 场景 12、36）。
+- 数据要跟着对话路径走、要能回退的（例如本章字数在某次编辑之后是多少），仍在反应里读、写成事件。
+
+**扩展的事件渲染**：扩展给自己的对话事件提供缺省渲染（`render`），例如检索结果在日志里存结构化数据，渲染成 `<memory>…</memory>`；没有渲染的扩展对话事件缺省包成 `<system-reminder>`。
+
+**缓存靠检查，不靠结构**：服务商的提示词缓存按前缀命中。每次请求与同一条路径上最近的那次请求比（回退到别的分支后，另一分支的请求不算），比对的序列从模型、参数、header、工具集开始，再到每个块；找出第一处不同，换算成要重算的 token，超过阈值写诊断并指出是哪个来源变了。
 
 | 写法 | 同一轮里 | 下一轮 |
 |---|---|---|
-| 会变的槽放在最末尾（缺省布局） | 只丢最末尾一小段 | 只丢最末尾一小段 |
+| 会变的槽放在最末尾（缺省布局） | 只丢最末尾的槽 | 只丢最末尾的槽 |
 | 会变的内容由反应写成事件（持久的提醒） | 全部命中 | 全部命中 |
 | 会变的槽放在 `<Input />` 前面 | 从槽开始往后全部失效，本轮的工具记录每次重算 | 上一轮整段失效一次 |
 | 会变的槽放在系统提示词里 | 全部失效 | 全部失效 |
 
-模板写成什么样由 Profile 决定，内核不禁止；单轮任务没有下一轮，把动态内容紧挨着输入放是合理的。
+spike 里三轮对话：缺省布局有工具、没工具的轮次重算都是 0；槽放在输入前重算约 4,300 token 并给出诊断（场景 4）。模板写成什么样由 Profile 决定，内核不禁止；单轮任务没有下一轮，把动态内容紧挨着输入放是合理的。token 数是估算，产品里用服务商的分词或明确标为近似。
 
 ### 5. 副作用与拦截
 
 有副作用的步骤只有这几样：接受用户输入、调用模型、执行工具、压缩。每样都可以被拦截，形状是包裹式的：
 
 ```ts
-interface Interceptors {
-    input?(input: UserInput, next: (input: UserInput) => Promise<void>, ctx: ExtensionContext): Promise<void>;
-    model?(request: ModelRequest, next: (request: ModelRequest) => Promise<ModelResponse>, ctx: ExtensionContext): Promise<ModelResponse>;
-    tool?(call: ToolCall, next: (call: ToolCall) => Promise<ToolResult>, ctx: ExtensionContext): Promise<ToolResult>;
-    compaction?(job: CompactionJob, next: (job: CompactionJob) => Promise<CompactionResult>, ctx: ExtensionContext): Promise<CompactionResult>;
+interface Interceptors<Ctx> {
+    input?(input: UserInput, next: (i: UserInput) => Promise<void>, ctx: Ctx): Promise<void | {reject: string}>;
+    model?(request: ModelRequest, next: (r: ModelRequest) => Promise<ModelResponse>, ctx: Ctx): Promise<ModelResponse>;
+    tool?(call: ToolCall, next: (c: ToolCall) => Promise<ToolResult>, ctx: Ctx): Promise<ToolResult>;
+    compaction?(job: CompactionJob, next: (j: CompactionJob) => Promise<CompactionResult>, ctx: Ctx): Promise<CompactionResult>;
 }
+interface UserInput {text: string; payload?: unknown; attachments?: Attachment[]}
 ```
 
-- **改**：调 `next` 之前改输入，之后改输出。请求里的模型、参数、header、系统提示词、消息都可以改（开发者 2026-10-28：请求阶段想怎么改都行）。改的是上面这个与服务商无关的请求对象；按各家格式转换后的原始请求体不开放（主动接口的收窄）。
-- **拦**：不调 `next`。输入被拦下时给出理由；工具被拦下时返回一个错误结果；模型调用被拦下时可以直接给出一条回复（例如命中缓存）。
-- **重试、换做法**：调两次 `next`，或换个参数（例如换模型）再调。每一次真实的模型调用与工具执行都进日志，重试看得见。
-- **审批**（t06）在工具拦截链的最里层、执行之前判定；扩展的放行只能免掉审批模式本来要弹的询问，盖不过用户配置的拒绝、工具按参数声明的拒绝与只读模式。
-- **顺序**：一层套一层，外层是插件（按依赖拓扑序，再按 id），最里层是 Profile（待定项 2）。改请求时 Profile 最后动手、最后拍板；改回复时 Profile 最先拿到原始回复，插件在外层再加工。
-- **最里层**：模型拦截链的最里层是 `nbook.models` 的适配器：解析模型、从凭据库取密钥（t09），调 `streamSimple`；工具名的 `.` 换成 `__`（t04）在这里做。
-- **查得到是谁改的**：每次模型调用记下哪些扩展改了请求的哪几项（模型、参数、header、系统提示词、消息）与改后请求的哈希；可选的请求录制把真正发出的请求整个存下（待定项 5），供排查。
-- **流式输出**：界面先显示原始的流；回复被拦截链改写后，用最终文字替换。
-- **预览也跑模型拦截链**：最里层的 `next` 不发请求，只把请求截下来交给预览，所以预览看到的是最终请求。拦截前要做 I/O 的扩展用 `preview: "skip"` 跳过。
+- **改**：调 `next` 之前改输入，之后改输出；请求里的模型、参数、header、系统提示词、消息都可以改。改的是上面这个与服务商无关的请求对象，按各家格式转换后的原始请求体不开放（主动接口的收窄）。请求对象是只读的，改要返回新对象，原地修改绕不过修改记录。
+- **拦**：不调 `next`。输入拦截返回 `{reject: 理由}`，本轮以 `input-rejected` 结束并记下理由；工具被拦下时返回一个错误结果；模型调用被拦下时可以直接给出一条回复。
+- **重试、换做法**：调两次 `next`，或换个参数再调；每一次真实的模型调用与工具执行都进日志。
+- **审批**（t06）在工具拦截链的最里层、执行之前判定；扩展的放行只能免掉审批模式本来要弹的询问，盖不过用户配置的拒绝、工具按参数声明的拒绝与只读模式（spike 场景 8）。
+- **顺序**：一层套一层，外层是插件（按依赖拓扑序，再按 id），最里层是 Profile（待定项 2）。
+- **各入口读到的是哪一刻的状态**：
+
+  | 入口 | 状态 |
+  |---|---|
+  | `reduce` | 这条事件之前的自己那片 |
+  | `react` | 这条事件写入之后（path 与 session 这一对） |
+  | `sample`、`contribute`、`prompt`、模型拦截 | 这次请求所在的叶子；预览时就是被预览的叶子 |
+  | 工具拦截 | 发出这批调用的助手回复所在的叶子；同一批调用看到的世界相同 |
+  | 输入拦截 | 运行开始时的叶子 |
+
+- **工具批次与并发**：一个助手回复里的工具调用是一批。工具声明并发（t04）：`shared` 的并行，`exclusive` 的等前面都完成再单独跑；结果按调用顺序写入，反应在整批结果写入之后对每条结果派发（spike 场景 25：3 个读并行、1 个写独占，约 124 ms，串行约 190 ms）。
+- **失败**：扩展的反应、`sample`、拦截有时限（缺省 30 秒，可设 `timeoutMs`）。反应与 `sample` 出错或超时：这次结果丢弃，写带扩展 id 的诊断，运行继续；工具拦截出错缺省拒绝这次调用（`onFailure.tool: "ignore"` 改为跳过这一层）（spike 场景 19）。
+- **中止**：`ctx.signal` 贯穿反应、`sample`、拦截、模型调用与工具。中止后模型请求写 `model_failed`，没完成的工具调用写“已中止，结果未知”，运行以 `aborted` 收口；之后迟到的结果不写日志（spike 场景 35）。t07 定的宽限期由内核计时。
+- **模型适配器**：模型拦截链的最里层是 `nbook.models` 的适配器。它把 `ModelRequest` 转成 OMP 的 `Context` 与 `SimpleStreamOptions`（`signal`、`maxTokens`、`temperature`、`headers`、推理档），调 `streamSimple(model, context, options)`，消费它返回的事件流：文字、思考、工具调用的增量推给界面；`done` 得到完整的助手消息与用量，作为 `ModelResponse` 交回拦截链；`error` 与中止交回失败（带已产生的部分内容）。工具名的 `.` 换成 `__`（t04）在这里做。OMP 内部的重试算同一次逻辑请求，适配器把每次尝试记进诊断（待定项 12）。
+- **修改记录**：每次模型调用的 `model_started` 记下哪些扩展改了请求的哪几项与最终请求的哈希；可选的请求录制把真正发出的请求整个另存（待定项 5）。
+- **预览也跑模型拦截链**：最里层不发请求，只把请求截下来，所以预览看到的是最终请求；拦截前要做 I/O 的扩展用 `preview: "skip"` 跳过（spike 场景 11）。
+- **压缩**（t11）：经压缩拦截链，最里层是压缩方法（就地、摘要模型、shake）。结果是一条压缩事件 `{method, summary, firstKept, tokensBefore, tokensAfter}`；`core.history` 把 `firstKept` 之前的换成摘要、之后的原样保留，种子由 Profile 对压缩事件的反应重写（spike 场景 29）。运行中触发的压缩在边界上做。
 
 ### 6. 反应：在事件之后追加新的事件
 
 ```ts
-react?(entry: SessionEntry, ctx: ExtensionContext): Promise<EventInput[] | void>;
+react?(e: Entry, ctx): Reaction | Promise<Reaction>;
+type Reaction = EventOut[] | {events?: EventOut[]; continue?: boolean} | void;
 ```
 
-- 反应可以做 I/O（读文件、检索记忆、调一次不进会话的模型），返回要追加的事件；这些事件写进日志，再被归约与反应。
+- 反应可以做 I/O（读文件、检索记忆、调一次不进会话的模型），返回要追加的事件：自己的事件用 `ctx.ev.<名字>(data)` 生成，普通的注入消息用 `ctx.message(text)`，改自己的一片用 `ctx.set(片, 值)`。
 - 要影响重放的外部输入都经反应变成事件：检索结果写进日志之后，重放与预览不用再去检索。
-- **同一条事件的反应看同一份状态**：一条事件写入后，先由全部扩展归约，再把归约后的状态快照交给全部扩展的反应，它们可以并发执行。追加的事件按扩展顺序写入（插件按依赖拓扑序、Profile 最后），一个扩展看不到另一个扩展这一轮刚追加的事件，要等那条事件自己归约、反应时才看到。不这样定，结果就看谁先跑完。
+- **同一条事件的反应看同一份状态**，可以并发执行；全部完成后，追加的事件按扩展顺序写入。一个扩展看不到另一个扩展这一轮刚追加的事件，要等那条事件自己归约、反应时才看到（spike 场景 3：检索耗时随机，8 次写入顺序都一样）。
 - **反应全部完成后，才算下一次请求。**
-- 用途：会话创建时写种子；用户发言后追加提醒或文件变更通知；最终回复后追加“接着做”的消息；工具结果之后追加说明。
-- 防循环：同一条事件引出的反应链有深度上限，最终回复之后的“接着做”连续最多 3 次（待定项 4）。
+- **“接着做”要显式写**：对最终回复的反应返回 `{events, continue: true}` 才会再请求一次；只写了事件、没写 `continue` 的（例如回复后补一张角色卡），下一次用户发言时才被看到，不会多调模型（spike 场景 17）。连续最多 3 次，每次写诊断“某某要求接着做（第 n/3 次）”。
+- **深度上限**：根事件是第 0 层，反应写的是第 1 层，最多写到第 3 层；第 3 层的反应还要写事件时不写，留一条 `reaction_limit` 控制事件（spike 场景 26）。
+- 用途：会话创建时写种子；用户发言后追加提醒或文件变更通知；最终回复后追加“接着做”；工具结果之后追加说明。
 
 ### 7. 一次运行的数据流
 
 以用户在对话框里说“你好”为例，从点“发送”到收到回复（数据形状是示意）：
 
 1. **浏览器**：Composer 先显示一条“发送中”的用户消息，经远程服务（ADR 0024，WebSocket 上的 RPC，t10）发出 `agent.send({sessionId, text: "你好", clientId})`。
-2. **运行控制**（t07）：会话还没加载时，读日志、沿当前叶子归约出状态、对每个扩展调用 `setup`；空闲就开始一次运行，写 `run_started`；正在运行就按插话或排队处理。
-3. **输入**：经输入拦截链，写入对话事件 `{id: "e2", parent: "e1", message: {role: "user", content: "你好"}, clientId}`；全部扩展归约、反应；e2 推给订阅的窗口，界面按 `clientId` 把“发送中”换成正式消息。
-4. **视图**：Profile 的 `prompt` 定布局、各扩展的 `contribute` 交片段，算出 `ModelRequest`：模型按“会话里选的 → Profile 设置 → 全局缺省”取（t09），系统提示词、`[user: 你好]`、工具清单。
-5. **模型拦截链**：从外到里，日志记下修改记录；最里层的适配器取密钥，调 `streamSimple(model, {systemPrompt, messages, tools}, {apiKey, signal, maxTokens, temperature, headers, reasoning})`；`pi-ai` 按服务商协议转换（DeepSeek 走 OpenAI 兼容的 `/chat/completions`，`stream: true`）并发出 HTTP 请求。
-6. **流式回复**：服务商回 SSE，`pi-ai` 解析成文字、思考、工具调用的增量，最后给出完整的助手消息与用量。服务端把增量推给窗口，同一条消息每 100 毫秒最多推一次（t10）；增量不写日志。
-7. **写回**：完整回复由内往外穿过拦截链，写成 e3（带模型、推理档与用量）；归约、反应。有工具调用就逐个走工具拦截链，结果写日志后回到第 4 步。
-8. **结束**：没有工具调用、也没有扩展追加“接着做”，写 `run_ended`，推给窗口；界面用日志里的正式版本替换流式显示的文字。第二句话的请求是 `[system][user 你好][assistant …][user 下一句]`，前缀与第一次相同，服务商的缓存命中。
+2. **运行控制**（t07）：会话还没加载时，读日志、校验、沿当前叶子归约出状态；空闲就开始一次运行，写 `run_started`；正在运行就按插话或排队处理。
+3. **输入**：经输入拦截链，写入 `{type: "user", data: {text: "你好"}}`；全部扩展归约、反应；推给订阅的窗口，界面按 `clientId` 把“发送中”换成正式消息。
+4. **边界**：排队的外部事实、设置变化、插话写入。
+5. **视图**：并发取 `sample`；`core.history` 投影；各扩展 `contribute`；Profile 的模板摆好位置，得到 `ModelRequest`。
+6. **模型拦截链**：从外到里；最里层写 `model_started`（哈希、`now`、`samples`、修改记录），适配器取密钥、调 `streamSimple`；`pi-ai` 按服务商协议转换并发出 HTTP 请求。
+7. **流式回复**：适配器消费事件流，增量推给窗口，同一条消息每 100 毫秒最多推一次（t10）；`done` 得到完整回复。
+8. **写回**：完整回复由内往外穿过拦截链，写成 `assistant`（带模型、用量）；归约、反应。有工具调用就按批执行，结果写日志后回到第 4 步。
+9. **结束**：没有工具调用、没有插话、没有扩展要求接着做，写 `run_ended`，推给窗口；界面用日志里的正式版本替换流式显示的文字。第二句话的请求前缀与第一次相同，服务商的缓存命中。
 
 ### 8. 扩展的形状与生命周期
 
 ```ts
-interface AgentExtension {
-    id: string;
-    tags?: string[];                         // 例如 ["memory"]；Profile 按标签排除
-    replaces?: "core.history" | "core.compaction" | "core.title";   // 只有 Profile 自带的扩展能写
-    setup(ctx: ExtensionContext): {           // 每打开一个会话调用一次
-        state?: StateSlice<unknown>;
-        react?: (entry: SessionEntry, ctx: ExtensionContext) => Promise<EventInput[] | void>;
-        slots?: {[name: string]: {volatile?: boolean}};                     // 交哪些槽、会不会变
-        contribute?: (mine: unknown, input: ViewInput) => {[slot: string]: string | ContentBlock[]};
-        render?: {[entryType: string]: (entry: SessionEntry) => Message[] | null};   // 自己的对话事件的缺省渲染
-        intercept?: Interceptors;
-        dispose?(): void | Promise<void>;
-    };
-    timeoutMs?: number;                       // 缺省 30 秒
-    onFailure?: {tool?: "deny" | "ignore"};   // 工具拦截出错缺省按拒绝，其余缺省忽略并写诊断
-    preview?: "run" | "skip";                 // 预览时反应与拦截是否执行
-}
+export const x = defineExtension({
+    id: "nbook.history",                 // 稳定的点分名字；装配时检查重复（与来源一起报错）
+    tags: ["history"],                   // Profile 按标签排除
+    state: {pending: path<string[]>([]), seen: session(0)},
+    events: {fileChanged: ext<{path: string}>(), notice: conv()},
+    reduce: {pending: (p, e, ev, siblings) => /* 新值或 undefined */ undefined},
+    exports: {pendingChanges: (m) => m.pending},
+    react(e, ctx) { /* 返回事件，或 {events, continue} */ },
+    sample: {/* 每次请求前现取 */},
+    contribute: {/* 槽名: {volatile?, value} */},
+    render: {notice: (e) => e.data.text},
+    intercept: {/* input、model、tool、compaction */},
+    timeoutMs: 30_000,
+    onFailure: {tool: "deny"},
+    preview: "run",
+});
 ```
 
-`state`、`react`、`contribute`、`render`、`intercept` 都是可选的，扩展用到哪个写哪个。
+除了 `id`，其余都可选，扩展用到哪个写哪个。类型从定义里推断：`ctx.mine` 是自己各片的值，`e.data` 在 `is(e, K.user)`、`ctx.ev.notice.is(e)` 之后收窄，`ctx.read` 的选择器名与返回类型来自声明合并（spike `typetest.ts` 里七种写错的地方都是编译错误）。
+
+`ctx` 给：自己的片（`mine`）、自己的事件（`ev`）、`set`、`message`、`read`（别人导出的选择器）、`own`（同一 Profile 的兄弟扩展）、`settings`、`tools`、`preview`、`signal`、`file(uri)`（读资源，t08）；主动接口 `complete`（不进会话的模型调用，经 `nbook.models`）、`invokeTool`（走审批）、`ask`（t06）、`compact` 待实现时定（待定项 8）。不给：改工具绑定（t04 归用户）、改会话设置（t09 归用户；按请求换模型经模型拦截做）、定时器与界面（插件自己的入口与贡献点能做）。
 
 生命周期：
 
 ```text
-扩展：插件激活 → 声明登记 → [每个会话] setup 挂上 → dispose 摘下 → 插件停用
-会话：创建（一次）→ 打开（每次加载进内存，含重启后）⇄ 空闲 / 运行中 / 等用户 → 关闭
-运行：受理 → 输入 → 循环[请求 → 回复 → 工具 × N] → 准备结束 → 结束；循环中随时可能压缩；中止或出错时收口
-一条事件：写进日志 → 全部扩展归约 → 全部扩展反应（追加的事件各自再走一遍）
+扩展：插件激活 → 声明登记 → [每个会话] 装配（检查 id 重复与 replaces 权限）→ 换 Profile 或插件停用时摘下
+会话：创建（一次，session_created 带 initial）→ 打开（每次加载进内存，含重启后：校验、归约、recover）⇄ 空闲 / 运行中 / 等用户 → 关闭
+运行：受理 → 输入 → 循环[边界 → 请求 → 回复 → 工具批次] → 准备结束 → 结束；出错、中止都收口
+一条事件：写进日志 → 全部扩展归约 → 全部扩展反应（追加的事件各自再走一遍，最多 3 层）
 ```
 
-“会话已创建”“会话已打开”“运行开始”“最终回复”“运行结束”都是日志里的事件或运行时发出的事件，扩展经反应或订阅处理它们，不另设钩子点。
+“会话已创建”“会话已打开”“运行开始”“最终回复”“压缩完成”“运行结束”都是事件，扩展在 `react` 里按类型处理，不另设钩子点。“会话已打开”不进日志，只交给反应。
 
-`ExtensionContext` 给每个会话一份：会话身份、`preview` 标志、中止信号；读：内置的片、自己的片、别的扩展导出的选择器（`ctx.state.read(扩展 id, 选择器名)`）、工具、当前模型、上下文用量、`read(uri)`（t08）；主动：`complete`（不进会话的模型调用，经 `nbook.models`）、`invokeTool`（走审批）、`ask`（t06）、`send`（插话或排队，t07）、`emit`（追加扩展事件）、`compact`、`abort`、`setTitle`、诊断。不给：改工具绑定（t04 归用户）、改会话设置（t09 归用户；按请求换模型经模型拦截做，不改设置）、定时器与界面（插件自己的入口与贡献点能做）。
+**换 Profile 或插件清单**（t04 方案 D）：运行收口后，内核换上新的扩展，照日志从头重新归约（新扩展的片也从日志得到，例如中途加一个数发言的扩展，它立刻知道已经发言几次），写 `profile_changed`（新的清单与内容哈希）并派发。旧扩展写的事件留在日志里，没有扩展认它们就不起作用；改了含义的事件靠版本区分（spike 场景 31）。
 
-插件经 `agent.extensions` 贡献点登记（取代 t10 的 `agent.hooks`），按需激活；Profile 写在 `defineProfile` 里。Profile 用 `globalExtensions: {exclude: [标签]}` 或 `"none"` 排除全局扩展，用户在 Profile 设置里还能单独开关（t20 已定）。
+插件经 `agent.extensions` 贡献点登记（取代 t10 的 `agent.hooks`），按需激活。Profile 用 `globalExtensions: {exclude: [标签]}` 或 `"none"` 排除全局扩展，用户在 Profile 设置里还能单独开关（t20 已定）；单轮模板式的 Profile 应写 `"none"`，否则别的插件的持久消息会进它的请求（spike 场景 5）。
 
-**内核与内置扩展。** 缺省行为尽量做成和插件同一个形状的内置扩展；内核只留下必须固定的部分：
+**内核与内置扩展**：缺省行为尽量做成和插件同一个形状的内置扩展；内核只留下必须固定的部分。
 
 | 内核（不可替换） | 为什么固定 |
 |---|---|
-| 把事实写进日志：用户输入、助手回复、工具结果、插话、审批与提问、控制事件 | 崩溃恢复（t07 的收口）、界面显示、回退与审查都要求事实在发生时就落盘 |
-| 循环、运行控制（t07）、事件派发顺序、拦截链的机制 | 这是所有扩展共同依赖的时序 |
+| 把事实写进日志，单写者与边界 | 崩溃恢复（t07 的收口）、界面显示、回退与审查都要求事实在发生时、按确定的顺序落盘 |
+| 循环、运行控制（t07）、事件派发顺序、拦截链的机制、工具批次与并发 | 这是所有扩展共同依赖的时序 |
 | 审批在工具链最里层，只读模式 | 用户的安全决定，Profile 与插件都不能绕过（t06） |
-| 校验最终请求：工具调用与结果成对、角色顺序合法、工具名合乎服务商规则 | 投影可以被替换，校验兜底；不合法时预览与运行都报错并指出是哪一条 |
-| 上限：反应链深度、“接着做”的连续次数 | 防循环 |
+| 校验最终请求：工具调用与结果成对、角色顺序、工具名合乎服务商规则 | 投影可以被替换，校验兜底；不合法时预览与运行都报错并指出是哪一条（spike 场景 7） |
+| 上限：反应链深度、“接着做”的连续次数、时限 | 防循环、防卡死 |
 
 | 内置扩展（可替换） | 做什么 |
 |---|---|
-| `core.history` | 历史投影：把对话事件变成消息，切成本轮之前、本轮输入、本轮记录三段，处理压缩点；给用户、助手、工具事件提供缺省渲染 |
+| `core.history` | 历史投影：切成本轮之前、本轮输入、本轮记录三段，处理压缩；状态用持久链表（追加 O(1)），给用户、助手、工具事件缺省渲染 |
 | `core.compaction` | 压缩的触发（对用量的反应）与方法（t11） |
 | `core.title` | 用小模型生成会话标题 |
 
-只有 Profile 自带的扩展能用 `replaces` 替换内置扩展；插件只能新增。否则两个插件都去换历史，结果看谁先加载。多数 Profile 用 `render`、`filter` 就够，确实需要时（例如只看最近 3 轮）再替换 `core.history`。
+只有 Profile 自带的扩展能用 `replaces` 替换内置扩展；插件写 `replaces` 在装配时被拒绝（spike 场景 9）。多数 Profile 用 `render`、`filter` 就够，确实需要时（例如只看最近 2 轮）再替换 `core.history`（spike 场景 6）。
 
 ### 9. Profile 在其中
 
-Profile 是一个扩展，加上一组声明，排在最后：
+```ts
+export const writer = defineProfile({
+    id: "writer",
+    system: "你是本书的写手，只改正文目录。",       // 不写 prompt 时进缺省布局
+    tools: {required: ["read", "edit"], optional: ["grep"]},   // 只声明（t04）
+    globalExtensions: {exclude: []},
+    render: {/* 事件类型: 渲染 */},
+    prompt: undefined,                          // 可选，见第 4 节
+    extensions: [seed({...}), writerCore],      // 自带的扩展，排在全局扩展之后，拦截链里在最里层
+});
+```
 
-- **声明**：身份、`initialSchema`、要哪些工具（必需、可选，t04）、需要的模型能力（t05）、压缩要求（t11）。
-- **`prompt`**：模板，可选，见第 4 节；TSX 只写组装（`<System>`、`<Slot>`、`<History>`、`<Input>`、`<Transcript>`、`<History as="text">`、固定消息、`<ToolName>`、`<If tool>`），条件与数据从参数里的状态取。
-- **`extensions`**：Profile 自带的扩展列表，每一项的写法与插件的扩展相同（有自己的 id 与状态片），排在全局扩展之后、按列出的顺序，拦截链里在最里层（待定项 2）。辅助函数 `seed()`、`reminder()`、`sessionState()` 都返回一个扩展，直接放进列表（待定项 10）。
+- **声明**：身份、`initialSchema`、要哪些工具（必需、可选，t04）、需要的模型能力（t05）、压缩要求（t11）、设置。
+- **`prompt`**：模板，可选；TSX 只写组装（`<System>`、`<User>`、`<Assistant>`、`<P>`、`<Tag>`、`<If tool>`、`<Slot>`、`<History>`、`<Input>`、`<Transcript>`），条件与数据从参数里的状态取。
+- **`render`**：事件给模型看的样子，Profile 级，对历史、本轮输入、本轮记录一律生效。
+- **`extensions`**：Profile 自带的扩展列表，每一项与插件的扩展同一个形状；辅助函数 `seed()`、`reminder()`、`historyExtension()` 各返回一个扩展。
 
 旧节点的去处：
 
 | 旧节点 | 新设计 |
 |---|---|
-| `System`、`<Slot>`、`History` 布局、`History as="text"`、固定消息 | `prompt` 里，不变 |
-| 种子（`History` 的子节点） | 对“会话已创建”与“压缩完成”的反应，辅助函数 `seed()` |
-| `Appending` | 不需要：用户消息由内核写入；输入前后的持久消息是对用户消息的反应，出现在 `<Transcript>` 里 |
-| `Input` | `<Input />`，含义改为“本轮的用户输入”，见第 4 节 |
-| `Reminder` | 辅助函数 `reminder({every, when, once, watch, mode})`：状态加反应（写进历史）或状态加视图（只接在这一次请求末尾） |
-| 有状态的节点 | 扩展的状态片，或 `pathState()` |
-| 按请求刷新的数据源 | 槽：稳定的放系统提示词里，会变的放最末尾；要重放的经反应写进日志 |
+| `System`、`<Slot>`、`History` 布局、`History as="text"`、固定消息 | `prompt` 里 |
+| 种子（`HistorySet`） | `seed({on: [K.sessionCreated, K.compaction], messages})`；`messages` 拿到触发它的事件，会话创建时能读调用方给的 `initial`（旧版写手的 `inputContext`） |
+| `Appending` | 不需要：输入前后的持久消息是对用户消息的反应，出现在 `<Transcript>` 里 |
+| `Input` | `<Input />`，含义是“本轮的用户输入”；结构化数据随 `payload` 来 |
+| `Reminder`（when、every、watch） | `reminder({every, watch, render})`；覆盖措辞用它返回的 `ev.reminder.type` |
+| `ModelContext`（不落盘、插在本轮之前） | 稳定的放系统提示词里的槽；每次请求现取的用 `sample` 加会变的槽放末尾 |
+| 有状态的节点 | 扩展的片 |
 
 ### 10. 例子
 
-**用户说“你好”，系统提示词是静态的。** 见第 7 节。
+**每 5 次用户发言提醒一次文风。** `reminder({id, every: 5, render})`；计数与上次提醒的位置由日志归约，回退到第 3 次发言时计数自然回到 3。
 
-**每 5 次用户发言提醒一次文风。** 状态 `{turns, lastAt}`；`reduce` 在用户消息上 `turns + 1`、在自己的提醒事件上 `lastAt = turns`；反应：用户消息之后 `turns - lastAt >= 5` 就追加一条提醒。回退到第 3 次发言时，状态归约到那里，计数自然回到 3。
+**文件变更感知（t13）。** 见第 3 节的 `nbook.history`：外部事实写成扩展事件，下一次用户发言之后送达，写“已送达”；回退到用户发言之前，“已送达”不在路径上，未送达的改动自动恢复（spike 场景 2）。
 
-**文件变更感知（t13）。** `nbook.history` 把“第 3 章被用户改了”作为扩展事件写进日志；状态记还没送达的改动；反应：下一次用户发言之后追加一条通知消息，并写“已送达”事件，状态清空。回退到用户发言之前，“已送达”不在路径上，未送达的改动自动恢复。
+**记忆检索。** 对用户消息反应：检索，结果作为结构化的对话事件写进日志，经自己的 `render` 渲染成 `<memory>` 块；Profile 排除 `memory` 标签时没有这一步。
 
-**记忆检索。** 对用户消息反应：检索，把结果作为结构化的对话事件写进日志，经自己的 `render` 渲染成 `<memory>` 块。重放与预览不用再检索；Profile 排除 `memory` 标签时没有这一步。
+**字数不够就接着写。** 写手的扩展在用户发言后与 `edit` 的结果之后重新读字数（`ctx.set`）；对最终回复反应，不到 3000 字就返回 `{events: [请接着写完], continue: true}`（spike 场景 1）。
 
-**字数不够就接着写。** 对最终回复反应：读正文，不到 3000 字就追加“请接着写完”，循环继续，连续最多 3 次。
+**剩余额度。** `sample: {balance}` 每次请求前向服务取一次，`contribute` 交到会变的槽，缺省放在请求末尾；预览过去的请求用记下的值。
 
-**本章当前字数（会变的状态）。** 写手的扩展声明会变的槽 `word-count`，`contribute` 返回“本章当前字数：2,100”；缺省布局把它放在请求最末尾，只对这一次请求有效，不进日志，只影响最后一小段的缓存。字数本身在反应里读、写成扩展事件（待定项 9）。
+**写手只能改正文目录。** 工具拦截：`edit` 的路径不在 `project://正文/` 下就不调 `next`，返回错误结果。
 
-**写手只能改正文目录。** 工具拦截：`edit` 的路径不在 `project://正文/` 下就不调 `next`，返回错误结果“写手只改正文目录”。
-
-**路由插件按问题难易换模型。** 模型拦截：看请求里最后一条用户消息，简单的换成便宜的模型再调 `next`；日志记下“请求的模型被某某改了”。
+**路由插件按问题难易换模型。** 模型拦截：从 `ctx.read("core.history", "input")` 读本轮输入，简单的换成便宜的模型再调 `next`；修改记录写明“model 被 demo.router 改了”（spike 场景 10）。
 
 **审批。** 工具拦截链的最里层判定；要询问时写审批请求事件，运行进入等用户；应答事件写入后继续执行或返回拒绝结果（t06）。
 
-**压缩（t11）。** 压缩是副作用，经压缩拦截（可以取消、追加要求、直接给结果）；结果是一条压缩事件，历史那一片据此替换前面的内容；种子经 Profile 对“压缩完成”的反应重写。
-
-**Profile 改版（t04 方案 D）。** “Profile 已更新”“工具集变化”是事件；旧 Profile 的扩展 `dispose`、新的 `setup`；工具集那一片据此更新，并追加提醒。
+**压缩、Profile 改版、崩溃恢复、中止、插话。** 见第 2、5、8 节。
 
 ### 11. 验证：改写旧应用的 `leader.default`
 
-用旧应用的默认主创 Profile（`packages/neuro-book-legacy/assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx`，2026-10-29 读）检验本稿的能力与写法。提示词正文不改写，只看结构。
-
-旧版的 `context(ctx)` 是一个异步函数，每次渲染都读人设文件，返回 `ProfilePrompt`：`System`（置顶提示词、人设、三项设置各挑一段、主提示词）、`HistorySet`（只在历史为空时写入的 14 条消息：11 个 `Import` 与 3 个目录）、`ModelContext`（`SqlSchemaSummary`，不落盘，每次请求插在本轮的追加消息之前）、`AppendingSet`（工作区焦点、文件变更、模式可用性、已关联 Agent、任务、模式、提到的 Skill 七种提醒，每轮写进日志）。另有 `runtimeDefaults.summarizer`：每 16 次调用后跑一次 summarizer Profile。
+用旧应用的默认主创 Profile（`packages/neuro-book-legacy/assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx`）检验本稿。旧版的 `context(ctx)` 每次渲染都读人设文件，返回 `System`（置顶、人设、三项设置、主提示词）、`HistorySet`（只在历史为空时写入的 14 条：11 个 `Import` 与 3 个目录）、`ModelContext`（库结构摘要，不落盘，每次请求插在本轮之前）、`AppendingSet`（七种提醒，每轮写进日志）；另有每 16 次调用跑一次 summarizer。
 
 | 旧机制 | 新设计 | 变化 |
 |---|---|---|
-| 七种提醒写在 `AppendingSet` 里，每个 Profile 各列一遍（`WorkspaceFocusReminder` 出现在 9 个内置 Profile 里） | 各自归拥有那份数据的插件，作为全局扩展：工作区焦点归宿主、文件变更归 `nbook.history`（t13）、模式归 `nbook.agent`（t06）、任务归 `todo` 工具所在的插件（t12）、已关联 Agent 归多 Agent（t14）、提到的 Skill 归 Skill（t15） | Profile 里这部分是零行；不要的按标签排除；插件不改 Profile 就能给它加上下文 |
-| `TaskReminder` 靠 `stateKey: "agent.tasks"` 字符串读 `customState`，工具往同一个键写 | 任务的状态片由 `todo` 工具的结果归约而来，提醒和工具在同一个插件里 | 没有跨模块的字符串约定 |
-| `ModelContext` 的库结构摘要不落盘，每次请求插在本轮追加消息之前；下一轮它挪到新一轮之前，上一轮那段的缓存就失效（从 `server/agent/profiles/prompt-order.ts` 推断） | `nbook.sql` 扩展从状态填系统提示词里的 `<Slot name="sql-schema">`，库结构变了才变 | 每轮不再丢一段缓存 |
-| `context()` 每次渲染读一次人设文件 | 人设是 `sessionState`，在会话打开、设置变化、人设文件被改时读一次，写成事件 | `prompt` 变成纯函数，预览不读盘，回放用记下的值 |
-| `HistorySet` 只在历史为空时写入 | `seed()` 在“会话已创建”与“压缩完成”时写 | 压缩后种子自动重写（t11） |
-| “写作任务必须交给 writer”只写在提示词里 | Profile 自带的工具拦截：`write`、`edit` 改 `project://正文/` 时返回错误结果，告诉它用 writer | 规则从“请求模型遵守”变成能挡住 |
-| 模式提醒的措辞经 `ModeReminder` 专用的 `ModeSlot` 子节点定制 | 通用的 `<History render>`：Profile 可以覆盖任何扩展事件的渲染 | 一种机制覆盖所有扩展，不用每种提醒各开插槽 |
-| 文件变更感知的档位（完整、精简、关闭）是主创自己的设置项 | 是 `nbook.history` 扩展的设置，用户在 Profile 设置里按 Profile 配（t20） | 每个 Profile 不必各写一遍同样的设置 |
-| 固定顺序 History → ModelContext → AppendingSet → CurrentUserInput | 布局由 `prompt` 定；提醒是日志里真实的事件，按写入的顺序出现 | 顺序看日志就知道，不靠一处硬编码 |
-| `runtimeDefaults.summarizer` 每 16 次调用跑一次 | `nb-memory` 扩展归约“运行结束”计数，到 16 次启动 summarizer（后台运行等 t22） | 记忆归记忆插件，Profile 不再配置它 |
-| `toolset(...)` 由 Profile 带工具 | 只声明必需与可选（t04） | 已在 t04 定 |
+| 七种提醒写在 `AppendingSet` 里，每个 Profile 各列一遍（`WorkspaceFocusReminder` 出现在 9 个内置 Profile 里） | 各自归拥有那份数据的插件，作为全局扩展：工作区焦点归宿主、文件变更归 `nbook.history`、模式归 `nbook.agent`、任务归 `todo` 工具所在的插件、已关联 Agent 归多 Agent、提到的 Skill 归 Skill | Profile 里这部分是零行；插件不改 Profile 就能给它加上下文 |
+| `TaskReminder` 靠 `stateKey: "agent.tasks"` 字符串读 `customState` | 任务清单由 `todo` 工具的结果归约，提醒和工具在同一个插件里 | 没有跨模块的字符串约定 |
+| `ModelContext` 每次请求插在本轮之前，下一轮挪位置，上一轮那段缓存失效（从 `prompt-order.ts` 推断） | `nbook.sql` 交稳定的槽 `sql-schema`，库结构变了才变 | 每轮不再丢一段缓存 |
+| `context()` 每次渲染读人设文件 | 人设是 session 的片，会话打开、设置变化、文件被改时读一次 | `prompt` 是纯函数 |
+| `HistorySet` 只在历史为空时写 | `seed()` 在会话创建与压缩后写 | 压缩后种子自动重写 |
+| “写作任务必须交给 writer”只写在提示词里 | 自带的工具拦截挡住 | 能挡住 |
+| `ModeReminder` 专用的 `ModeSlot` | Profile 级 `render` 覆盖任何扩展事件 | 一种机制 |
+| 文件变更感知的档位是主创自己的设置项 | `nbook.history` 扩展的设置，按 Profile 配 | 不必每个 Profile 各写 |
+| 固定顺序 History → ModelContext → AppendingSet → CurrentUserInput | 模板定位置；提醒是日志里真实的事件 | 顺序看日志就知道 |
+| `runtimeDefaults.summarizer` 每 16 次 | `nb-memory` 扩展数“运行结束”，到 16 次启动 summarizer（后台运行等 t22） | 记忆归记忆插件 |
 
-改写后的结构（提示词常量与设置表单省略，照旧）：
+改写后的结构见 spike 的 `examples/profiles.tsx`（`leader`、`leaderCore`）。结论：
 
-```tsx
-const persona = sessionState<string>({id: "leader.default/persona", initial: DEFAULT_LEADER_PERSONA});
+- **能力**：旧版能做的都能做；多出来的是规则能挡住、插件能给不认识的 Profile 加上下文、回退与预览自动正确、压缩后种子重写、缓存不再每轮丢一段。
+- **写法**：主创的上下文部分从约 120 行缩到约 60 行，七种提醒不再出现。
+- **对写手、单轮模板不一定更短**（Opus 审查第 17 条）：旧版写手与上下文有关的结构约 35 行，按第二稿的 API 改写是 79 行，多出的主要是调用参数没有位置（约 20 行）与预设的重读时机；第三稿加了 `initial`、`payload`、`sample`、多片状态，按推断这两处能回到几行（没有重新改写计数）；新增的工具拦截（约 10 行）是真正的新能力。单轮模板读一个文件放进请求，旧版 `ModelContext` 约 8 行，新版用 `sample` 加一个槽，按推断也在 10 行以内。
+- **代价**：主创收到的完整上下文分散在多个插件里，要靠预览看全（每块标了来源）；人设改了，系统提示词跟着变，缓存失效一次；扩展的设置要能在 Profile 设置里按 Profile 显示。
 
-export default defineProfile({
-    id: "leader.default",
-    name: "主创",
-    initialSchema: LeaderDefaultInitialSchema,
-    outputSchema: LeaderDefaultOutputSchema,
-    settingsSchema: SettingsSchema,                 // 去掉 fileChangeAwareness：它归 nbook.history
-    tools: {
-        required: ["read", "write", "edit", "shell", "ask", "todo", "agent.invoke"],
-        optional: ["world.execute", "plot.*", "sql.execute", "workflow.run"],
-    },
-    prompt: ({state, settings}) => (
-        <>
-            <System>
-                {settings.customTopSystemPrompt && <Tag name="custom_top_system_prompt">{settings.customTopSystemPrompt}</Tag>}
-                <Tag name="leader_persona">{state.read("leader.default/persona")}</Tag>
-                {COLLABORATION[settings.collaborationMode]}
-                {FAMILIARITY[settings.neuroBookFamiliarity]}
-                {QUESTION_STRATEGY[settings.questionStrategy]}
-                {LEADER_SYSTEM_PROMPT}
-                <If tool="world.execute">{WORLD_ENGINE_SECTION}</If>
-                <Slot name="sql-schema" />
-                <Slot name="*" stable />
-            </System>
-            <History render={{"nbook.agent/mode-reminder": leaderModeReminder}} />
-            {/* <Input />、<Transcript /> 没写，接在 <History /> 后面 */}
-            <Slot name="*" volatile />
-        </>
-    ),
-    extensions: [
-        persona.loader({
-            on: ["session_opened", "settings_changed", fileChanged(({settings}) => `profile://${settings.leaderPersonaPreset}`)],
-            load: (ctx) => ctx.read(`profile://${ctx.settings.leaderPersonaPreset}`),
-        }),
-        seed({
-            on: ["session_created", "compaction_done"],
-            messages: async (ctx) => [
-                await agentCatalog(ctx),
-                await ctx.read("docs://builtin/agent/profile-routing.md"),
-                await skillCatalog(ctx),
-                // ……其余 11 条照旧，路径改用 t08 的地址
-            ],
-        }),
-        {
-            id: "leader.default/writer-only",
-            setup: () => ({
-                intercept: {
-                    async tool(call, next) {
-                        if (["write", "edit"].includes(call.name) && call.args.path.startsWith("project://正文/"))
-                            return {isError: true, content: "正文交给 writer：用 agent.invoke 调用 writer"};
-                        return next(call);
-                    },
-                },
-            }),
-        },
-    ],
-});
-```
+### 12. 原型与审查
 
-结论：
+第二稿写成后做了一个 spike（`spike/`，连同场景检查约 2,500 行），再请两位审查者审：omp（gpt-6.1-sol，架构、不变量与性能，24 条）与 Claude Opus（以插件作者的身份照 API 写了四个扩展与 Profile，API 形状与好用程度，17 条），证据在 t20 的 `evidences/`。成立的都改进了 spike 与本稿；spike 现在 38 个场景检查全部通过，`typetest.ts` 里七种写错的地方都是编译错误。
 
-- **能力**：旧版能做的都能做；多出来的是规则能挡住（工具拦截）、插件能给不认识的 Profile 加上下文、回退与预览自动正确、压缩后种子重写、缓存不再每轮丢一段。
-- **写法**：主创里与上下文有关的部分从约 120 行（`context()` 一段）缩到约 60 行，七种提醒不再出现；写法上要学的是 `sessionState`、`seed`、`<Slot>` 与 `<History render>` 四样。
-- **代价**：主创收到的完整上下文分散在多个插件里，要靠预览看全（预览里每条标了来源）；人设的改动会让系统提示词变、缓存失效一次（用户改的，可以接受）；扩展的设置要能在 Profile 设置里按 Profile 显示（t17、t05 的设置界面要支持）。
-- **验证中改的写法**：Profile 自带的扩展写成 `extensions` 列表，辅助函数各返回一个扩展（待定项 10）；`sessionState` 的 `set` 值没变时不写事件，否则每次打开会话都多一条。
+主要改动（括号里是审查条目）：
 
-### 12. 备选方案与取舍
+- **事实与恢复**：模型请求、工具执行之前先落 `model_started`、`tool_started`；失败、中止都写收口事件；崩溃后 `recover()` 结算（omp 1、2、17）。
+- **单写者**：运行中到达的写入排队到边界（omp 16）。
+- **并行工具批次**（omp 3）。
+- **状态**：每条事件记下 path 与 session 这一对；只读；一个扩展多片；归约返回 undefined 表示不变（omp 6、9，Opus 8、12）。
+- **日志**：`leaf_changed`、加载校验、换 Profile 照日志重新归约（omp 7、10、11、22）。
+- **压缩**：`firstKept` 之前换成摘要（omp 8）。
+- **事件名**：扩展事件自动带前缀，内核事件是常量（Opus 2、11）；类型推断与声明合并（Opus 3）。
+- **“接着做”要显式**（Opus 1）；深度上限精确到第 3 层并留 `reaction_limit`（omp 5）。
+- **视图**：块保留来源、缓存按块与同一路径比对（Opus 5，omp 19）；`sample` 与 `view.now`，记进 `model_started`（Opus 6，omp 23）；结构化输入与 `initial`（Opus 7）；槽的声明与内容写在一起、`*` 必须写档位（Opus 9，omp 21）；`render` 只在 Profile 与扩展上（Opus 10）；文字拼法（Opus 13）。
+- **审计**：工具的实际参数与原本的结果进日志（omp 14）。
+- **诊断**：结构化、带扩展 id、去重（Opus 12，omp 21）。
+- **各入口读到的状态**写成表（Opus 4，omp 4）。
 
-| 方案 | 做法 | 不选的理由 |
-|---|---|---|
-| 以 Profile 为中心（分支现状） | Profile 宿主决定一切，插件只填槽 | 插件能力小一截；钩子另起一套就出现两套机制 |
-| 按钩子点定义结果（omp、Claude Code、t20 第二版） | 十几个点，每点各有返回值与合并规则 | 合并规则散在各点；状态放在哪、怎样跟着路径走没有统一回答；生命周期不清 |
-| 只用中间件 | 每个步骤一条包裹链 | 种子、提醒这类“往历史里加东西”与旁观不适合包裹；状态仍无处安放 |
-| 循环继续套在 OMP 的 `Agent` 上 | 视图接 `transformContext`、模型拦截接 `streamFn`、接着做用 `followUp` 队列 | 两份上下文；事件异步投递，反应与渲染要等；模型调用重试与换模型要绕过 `Agent` |
-| **事件模型，自己写循环（本稿）** | 状态由日志归约、请求是视图、副作用可拦截、反应追加事件 | 代价见“影响”：`reduce` 与视图要守纯函数的纪律，日志多一些非消息条目，内核多一个循环要维护 |
+**性能**（spike，假模型，本机）：
+
+- 1,200 轮（约 1 万条日志，最后一次请求约 37 万 token、7,200 条消息）：打开约 13 ms，算一次请求约 3 ms，长会话上每条新事件约 8 ms。
+- 第三稿的检查更多、开发模式冻结状态，300 轮（4,200 条）：打开 18–30 ms，算一次请求 0.5–1.6 ms。
+
+每次请求都要重新投影、渲染、比对整段历史，是 O(历史长度)。真实模型的延迟以秒计，这个量级不是瓶颈，但产品实现要做到三点：
+
+- 渲染按事件记住结果；
+- 缓存比对用增量哈希；
+- 快照只在压缩点与稀疏的检查点持久化。
+
+并给出 10 万条事件的预算（待定项 14）。
 
 ## 影响
 
-- **`nb-harness`**：会话模块的 `fold` 与投影沿用分支并扩展为“状态片”；Profile 宿主重写：去掉 `Appending`、`Input`、`Reminder`、有状态节点与按请求刷新的数据源，改由扩展接口与辅助函数实现；运行时的循环由内核自己写，不再用 OMP 的 `Agent`，拦截器统一为包裹式。t02 定的“代码以分支为主体”在运行时这一层不成立：分支的 `runtime/session.ts` 也套在 `Agent` 上，它的会话状态机、审批、插话、中止与收口按语义参照，不照搬代码；会话格式、工具登记、模型目录与凭据、压缩、Profile 渲染仍以分支为主体。
-- **日志格式**：新增扩展事件（带版本）、注入消息的来源、请求修改记录等条目类型；新应用尚未发布，旧格式由 t03 定的一次性迁移脚本处理。
-- **性能**：打开会话要从头归约；长会话靠增量归约与快照（待定项 3）。请求的修改记录与可选的请求录制增加写入量。
-- **nb-story**：问答 Profile 只用了 `System`、`HistorySet` 一类组装节点，迁移量小；它的“改阅读位置”提醒可以改成状态加视图。它依赖的单轮调用、`TurnResult`、收尾工具、`complete()` 在新循环里保留（t02）。
-- **nb-agent-ui**：显示注入消息的来源、被改写消息的原文与改后、请求修改记录、“Profile 没留这个槽”与“不利于缓存”的诊断。
-- **SDK 与插件作者**：扩展接口进 SDK，文档写清纯函数纪律、反应与视图的分工、缓存规则、导出选择器与事件版本。
-- **安全**：扩展是受信任代码（ADR 0022），本稿不引入新的安全边界；请求可被任意修改，靠修改记录追查。
+- **`nb-harness`**：会话模块的 `fold` 与投影沿用分支并扩展为片；Profile 宿主重写，旧的节点改由扩展接口与辅助函数实现；运行时的循环由内核自己写，不再用 OMP 的 `Agent`。t02 定的“代码以分支为主体”在运行时这一层改为按语义参照；会话格式、工具登记、模型目录与凭据、压缩方法、Profile 渲染仍以分支为主体。
+- **日志格式**：新增内核事件（`model_started`、`model_failed`、`tool_started`、`leaf_changed`、`profile_changed`、`reaction_limit`）与带前缀、带版本的扩展事件；新应用尚未发布，旧格式由 t03 定的一次性迁移脚本处理。
+- **`nbook.models`**：模型适配器按第 5 节的合同消费 `streamSimple` 的事件流。
+- **nb-story**：问答 Profile 只用了组装节点，迁移量小；它依赖的单轮调用、`TurnResult`、收尾工具、`complete()` 在新循环里保留（t02）。
+- **nb-agent-ui**：显示每块的来源、被改写的原文与改后、修改记录、结构化诊断；“结果未知”的工具调用与中断的运行有专门的样子。
+- **SDK 与插件作者**：`defineExtension`、`defineProfile`、`K`、`path`/`session`/`conv`/`ext`、辅助函数进 SDK；文档写清归约的纪律、反应与视图的分工、各入口读到的状态、缓存规则、事件版本。
+- **安全**：扩展是受信任代码（ADR 0022），本稿不引入新的安全边界；请求可被任意修改，靠修改记录追查。审计把工具原本的结果写进日志，扩展做脱敏时原文仍在日志里（待定项 15）。
 
 ## 对 Spec 的预期改动
 
-- `harness.session`：事件类型（三类）、来源、事件版本、状态片与归约、作用域、导出选择器、快照。
-- `harness.profile`：`prompt` 的参数与组装节点、`<History render filter>`、去掉的节点、Profile 作为扩展的部分与辅助函数。
-- `harness.runtime`：内核循环、副作用与拦截链、反应的快照语义与防循环、修改记录、请求录制、预览截下请求。
-- 新的 `harness.extensions`：扩展接口、生命周期、`ExtensionContext`、顺序、出错与时限、预览、按标签排除。
+- `harness.session`：内核事件与数据、扩展事件的前缀与版本、片与作用域、归约规则、导出选择器、只读、加载校验、叶子、恢复、快照。
+- `harness.profile`：`defineProfile`、模板节点与文字拼法、Profile 级 `render`、缺省布局、辅助函数。
+- `harness.runtime`：内核循环、边界与单写者、模型适配器合同、工具批次与并发、拦截链、失败与中止、反应的快照语义与上限、修改记录、预览、缓存比对、压缩。
+- 新的 `harness.extensions`：`defineExtension`、`ctx`、各入口读到的状态、生命周期、换 Profile、按标签排除、`replaces`。
 - `agent.*`（Agent 插件）：`agent.extensions` 贡献点取代 `agent.hooks`。
-- 验收场景至少覆盖上面“例子”一节，加上回退后扩展状态跟着回去、重启后照日志重建、预览不调模型且与真实请求一致、同一条事件的几个反应先后不影响结果。
+- 验收场景以 spike 的 38 个场景为起点，换成真实运行时（真实日志存储、真实 OMP 适配器、进程重启）。
 
 ## 待定项
 
-1. **名字**：叫“扩展”（`agent.extensions`、`defineExtension`），还是保留“钩子”。推荐“扩展”：它不止在某个点被调用，还有自己的状态与视图。
-2. **Profile 在拦截链里的位置**：最里层（推荐：改请求时最后拍板）还是最外层（改回复时最后拍板）。
-3. **归约的快照**：在压缩点存（推荐：压缩本来就切断了前面的历史）还是每 N 条存一次。
-4. **反应链的深度上限**：推荐同一条事件引出的反应最多 3 层，最终回复后的“接着做”连续最多 3 次。
-5. **请求录制**：缺省关、需要时在设置里打开（推荐），还是缺省开、按大小轮转。
-6. **`reminder()` 的缺省方式**：写进历史（推荐：与旧应用一致，缓存友好），还是只接在这一次请求末尾。
-7. **工具拦截里附加的说明**：写进日志（推荐：模型看到了就要能重放），还是像 omp 那样只交给下一次请求。
-8. **反应怎样做 I/O**：直接调 `ctx` 的主动接口（推荐：写多步逻辑方便；内核给每个主动动作记一条日志，测试与回放看得到反应做了什么），还是像 Elm 那样只返回动作的描述、由内核执行（可测性更好，多步逻辑要绕）。
-9. **不经事件就会变的数据**（当前时间、本章字数、阅读位置）：视图是纯函数，不能自己去取。推荐两条路：扩展自己的外部数据在反应里读、写成扩展事件（例如写手在用户发言后与 `edit` 的结果之后重新读字数）；当前时间这类通用的，由内核在每次算视图前取一次，作为视图的输入，并记进这次请求的修改记录，回放时用记下的值。
-10. **Profile 自带扩展的写法**：`extensions: [...]` 列表，`seed()`、`reminder()`、`sessionState()` 等辅助函数各返回一个扩展（推荐：每项有自己的 id 与状态片，和插件的扩展同一个形状，辅助函数能自由组合）；还是 Profile 只有一个 `setup`，辅助函数返回片段再由作者合并。
+1. **名字**：叫“扩展”（`agent.extensions`、`defineExtension`），还是保留“钩子”。推荐“扩展”。
+2. **Profile 在拦截链里的位置**：最里层（推荐：改请求时最后拍板）还是最外层。
+3. **归约的快照**：spike 每条事件都在内存里留一份（结构共享，1 万条约 3 MB）；持久化的快照在压缩点存（推荐）还是每 N 条存一次。
+4. **上限**：反应链最多 3 层、“接着做”连续最多 3 次、扩展时限缺省 30 秒。
+5. **请求录制**：缺省关、需要时在设置里打开（推荐）。
+6. **`reminder()` 的缺省方式**：写进历史（推荐）。
+7. **工具拦截里附加的说明**：写进日志（推荐：模型看到了就要能重放）。
+8. **反应的主动接口**：spike 里反应只返回事件、I/O 在反应里自己做；`complete`、`invokeTool`、`ask`、`compact` 这类会产生新事件的主动动作怎样进日志（推荐：每个动作写一条带来源的控制事件，结果作为事件回来），实现时定。
+9. **请求时的数据**：已定为 `sample` 与 `view.now`，记进 `model_started`；剩下的问题是 `sample` 的值很大时（例如整章正文）是否只记哈希、另存原文。
+10. **Profile 自带扩展的写法**：`extensions` 列表（spike 已按此实现，推荐）。
+11. **流式输出给不给扩展看**：推荐不给，增量只推给界面，扩展只在完整回复写入后反应；以后真有需要（例如边生成边审查）再加一个只读的观察接口。
+12. **模型适配器的审计粒度**：OMP 内部的重试、推理循环算一次逻辑请求还是多次；推荐一次逻辑请求一条 `model_started`，每次服务商尝试记进诊断。
+13. **请求的完整形状**：图片与附件块、思考块、工具的参数 schema 与 `tool_choice`、服务商专有选项放在哪里；推荐 `ModelRequest` 的块加 `kind`（文字、图片、思考）、`tools` 用完整的工具声明，服务商专有的放适配器选项，实现 t04、t05 时定。
+14. **性能预算**：长会话的目标（例如 10 万条事件打开在 1 秒内、算一次请求在 50 毫秒内）与做法（渲染记忆、增量哈希、稀疏检查点）。
+15. **审计与脱敏**：工具结果被脱敏时，原文写进日志还是只记哈希；推荐扩展可以把一次修改标为敏感，日志只记哈希。
+16. **多 Agent**（t14）：子 Agent 是独立的会话；父会话里写 `child_started`、`child_result`、`child_failed`（带子会话 id、调用 id、幂等键），审批冒泡与中止连带走父会话的运行控制。t14 讨论时定，事件形状按本稿的内核事件来。
+
+## 第三稿的修订（审查后，待开发者确认）
+
+第 12 节列出的改动都是按审查意见做的，没有经过开发者确认；其中改变了已定写法的：
+
+- 扩展从单片状态改为多片，`pathState`、`sessionState` 改为片的构造函数 `path`、`session` 与 `ctx.set`。
+- 扩展事件改由 `events` 声明，类型自动带扩展 id 前缀。
+- `render` 从 `<History>` 节点上移到 Profile 与扩展上，节点上写 `render` 是模板错误。
+- “接着做”从“最终回复后追加了对话事件就继续”改为要显式写 `continue`。
+- 相邻的 user 消息不再在内核里拼接，内容改为块。
+- 预览的“视图输入”记进日志（`model_started`），不再只在内存里。
 
 ## 决策记录
 

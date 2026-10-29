@@ -1,0 +1,312 @@
+# w00032 t20 事件模型设计审查（插件作者与 Profile 作者视角，Opus）
+
+审查对象：提案 `docs/proposals/agent-harness-event-model.md`（draft）与 spike（worktree `.worktree/w00032-t20-review`，提交 cffac7f42）。实验代码在 `/tmp/review-w00032-t20-design/lab-opus/`。spike 自带 `bun check.ts` 15/15 通过（已复跑）。
+
+条目按核实顺序追加，末尾给出按影响排序的索引。
+
+### 1. 对最终回复追加任何对话事件，都会被当成“接着做”，多调模型且没有诊断
+
+- 严重程度：重要
+- 类别：API
+- 位置：spike `kernel.ts` 582-588（`reacted = 本次回复之后写入的事件里有 conv 且 path`）；提案“基本循环”第 5 步、“反应”一节
+- 现象：我写的角色卡插件变体（`lab-opus/cards.ts` 的 `characterCardsAlsoOnAssistant`，助手回复里提到角色也注入角色卡）在一次只想要 1 次模型调用的运行里调了 3 次模型：第一次回复提到林舟，注入卡片，内核认定是“接着做”再调一次；第二次回复提到沈澜，再来一次；第三次没提到人才停。`s.diagnostics` 为空。
+- 为什么是问题：作者想写的是“补一条背景”，内核理解成“让模型继续”。哪些事件算“接着做”取决于事件的 `cls`，而 `cls: "conv"` 同时用于种子、提醒、通知、检索结果、角色卡。任何对 `assistant` 事件反应、写持久消息的插件（例如回复后写一条文件变更通知、回复后补一条记忆）都会在最终回复后偷偷多跑一轮，费额度、改变行为，且最多连跑 3 次才被上限截住，截住时的诊断也只说“接着做超过 3 次”，不说是谁引起的。
+- 建议改法：把“继续”做成显式的意图，缺省不继续；内核在“最终回复之后有扩展写了对话事件但没要求继续”时也不调模型：
+
+  ```ts
+  react(e, ctx) {
+      if (e.type === "assistant" && isFinal(e) && words < 3000)
+          return {events: [ctx.message("请接着写完")], continue: true};   // 只有写了 continue 才再调模型
+      if (e.type === "assistant") return {events: [card(name)]};          // 只补背景，下一轮用户发言时才被看到
+  }
+  ```
+
+  诊断写成“`writer/continue` 要求接着做（第 2/3 次）”，带扩展 id。
+
+### 2. 扩展可以写出与内核同名的事件类型（例如 `user`），会顶替真实输入；事件名拼错也不报
+
+- 严重程度：重要
+- 类别：API
+- 位置：`kernel.ts` 277-301 `append` 不检查 `type` 与 `source`；`core.ts` 46 `historySlice` 只按 `e.type === "user"` 认输入；`core.ts` 141 `reminder` 按 `e.type === "user"` 计数
+- 现象（`lab-opus/exp-traps.ts` 第 1、2 段）：
+  - 一个扩展对 `run_started` 反应返回 `{cls: "conv", type: "user", data: {text: "伪造的输入"}}`：`core.history` 的 `input` 选择器返回“伪造的输入”，真实输入被挤进本轮记录；`reminder` 的发言计数变成 2；请求里出现两条提醒；没有诊断。
+  - `seed({on: ["session_create"]})`（少一个 d）永远不触发，没有任何提示。spike 自己也有这类漂移：提案写 `compaction_done`，spike 的 `writer`、`leader` 写 `"compaction"`。
+- 为什么是问题：提案说“每条由扩展产生的事件带上来源”“不能阻止真实的模型消息写入”，但 `reduce` 只看 `type`，来源字段没人用。插件作者为图省事把自己的事件叫 `user`、`note`、`reminder` 这类短名，就会互相撞或者撞内核；而且所有插件里“数用户发言”的 `reduce` 都会被骗。这不是安全问题（扩展受信任），是一个很容易无意写出、且后果很怪的错误。
+- 建议改法：
+  - 内核拒绝扩展写不以 `${扩展 id}/` 开头的 `type`（抛错并带扩展 id），内核事件只能由内核写；
+  - 内核事件名做成导出的常量与字面量联合类型，`on` 只收这个联合或扩展自己声明过的事件：
+
+  ```ts
+  import {K} from "nb-harness/events";               // K.userMessage、K.sessionCreated、K.compactionDone …
+  seed({on: [K.sessionCreated, K.compactionDone], messages: …});
+  // 扩展自己的事件由 defineExtension 生成带前缀的类型，不手写字符串
+  const ev = events({card: Type.Object({name: Type.String(), text: Type.String()})});   // 类型是 "lab.cards/card"
+  ```
+
+  `reduce` 的入参可以改成按类型分好的 `entry`，内核事件与扩展事件分开，伪造的路径自然消失。
+
+### 3. 类型几乎全是 `any`：六处明显写错的代码 `tsc` 全部通过
+
+- 严重程度：重要
+- 类别：类型
+- 位置：`kernel.ts` 30 `Entry.data: any`、78 `ReadCtx.mine: any`、80 `read(): unknown`、99 `state?: Slice<any>`、101 `contribute?(mine: any …)`、117 `ViewInput.state.read(): any`
+- 现象：`lab-opus/typetest/wrong.ts` 里故意写了六处错误，用 spike 的 `tsconfig`（`strict: true`）跑 `tsc`，零报错：`initial` 是字符串而 `reduce` 按数字算；`ctx.mine.injectd` 拼错；`e.data.txt` 拼错；写出 `type: "user"`；`contribute` 的 `mine` 标成与状态无关的类型；`ctx.read("b", "vv")` 选择器名拼错（只在运行时抛“没有导出”）。我写的四样东西里，有 4 处要手写 `as` 断言（`ctx.mine as S`、`state.read(...) as Presets` 等），断言写错同样不会被发现。
+- 为什么是问题：概念多的 API 最需要类型来兜底。现在作者要靠记忆知道自己那片的形状、事件 `data` 的字段、别的扩展导出了什么、选择器返回什么，错了只能在运行时、而且常常是在别的事件上才炸（见第 12 条）。
+- 建议改法：扩展用一个带泛型的构造函数，状态、事件、导出一次声明，其余位置都推断出来；跨扩展的选择器用声明合并登记：
+
+  ```ts
+  export const cards = defineExtension({
+      id: "lab.cards",
+      state: path({initial: {injected: [] as string[]}}),
+      events: {card: Type.Object({name: Type.String(), text: Type.String()})},
+      reduce: (s, e) => e.is("run_started") ? {injected: []} : e.is("card") ? {injected: [...s.injected, e.data.name]} : s,
+      react(e, ctx) { /* ctx.mine: {injected: string[]}；e.data 按 e.is() 收窄 */ },
+      exports: {injected: (s) => s.injected},
+  });
+  declare module "nb-harness" { interface ExtensionExports { "lab.cards": ExportsOf<typeof cards> } }
+  // 别处：ctx.state.read("lab.cards", "injected") 的返回类型是 string[]，名字拼错是编译错误
+  ```
+
+  `reduce` 的 `default` 分支可以由构造函数补上（只对声明过的事件调用作者的函数，其余原样返回），顺带消掉第 12 条的“忘了原样返回”。
+
+### 4. “这里读到的是哪一刻的状态”没有统一答案：预览过去的请求时拦截器读的是当前叶子，反应里的 `ctx.now` 是上一次请求的时间
+
+- 严重程度：重要
+- 类别：API
+- 位置：`kernel.ts` 499 `modelChain` 给拦截器 `ctxFor(x, this.leafSnap, preview)`；605 `toolChain` 同样用 `leafSnap`；84-85 与 337、427 `now` 只在 `buildRequest` 里赋值
+- 现象（`lab-opus/exp-traps.ts` 第 7、8 段）：
+  - spike 自带的 `router` 插件（短输入换便宜模型），两轮对话“短”“这是一个足够长的第二轮输入……”。真实第一次请求的模型是 `cheap`；`s.preview(第一次请求的叶子)` 给出 `main`。拦截器读 `core.history` 的 `input` 时拿到的是当前叶子（第二轮）的输入。spike 的场景检查 11 能过，是因为它只跑了一轮，当前叶子与被预览的叶子输入相同。
+  - 反应里的 `ctx.now`：第一次用户发言时是 `0`，之后每次都是“上一次请求”的时间，不是这条事件发生的时间。
+- 为什么是问题：提案承诺“预览与运行看到同一份”“预览过去的请求时用记下的值”，插件作者会照此写拦截器。实际上反应读的是“这条事件归约之后”、视图读的是“发请求那一刻的叶子”、拦截器读的是“会话当前叶子”，三者不同，文档没写，作者只能读内核源码才知道。`ctx.now` 在 `ReadCtx` 上对所有入口都可见，却只在视图里有意义，反应里用它记时间戳会写进错误的值。
+- 建议改法：
+  - 拦截器的 `ctx` 一律取“这次请求所在的叶子”的状态（预览时就是被预览的叶子），在提案的“扩展的形状与生命周期”一节列一张表：`reduce` 看这条事件之前的自己那片；`react` 看这条事件归约之后的快照；`contribute`、`prompt`、模型拦截看这次请求的叶子；工具拦截看发出这个工具调用的回复所在的叶子。
+  - `now` 不放进通用 `ctx`：视图的输入里有 `request.now`；反应要时间就读事件自带的时间戳（`entry.at`，内核写入时盖上）。
+
+### 5. 相邻的 user 消息被拼成一条，抹掉了槽、注入消息与用户原话的边界；缓存诊断因此报反
+
+- 严重程度：重要
+- 类别：诊断
+- 位置：`kernel.ts` 611-619 `mergeAdjacentUser`；530 缓存比对把“上一次最后一条、`origin` 以 `slot:` 开头”的部分当作本该换掉的
+- 现象（`lab-opus/exp-merge.ts`，3000 字的第一问，两轮，都没有工具调用）：
+  - 缺省布局加一个会变的槽（剩余额度）：第一次请求末条的 `origin` 是 `e3+slot:quota`，槽被拼进了用户原话；第二轮里这条用户消息不再带槽，内容变了，诊断报“要重算上一次的 1514 token，从 e3 开始变了”。这是真的缓存损失：缺省布局在没有工具调用的轮次里，每轮丢掉整条上一轮输入，与提案缓存表“缺省布局只丢最末尾一小段”不符。
+  - 我写的大纲 Profile（把会变的槽故意放在 `<Input />` 前面）：末条 `origin` 是 `slot:outline+e3`，以 `slot:` 开头，整条被当作“本该换掉的槽”，诊断报 0、什么也不说。
+  - 结果：推荐的布局被警告，提案说“会失效”的布局反而安静。
+  - 另外，额度插件交的“剩余额度：约 10000 token”直接接在用户原话后面（`"你好\n\n剩余额度：约 10000 token"`），模型分不出哪句是用户说的；写手 Profile 的第一次请求里，6 条种子、用户输入、调用上下文被拼成了一条 `origin` 为 `e2+e3+e4+e5+e6+e7+e11+e12` 的消息。
+- 为什么是问题：作者看诊断定位缓存问题，诊断错了就会朝错误的方向改模板。槽与注入内容和用户原话混成一段文字，也让“这条是某某加的”在请求层面消失。
+- 建议改法：消息内容用块数组，拼接相邻 user 消息时保留块的边界与来源；缓存比对按块算；槽的内容缺省包一层标记（或要求扩展声明槽的渲染）：
+
+  ```ts
+  {role: "user", content: [
+      {type: "text", text: "你好", origin: "e3"},
+      {type: "text", text: "<system-reminder>剩余额度：约 10000 token</system-reminder>", origin: "slot:quota"},
+  ]}
+  ```
+
+  服务商不支持多块时在适配器里再拼成字符串；缓存的“第一处不同”报到块。
+
+### 6. 每次请求都要现取（要 I/O）的数据没有好写法
+
+- 严重程度：重要
+- 类别：API
+- 位置：提案“视图”一节（`contribute` 是纯函数）、待定项 9；spike `examples/plugins.ts` 147-152（`clock` 只能用内核给的 `ctx.now`）
+- 现象：写“剩余额度”插件时，额度如果能从日志算（预算减已用），状态加会变的槽就行（`lab-opus/quota.ts` 写法 A，19 行）。额度如果来自外部服务，我试了两种写法，都不好：
+  - 写法 B：模型拦截里取余额、往 `messages` 末尾塞一条。Profile 摆不了它的位置（不经过槽）；要自己造 `Message`，还得填内部字段 `origin`；预览也会真的去调服务（实验里预览一次余额就少了 1），改成 `preview: "skip"` 则预览与真实请求不同。
+  - 写法 C：在“会紧接着发请求”的每种事件之后取一次、写成扩展事件，再由槽交出去。要自己枚举 `user`、`tool_result`、`steer`……漏一种就是旧值；每次请求多一条日志（一次两请求的运行，9 条日志里 2 条是余额）。
+- 为什么是问题：剩余额度、阅读位置、当前选区、编辑器里的字数，都是“每次请求现取、只对这一次有效”的数据，是插件最常见的需求之一。提案只给了 `now` 一个特例（内核在算视图前取一次、记进请求记录），一般的插件拿不到同样的待遇。
+- 建议改法：把待定项 9 里 `now` 的机制开放给扩展：扩展声明“请求输入”，内核在每次算视图前（并发）调用一次，值记进这次请求的记录，`contribute` 读它；回放与预览过去的请求时用记下的值：
+
+  ```ts
+  defineExtension({
+      id: "lab.quota",
+      sample: {balance: async (ctx) => (await billing.balance()).tokens},      // 每次请求前取，记进请求记录
+      contribute: {quota: {volatile: true, value: ({sample}) => `剩余额度：${sample.balance}`}},
+  });
+  ```
+
+### 7. `seed()` 与旧版 `HistorySet` 并不等价；调用方传来的结构化输入在新模型里没有位置
+
+- 严重程度：重要
+- 类别：API / 文档
+- 位置：提案“Profile 在其中”的旧节点去处表与“验证”一节（“`HistorySet` 只在历史为空时写入 → `seed()` 在会话已创建时写”）；spike `kernel.ts` 539 `send(text: string | null)`、93 输入拦截只收字符串；旧版 `writer.profile.tsx` 439-447、474-497
+- 现象：旧版写手的 `HistorySet` 第 7 条是 `inputContext`，取自 `ctx.invocation.payload`（调用方传的 `{path, chapterId, context}`）。`HistorySet` 是第一次渲染（第一次请求）时写的，那时 payload 已经到了；`seed()` 在 `session_created` 时写，那时还没有任何调用，做不出这一条。spike 的 `send` 只收字符串，payload 也无处可放：我只能先 `s.external("agent.invoke", invoke({path, chapterId}))` 写一条扩展事件，再 `send`，并另写一个 `pathState` 扩展对用户发言反应、写一条持久的“调用上下文”消息（`lab-opus/writer.profile.tsx` 46-66，21 行）。旧版 `AppendingSet` 里“本轮没有收到 invoke.message”的条件提醒也落到同一个反应里。
+- 为什么是问题：提案的结论“旧版能做的都能做”在写手这里需要作者自己发明一套“先发外部事件、再对用户发言反应”的约定；每个被调用的 Profile（writer、researcher 等）都要各写一遍，而且 `external` 与 `send` 之间不是原子的，并发调用时 payload 可能对不上输入。输入拦截只收字符串，也做不到提案说的“输入被拦下时给出理由”（spike 里不调 `next` 就以 `input-rejected` 结束，没有理由字段）。
+- 建议改法：
+  - `UserInput` 定成结构化的：`{text, payload?, attachments?, clientId}`，用户消息事件原样带着，`reduce`、`react`、`<Input>` 的 `render` 都能读到；
+  - `seed()` 支持 `on: [K.firstInput]`（第一次用户输入之前写），或者 `messages` 收到触发它的事件；
+  - 输入拦截的返回值能表达拒绝与理由：`return {reject: "包含密码"}`；
+  - 把提案旧节点表里 `HistorySet → seed()` 一行改成写明时机的差别。
+
+### 8. 一个扩展只能有一片状态：一件事要拆成几个扩展，同一个 Profile 里的兄弟扩展也只能经导出的选择器互读
+
+- 严重程度：重要
+- 类别：好用程度 / API
+- 位置：`kernel.ts` 98-104 `Parts.state?: Slice`；352-358 `select` 只认 `exports`；360-371 `viewState` 允许 Profile 的 `prompt` 读自己扩展的原样；spike `examples/plugins.ts` 94-111（工作区焦点拆成两个扩展）、`examples/profiles.tsx` 13、38（写手为了让 `writer/continue` 读字数，给 `writer/words` 加了 `exports: {value: (n) => n}`）
+- 现象：
+  - 工作区焦点“焦点本身在树外、送达到哪了跟路径走”，因为一个扩展只能有一种作用域的一片，被拆成 `nbook.workspace/focus` 与 `nbook.workspace/reminder` 两个扩展，后者再经选择器读前者。
+  - 写手 Profile 里的“接着写”要读同一个 Profile 里另一个扩展的字数，只能让那个扩展导出一个恒等选择器。
+  - 我写写手 Profile 时也撞上：两份预设我只好合成一个对象放进一个 `sessionState`；payload 那片要被工具拦截读，于是把拦截也塞进 `payload.extension({...})`，否则又要导出选择器。
+  - 读权限不对称：Profile 的 `prompt` 能读自己扩展的原样（`state.read("writer/presets")`），同一个 Profile 自带扩展的 `react` 却不能。
+- 为什么是问题：作者按“这件事”组织代码，API 逼他按“状态的形状与作用域”组织；“导出选择器是公开接口”的好处只对跨插件成立，对同一个 Profile 或同一个插件内部只是样板。拆开的扩展各有 id、各占一个拦截层、各自出现在“这条是谁加的”里，界面上一件事显示成两个来源。
+- 建议改法：一个扩展可以有多片、每片有自己的作用域；同一个扩展的各个部分都能读自己所有的片；Profile 自带的扩展彼此可以读原样（它们本来就是一份代码）：
+
+  ```ts
+  defineExtension({
+      id: "nbook.workspace",
+      state: {
+          focus: session({initial: {project: "demo", file: null}}),
+          delivered: path({initial: null as string | null}),
+      },
+      react(e, ctx) { if (e.is(K.userMessage) && !same(ctx.mine.focus, ctx.mine.delivered)) return [ctx.message(…), ctx.set("delivered", …)]; },
+      exports: {current: ({focus}) => focus},
+  });
+  ```
+
+  `pathState(...).extension({...})` 这层就不再需要：`path()`、`session()` 只是片的构造函数，`.set`、`.load` 作为片上的方法留着。
+
+### 9. 槽：声明与交内容分在两处；没声明的槽缺省算“稳定”进系统提示词；`<Slot name="*" />` 不写档位什么也不收，诊断还说“没留槽”
+
+- 严重程度：建议
+- 类别：API / 诊断
+- 位置：`kernel.ts` 110 `ExtensionDef.slots` 在扩展顶层，101 `contribute` 在 `setup()` 的返回值里；`template.ts` 123（`*` 的筛选里 `!slotDecl.get(n)?.volatile` 与 `(stable || volatile)`）；`kernel.ts` 442 诊断文字
+- 现象（`lab-opus/exp-traps.ts` 第 3、4 段）：
+  - 交了一个没声明、每次都变的槽 `ticker`：它被缺省布局的 `<Slot name="*" stable />` 收进系统提示词（两次请求的 `system` 分别是 `"s\n\n第 1 次"`、`"s\n\n第 2 次"`），每次请求整段缓存失效；诊断只说“und 往没有声明的槽 ticker 交内容”，不说它去了系统提示词。
+  - Profile 写 `<Slot name="*" />`（不写 `stable`、`volatile`）：什么都不收，诊断是“Profile 没留槽 x，c 交的内容被丢弃”，作者会以为是 `*` 不起作用。
+  - 写额度插件时，`slots: {quota: {volatile: true}}` 写在扩展顶层，`contribute` 写在 `setup()` 里，同一个名字要手工对齐两次。
+- 为什么是问题：漏写声明的后果是最贵的那种（系统提示词每次变），而它是缺省行为。
+- 建议改法：声明与内容写在一起，不声明就没法交；`*` 必须写档位，不写是模板错误；没声明的槽按“会变”处理（最便宜的失败）：
+
+  ```ts
+  contribute: {quota: {volatile: true, value: (mine) => `剩余额度：${mine}`}}
+  ```
+
+  诊断写成“`lab.quota` 的槽 `quota` 被放进了系统提示词，它每次请求都在变：整段缓存失效”。
+
+### 10. `render` 有三处可写，提案只写了一处；只在 `<History>` 上写会让事件从本轮挪进历史时变样，没有诊断
+
+- 严重程度：建议
+- 类别：API
+- 位置：扩展的 `parts.render`、`ProfileDef.render`（`kernel.ts` 129）、节点上的 `render` 属性（`template.ts` 66、138、155）；合并顺序在 `kernel.ts` 431-433 与 `template.ts` 155：扩展 < Profile < 节点。提案“视图”一节只写了 `<History render filter>`，没有 `ProfileDef.render`
+- 现象（`lab-opus/exp-traps.ts` 第 9 段）：Profile 只在 `<History>` 上写 `render={{user: 套 <user_request>}}`。第一次请求里“第一问”是原样；第二轮它进了历史，变成 `<user_request>第一问</user_request>`，前缀从这一条开始失效；诊断为空（这次只有 5 token，低于阈值）。spike 的主创 Profile 注释已经意识到这一点（`examples/profiles.tsx` 93：“放在 Profile 上，历史、本轮输入、本轮记录里都一样”），但提案示例写的正是 `<History render={…} />`。
+- 为什么是问题：提案要求“同一条事件每次渲染的结果必须相同”，节点级 `render` 让违反它成为最顺手的写法。三处来源、两层覆盖，作者要查代码才知道最后谁生效。
+- 建议改法：只保留扩展的缺省渲染与 Profile 级的 `render` 两处；节点上只留 `filter`（过滤不改变留下来的那条长什么样）。如果确实需要“只在历史里压缩旧工具结果”这类按位置变化的渲染，单独给一个名字（例如 `<History compact={…}>`），并在预览里标出“这条事件在历史与本轮的渲染不同”。提案“视图”一节把示例改成 `render` 写在 `defineProfile` 上。
+
+### 11. 辅助函数生成的事件名外泄：覆盖渲染要猜 `…/reminder/reminder` 这种名字
+
+- 严重程度：建议
+- 类别：API
+- 位置：`core.ts` 81 `${id}/set`、132 `${id}/reminder`；spike `check.ts` 241 断言 `nbook.workspace/reminder/reminder`、220 `leader.default/persona/set`；`examples/profiles.tsx` 94 Profile 覆盖 `"nbook.agent/mode/reminder"`
+- 现象：Profile 想改某个提醒的措辞，要写出辅助函数内部拼出来的事件类型字符串；提醒的 id 若本身以 `/reminder` 结尾，就得到 `…/reminder/reminder`。拼错不报（见第 2 条）。
+- 为什么是问题：事件名成了辅助函数实现细节与 Profile 之间的隐式合同，辅助函数改一次拼法，所有覆盖它的 Profile 静默失效。
+- 建议改法：辅助函数返回的扩展带上它的事件类型常量，覆盖时引用它：
+
+  ```ts
+  export const modeReminder = reminder({id: "nbook.agent/mode", …});
+  // Profile：
+  render: {[modeReminder.events.reminder]: leaderModeReminder}
+  ```
+
+### 12. 出错时的信息：反应抛错让整次运行失败、日志留下没有结束的运行；报错不带扩展 id；`reduce` 忘了原样返回要到下一条事件才炸
+
+- 严重程度：建议（提案已定 `timeoutMs`、`onFailure`，spike 没实现，形状未经验证）
+- 类别：诊断
+- 位置：`kernel.ts` 390 `Promise.all` 直接把异常抛出 `send`；197 `diagnostics: string[]`
+- 现象（`lab-opus/exp-traps.ts` 第 5、6 段）：
+  - 一个反应抛出“索引没连上”：`send` 被 reject，路径最后一条是 `user`，没有 `run_ended`，也没有记下是哪个扩展；
+  - `reduce` 漏了 `return s`：这条事件上状态变成 `undefined`，下一条事件进 `reduce` 时报 `undefined is not an object (evaluating 's.n')`，同样让整次运行失败；栈能指到作者的 `reduce`，但报错不说是哪条事件让状态变成了 `undefined`；
+  - 所有诊断是会话上的一个字符串数组，不分级别、不带扩展 id、事件 id 或请求序号，界面无法按“这条是哪个扩展的问题”筛选或标在预览的某个节点上。
+- 为什么是问题：提案说“工具拦截出错缺省按拒绝，其余缺省忽略并写诊断”，插件作者会依赖这条；spike 的场景检查没有一条覆盖出错，所以“出错时能不能看懂”这一项目前没有证据。
+- 建议改法：诊断定成结构化记录 `{level, code, ext, entry?, request?, templateNode?, message}`；内核在开发模式下检查 `reduce` 的返回值不是 `undefined` 并冻结状态（抓原地修改），出错时诊断写“`bad` 的 `reduce` 在 e7（`user`）上返回了 undefined”；在 spike 里补一个“反应抛错与超时”的场景检查，按 `onFailure` 验证运行能收口、日志有 `run_ended`。
+
+### 13. 模板里文字与 `{表达式}` 之间被插进空行
+
+- 严重程度：建议
+- 类别：好用程度
+- 位置：`template.ts` 128-141 `inline` 把每个子节点结果用 `"\n\n"` 连接
+- 现象：写手 Profile 里 `<Tag name="role_definition">你是……默认叙事人称：{NARRATIVE[settings.narrativePerson]}</Tag>` 渲染成 `默认叙事人称：⏎⏎第一人称`。JSX 把一行里的文字与表达式拆成多个子节点，每个之间都被插了一个空行。
+- 为什么是问题：Profile 作者写的是一句话，得到的是三段；要拼一句话只能改用模板字符串（旧版就为此有 `profileText`）。系统提示词里的空行虽然无害，但同一类问题出现在 `<User>` 固定消息里（例如“要求：<Input />”）时，会改变模型看到的格式。
+- 建议改法：同一个父节点下相邻的文字与表达式直接相连，只在块级节点（`Tag`、`Slot`、顶层段落）之间加空行；或者照旧版提供 `profileText` 并在文档里写明规则。
+
+### 14. 提案与 spike 的接口有几处对不上，作者照提案写会错
+
+- 严重程度：建议
+- 类别：文档 / API
+- 位置：提案“扩展的形状与生命周期”一节的 `AgentExtension`，对照 `kernel.ts` 76-113
+- 现象：
+  - `render`：提案是 `(entry) => Message[] | null`，spike 是 `(entry) => string | null`，角色由事件类型决定（`template.ts` 89-93：除 `assistant`、`tool_result` 外一律是 `user`）。按 spike 的形状，扩展无法把自己的事件渲染成一对示例对话或一条助手消息。
+  - `contribute`：提案是 `(mine, input: ViewInput)`，spike 是 `(mine, ctx: ReadCtx)`，拿不到 `model.capabilities`，也拿不到这次请求的工具集以外的视图输入。
+  - `ExtensionContext`（提案，有 `emit`、`complete`、`ask`、`send` 等主动接口）与 `ReadCtx`（spike，只读）不是一个东西；spike 的反应只能“返回事件”，提案待定项 8 推荐的“直接调 `ctx` 的主动接口”在 spike 里没有验证。
+  - 模型拦截往请求里加消息时，必须填内部字段 `Message.origin`（`kernel.ts` 54），提案的 `ModelRequest` 里没有这个字段。
+  - `ProfileDef.render`（spike）在提案里不存在；提案的 `slots` 在 `setup` 返回值里，spike 在扩展顶层。
+- 为什么是问题：SDK 文档会照提案写，spike 是唯一的可运行参照；两边不一致时作者不知道该信哪个，评审也会对着不同的形状讨论。
+- 建议改法：定稿前把提案的接口块换成 spike 里实际跑过的签名（或反过来改 spike），并把 `ReadCtx` 与 `ExtensionContext` 的分工写清：反应拿的是哪一个、拦截拿的是哪一个、视图拿的是哪一个。
+
+### 15. 全局扩展缺省进入所有 Profile，单轮模板式 Profile 也会被插进别人的持久消息
+
+- 严重程度：建议
+- 类别：好用程度
+- 位置：`kernel.ts` 217-218（只按标签排除）；`template.ts` 113-116（没写 `<Transcript>` 时接在含 `<Input>` 的固定消息之后）；spike `check.ts` 场景 5 的输出
+- 现象：spike 自己的行内编辑 Profile（单轮模板，没有 `<History>`），第二次请求是 `请改写下面这段： ⏎ 她笑了。 ⏎ 要求： ⏎ 更含蓄 ⏎ <memory>林舟与沈澜在第 2 章结怨</memory>`：记忆插件的检索结果经自动补上的 `<Transcript>` 进了请求，又被相邻 user 合并拼进了模板写好的那条消息。场景检查断言 `messages.length === 1` 能过，正是因为被拼在了一起。
+- 为什么是问题：写单轮模板的作者以为请求就是模板里写的那几条；要避免，就得知道所有全局插件的标签并逐个排除，标签又是自由字符串。新插件上线后，现有的单轮 Profile 会静默多出内容。
+- 建议改法：Profile 不放 `<History>` 时缺省 `globalExtensions: "none"`（或只收显式列出的标签），预览里列出“这次请求有哪些全局扩展参与了”；标签做成登记过的常量。
+
+### 16. 概念数量：写一个“读文件、放进请求”的需求要动用三到四个概念
+
+- 严重程度：建议
+- 类别：好用程度 / API
+- 位置：提案“状态与归约”“视图”“Profile 在其中”；spike `core.ts`
+- 现象：作者要掌握的概念（按我写四样东西时实际用到的计）：事件的 `cls`（三类）与 `scope`（两种）、`reduce`、`react`、`contribute`、槽与它的两个档位、`render`（三处）、拦截（三种）、`exports` 与选择器、`pathState`/`sessionState` 及其 `.slice`/`.set`/`.load`/`.extension`/`.loader` 五个成员、`seed`、`reminder`、`tags`、`replaces`、`preview`、四个模板节点加 `System`/`User`/`Tag`/`If`。大纲 Profile 的需求是“读一个文件，放在本轮输入前面”，要写：一片状态（`pathState`）、一个反应（`load`，还要列出何时重读）、一个槽声明、一个 `contribute`、模板里一个 `<Slot>`，共 30 行。旧版同样的需求是 `context()` 里 `await` 读文件、`<ModelContext><Message>{outline}</Message></ModelContext>`，约 8 行（按旧 DSL 推断，未运行）。
+  - `pathState(...).extension({...})` 与 `.loader({...})` 的区别要读 `core.ts` 98-102 才知道（`loader` 就是 `extension({react: load(o)})`）；`.load` 返回的是一个 `react`，名字看不出来。
+  - `EventInput` 要求作者每次写 `cls`；单独构造事件数组时还要 `as const`（`lab-opus/writer.profile.tsx` 51）。
+- 为什么是问题：概念各自有理由，但“读外部数据并放进请求”是最常见的需求，它在新设计里没有一条短路径；简单的事变复杂了。
+- 建议改法：
+  - 给“读外部数据、记下来、放进槽”一个合成的辅助函数，内部就是状态 + 反应 + 槽：
+
+    ```ts
+    snapshot({id: "outline/current", slot: "outline", reloadOn: [K.userMessage, toolResult("edit")],
+              load: (ctx) => ctx.read(`project://大纲/${ctx.settings.chapter}.md`),
+              render: (text) => `<chapter_outline>\n${text}\n</chapter_outline>`})
+    ```
+
+  - 作者不写 `cls`：注入对话的用 `ctx.message(text)`，扩展事件用 `ctx.event(type, data)`；
+  - `pathState`、`sessionState` 合成 `state({scope})`；`.extension` 与 `.loader` 合成一个（`loader` 只是 `react` 的一个可选项）；
+  - 节点级 `render` 去掉（第 10 条），`<Transcript>` 自动补位的规则写进文档首屏。
+
+### 17. 和旧版比：插件化的部分明显变好，Profile 自己写的部分变长了
+
+- 严重程度：建议
+- 类别：好用程度
+- 位置：旧版 `writer.profile.tsx` 248-261、439-453；旧版 `profile-dsl.ts` 2036-2052（`MentionedSkillsReminder`）；`lab-opus/` 四个文件
+- 现象（行数都不含提示词正文与注释）：
+  - 写手：旧版与上下文有关的结构约 35 行（`toolset` 10、`context` 3、`HistorySet` 9、`AppendingSet` 6、读两份预设 2、外层与 `If` 约 5）；新版 79 行，其中模板约 22 行、扩展约 45 行。多出来的主要是：payload 没有位置要自己搭（第 7 条，约 20 行）、两份预设要写成会话级状态加重读时机（约 8 行）、新增的工具拦截（约 10 行，旧版只能在提示词里要求“只写 input.path”，这是真正的新能力）。
+  - 角色卡插件：新版 47 行，其中约 14 行是样板（`setup` 包装、`reduce` 的缺省分支、事件名前缀、`mine` 断言、`render` 表）。旧版没有插件入口，同类的 `MentionedSkillsReminder` 写在 DSL 内部约 15 行，再由每个 Profile 各列一次；它没有“一轮只注入一次”与回退语义，新版这两点由归约自动得到。
+  - 剩余额度：额度能从日志算时 19 行，干净；来自外部服务时没有好写法（第 6 条）。
+  - 大纲放在输入前：新版 30 行，旧版 `ModelContext` 约 8 行（第 16 条）。
+- 为什么是问题：提案“验证”一节的结论是主创的上下文部分“从约 120 行缩到约 60 行”，那是因为七种提醒被搬去了插件；对没有那么多提醒、但要读外部数据或接收调用参数的 Profile（写手、单轮模板），新版更长、要学的概念更多。
+- 建议改法：在提案“验证”一节补一个写手或单轮模板的改写，与主创并列，如实写出变长的部分；第 6、7、16 条的改法（请求输入、结构化输入、`snapshot()`）落地后，写手可以回到约 40 行。
+
+## 四样东西的行数与卡住的地方
+
+| 文件 | 总行数 | 非空非注释 | 卡住或别扭的地方 |
+|---|---|---|---|
+| `lab-opus/cards.ts`（角色卡插件，含“助手回复也注入”变体） | 53 | 47 | 设定库不能列目录（`ReadCtx` 只有 `file(path)`），只能放索引文件；“一轮”的边界要自己从 `run_started` 认；`mine` 要断言；变体触发了隐式“接着做”（第 1 条） |
+| `lab-opus/quota.ts`（剩余额度插件，三种写法） | 54 | 44 | 外部数据三种写法都不好（第 6 条）；`slots` 与 `contribute` 分两处写（第 9 条）；往请求塞消息要填 `origin`（第 14 条）；槽内容被拼进用户原话（第 5 条） |
+| `lab-opus/writer.profile.tsx`（写手结构） | 94 | 79 | payload 无处放、`seed` 时机做不出 `inputContext`（第 7 条）；一片状态的限制让预设合并、拦截塞进 payload 扩展（第 8 条）；文字与表达式之间多出空行（第 13 条）；`world.execute("readonly")` 这种按绑定模式的限制只能在工具拦截里按参数挡 |
+| `lab-opus/outline.profile.tsx`（大纲在输入前） | 34 | 30 | 一个“读文件放进去”要四个概念（第 16 条）；槽声明成稳定还是会变，对按名字摆的槽没有区别，看不出该填哪个；缓存诊断对这种写法不报（第 5 条），作者也没法声明“我知道，别报” |
+
+另有实验脚本：`run.ts`（跑上面四样）、`exp-merge.ts`（第 5 条）、`exp-traps.ts`（第 2、4、9、10、12 条）、`typetest/wrong.ts`（第 3 条）。四样东西本身用 spike 的编译选项跑 `tsc` 无错误。
+
+更正：第 7 条里写手相关代码的位置应为 `lab-opus/writer.profile.tsx` 46-68（23 行，其中 10 行是工具拦截）。
+
+## 未发现问题的方面
+
+- 回退语义：角色卡插件只写了 `reduce`，回退到第一轮发言之前再发“沈澜出场”，只注入沈澜、不受旧分支影响；第二轮重新注入林舟。作者不需要为回退写任何代码，这是新设计最大的好处，spike 的写法也自然。
+- 工具拦截挡写入：写手的“只写本轮目标”与 spike 的“写手只改正文目录”都是几行就成，拒绝结果作为工具结果写进日志，模型看得到原因。只读模式在最里层，外层插件放行无效（spike 场景 8 已验证）。
+- 反应的写入顺序：并发反应、按扩展顺序写入，写插件时不用考虑别的插件跑得快慢（spike 场景 3）。
+- 修改记录：模型拦截改了请求，`modifiedBy` 能准确写出是哪个扩展改了哪一项（额度写法 B 里是 `lab.quota-svc` 改了 `messages`）。
+- 没留槽的诊断：Profile 布局里没有 `*` 时，“Profile 没留槽 quota，lab.quota 交的内容被丢弃”能直接定位到扩展与槽名。
+- 协议校验：替换历史投影后漏掉工具结果，会在发请求前以 `missing-tool-result` 报出第几条消息、来自哪条事件（spike 场景 7）。
+
+## 按影响排序的索引
+
+- 重要：1 隐式“接着做”；2 事件名可伪造内核事件、拼错不报；3 类型全 `any`；4 各入口读到的状态时刻不一致（预览过去的请求时拦截器读错叶子、`ctx.now` 过期）；5 相邻 user 合并抹掉边界、缓存诊断报反；6 每次请求现取的外部数据没有写法；7 `seed` 与 `HistorySet` 不等价、结构化输入无处放；8 一个扩展一片状态
+- 建议：9 槽的声明与缺省；10 `render` 三处；11 辅助函数事件名外泄；12 出错信息（spike 未实现）；13 模板空行；14 提案与 spike 签名不一致；15 全局扩展进单轮模板；16 概念数量与简单需求的路径；17 与旧版的行数对比

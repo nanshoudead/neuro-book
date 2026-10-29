@@ -1,0 +1,250 @@
+### 1. 模型、工具或反应失败会留下未收口的运行
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：`docs/proposals/agent-harness-event-model.md` 方案 1、方案 8；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:379-417,537-593`
+- **现象**：`send()` 只在 `finally` 把内存中的 `running` 置回 `false`。模型拦截器、模型函数、工具拦截器、工具实现或反应抛错时，没有写 `run_ended`、错误回复、工具错误结果或中断标记；`dispatch()` 的 `Promise.all` 也会直接拒绝。提案只规定了钩子失败，不规定模型/工具/压缩失败如何落日志。
+- **为什么是问题**：t07 要求出错与进程中断都可恢复，日志又是唯一真相。留下 `run_started` 或未配对的助手工具调用后，重启无法区分“尚未执行”“已执行但结果未落盘”和“模型已部分响应”，下一次运行可能重复副作用或卡在非法历史。Spike 的 15/15 只覆盖输入拦截和工具返回错误，不覆盖抛异常、超时、模型错误、反应错误。
+- **如何核实**：在 spike 目录运行 `bun check.ts` 只能得到 `15/15 通过`；静态读 `kernel.ts:543-590` 可见所有异常均跳过 `run_ended`。最小复现：令 `model` 抛出 `new Error("boom")`，`send()` 拒绝后 `entries` 仍有 `run_started` 而无结束条目。
+- **建议改法**：先定义统一的失败事件和收口事务：模型流错误、工具抛错、反应超时分别写可重放的结果；`finally` 无论异常都写 `run_ended`，写失败本身失败时要有恢复扫描。为每个已开始的工具保存开始/完成事实，重启按 t07 的“结果未知/已中断”规则结算，不能把异常只留在进程内。
+### 2. 流式回复只在结束时入日志，崩溃与中止无法恢复
+- **严重程度**：阻断；**类别**：正确性 / 灵活性
+- **位置**：`docs/proposals/agent-harness-event-model.md` 事件与日志表、一次运行的数据流第 6-8 步、方案 5；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/README.md:3`；OMP `/home/notnotype/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-ai/src/types.ts:1390-1413`
+- **现象**：提案明确“流式输出的增量从不写；只推给界面”，完整助手回复在流结束时才写事件；spike README 明确不做流式、中止。OMP 的 `streamSimple()` 返回 `text_delta`、`toolcall_delta`、`done` 或 `error` 事件，`error` 还带可能已经产生的部分助手消息。
+- **为什么是问题**：模型可能已经输出了文本或完整/部分工具调用，进程在 `done` 前崩溃、用户中止或网络断开。日志没有任何“模型已开始/部分输出/结果未知”事实，重启只能重发用户输入，可能重复模型请求并重复工具副作用；若部分工具调用被识别却没有配对结果，历史又不满足校验。t07 明确要求进程中断后标记未完成工具调用并显示“上次运行被中断”，本稿没有事件形状和落盘时序承载它。
+- **如何核实**：读 OMP 类型可见 `AssistantMessageEvent` 的终态分成 `done` 与 `error`，不是提案的单一 `ModelResponse`。spike 运行证据只报告假模型和内存日志，没有任何流式或中止场景。
+- **建议改法**：定义模型调用的开始、增量/部分快照、终态与中止恢复合同；至少在收到可执行的完整工具调用前落盘不可丢的调用事实，终态失败写错误/中断事件。界面增量可以不进对话投影，但不能把恢复所需的事实也排除在日志之外；明确流式事件如何经拦截链和反应链。
+### 3. 并行工具调用被悄悄降成串行，且没有同批结果的归约合同
+- **严重程度**：重要；**类别**：正确性 / 灵活性
+- **位置**：`docs/proposals/agent-harness-event-model.md` 基本循环第 4 步；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:572-580`
+- **现象**：提案写“每个调用经工具拦截链执行”，spike 用 `for (const call of response.toolCalls)` 逐个等待 `toolChain`，每个结果写入日志并触发完整反应后才执行下一个。没有定义同一助手回复中多个工具调用的并行策略、结果落盘顺序、反应看到的状态快照或工具之间的冲突/并发声明。
+- **为什么是问题**：OMP 的真实 `executeToolCalls` 明确把同批调用按工具的 `concurrency` 分成 shared/exclusive，实际任务并发运行，结果按调用槽位稳定发出，并在批次边界处理插话。NeuroBook 的 t04 工具声明也已经预留并发字段。当前写法会把独立的 `read`/检索等调用的延迟相加；更危险的是第一个结果的反应可以在第二个工具开始前修改状态，导致同一模型回复的调用看到不同的世界，重放顺序与真实执行不再等价。
+- **如何核实**：读 OMP `/home/notnotype/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-agent-core/src/agent-loop.ts:3276-3369` 可见同批工具经 `Promise.allSettled` 并按 `concurrency` 排程；spike 的 `bun bench.ts 1200` 使用两个工具调用，但基准只测串行路径，不能证明并发合同。
+- **建议改法**：把“助手回复产生的工具批次”作为不可分割的调度单元：先对全部调用做输入拦截/审批快照，再按工具声明并行执行；结果以模型调用顺序写日志，反应在批次级或明确的每结果级运行，并固定其快照语义。定义共享资源冲突、同一工具重复调用、一个调用失败时其它调用是否继续，以及插话到达时未开始/进行中调用如何结算。
+### 4. 历史预览的拦截器读取当前叶子，不是预览叶子
+- **严重程度**：阻断；**类别**：不变量
+- **位置**：`docs/proposals/agent-harness-event-model.md` 方案 4-5、待定项 9；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:426-471,489-515`
+- **现象**：`buildRequest(leaf)` 用目标叶子归约并渲染，但 `modelChain()` 给每个模型拦截器的上下文固定调用 `ctxFor(x, this.leafSnap, preview)`；它没有收到 `leaf` 对应的快照。历史预览一个旧输入时，路由插件等拦截器会读当前叶子的 `core.history/input`，而不是被预览请求的输入。
+- **为什么是问题**：提案承诺预览与真实请求一致，并允许拦截器按请求状态换模型、改参数。当前视图本身可按旧叶子算出请求，但拦截器再把它改成当前请求的结果，破坏“预览 = 真实请求”和回退/分支可重放不变量。
+- **如何核实**：运行 `/tmp/review-w00032-t20-design/lab-omp/check-invariants.ts`，结果为 `FAIL preview target state`；实验先发送 `a deliberately long input`（实际模型 `main`），再发送 `short`，预览第一条叶子却得到 `cheap`，记录的 `seen` 为 `...:main、short:cheap、short:cheap`。这是直接调用 spike 唯一运行时，未绕过内核。
+- **建议改法**：把一次视图/拦截运行的不可变 `RequestContext`（目标 path snapshot、session snapshot、settings、model、now、signal、preview）贯穿整个链；禁止拦截器从 Session 的可变当前叶子取状态。预览应使用该请求当时记录的 `now` 与所有 session-scoped 输入，或明确声明它按当前会话设置重算并放弃等价承诺。
+### 5. 反应链深度上限是 4 层并且会留下半截链
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`docs/proposals/agent-harness-event-model.md` 反应第 233-236 行、待定项 4；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:379-399`
+- **现象**：`dispatch()` 在 `depth = 0,1,2,3` 都会运行反应；当第 4 层事件（depth 3 的输出）已经追加后，下一轮才以 `depth > 3` 丢弃它的反应。因此“最多 3 层”实际产生 4 层事件，并且最后一层的反应已被部分执行/部分丢弃，诊断只在下一层出现。
+- **为什么是问题**：上限是防止扩展循环的内核不变量，不能用“多落一层但不反应”的半完成状态实现。扩展会看到自己生成的最后一条事件已经存在，却没有得到同样的状态归约/反应闭包；回放时日志包含被截断的链，行为依赖当时是否触达上限。
+- **如何核实**：运行 `/tmp/review-w00032-t20-design/lab-omp/check-invariants.ts`，`FAIL reaction depth`；四个扩展把 `root → a → b → c → d` 串起来，日志已经有 `a,b,c,d`，同时产生“反应链超过 3 层”的诊断。
+- **建议改法**：先明确深度 0 是否表示根事件，限定“允许追加的最大层数”和“允许执行反应的最大层数”中的一个；在达到上限前拒绝/记录下一批，而不是先追加再丢弃其反应。最好给每条事件带 reaction root/depth，并在超限时写一个可重放的 `reaction-limit` 控制事实。
+### 6. “同一条事件同一份快照”对 session 片和批量事件不成立
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`docs/proposals/agent-harness-event-model.md` 状态第 123-125 行、反应第 231-234 行；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:339-358,379-390,401-407`
+- **现象**：对 path 片，`dispatch()` 传入 `stateAt(e.id)`；对 session 片，`ctxFor()` 忽略传入的 `snap`，总是读可变的 `this.sessionSnap`。`open()` 先把所有扩展的输出逐条追加，再把这批事件交给 `dispatch()`，所以批内第一个 session 事件的反应也读到了批内最后一个 session 事件之后的状态。
+- **为什么是问题**：开发者已定同一事件的所有反应必须看同一份“该事件归约后”的状态。session 片不是可以省略的例外： Profile 重载、设置、人设、工具变化都可能在同一批事件里改变它；反应顺序会影响结果，且历史回放和实时运行可能不同。
+- **如何核实**：静态读 `ctxFor` 的 session 分支和 `dispatch` 的 `e.scope === "session" ? this.leafSnap` 分支即可看到没有 session-at-entry；扩展从一次 `open()` 返回两个 session `set` 事件时，首个事件的 `ctx.mine` 直接是最终值。现有 15 个场景没有两个 session 事件同批的覆盖。
+- **建议改法**：为 path 与 session 都建立事件后的不可变快照，`dispatch` 对每条事件保存对应的 `{path, session}` pair；反应、选择器和拦截链只接收这个 pair。批量写入时先定义事件顺序，不能把整批最终 session 状态回填给前面的事件。
+### 7. `load()` 不能恢复 t03 的当前叶子和回退状态
+- **严重程度**：阻断；**类别**：正确性 / API
+- **位置**：`.agents/works/w00032-agent-integration/tasks/t03-session-model/README.md:38-45`；`docs/proposals/agent-harness-event-model.md` 事件与日志第 80-107 行、一次运行第 242-249 行；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:303-318`
+- **现象**：t03 要求回退/切分支只移动叶子并追加 `leaf` 条目，旧路径保留。spike 没有 `leaf` 事件；`load()` 只把物理输入数组中最后一条 path 事件设成 `leaf`，不读取当前叶子标记，也不验证 parent 是否已存在。实时 `rewind()` 只是改变内存指针，不落日志。
+- **为什么是问题**：实时会话回退到旧节点后进程重启，加载完整日志会回到旧分支的最后一条物理事件，而不是用户选择的叶子；所有扩展状态、History 投影和下一次请求随之错误。更严重的是损坏/乱序日志会被 `stateAt` 从初始状态静默接受，加载结果不再是日志归约的确定结果。
+- **如何核实**：运行 `/tmp/review-w00032-t20-design/lab-omp/check-invariants.ts`，`FAIL load rewind`，输出 `expected: e1, actual: e5`。实验先 `rewind()` 到创建节点而不继续写，再把同一份日志 `load()` 到新 Session；这是 spike 的真实 `load` 路径，不是内部函数替代。
+- **建议改法**：实现 t03 的 `leaf`/分支操作日志，加载时先校验版本、唯一 id、seq、parent、scope 和树连通性，再按日志中的当前叶子归约。禁止把数组末尾当叶子；加载失败必须报告迁移/损坏错误而不是静默从根开始。
+### 8. 压缩没有实现 t11 的替换历史语义，旧轮会被重新带回
+- **严重程度**：阻断；**类别**：正确性 / 灵活性
+- **位置**：`docs/proposals/agent-harness-event-model.md` 事件表、方案 8、例子“压缩”、待定项 3；`.agents/works/w00032-agent-integration/tasks/t11-compaction/README.md:47-57`；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/core.ts:31-55`
+- **现象**：提案说压缩事件让历史“把它之前的内容换成摘要”，t11 要求压缩条目包含 `method/firstKeptEntryId/replacement/tokensBefore/tokensAfter/details`，并在压缩后走种子、文件、计划、Skill 的公共恢复流程。spike 的 `historySlice` 只把 `{...e, type: "compaction_summary"}` cons 到 `before`，没有读取 replacement，也没有清空当前 `input`/`transcript`；`Interceptors` 甚至没有 `compaction` 字段。
+- **为什么是问题**：压缩发生在一轮结束后时，下一次 `run_started` 会把上一轮仍保留的 input/transcript 再挪进 `before`，于是摘要和旧轮同时出现。压缩点快照、树分支、摘要失败换方法、压缩中止与重启恢复都没有状态边界，不能满足 t11 的三种方法和“当前路径节点”的合同。
+- **如何核实**：运行 `/tmp/review-w00032-t20-design/lab-omp/check-compaction.ts`：压缩后请求含 `{"replacement":"summary"}...old`，下一轮仍含旧输入；运行 `/tmp/review-w00032-t20-design/lab-omp/check-invariants.ts` 的 `compaction history` 也失败。spike README 已声明“不做压缩方法”，所以 15/15 不能覆盖此承诺。
+- **建议改法**：把压缩定义成内核协调的原子边界：校验结果后写完整压缩事件，History 由 `firstKeptEntryId`/replacement 生成唯一投影并清理当前轮缓冲；方法顺序、失败换下一个、种子和恢复内容按 t11 进入同一流程。压缩期间禁止并发写入或定义排队顺序，快照必须绑定压缩后的路径节点。
+### 9. 私有状态与导出选择器没有只读保护，扩展可直接破坏历史归约
+- **严重程度**：重要；**类别**：不变量 / API
+- **位置**：`docs/proposals/agent-harness-event-model.md` 状态第 123-135 行；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:235-247,339-369`；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/core.ts:12-21,50-53`
+- **现象**：状态快照只做外层浅拷贝；`ctx.mine`、Profile 的 `state.read`、`ctx.state.read` 的选择器结果和 `core.history` 的 `toArray()` 都返回原对象/数组。没有 `freeze`、结构化复制或只读类型约束；`exports.pendingChanges`、`history.before` 这种数组可被调用方原地修改，且 `WeakMap` 会返回同一个缓存数组。
+- **为什么是问题**：提案把归约状态和日志设为唯一真相，并把共享限定为“导出的只读选择器”。当前实现允许一个扩展修改另一个扩展的数组、修改快照里仍被其它分支复用的对象，造成回退后状态改变、跨请求污染，甚至不同 Session 共享被原地改掉的 `initial`。这不是受信任代码可以省略的合同：受信任只取消安全边界，不取消确定性和回放不变量。
+- **如何核实**：静态读 `select()` 与 `toArray()` 可见没有复制/冻结；可在 spike 中让一个扩展对 `ctx.read("nbook.history", "pendingChanges")` 执行 `push()`，随后回退仍会看到该元素，且没有任何日志事件。
+- **建议改法**：状态片在进入快照时采用不可变数据结构或深冻结；导出选择器返回只读结构的稳定值，必要时复制。公开类型用 `Readonly`，并在开发模式检测 reducer/contribute/selector 的原地修改；所有状态变更必须经事件。
+### 10. 扩展 id 没有唯一性和作用域约束，一片状态可能被覆盖
+- **严重程度**：重要；**类别**：正确性 / API
+- **位置**：`docs/proposals/agent-harness-event-model.md` 状态接口、扩展形状第 251-306 行；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:212-247,352-358`
+- **现象**：所有状态片、`source`、选择器查找和快照键都以 `def.id` 为唯一键，但构造函数没有检查 core、插件、Profile 之间的重复 id，也没有检查同一 Profile 的扩展 id 与替换目标冲突。后加入的状态会覆盖 `Snap[id]`，`select()` 却用 `find()` 读到第一个扩展；反应来源、日志回放和拦截顺序因此互相指向不同对象。
+- **为什么是问题**：提案把“每个扩展一片状态”和导出选择器当作 API 基础，却没有定义 id 的命名空间、重复时的失败方式。插件升级、Profile 自带扩展与全局扩展很容易撞名；一旦撞名，实时归约和重启归约可能都看似成功但读的是不同片。
+- **如何核实**：静态读 `initialSnap`、`reduceInto`、`select` 的键与查找实现；构造两个 `id: "same"` 且不同 `initial` 的扩展即可看到后者写入同一键，而选择器取前者。现有检查只验证 `replaces` 权限，不验证 id 唯一性。
+- **建议改法**：加载扩展时按完整来源命名空间分配稳定 id，重复 id 直接拒绝并给出两个来源；替换目标、事件 source、selector owner 使用同一注册表，不用运行时 `find()` 猜。
+### 11. Profile 中途禁用/升级只有叙述，没有可执行的扩展注册与迁移模型
+- **严重程度**：重要；**类别**：灵活性 / API
+- **位置**：`docs/proposals/agent-harness-event-model.md` 事件表、扩展生命周期第 275-288 行、例子“Profile 改版”；`.agents/works/w00032-agent-integration/tasks/t04-tool-registry/README.md:49-58`；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:209-231`
+- **现象**：t04 方案 D 要求 Profile 版本/hash 记录、只换实现无感、提示词/工具变化在下一次请求生效、扩展 `dispose`/新的 `setup`，禁用工具正在等待时按 `tool-unavailable` 结算。提案只写了一条“Profile 已更新/工具集变化是事件”，`ExtensionDef` 没有版本、内容 hash、setup context、dispose、迁移或替换时刻；spike 在构造函数一次性生成 `exts`，运行中没有重新注册路径。
+- **为什么是问题**：照字面实现无法区分旧事件应该由旧扩展语义归约，还是用新扩展回放；也无法安全释放旧插件的文件/模型/后台订阅。中途更换工具或 Profile 时，当前请求、待审批调用、压缩和正在执行的反应会引用旧闭包，下一次请求却可能引用新配置，产生半新半旧状态。
+- **如何核实**：读 `kernel.ts:209-231` 可见扩展注册只发生在构造函数，`ExtensionDef` 也没有 `timeoutMs/onFailure/dispose` 等提案字段；spike 检查没有动态升级/禁用场景。
+- **建议改法**：把 Profile 实例版本、扩展清单 hash、工具声明快照写入会话事件；定义替换的 barrier（当前流/工具/反应先收口）、旧扩展 dispose、状态片迁移/停用后的回放规则，以及旧事件由哪个版本 reduce。禁用扩展不能删除它已写的事件，至少要保留旧 reducer 或迁移包。
+### 12. `streamSimple` 的实际接口和提案的模型边界不一致
+- **严重程度**：阻断；**类别**：API / 正确性
+- **位置**：`docs/proposals/agent-harness-event-model.md` 方案 1、方案 5、一次运行第 5-8 步；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:57-69,92-104`
+- **现象**：提案示例把 `streamSimple(model, {systemPrompt, messages, tools}, {apiKey, signal, maxTokens, temperature, headers, reasoning})` 当作调用形状，但真正的 OMP API 是 `streamSimple(model, context, options)`，返回 `AssistantMessageEventStream`，事件包含 thinking、image、tool-call 增量以及 `done/error` 终态。spike/提案内部却把它抽象成同步/Promise 的 `{text, toolCalls}` `ModelResponse`，没有 stop reason、usage、thinking、图片、provider metadata 或 abort 结果。
+- **为什么是问题**：真正接入时必须自行消费事件流、在正确的终态落日志、把原始增量推给 UI、处理 `error/aborted` 和部分工具调用；当前合同没有定义这些转换。只按文字和 `toolCalls` 实现会丢视觉输入/输出、思考档和用量，或在流错误时把失败误当成无回复。OMP 的 auth retry、thinking-loop、provider session state 也发生在 `streamSimple` 内部，提案“每次真实模型调用都可见”无法由现有 `ModelResponse` 记录保证。
+- **如何核实**：已读 `/home/notnotype/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-ai/src/stream.ts:1491-1512,1534-1555` 与 `src/types.ts:411-462,628-637,1384-1413`；类型和实现均确认上述签名/事件。运行 spike 的 typecheck 通过，只说明 spike 自己的假模型接口，不说明 OMP 接口可接。
+- **建议改法**：定义 `nbook.models` 的适配器合同：明确 `Model`、`Context`、`SimpleStreamOptions` 的映射，保存 signal/providerSessionState/usage/responseId/retry 信息；模型拦截器要包住 canonical request 还是 OMP wire context 必须定死。把每一种终态和内容块映射为日志/界面事件，并为 OMP 的内部重试决定“单次逻辑请求”与“每次 provider attempt”如何审计。
+### 13. `ModelRequest` 不能表达 t05 的视觉能力和 t04 的工具声明
+- **严重程度**：重要；**类别**：API / 灵活性
+- **位置**：`docs/proposals/agent-harness-event-model.md` 方案 4 的 `ModelRequest`；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:48-64`
+- **现象**：提案和 spike 把消息内容固定为 `string`、工具固定为 `string[]`，参数只有 `temperature/topP/maxTokens/stop`。但 t05 已定 Profile 可要求看图/工具调用能力，t04 的最终工具集包含参数 schema、服务商名覆盖、并发和严格校验；OMP `Context.tools` 是完整 `Tool[]`，消息 content 可以是文本、图片、thinking、tool call/result 等块。
+- **为什么是问题**：之后实现 vision Profile、图片输入、结构化工具参数、工具名换算、不同 provider 的 reasoning/stop/cache 选项时，扩展要么深度绕过 `ModelRequest`，要么重新定义第二套请求形状。更改 `messages` 的拦截器也无法保留 provider 要求的工具调用元数据，协议校验只检查字符串和 callId 不足以保护真实请求。
+- **如何核实**：对照 OMP `/home/notnotype/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-ai/src/types.ts:1346-1387` 的 `Tool`/`Context` 和 `types.ts:1390-1413` 的内容事件；spike 类型定义没有对应字段。`bun check.ts` 的 15 个场景全是纯文本/字符串工具，未覆盖已定能力。
+- **建议改法**：把内部请求定义成 provider-neutral 但不丢信息的 canonical `Context`：内容块、工具定义/schema、tool choice、reasoning、stop、usage/response metadata 分离；模型拦截器改 canonical 层，适配器负责 OMP/provider 变换，扩展不能靠 `any` 填隐藏字段。
+### 14. “改前与改后都进日志”没有落在日志，且模型回复/工具结果没有变更审计
+- **严重程度**：阻断；**类别**：正确性 / 文档
+- **位置**：`docs/proposals/agent-harness-event-model.md` 事件与日志第 101-103 行、拦截第 215-223 行；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:134-145,489-503,517-535,572-577`
+- **现象**：提案要求被改写的用户输入、回复、工具参数与结果的原文和改后都可追查。spike 只把输入的 `original` 放进最终 user 事件；模型请求修改记录在内存 `requests`，工具拦截后的 call 参数没有写入助手事件，原始/改后工具结果只留下最终 `tool_result`；model interceptor 在 `next` 后改写 `ModelResponse` 也没有 raw/final 记录。`RecordedRequest` 不是日志 Entry，重启和分支加载不会恢复它。
+- **为什么是问题**：日志是唯一真相时，当前进程内的 `requests` 不能承担审计和重放。用户无法解释模型为什么看到不同参数，回放也可能再次执行不同的拦截逻辑。拦截器若原地修改 request，`JSON.stringify(changed[field])` 与 `req[field]` 还是同一对象，甚至连内存修改记录都不会产生。
+- **如何核实**：静态读 `modelChain` 只在 `next` 调用时比较五个字段，读 `toolChain` 只把 terminal 返回值写进 `tool_result`；`load()` 只接受 `Entry[]`，没有加载 `requests`。现有场景第 10 项只断言内存中的 `s.requests[0].modifiedBy`。
+- **建议改法**：为每次逻辑模型调用、每次 provider attempt、工具调用的原始/有效参数和原始/有效结果定义可版本化审计事件，带 run/request/call id 和扩展来源；日志只写可安全重放的摘要或哈希，完整录制按 t20 待定项 5 单独存储。请求对象冻结或采用持久化变更返回值，禁止原地修改绕过审计。
+### 15. 提案声明了超时和 onFailure，spike 没有任何执行语义
+- **严重程度**：阻断；**类别**：API / 正确性
+- **位置**：`docs/proposals/agent-harness-event-model.md` 扩展形状第 251-286 行、任务初步方向第 24-27 行；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:92-113,379-417,489-506,596-606`
+- **现象**：提案给扩展 `timeoutMs`、`onFailure.tool = deny|ignore`、预览 `run|skip`，并规定工具调用前抛错按拒绝、其它钩子抛错跳过本次写入并写诊断。spike 的 `ExtensionDef` 没有 `timeoutMs/onFailure/dispose`；反应和拦截直接 `await`，抛错会中断整个 dispatch/send，超时没有 AbortSignal，也没有诊断/拒绝结果。
+- **为什么是问题**：I/O 扩展可以永久阻塞模型请求，单个记忆检索故障会阻断不相关扩展和运行，且失败路径没有日志事实。不同实现者会按自己的理解选择“继续、拒绝、重试、丢弃”，无法写出稳定验收测试；`preview: "skip"` 也只是过滤整个扩展，没有保护一个扩展内部的不同钩子。
+- **如何核实**：`bun check.ts` 通过只证明成功路径；读 `kernel.ts:390` 的 `Promise.all` 和 `kernel.ts:495-501`/`605` 的直接调用即可确认没有 timeout/catch。令任一 `react` 返回 rejected Promise，`dispatch` 会拒绝且不会为其它反应写诊断。
+- **建议改法**：为每个扩展调用建立带 AbortSignal 的 deadline 和隔离结果；逐扩展收集 `{events,error,diagnostic}`，按钩子点应用 t20 的失败策略，工具前错误转结构化拒绝/`tool_result`。明确超时后 I/O 是否可继续在后台、其迟到结果如何丢弃，所有失败都写可观察诊断。
+### 16. 事件写入没有单写者队列，外部事实会与运行中的回复交错
+- **严重程度**：阻断；**类别**：正确性 / 不变量
+- **位置**：`docs/proposals/agent-harness-event-model.md` 基本循环第 68-76 行、一次运行第 242-249 行、生命周期第 275-284 行；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:401-422,537-561`
+- **现象**：t03/t07 要求同一会话句柄单写者、运行中插话在明确边界送达；spike 只有 `running` 布尔值。`send()` 在运行中抛错，`external()`、`changeSettings()`、`open()` 不检查 `running`，也没有串行队列或锁。文件变更、焦点变化、设置变化可以在模型流或工具执行期间直接 append，改变 `leafSnap`，随后助手回复挂到新的外部事件之后。
+- **为什么是问题**：日志顺序变成事件循环竞争结果；反应快慢、远程 RPC 到达顺序和文件 watcher 时序会改变模型请求与树父节点。插话不是简单的 `external()`：t07 要求在下一请求/当前工具批次后送达，排队要记录入队/出队且中止不处理。当前“拒绝 send”既不实现插话也不实现排队，真实客户端无法满足运行控制合同。
+- **如何核实**：静态读 `send` 仅检查 `running`，而 `external`/`changeSettings` 直接 `append`；没有 mutex、queue、AbortSignal 或批次边界。可在模型函数返回前同时调用 `external()`，观察助手事件的 `parent` 已变成外部事件。
+- **建议改法**：所有写入通过会话单写者队列；定义事件优先级和 barrier：输入、外部事实、steer、follow-up、设置/工具变化分别在哪个运行边界进入。正在运行的请求持有不可变 path/session snapshot，迟到事件只排队或按 t07 触发中止，不得直接改当前请求的父节点。
+### 17. 中止信号没有贯穿反应、拦截、模型和工具，也没有迟到结果屏障
+- **严重程度**：重要；**类别**：正确性 / API
+- **位置**：`docs/proposals/agent-harness-event-model.md` 扩展上下文第 284-286 行、基本循环第 66 行；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:76-88,92-104,596-606`
+- **现象**：提案的 `ExtensionContext` 包含中止信号，t07 要求约 2 秒宽限后强制接管并丢弃迟到模型/工具结果。spike 的 `ReadCtx` 没有 signal；`ModelRequest` 没有 signal；工具函数签名也没有 signal；工具链和反应没有 finally/取消屏障。提案接口的 `next` 也没有说明被中止后迟到的 Promise 如何处理。
+- **为什么是问题**：中止只能把内存循环停下，不能停掉底层 `streamSimple` 或长时间工具；迟到结果可能在会话已经写入“已中止”或切换分支后继续 append，污染新路径。忽略 signal 的工具可能已经产生文件副作用，必须记录“完成/未知”，不能简单丢掉结果。
+- **如何核实**：对照 OMP `SimpleStreamOptions.signal`（`pi-ai/src/types.ts:411-432`）和 `pi-agent-core/src/agent-loop.ts:2861-2878,3363-3369` 的批次中止/收口；spike 类型与实现没有任何对应字段。README 也明确“不做插话与中止”。
+- **建议改法**：每次运行、模型调用、工具批次、扩展调用各有 AbortController 和代次/所有权 token；宽限期后由单写者接管，迟到完成必须被拒绝写日志但要诊断。工具 API 接受 signal 并区分可中断/不可中断；不可中断副作用完成后仍写真实结果，未确定的写 `outcome_unknown`。
+### 18. 多 Agent 没有父子会话和事件回流的表达
+- **严重程度**：重要；**类别**：灵活性 / API
+- **位置**：`docs/proposals/agent-harness-event-model.md` 目标第 30-35 行、事件与日志第 80-103 行、ExtensionContext 第 284-288 行；`.agents/works/w00032-agent-integration/tasks/t14-multi-agent/README.md:8-32`
+- **现象**：t14 的范围包括前台子 Agent、父子关系、结果回流和审批冒泡；提案的 `Entry`/`EventInput` 只有 session 内的 parent、没有 sessionId/parentSession/run/call 关系，`ExtensionContext` 也没有创建/等待/取消子会话或父会话回流接口。提案没有说明子 Agent 是另一个 Session、父子事件是否复制、引用还是以结果事件回流。
+- **为什么是问题**：子 Agent 的审批必须显示在父会话，父会话中止要连带子会话，子会话崩溃/重启要能恢复，子结果必须只回流一次且可回退。没有稳定的 parentSession、invocation id 和回流事件，扩展只能把子结果当普通文本事件，无法关联生命周期，也无法防止父会话重试造成重复子任务。
+- **如何核实**：t14 README 仍是 `status: planned`/`草稿，未开工`，而提案的非目标没有列多 Agent；读 spike 的 `Entry` 与 `ExtensionContext` 类型可见没有跨 Session 字段或主动接口。
+- **建议改法**：明确“子 Agent = 独立 Session”还是同一日志的命名空间；若为独立 Session，定义 `child_started/child_result/child_failed/child_cancelled` 的 parentSession、invocation、权限和幂等键，父子审批/中止/重启边界及结果是否进入父路径。把此能力列为事件模型的兼容约束，而不是以后再拼接。
+### 19. 缓存诊断比较的是全局上一次请求，不是相邻祖先请求，且漏掉工具/参数变化
+- **严重程度**：重要；**类别**：正确性 / 性能
+- **位置**：`docs/proposals/agent-harness-event-model.md` 视图缓存第 191-200 行、待定项 5；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:517-535`
+- **现象**：`record()` 用 `this.requests.at(-1)` 与当前请求比较，不检查两次请求是否属于同一分支、是否相邻于目标叶子、模型/工具/params/headers 是否相同。它只比较 `system` 和 `messages`；还用“旧数组最后一个且 origin 以 `slot:` 开头”作为唯一可忽略 volatile 尾部，多个 volatile 槽或尾部仍有固定消息时会误算。
+- **为什么是问题**：回退后从另一分支发请求会把不相关分支当缓存前缀，给出错误的“重算 token”；模型切换、工具增删、参数/header 改变可能仍报全前缀命中，而 provider 缓存实际已失效。预览/运行的诊断因此不能作为 t04/t09 的缓存边界依据。
+- **如何核实**：静态读 `record` 的 `prev = this.requests.at(-1)?.request` 和 `parts()`；已有 `bun check.ts` 只比较同一线性运行。可先发长输入、再回退到旧叶子发短输入，观察 `prefixTokens` 仍按上一次分支计算；改变 `tools` 而保持消息不变也不会进入比较。
+- **建议改法**：为请求记录保存 path leaf/祖先关系、模型/provider cache key、工具规范化 fingerprint、所有 provider-bound options 和每个模板节点边界；只与同一逻辑会话中真正的前一请求比较。缓存 token 用 OMP/provider tokenizer 或明确标为近似诊断，不能把 `JSON.stringify` 的字符串相等当作服务商缓存合同。
+### 20. 长会话性能是每次请求全历史扫描，默认快照又按每条事件复制扩展表
+- **严重程度**：重要；**类别**：性能
+- **位置**：`docs/proposals/agent-harness-event-model.md` 状态第 123-125 行、影响第 452-456 行、待定项 3；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:241-247,256-274,426-471,517-535`; `.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/core.ts:12-21,35-49`
+- **现象**：每条事件的 `reduceInto` 都浅复制整个 `Snap` 并遍历所有扩展，即 O(扩展数)；默认每条 path 事件在 `snaps` 保存一份快照。每次 `buildRequest` 又把历史链转数组、渲染全部消息、合并 user 消息并重算 token；`record` 再次遍历并比较整个前缀。`select` 每次按扩展线性 `find`，`modelChain` 对每个字段 `JSON.stringify`。
+- **为什么是问题**：证据的 1200 轮已经有 10,806 条日志、最后请求约 375,807 token/7,200 条消息；本机测得打开 13.6 ms、算请求 3.30 ms、长会话每新增事件 9.52 ms、默认快照堆增约 2.9 MB。按当前算法，历史和请求长度线性增长，事件归约还乘扩展数；百万级事件会累积数百 MB 以上的快照/日志对象，分支回退在 `snapshots: "none"` 时按祖先距离乘扩展数重放。真实 provider 请求的 token 成本还会远高于这段假模型基准。
+- **如何核实**：原样运行 `bun bench.ts 1200` 得到上述 10,806/375,807/13.6/3.30/9.52 数字；`/home/notnotype/CodeRepository/neuro-book/node_modules/.bin/tsc -p tsconfig.json` 通过。复杂度直接由 `reduceInto`、`renderTemplate`、`record` 的循环可见，基准没有测 10 倍/100 倍历史、扩展数增长或多分支回退。
+- **建议改法**：设计层至少规定：事件归约的增量索引与扩展注册表 O(1) 查找；快照只在压缩点/稀疏 checkpoint 持久化并有淘汰策略；History/模板按事件或节点记忆，稳定 prefix 与工具 fingerprint 复用；请求诊断使用增量 hash/tokenizer，不对全部消息重复 `JSON.stringify`。实现前给出目标上限和 10 万/100 万事件的预算，不能把 spike 的 12 ms 打开时间当长会话合同。
+### 21. 槽位声明与模板条件的边界会静默丢数据或重复诊断
+- **严重程度**：重要；**类别**：API / 灵活性
+- **位置**：`docs/proposals/agent-harness-event-model.md` 视图第 180-190 行；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/template.ts:77-83,118-164`; `.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:434-445`
+- **现象**：spike 用 `collectNamedSlots()` 收集所有模板分支中的名字，即使 `<Slot name="x">` 在不满足工具的 `<If>` 中不会渲染，`*` 仍把 x 排除；贡献未声明的槽也会先被 `*` 收进去，再额外写“未声明”诊断。多个扩展声明同一槽时 `slotDecl.set()` 静默采用最后一个扩展的 volatile 标志，未定义冲突规则；未留槽的诊断在每次请求重复追加，`diagnostics` 无上限。
+- **为什么是问题**：Profile 按模型能力/工具动态布局时，合法的槽内容可能在某些模型上消失，且没有“没留槽”诊断；同名槽的缓存分类取决于加载顺序，违反“同一槽按声明稳定/volatile”的确定性。重复诊断会在长会话中成为无界内存和噪声。
+- **如何核实**：静态读 `collectNamedSlots` 不判断 `If`，读 `slotDecl` 的单一 Map 写入和 `renderTemplate` 的无界 `diagnostics.push`；现有 15 项只验证一个普通未留槽 Profile，没有条件分支、重复声明或长会话诊断场景。
+- **建议改法**：先解析实际启用的模板分支再决定 wildcard 排除；声明、贡献、放置分别做注册期校验，同名槽要求同一 owner/明确合并策略；未声明内容默认拒绝而非先注入；诊断按 `(leaf,code,slot,source)` 去重并写入可观察事件/限长缓存。
+### 22. 事件版本是可选字段，且日志输入没有运行时校验
+- **严重程度**：重要；**类别**：API / 正确性
+- **位置**：`docs/proposals/agent-harness-event-model.md` 事件与日志第 90-103 行、状态接口第 114-125 行；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:20-39,277-300,303-318`
+- **现象**：提案要求扩展事件带版本，旧版本 reducer 按旧含义处理；spike 的 `Entry.v?`、`EventInput.v?` 都是可选，`append` 不补默认版本，任何 `data`/type/scope/source/parent/id/seq 都不校验。`load()` 接受外部对象并把缺失 parent、乱序 seq、重复 id 静默放入索引。
+- **为什么是问题**：Profile/插件升级后，旧日志到底用哪个 schema 无法确定；同一个 type 的无版本事件只能靠当前代码猜。损坏日志可能在内存里“成功打开”，但归约状态不再可审查，违反 t03 的遇旧格式报迁移要求和日志唯一真相。
+- **如何核实**：直接读接口和 `load()`；`bun check.ts` 的事件全由可信代码构造，未覆盖缺 v、未知 v、重复 id、缺 parent、非 JSON 数据。`v` 没有被任何 reducer 读取或验证。
+- **建议改法**：事件注册表为每个 type 提供 schema、当前版本、迁移器和 scope/class；扩展事件强制带版本与 owner，内核事件也有固定 schema。加载时先完整解析/校验/迁移，未知版本和损坏条目返回结构化 `AgentSessionMigrationRequiredError`/corruption error，不继续归约。
+### 23. `ctx.now` 只在进程内请求数组里保存，重启/分支预览不能重放同一时间
+- **严重程度**：重要；**类别**：不变量 / API
+- **位置**：`docs/proposals/agent-harness-event-model.md` 待定项 9、视图第 136-151 行、事件写入第 90-98 行；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:337-349,426-428,517-535`
+- **现象**：提案建议内核每次算视图取一次当前时间，记进“这次请求的修改记录”，回放用记下的值。spike 的 `now` 是 Session 的可变字段，只写入内存 `RecordedRequest.now`；请求记录不进日志，`load()` 后没有历史 now。没有对应 leaf 的记录时 `preview()` 直接使用当前 `Date.now()`，而且 `this.now` 会被并发的另一个 `buildRequest` 覆盖。
+- **为什么是问题**：当前时间、阅读位置、文件字数这类动态值正是待定项 9 的核心。进程重启、从日志重新打开、回退到旧叶子后预览，可能给模型不同内容；请求修改记录又没有日志事实可解释。并发预览还会让一个请求的 contribute 读到另一个请求的时间。
+- **如何核实**：静态读 `RecordedRequest` 只存在 `requests` 数组，`load()` 不加载；`preview()` 通过 `this.requests.find` 取 now，找不到就把 `undefined` 传给 `buildRequest` 的默认时钟。将同一 entries load 到新 Session 再 preview 即可得到新的时间/槽文本。
+- **建议改法**：把一次模型请求的 view inputs（至少 now、模型/工具 fingerprint、外部事实版本）作为持久化请求事实或可验证的 request record 写日志；视图和拦截链使用局部 immutable context，不用 Session 全局 `this.now`。对无法重放的动态源明确标为 volatile，并从“预览与真实相同”承诺中排除，而不是隐式取现在。
+### 24. `core.history` 可替换，但内核校验不足以保护替换后的消息协议
+- **严重程度**：重要；**类别**：正确性 / API
+- **位置**：`docs/proposals/agent-harness-event-model.md` 方案 8 第 290-306 行、例子“总结者”、对 Spec 的预期改动；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:474-487`; `.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/examples/profiles.tsx:150-176`
+- **现象**：提案允许 Profile 替换 `core.history`，只要求导出 `before/input/transcript`；spike 的 `validate()` 只按顺序检查未配对 tool call、工具名正则。它不验证 assistant/tool call 的 schema、工具名是否来自当前工具集、callId/name 是否匹配、角色/内容块/provider metadata 是否合规。
+- **为什么是问题**：Profile 的历史投影是最容易改变协议的地方。像 spike 的 `brokenHistory` 可以去掉工具结果而留下调用，内核能拦住一类错误，但其它非法投影会直到 provider 报 400；不同 provider 的工具历史、thinking 签名和图片要求更严格。把“历史可替换”和“内核校验兜底”同时写成合同，却没有完整 canonical validator，扩展作者会在生产请求中发现错误。
+- **如何核实**：`bun check.ts` 只覆盖一个 `missing-tool-result`；读 `validate` 可列出其全部规则。OMP 的 `pi-agent-core` 还会做 tool schema 参数校验、provider context normalize/replay repair，spike 没有对应层。
+- **建议改法**：定义不可替换的 canonical message validator，覆盖内容块、工具调用/result 配对与名称/参数、thinking/provider 元数据、当前工具集变更；把 provider-specific normalize 放在适配器。History 替换只能改变投影，不得绕过此 validator，错误要以结构化诊断/日志事件返回。
+### 25. 无条件合并相邻 user 消息会改变模板语义和缓存边界
+- **严重程度**：建议；**类别**：灵活性 / 性能
+- **位置**：`docs/proposals/agent-harness-event-model.md` 模板四节点第 153-162 行、缓存第 191-200 行；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:610-619`
+- **现象**：spike 在所有模板渲染后把相邻 user 消息用 `\n\n` 合并，并把 origin 拼起来。槽、固定 User、Input、Transcript 中的注入事件都可能因此与真正用户输入合成一条 provider message；合并规则没有考虑事件类型、来源、ContentBlock 或 provider 的消息边界。
+- **为什么是问题**：消息边界本身可能承载 `<system-reminder>`、工具协议、缓存断点和 Profile 的固定示例。合并会让 `firstDiff` 只能指出合并消息，而不能指出哪一段变化；不同 provider 对相邻 user 消息的规范化不同，实际缓存和模型分词不一定等同。提案没有说明这是 canonical contract 还是仅为某 provider 的适配优化。
+- **如何核实**：`bun check.ts` 的行内编辑场景把 selection 和输入放进一个固定 User，不能覆盖普通 `<Slot>` 与 `<Input>` 相邻；读 `mergeAdjacentUser` 可见它对所有 user 消息无条件执行。
+- **建议改法**：在 canonical 请求层保留消息边界和 origin，交给 provider adapter 按已验证规则规范化；若必须合并，限定可合并的同一模板节点/同一来源消息，并把合并前后映射和缓存断点记录下来。不要用通用字符串拼接代替 provider 的 message normalization。
+### 26. “一个扩展一片状态”迫使一个功能拆成多个扩展，顺序/开关会漂移
+- **严重程度**：建议；**类别**：结构 / API
+- **位置**：`docs/proposals/agent-harness-event-model.md` 状态第 109-134 行、扩展形状第 251-270 行；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/examples/plugins.ts:94-111`
+- **现象**：工作区焦点既是 session 状态又需要 path-scoped 的“是否已送达”状态，spike 只能拆成 `nbook.workspace/focus` 和 `nbook.workspace/reminder` 两个扩展，靠导出选择器共享。它们的 setup、tags、失败策略和扩展顺序分别注册，用户按标签禁用时可能只禁用一半。
+- **为什么是问题**：开发者只定了状态默认私有和选择器共享，没有定“一扩展只能一片状态”。当前限制把一个领域功能的人为边界暴露给 Profile/插件作者，增加 id、顺序、生命周期和禁用组合；t04 的升级/禁用又要求按扩展处理，导致焦点更新与送达状态无法原子替换或迁移。
+- **如何核实**：读 spike 注释已明确“一个扩展只有一片状态，所以拆成两个扩展”；运行 `bun check.ts` 只证明拆分后的 happy path。提案接口 `AgentExtension.setup()` 也只有一个 `state?: StateSlice`。
+- **建议改法**：允许一个扩展拥有私有 namespace 下的多个命名 slice，或允许一个 `StateSlice` 内含 path/session 两个明确子状态，并在 reducer/selector 上声明作用域；对外仍只暴露选择器。标签、生命周期、禁用和迁移按领域扩展处理，避免用多个扩展模拟一个功能。
+### 27. `EventInput` 与 `Entry` 的边界没有承载幂等、因果和批次信息
+- **严重程度**：重要；**类别**：API / 正确性
+- **位置**：`docs/proposals/agent-harness-event-model.md` 事件与日志第 78-103 行、反应接口第 225-237 行；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:20-39,277-300`
+- **现象**：`EventInput` 只有 class/type/version/data/scope，`Entry` 由内核补 id/seq/parent/source；没有 runId、requestId、toolCallId 的统一因果字段、reaction root/depth、幂等键、时间/提交状态或批次 id。`react()` 返回的多个事件也没有声明它们是否原子、是否允许部分写入。
+- **为什么是问题**：重试模型调用、远程 UI 重连、文件 watcher 重复通知、父子 Agent 回流和中止后的迟到结果都会产生重复或乱序输入。没有幂等/因果键，内核无法判断同一事实是否已写过，也无法把一批并行工具结果与原始助手回复稳定配对；只靠物理 seq 不能解决跨进程重启或 provider attempt。
+- **如何核实**：读两个接口和 `append()` 可见所有 id/parent/source 都是当前进程临时生成；提案的“事件带版本”没有批次/幂等字段，spike 场景也没有重复 external、重连或并发提交。
+- **建议改法**：保留输入/落盘条目的双形状，但给 `EventInput` 增加可选的稳定 causation/idempotency metadata，并定义内核生成的 event id 与用户/工具/provider id 的区别。批次提交使用事务或显式 partial 状态，重复提交按键幂等，跨 Session 回流使用父子 invocation id。
+### 28. 内置扩展可替换的清单与接口能力互相矛盾
+- **严重程度**：重要；**类别**：API / 文档
+- **位置**：`docs/proposals/agent-harness-event-model.md` 方案 5 第 204-220 行、方案 8 第 290-306 行、对 Spec 的预期改动；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:106-113,212-227`
+- **现象**：提案表格把 `core.history`、`core.compaction`、`core.title` 都列为可替换；`replaces` 示例只写 `"core.history" | "core.compaction" | "core.title"`。spike 类型却只允许 `replaces?: "core.history"`，构造函数也只查找历史，完全没有 compaction/title 的替换装配。与此同时审批、请求校验、循环等固定部分与可替换 projection 的依赖边界没有定义。
+- **为什么是问题**：作者照提案实现会在 SDK 类型和内核装配上返工：Profile 想替换压缩方法时不知道是替换 `core.compaction`、贡献 method 还是调用公共流程。若允许任意 Profile 替换压缩/历史而固定校验又不完整，安全和恢复不变量会被替换扩展绕过；若实际上不允许，提案的“只有 Profile 能替换”又是错误合同。
+- **如何核实**：对照提案 union 与 spike `ExtensionDef.replaces`/构造函数；`bun check.ts` 仅覆盖替换 `core.history`。t11 已定压缩方法顺序和公共恢复流程，说明“可替换”不能等于替换整个压缩生命周期。
+- **建议改法**：逐个内置能力定义可扩展 seam：History 只能替换投影函数且必须通过 canonical validator；compaction 只能贡献 method，不得替换触发、日志提交和恢复；title 是否可替换另定。把 `replaces` 改成能力注册表/受限接口，不用字符串 union 暗示任意替换。
+### 29. 提案的 `ExtensionContext` 主动能力在 spike 类型中不存在，Profile 也没有稳定的自有状态入口
+- **严重程度**：重要；**类别**：API / 灵活性
+- **位置**：`docs/proposals/agent-harness-event-model.md` 扩展形状第 251-288 行；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:76-88,106-132,360-370`
+- **现象**：提案的 `setup(ctx)`/`ExtensionContext` 有 `complete`、`invokeTool`、`ask`、`send`、`emit`、`compact`、`abort`、`setTitle`、诊断和 URI `read()`；spike 是无参数 `setup()`，`ReadCtx` 只有 `mine/read/settings/tools/preview/now/file`，没有 signal、主动动作或 session identity。提案还说内置片对所有扩展只读可见，但 spike 的 `ViewInput.state.read(extId)` 在没有 selector 时只允许 `x.own`，内置/插件原片会抛错。
+- **为什么是问题**：反应追加事件、记忆/压缩/审批/插话和多 Agent 都需要主动动作的日志化语义。若先按 spike API 实施，再补 `ExtensionContext`，会重新决定每个主动动作的事件、并发和失败边界；若作者按提案直接写，spike 的 Profile 验证无法代表 SDK 合同。
+- **如何核实**：对照提案第 286 行与 spike 类型/`viewState` 实现；现有 15 场景只用 `external` 和 helper closure，没有测试 `emit/ask/send/compact/abort` 或内置片读取。
+- **建议改法**：先冻结最小公共 Context：会话/运行/request identity、不可变 state pair、signal/deadline、URI read、经内核登记的主动动作；每个动作规定是否写事件、是否可在 preview、失败如何结算。若 Profile 只能经 selector 读内置片，就给内置片明确公开 selectors，不要用“只读可见”含糊描述。
+### 30. 参照实现中的失败、批次和可观测边界没有映射到 NeuroBook 合同
+- **严重程度**：重要；**类别**：灵活性 / 文档
+- **位置**：`docs/proposals/agent-harness-event-model.md` 当前行为与证据第 50-54 行、备选方案第 442-450 行、对 Spec 的预期改动；`docs/research/agent-runtime-references.md` 钩子第 164-183 行
+- **现象**：本稿把 OMP/Claude/LangChain 概括为“有钩子/中间件”，但没有吸收几个会直接影响产品合同的机制：OMP 的 `transformProviderContext` 与 `before_provider_request` 原始请求边界、`after_provider_response`/`assistant_message` 重写、工具批次的并发与 steering barrier、模型/工具调用错误与 retry/compaction 终态；Claude Code 的 `PostToolBatch`、`PostToolUseFailure`、`PreCompact/PostCompact`、`PreModelSwitch`、匹配器和 `onFailure`；LangGraph 的 checkpoint、interrupt/resume、持久子图和 reducer 合并。
+- **为什么是问题**：这些不是“多几个钩子”的装饰，而是模型流、工具批次、压缩、审批、恢复和可观测性所需的边界。当前提案把它们折叠到四种扩展能力，却没有对应事件/错误/持久化合同；实现者会在接入真实 provider、并行工具和长运行后重新引入第二套机制，抵消本稿想消除的分散规则。
+- **如何核实**：已读 `docs/research/agent-runtime-references.md:166-183`；OMP `pi-agent-core` 的 `executeToolCalls` 与 `pi-ai` 的 stream 终态也直接核实。spike README 明确未做流式、压缩、并行工具、插话、中止，因此其 15/15 不能覆盖这些参照边界。
+- **建议改法**：做一张“产品需求/参照机制 → 事件、快照、拦截点、失败结果、验收场景”的映射表，至少覆盖 provider payload 与 canonical context 的层次、工具批次、重试、压缩、interrupt/resume、子会话和生命周期。没有映射的参照能力明确列为非目标并说明 t07/t11/t14 如何替代，不能只写“由内核自己实现”。
+### 31. “attach”在已定记录中同时存在和被删除，无法据此实现
+- **严重程度**：重要；**类别**：文档 / API
+- **位置**：`docs/proposals/agent-harness-event-model.md` 方案 4 第 151-190 行、决策记录第 491-494 行；`.agents/works/w00032-agent-integration/tasks/t20-hooks/README.md:46-50`
+- **现象**：t20 README 说开发者同意“视图加 `attach`”，决策记录第 491 行也写“视图加 `attach`”；第 494 行又写“去掉 `tail`、`attach`，并进槽”。正文的模板节点、`ModelRequest`、`ExtensionDef` 均没有 `attach`，只描述 `contribute`/`Slot`。
+- **为什么是问题**：作者无法判断 `attach` 是请求末尾的独立消息、槽的语义别名、还是已废弃的旧 API。它会影响动态内容的缓存边界、History/Transcript 位置、Profile 迁移和 SDK 类型；按其中任一段实现都会与另一段的验收/文档冲突。
+- **如何核实**：逐处读取提案和 t20 README；代码搜索 spike 只有 `contribute` 和 `Slot`，没有 `attach`。这是文档内部矛盾，不是实现偏好。
+- **建议改法**：在定稿前删掉过时决策或补充 `attach` 的完整类型、位置、稳定性、来源与缓存合同；若结论确实是“并入槽”，把 README 第 46 行和决策记录第 491 行改成同一措辞，并为动态末尾附加场景指定对应 `<Slot volatile>`。
+### 32. “依赖拓扑序再按 id”没有依赖数据，也没有稳定排序实现
+- **严重程度**：重要；**类别**：正确性 / API
+- **位置**：`docs/proposals/agent-harness-event-model.md` 拦截第 218-221 行、反应第 231-234 行、扩展形状第 251-288 行；`.agents/works/w00032-agent-integration/tasks/t20-hooks/spike/kernel.ts:106-113,217-225`
+- **现象**：提案规定插件按依赖拓扑序、再按 id 排序，Profile 扩展按列表顺序。`ExtensionDef` 没有 `dependsOn`/插件来源字段，构造函数直接使用 `opts.plugins` 的传入顺序；没有检测循环依赖、缺失依赖或同一扩展重复登记。
+- **为什么是问题**：扩展顺序决定反应事件的 parent 链、槽内容拼接、拦截器外内层和“谁最后修改请求”。当前顺序由插件激活/装配的偶然顺序决定，跨进程或插件升级后可变，破坏同一日志的确定重放，也可能让依赖选择器在 setup/运行时尚未可用。
+- **如何核实**：静态读构造函数排序逻辑与 `ExtensionDef` 字段；已有顺序场景只验证给定数组顺序，不能证明依赖拓扑。把 `[b,a]` 与 `[a,b]` 作为相同插件集合传入会得到不同 `source`/槽拼接顺序。
+- **建议改法**：扩展注册清单显式记录来源和依赖，注册期做拓扑排序、循环/缺失依赖拒绝，再用稳定 id 排同层；把最终顺序/hash写入会话 Profile 版本事件。Profile 列表顺序可保留，但必须说明它与全局依赖约束如何合并。
+## 未发现问题的方面
+
+- 在 spike 已覆盖的线性、单进程 happy path 内，`bun check.ts` 实测 `15/15 通过`；输入改写/拒绝、只读审批位于最里层、简单的 Profile 历史替换、会话级人设、槽缺失诊断和同一条事件的扩展顺序均有可观察证据。
+- 反应并发执行后按扩展顺序追加这一条局部合同，随机延迟重复 8 次未发现顺序漂移；这不能外推到 session 片、批量工具、并发外部事件或失败路径。
+- `bun bench.ts 1200` 与 typecheck 均能跑通，说明 spike 本身可执行；性能数字可作为基线，不能作为长会话上限或真实 OMP 请求性能合同。
+- `core.history` 作为可替换投影、Profile 拥有最终模板布局、稳定/volatile 槽的基本表达方向本身没有发现必须推翻的理由；问题在替换边界、缓存实现和未覆盖的输入形状。
+
+## 数量
+
+- 阻断：9
+- 重要：21
+- 建议：2
+- 合计：32
+
+## 待定项判断
+
+1. **名字**：定为“扩展”比“钩子”准确；它有状态、反应、视图和拦截，不只是生命周期回调，但应在 SDK 文档中保留 hook 对照词。
+2. **Profile 拦截链位置**：请求修改放最里层符合“Profile 最后拍板”，建议采用；必须另外写清回复修改的逆序、审批不可绕过和同一请求多次 `next` 的审计规则。
+3. **归约快照**：只在压缩点存不够，任意回退/分支会产生不可接受的长距离重放；采用压缩点加稀疏 checkpoint/索引，并规定淘汰、持久化和分支命中策略，不要默认每事件全量快照。
+4. **反应链深度**：默认 3 层可以作为防循环上限，但必须定义根层、追加层和“接着做”次数的关系；当前 spike 有 off-by-one，不能照搬。
+5. **请求录制**：原始 provider body 默认关闭较安全，但逻辑请求的 hash、修改摘要、模型/工具/参数 fingerprint 和失败结果必须进入日志；开启完整录制时要脱敏、限大小、轮转并区分凭据。
+6. **`reminder()` 缺省方式**：持久提醒默认写历史，最符合回放与缓存；一次性时间/界面信息才走 volatile 槽，并规定提醒事件幂等和回退后的重新送达。
+7. **工具拦截附加说明**：模型能看到的说明必须成为可重放事件或工具结果的一部分；不能只存在下一次请求的临时上下文，否则重启与审计不一致。
+8. **反应 I/O**：允许直接调用 `ctx` 更适合多步记忆/工具流程，但每个主动动作必须有结构化事件、超时、取消、幂等和失败结算；可测性不能靠把副作用藏在 Promise 内解决。
+9. **不经事件就会变的数据**：视图不应直接读外部世界；反应写入可重放事实是正确默认，通用 `now` 必须作为每次请求的持久化 view input，或明确降级为不可重放的 volatile 诊断。
+10. **Profile 自带扩展写法**：`extensions: [...]` 更好，能复用全局扩展生命周期与来源；但应补多 slice/作用域、唯一 id、稳定排序和迁移机制，不能让一个领域功能被迫拆成可独立禁用的伪扩展。
