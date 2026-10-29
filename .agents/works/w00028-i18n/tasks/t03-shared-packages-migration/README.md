@@ -61,11 +61,11 @@ updated: 2026-10-27
 | 包 | 现版本 | 建议 | 破坏性变化 | 消费者 |
 |---|---|---|---|---|
 | nb-runtime | 0.2.0 | 0.3.0 | 无破坏；清单 schema 加可选 `l10n`、新增共享的目录校验导出 | nb-story、应用 |
-| nb-ui | 0.2.0 | 0.3.0 | 无破坏；新增 `./text`、`./text-port`、`./locales`；组件缺省文案改走端口（没有宿主时仍是中文） | 其余共享包、nb-story、应用 |
-| nb-form | 0.1.0 | 0.2.0 | `describeIssues` 增 `text` 参数；`FormText` 放宽为 `Text`；组件经端口取文字 | nb-story、应用 |
-| nb-agent-ui | 0.1.0 | 0.2.0 | 文字用 `TextRef`（命名空间 `nb-agent-ui`）；组件去掉 `locale` 属性 | nb-story、应用 |
+| nb-ui | 0.2.0 | 0.3.0 | 放宽类型，调用方传字符串仍有效：`NotificationInput` 的 `title`、`message`、`action.label` 与 `NotificationItem` 的对应字段由 `string` 放宽为 `Text`（自己画视口、把这些字段当字符串读的消费者类型报错）。新增 `./text`、`./text-port`（`TEXT_PORT_KEY`、`useText`、`defaultTextPort`，以及共享包目录的登记表 `registerDefaultCatalog` 与根组件用的 `provideDefaultText`）、`./locales`；组件缺省文案改走端口（没有宿主时仍是中文） | 其余共享包、nb-story、应用 |
+| nb-form | 0.1.0 | 0.2.0 | `describeIssues` 的第 4 个参数由 `locale: string` 换成 `text: FormTextApi`（不是新增；按旧签名传语言标签的 JS 调用方运行期抛 TypeError）；`FormText` 放宽为 `Text`；组件经端口取文字 | nb-story、应用 |
+| nb-agent-ui | 0.1.0 | 0.2.0 | 文字用 `TextRef`（命名空间 `nb-agent-ui`）；`AgentConversationView`、`AgentSessionList`、`AgentModelCatalog` 的 `locale` 由必填改为可选，宿主注入端口时不起作用；删除导出 `ViewText`、`textOf`、`HarnessTranscriptOptions`；`createHarnessTranscript` 去掉参数（传 `{locale}` 的 TS 调用报错，JS 调用方静默失效，错误说明变成 `TextRef`）；`SystemEntry.label` 与错误条目的 `message` 由 `string` 放宽为 `Text`（把它们当字符串读的宿主类型报错） | nb-story、应用 |
 | nb-markdown | 0.1.0 | 0.2.0 | 四个零件去 `locale`；`ChipInput.locale` 换 `translate`；`MarkdownViewHost.locale()` 换 `context?`；删 `prompt-labels.ts` | nb-story、应用 |
-| nb-story | 0.2.1 | 0.2.2 | 无；QaPage 注入合并端口，`dist/web` 需重建 | 终端用户 |
+| nb-story | 0.2.1 | 0.2.2 | 无；QaPage 不再注入合并端口（嵌套的共享包目录由 nb-ui 的登记表合起来），`dist/web` 需重建 | 终端用户 |
 | neuro-book 与 nb-plugin-sdk | 0.11.1 | 0.12.0 | SDK 去掉 `localize`、`formatText`，新增 `/text`、`/text/browser`；插件注册表 v5、引导协议 5、命令合同 v2 | 第三方插件作者（SDK 还没有外部发布过的消费者，ADR 0030） |
 
 nb-harness、nb-profile、nb-session 本 Task 没改，版本不动。
@@ -79,6 +79,15 @@ nb-harness、nb-profile、nb-session 本 Task 没改，版本不动。
 - `explorer/browse.test.ts` “展开的目录改名”间歇失败的根因：父目录的刷新先于 `renamed` 事件到达时，选择里旧地址的行已不在，被可见行 prune 清空；随后的路径跟随作用在空选择上。与 i18n 无关，没有修；真要修需让 prune 认得“刚改名的子树”，记入 explorer 的后续清单。
 - 实现审查：后端（omp）与前端（Sonnet）各一份，报告在 `/tmp/w00028-t03/review-impl/`，处理见下一节。
 
+## 实现审查处理（2026-10-29）
+
+报告：`evidences/impl-review-backend.txt`（omp，6 条）、`evidences/impl-review-frontend.txt`（Sonnet，15 条）。修正提交：后端 `6a0c4ef0c`，前端 `0f4c03299`（交付报告 `evidences/slice-17-review-fixes-report.txt`）。
+
+- 后端已修：目录文件严格按 UTF-8 解码；目录拒绝 `__proto__` 键、展开不碰原型；`locales` 本身是符号链接时归 `catalog-invalid`；目录检查脚本报 `locales/` 下的子目录。各补一条负样本测试。
+- 后端不改：目录体积、深度与键数上限。插件受信任（ADR 0027），目录端点只读本机已安装的文件，收益与成本不对等。
+- 前端已修：插值参数撞 i18next 选项（改走 `replace`）；缺省端口遮住兄弟包目录（nb-ui 加共享包目录登记表，nb-story 的合并端口删除）；非法语言标签；最小翻译器与宿主引擎对数字字符串、回退语言复数的分叉；17 处英文单数（检查脚本新增规则）；引用小块悬停提示不随语言刷新；nb-form 拼接全角标点移入目录；8 处新写的中文开发诊断改英文（`connection.ts` 的两句目录报错会显示在插件页，撤回成中文）；版本表。
+- 前端不改：第 6、12 条（`CatalogKey` 抄了五份、取文字入口有五种形状），属重构，超出本 Task，留作后续。
+
 ## 下一步
 
-实现审查报告回来后处理；发布与版本改动等开发者授权；`ui.i18n` Spec 晋升待开发者批准。
+发布与版本改动等开发者授权（`ui.i18n` Spec 已晋升，待确认清单已全部追认）。

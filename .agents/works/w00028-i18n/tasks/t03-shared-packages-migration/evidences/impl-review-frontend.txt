@@ -1,0 +1,140 @@
+# w00028 t03 前端/端口/API 形状实现审查（提交 4bdeeb333）
+
+### 1. 重要 / 正确性 / `packages/neuro-book/src/web/host/text-engine.ts:98-105`（translateRef）：插值参数名与 i18next 保留选项重名时行为错乱
+- 现象：`lookup = {ns: ns ?? "", ...params}` 把调用方的参数整个摊进 i18next 的 `t` 选项。参数名恰好是 i18next 的选项名时，参数不再是“插值值”而是控制项。实测（实现 worktree，`bun run /tmp/w00028-t03/review-impl/exp/a.ts`、`b.ts`）：
+  - 参数 `context`：目录 `ctx: "x {{context}}"`、`ctx_foo: "FOO"`，传 `{context:"foo"}`，宿主得 `FOO`，最小实现得 `x foo`。
+  - 参数 `ns`：`{ns:"other"}` 把查找换到别的命名空间，宿主得到键名 `nsp`（严格模式抛缺键），最小实现得 `other`。
+  - 参数 `lng`：`{{lng}}` 被链上的语言覆盖（得 `zh-CN`）；`defaultValue`、`replace`、`ordinal`、`interpolation` 同理被 i18next 吃掉或改变行为；`lngs: "en"` 直接抛 `codes.forEach is not a function`（渲染期异常）。
+- 为什么是问题：`context`、`ns` 在“写作 + Agent”产品里是很自然的占位名（上下文、命名空间）；第三方插件作者看不到这条隐性约束，目录检查脚本（`scripts/ci/message-catalogs.ts` 的 PLACEHOLDER）和 Spec 输出 3/6 都没提。违反输出 9“两个翻译器相同”的精神：同一组目录同一组参数，两个实现结果不同，且宿主这边是静默错字。当前仓库内目录没有用到这些名字（grep 无命中），所以是潜在问题，不是现状故障。
+- 如何核实：见上，`bun run /tmp/w00028-t03/review-impl/exp/b.ts`（在 `.worktree/w00028-i18n/packages/neuro-book` 下运行）。
+- 建议改法：插值值放进 i18next 的 `replace` 选项（`i18n.t(key, {lng, ns, count, replace: params})`；`count` 仍须在顶层）；或在 `sanitizeParams`/目录检查里拒绝保留名。前者无代价，一并给输出 9 补一例“参数名叫 context/ns”。
+
+### 2. 建议 / 正确性 / `packages/nb-ui/src/text/minimal.ts:62-64` 对 `packages/neuro-book/src/web/host/text-engine.ts`：`{{n, number}}` 收到数字字符串时两个翻译器不一致
+- 现象：参数 `{n:"1234567"}`，目录 `{{n, number}} lines`：宿主得 `1,234,567 lines`，最小实现得 `1234567 lines`（`typeof value === "number"` 才格式化）。
+- 为什么是问题：`TextParams` 允许 `string | number`，`sanitizeParams` 对字符串原样放行（只截断长度）；调用方（尤其 JS、清单、远程结果）传数字字符串很常见。输出 9 的一致性测试里 `big` 的两个例子只传了 number，没盖到。
+- 如何核实：`bun run /tmp/w00028-t03/review-impl/exp/a.ts` 前两行。
+- 建议改法：二选一并写进 Spec 输出 6：最小实现对可解析为有限数字的字符串也格式化（与 i18next 的 `Intl.NumberFormat.format(string)` 一致），或 `sanitizeParams` 对 `number` 格式的占位不放行字符串（需要先知道占位格式，成本高）。前者简单。
+
+### 3. 建议 / 正确性 / `packages/nb-ui/src/text/minimal.ts:49-54`：复数类别用“当前语言”，宿主引擎用“正在探的候选语言”，经回退链落到别的语言时结果不同
+- 现象：命名空间源语言 `en-US`、当前语言 `zh-CN`、目录只有英文，`count=1`：宿主得 `1 file`（按 en-US 的规则取 `_one`），最小实现得 `1 files`（按 zh-CN 的类别 `other`）。`count=2` 两者都是 `2 files`。实测同上脚本末尾两行。`{{n, number}}` 的 `Intl.NumberFormat(locale)` 同理用的是当前语言而不是候选语言。
+- 为什么是问题：代码注释写“复数类别按当前语言算”，Spec 输出 5 写“按当前语言的复数规则”，但宿主引擎的实际行为是按每一级候选语言算；这正是 i18next 的做法，也更正确（`1 files` 是错英文）。输出 9 的一致性测试没有“源语言不是 zh-CN”且“目录不全”的复数例子。当前生产里最小实现的所有命名空间源语言都是 zh-CN 且中英目录对齐（目录检查保证），所以不会触发；但 `sources` 选项是公开的，`nb-ui/text/minimal` 也是公开子路径。
+- 如何核实：同上。
+- 建议改法：最小实现里 `Intl.PluralRules` 与 `NumberFormat` 都按 `candidate` 求值；Spec 输出 5 把“当前语言”改成“取到文字的那一级语言”。
+
+### 4. 建议 / 代码质量 / `scripts/ci/message-catalogs.ts:63`：占位符正则看不见 `{{name, number}}`，且 `{{name,number}}`（无空格）会被当成名叫 `name,number` 的占位
+- 现象：`PLACEHOLDER = /\{\{\s*([^{}\s]+)\s*\}\}/gu` 对 `共 {{n, number}} 行` 得空集合，对 `{{n,number}}` 得 `["n,number"]`。实测：`bun -e` 对四个样例的匹配结果依次为 `[]`、`["n,number"]`、`[]`、`["n"]`。
+- 为什么是问题：Spec 目录检查要求“同一个键在各语言的占位符集合相同”。仓库里 editor/projects 目录正在用 `{{count, number}}`、`{{line, number}}`、`{{column, number}}`，这些占位符根本没被比较：英文漏写 `{{line, number}}` 检查不出来（运行时才在测试环境抛错）。minimal.ts 的 `PLACEHOLDER` 用的是另一套正则（`(\w+)(\s*,\s*number)?`），两处正则不共享。
+- 如何核实：见上。
+- 建议改法：脚本的占位符提取改用与 `minimal.ts` 同形的正则（名字 `\w+`，可选 `, number`），最好从一处导出；同时拒绝不认识的格式（`{{x, uppercase}}`、`{{n, number(...)}}`：宿主会执行，最小实现原样留下且不上报，见实测第 6、7 行），让输出 9“只用插值与 number”在检查里成立。
+
+### 5. 重要 / 不变量 / `packages/{nb-agent-ui/src/vue/text.ts:62-70, nb-form/src/vue/text.ts:81-86, nb-markdown/src/host/text.ts:60-66}`（`provideXxxText`）：共享包的缺省端口遮住兄弟包目录，应在 nb-ui 底层解决，而不是在使用方各合并一个端口
+- 现象（从代码推断；仓库里唯一的复现是 nb-story 为它写了补丁）：三个包的根组件在“没有注入端口”时各建一个只含 `nb-ui + 本包` 目录的端口并 `provide`。凡是把两个共享包嵌在一起、又没有宿主的使用方（对话视图 `AgentConversationView` 里放 `nb-markdown` 的 `MarkdownDisplay`/`PromptEditor` 是它的设计用法；设置页 `SchemaForm` 里放 `nb-markdown` 的编辑器同理），内层的 `provideMarkdownText` 看到外层已经注入的“包内缺省端口”，`injected !== null` 就直接用它，于是 `nb-markdown` 的键显示成键名。`nb-story/src/web/qa/text-port.ts` 的头注释自己写明了这一点，只对 QaPage 做了合并端口 `storyTextPort()`（手写列三个包的目录，再 `provide`）。
+- 为什么是问题：
+  1. 这是回归：改前每个包的组件按各自 `locale` 属性独立工作，组合没有问题。改后，已发布的 nb-agent-ui/nb-markdown/nb-form（0.1.0，npm 上有人用）的第三方使用方在不接宿主引擎时，必须自己知道“要手写合并端口”，而版本表和 Spec 输出 8 只说“共享包的缺省端口只含自己的目录”，没有给使用方出路。
+  2. 每新增一个共享包或一次新的嵌套组合，就要再改一处合并端口；nb-story 的合并端口已经和 `createHostTextEngine` 的登记列表是同一份清单的两份手抄。
+  3. 缺省端口里 `injected !== null` 无法区分“宿主的完整端口”和“别的包的残缺缺省端口”，运行期没有任何诊断：只看到键名（宿主测试环境的严格模式会抛，缺省端口不抛）。
+- 如何核实：读 `provideMarkdownText`（`nb-markdown/src/host/text.ts:62-70`）与 `AgentConversationView.vue:54`；`nb-story/src/web/qa/text-port.ts` 头注释。
+- 建议改法（底层）：把“登记过的目录”放进 nb-ui 的缺省端口，而不是每个包私有：
+  - nb-ui 新增 `registerDefaultCatalog(ns, catalogs, source?)`（进一个模块级 `createMinimalTranslator` 共用的可变表）和 `provideDefaultText(locale: () => string | undefined): TextPort`（有注入就用，没有就建一个按 `locale` 的端口并 `provide`）；`defaultTextPort()` 与 `provideDefaultText` 都用这张表。
+  - 每个共享包的 `locales/index.ts` 在导入时登记自己的目录（需要在 package.json 写 `"sideEffects": ["./src/locales/index.ts"]` 或类似；目前四个包的 package.json 都没有 `sideEffects`）。
+  - 三个包的 `text.ts` 各自约 40 行重复（`packageTranslator`、`packagePort`、`defaultPort`、`provideXxxText`）收缩成对 nb-ui 的薄包装；`storyTextPort()` 与 QaPage 的 `provide` 删除。
+  - 代价：模块级可变状态（SSR/多实例要小心；用 `Symbol.for` 键挂 `globalThis` 保证两份 nb-ui 也共用一张表，与 `TEXT_PORT_KEY` 同样处理）；“导入即登记”要求目录模块不能被摇掉。收益：消除上面三点，Spec 输出 8 可以改成“缺省端口含所有已导入共享包的目录”。
+- 若开发者不想引入模块级登记，次选：`provideXxxText` 发现注入的端口带 `fallback: true` 标记时，用“合并两个包的目录”重建；代码更多，不建议。
+
+### 6. 建议 / 代码质量 / `nb-ui/src/locales/index.ts:15-25`、`nb-agent-ui/src/text.ts:14-30`、`nb-markdown/src/locales/index.ts:25-40`、`nb-form/src/builtin-text.ts:16-`、`neuro-book/src/shared/plugin-text.ts`：`PluralSuffix`/`WithoutPlural`/`CatalogKey` 抄了五份；三个包的端口样板抄了三份
+- 现象：同一个 17 行的类型推导在五个文件各一份（grep `type CatalogKey|type PluralSuffix`）；`packageTranslator`/`packagePort`/`defaultPort` 在 nb-agent-ui、nb-form、nb-markdown 的 `text.ts` 里逐字相同（只有目录名不同）。Task 记录自己的“未做”里也写了“`CatalogKey` 在本包抄了一份”。
+- 为什么是问题：五份类型要同步改（比如要支持 `_zero` 以外的后缀或修一个递归深度问题）；Spec 与 Task 把“复数后缀集合”写成常量，类型却在五处手抄，漂移后键校验会在个别包静默失效（`string` 回退）。nb-form/nb-agent-ui/nb-markdown 的核心都已经允许 `import type` 自 `@notnotype/nb-ui/text`，导出一份没有障碍。
+- 如何核实：`grep -rnE 'type (CatalogKey|PluralSuffix)' packages --include='*.ts' --exclude-dir=node_modules`。
+- 建议改法：`CatalogKey`/`PluralSuffix` 放进 `nb-ui/src/text/index.ts` 导出，各包 `import type`；端口样板随第 5 条收敛。
+
+### 7. 建议 / 文档 / `.agents/works/w00028-i18n/tasks/t03-shared-packages-migration/README.md` “交付：版本表”：nb-agent-ui、nb-form、nb-ui 三行与实际公开接口变化不符
+- nb-agent-ui 一行写“组件去掉 `locale` 属性”：实际 `AgentConversationView`、`AgentSessionList`、`AgentModelCatalog` 的 `locale` 仍在，只是从必填改为可选（`AgentConversationView.vue:31`、`AgentSessionList.vue:24`、`AgentModelCatalog.vue:13`），且宿主注入端口时被忽略；Task 第 16 片自己写“`locale` 属性盘点后全部保留”。表里漏掉的真破坏：删除导出 `ViewText`、`textOf`、`HarnessTranscriptOptions`；`createHarnessTranscript(options)` 的参数没了（传 `{locale}` 的 TS 调用报错，JS 调用方静默失效，错误说明变成 `TextRef`）；`SystemEntry.label`、错误消息 `message` 由 `string` 放宽为 `Text`（读这两个字段当字符串的宿主类型报错）。第 9 片报告里写过前三项，没进版本表。
+- nb-form 一行写“`describeIssues` 增 `text` 参数”：实际是第 4 个参数由 `locale: string` 改为 `text: FormTextApi`（`nb-form/src/vue/order.ts:94`；base 签名 `(schema, value, issues, locale, hints?)`），不是增加。按旧签名传语言标签的 JS 调用方运行期会在 `text.text` 处抛 TypeError，不是“忽略多余参数”。
+- nb-ui 一行写“无破坏”：`NotificationInput.message/title/action.label` 与 `NotificationItem` 的对应字段由 `string` 放宽成 `Text`（`useNotification.ts:13-31`），自己写视口读 `queue.notifications` 当字符串用的消费者类型报错。
+- 为什么是问题：Task 明说版本表是给开发者授权发版的依据；发布后第三方只能看到“0.x 次版本号”，破坏的细节在迁移说明里缺失。
+- 如何核实：`git diff 96d3f023d..HEAD -- packages/nb-agent-ui/src/index.ts packages/nb-agent-ui/src/harness.ts packages/nb-form/src/vue/order.ts packages/nb-ui/src/composables/useNotification.ts`。
+- 建议改法：版本表按上面逐包补全；`describeIssues` 的旧签名误用可以在函数体里对 `typeof text === "string"` 抛一条明确错误，比 `undefined is not a function` 好找。
+
+### 8. 建议 / 正确性 / `nb-markdown/src/editor/reference-links.ts:54-59`、`nb-markdown/src/display/renderer.ts:89`：普通 DOM 里的引用小块悬停提示一次算好，切换语言后不更新
+- 现象：`decorationsOf` 在文档变化（或 `REFRESH_REFERENCE_LINKS`）时才重算，`chip.title` 是当时的翻译字符串；展示器静态视图（`renderer.ts:89`）把 `span.title = chip.title` 写成固定属性。`MarkdownControl.vue` 只在 `enter`（切标签）里发 `REFRESH_REFERENCE_LINKS`，没有监听端口语言。结果：切语言后，已打开的编辑器和已显示的 Markdown 里引用小块的悬停提示仍是旧语言，直到下次编辑或切换标签。
+- 为什么是问题：Task 与 Spec 的主张是“切换语言不重挂载，界面原位更新”（`MarkdownControl.vue` 新注释“跟着端口换语言”）；这一处是例外且没有记录。严重度低（只是 `title` 悬停），且 base 上同样是一次算好，不算回归；但这次的改动把注释写成了“跟着端口换语言”，容易误导。
+- 如何核实：读 `reference-links.ts:80-90` 的 `apply`；切换窗口语言后观察（未跑：不起开发服务）。从代码推断。
+- 建议改法：编辑器侧在 `MarkdownControl` 里 `watch(() => viewHost.context …port.locale.value)` 发一次 `REFRESH_REFERENCE_LINKS`；展示器侧让 `MarkdownDisplay` 在语言变化时重画静态视图（它已有重画路径）；或者在注释里写明“悬停提示不随语言实时更新”。
+
+### 9. 建议 / 正确性（英文文案） / 17 个英文 `_one` 与 `_other` 逐字相同：`1 items`、`1 words`、`1 books`、`Delete 1 items?`
+- 现象：用 `flattenCatalog` 对 `/tmp/w00028-t03/review-impl/exp/dup-one.ts`（遍历 6 个插件的 `locales/en-US.json` 与四个共享包的 `en-US.ts`）统计：17 个键的 `_one` 值与同名 `_other` 逐字相同，且文本没有单复数变化。例：`explorer dialog.delete.title_one = "Delete {{count}} items?"`、`explorer tree.dragItems_one = "{{count}} items"`、`settings value.items_one = "{{count}} items"`、`projects format.words_one/files_one/books_one`、`bookshelfPage.count_one = "{{count}} books"`、`editor status.words_one = "{{count, number}} words"`、`plugins row.entryProblems_one = "{{count}} entry point(s) not running"`（还有 `(s)` 写法）。这些都能在 count=1 时到达（例：`FilesExplorerView.vue:209` 传 `deleteDialog.items.length`，选一项就是 1；书架一本书就是 `1 books`）。
+- 为什么是问题：t03 的核心价值之一就是接入了复数；目录检查要求英文有 `_one` 与 `_other`，结果是写手为了过检查把 `_other` 抄一份。base 上的英文也是 `Delete {count} items?`（逐字沿用，`git show 96d3f023d:packages/neuro-book/src/plugins/explorer/web/messages.ts` 第 100 行），所以不是回归，但这是第一次有条件把它们改对的时机，且“文字不变”原则对英文并不适用：Task 里英文本来就是新写的/待开发者过目的。
+- 如何核实：`bun run /tmp/w00028-t03/review-impl/exp/dup-one.ts`（在实现 worktree 的 `packages/nb-agent-ui` 下运行）。
+- 建议改法：17 处改成 `1 item`、`1 word`、`1 book`、`Delete 1 item?`、`1 entry point not running` 等；目录检查加一条“英文 `_one` 与 `_other` 相同则警告”（占位符后相同的文字即可判）。
+
+更正（针对第 8 条）：展示器侧的这一限制已写在 `packages/nb-markdown/src/display/MarkdownDisplay.md:52`（“小块的悬停提示与 HTML 卡片的按钮按画的时候的语言”）并有测试（`text.dom.test.ts` 的“展示器的静态视图”例）固定。所以展示器不算遗漏；仍然没有记录的是编辑器侧：`MarkdownControl.vue` 注释写“跟着端口换语言”，只对图片成立，链接小块提示不更新，`MarkdownControl` 的 `.md` 与 Spec 没有这条例外。第 8 条的严重程度维持“建议”，范围缩小到编辑器侧的文档/注释。
+
+### 10. 建议 / 不变量 / `scripts/ci/message-catalogs.ts:63` 与 `docs/specs/ui/i18n.md` 输出 9：“最小实现与宿主引擎一致”只对目录用了子集成立，检查脚本却不把目录限制在这个子集内
+- 现象：输出 9 的前提是“目录只用插值（含 `number` 格式）与 `_one`、`_other`”。实测（`bun run /tmp/w00028-t03/review-impl/exp/c.ts`，实现 worktree）以下写法都通过目录检查（PLACEHOLDER 是 `[^{}\s]+`），但两个翻译器输出不同：
+  - `{{file-name}}`、`{{a.b}}`（参数名带连字符、点号）：宿主代入 `F`/`D`，最小实现原样留着 `{{file-name}}` 且不上报（`minimal.ts` 的 `\w+` 不认）。
+  - `{{- v}}`（i18next 的不转义写法）：宿主得 `U<b>`，最小实现留原文。
+  - `{{{v}}}`：宿主留原样，最小实现得 `{B}`。
+  - `{{n, number(minimumFractionDigits: 2)}}`、`{{s, uppercase}}`：宿主执行格式，最小实现留原文且不上报（第 1、4 条已列）。
+- 为什么是问题：共享包（nb-ui/nb-form/nb-agent-ui/nb-markdown）的目录在没有宿主时走最小实现，在宿主里走 i18next；其中任何一个目录里写了上面之一，同一键在两个环境显示不同，没有任何机检拦截。第三方插件只走宿主引擎，所以它们不受限，但它们的目录若被共享包式的缺省端口（例如 nb-story）加载就会不一致。目前仓库里没有这样的写法（grep 无命中），所以只是缺机检。
+- 如何核实：见上。
+- 建议改法：目录检查把占位符语法限制为 `/\{\{\s*\w+(?:\s*,\s*number)?\s*\}\}/`，出现其它 `{{…}}` 一律报错；同时 `minimal.ts` 与脚本共用这一条正则（现在是两套）。
+
+### 11. 建议 / 正确性（英文界面） / `nb-form`：用户可见的字符串里仍由代码拼全角标点
+- 位置：`packages/nb-form/src/vue/order.ts:99`（`${label}：${wording}`）、`vue/IssueSummary.vue:27`（同形）、`vue/FieldShell.vue:76`（`${text.t("warning")}：${warning}` 再 `.join("；")`）与 `:145`（`${props.clearLabel}：${props.label}` 的读屏名）、`vue/choices.ts:80`（`${entry}（${text.t("stale")}）`）、`vue/text.ts:99`（`${wording}（${at}）`）。共 6 处。
+- 现象：英文界面下表单问题汇总、字段警告、读屏名、已不存在的选项会显示成 `Font size：At least 3 characters`、`Warning：…`、`gone（No longer exists）`，冒号和括号是 CJK 全角字符。
+- 为什么是问题：t03 的目标是共享包能出英文，这些是 nb-form 唯一还写死中文标点的地方；Task 的“追加切片”只列了 workbench 的全角标点与 `saveAll` 的“；”，没有 nb-form。base 上同样（`git show 96d3f023d:packages/nb-form/src/vue/IssueSummary.vue` 第 28 行），不是回归，但 nb-form 的目录是这一轮新建的，正是该处理的时候。
+- 如何核实：`grep -rn '：\|（\|；' packages/nb-form/src --include='*.ts' --include='*.vue'`，排除注释与测试。
+- 建议改法：目录里加 `format.labelled: "{{label}}：{{text}}"` / `"{{label}}: {{text}}"`、`format.located`、`format.warningLine`、`format.staleOption` 等模板键，由语言决定标点；英文用半角。顺带 `IssueSummary.vue` 的“警告：”读屏前缀同理。
+
+### 12. 建议 / 代码质量（API 形状，站在使用方） / 共享包与插件取文字的入口：同一件事有五种形状，Task 目标里“合并 say/formatText/locale 类型”只做了一半
+- 现象（接入草稿的所见）：
+  - 取文字的写法按位置各不相同：nb-ui `useUiText()` 返回函数 `(key, params) => string`；`useText()` 返回端口 `{t(Text), variants, locale}`；nb-agent-ui `useAgentText()` 返回 `{locale, t(key), text(Text)}`；nb-form `useFormText()` 返回 `{locale, t(key), text(FormText|undefined)}`；nb-markdown `useMarkdownText()` 返回 `{locale, port, t(key), text(Text, params)}`；应用/插件 `usePluginText(ns)` 返回函数。`t` 一会儿收键，一会儿收 `Text`；`text` 在 nb-form 收 `undefined`，在 nb-markdown 多收一个参数。记忆负担：使用方每个包要重新查一次返回值形状。
+  - 同样的“绑定命名空间 + 按源语言目录核对键”在五处各写一遍（第 6 条）。如果按第 5 条改成 nb-ui 里统一的 `useNamespaceText<typeof zhCN>(ns)`，各包的 `useXxxText` 只是它的一行别名，形状自然统一。
+  - Task 的目标写“合并各自的 `say`、`formatText`、locale 类型（四份副本）”。实际仍留：`nb-agent-ui/src/text.ts` 的 `fill`/`formatText`、`nb-markdown/src/locale.ts` 的 `fillBraces`/`say`、`nb-form/src/text.ts` 的 `resolveText`，加应用里的 `localized-text.ts`；语言类型别名仍有 `PromptLocale`、`AgentLocale`、`MarkdownLocale`、`DisplayLocale` 四个（全是 `string`）。`fill` 与 `fillBraces` 是逐字相同的函数。
+  - `MarkdownText` 同一个属性两套占位语法：`TextRef` 走 `{{name}}`（端口代入），字符串与语言映射走 `{name}`（`fillBraces`，`host/text.ts:67-71`）。作者在同一个 `imageMissing` 属性上换一种写法就要换一种花括号。
+  - 宿主侧（接入一个 Vue 根）要知道：`TEXT_PORT_KEY`、`TextPort` 三个成员的语义（`variants` 是什么、`locale` 必须是响应式 ref）、每个共享包的 `./locales` 要自己登记（漏了只显示键名，无诊断）、`mount.ts` 要在三个根上各 `provide` 一次。没有 `createTextPlugin(port)` 之类的一步安装。
+- 为什么是问题：概念数量对使用方偏多；“遮住兄弟包目录”（第 5 条）与“漏登记显示键名”都是这些样板的直接后果。
+- 如何核实：`grep -rn "function fill\b\|function fillBraces" packages --include='*.ts' --exclude-dir=node_modules`；读五个 `text.ts`。
+- 建议改法：
+  1. nb-ui 提供一个入口 `useNamespaceText<Source>(ns)` 与 `defineNamespaceText<Source>(ns)`，返回函数形（与 `usePluginText`、`useUiText` 一致）；各包只导出一行别名，需要 `locale` 时单独 `useText().locale`。
+  2. `fill`/`fillBraces`/`say` 合并到 nb-ui `text/` 一份；单花括号占位给旧的 `LocalizedText` 用，注明只为兼容。
+  3. nb-ui 导出 `installTextPort(app, port)`（等价于 `app.provide(TEXT_PORT_KEY, port)`），并在 `createHostTextEngine` 里登记共享包目录时用“已导入包的登记表”（第 5 条）代替手抄列表。
+
+### 13. 建议 / 文档（规范偏离） / 本分支新写的开发诊断仍是中文，违反 ADR 0034“新写的诊断用英文”
+- 位置（均为本分支新增或改写的行，`git diff -U0 96d3f023d..HEAD` 的 `+` 行）：`packages/nb-markdown/src/host/text.ts:106`（`markdownViewContext 要在组件的 setup 里调用`）、`packages/neuro-book/src/web/host/connection.ts:83`、`:87`（`取不到消息目录（HTTP …）`、`读消息目录的响应失败`）、`packages/neuro-book/src/plugin-platform/build/build-plugin.ts:218`（`消息目录不合格`，构建命令行给插件作者看）、`packages/neuro-book/src/plugins/workbench/web/commands/keymap.ts:103` 与 `WorkbenchCommandHost.vue:46`（`命令 … 执行失败：…`）、`packages/neuro-book/src/web/index.html:50` 与 `web/testing/index.html:47`（`[nbook] 读不出界面语言的本地记录`）。
+- 为什么是问题：ADR 0034 决策 1 写明“迁移之前，中文诊断保持原样，新写的诊断用英文”（`docs/adr/0034-language-policy.md` 第 38 行）。Task 记录的已知遗留是“约 45 处 projects/workbench 的中文开发者诊断”，这批是 t03 自己新写的，不在其内。`locale-hint.ts` 同一功能的 `warn` 写的是英文，说明作者知道规则，只是 `index.html` 和 `connection.ts` 漏了。
+- 如何核实：`grep -rnP '读不出界面语言的本地记录|取不到消息目录|读消息目录的响应失败|消息目录不合格|markdownViewContext 要在' packages --include='*.ts' --include='*.vue' --include='*.html' --exclude-dir=node_modules`。
+- 建议改法：8 处改英文即可；`build-plugin.ts:218` 的 `PluginBuildError` 若测试断言了文案，用错误码。
+
+### 14. 建议 / 测试 / `packages/neuro-book/src/web/host/text-engine.test.ts:100-146`、`packages/nb-ui/src/text/text.test.ts`：输出 9 的一致性测试只比“目录里已有的写法”，没覆盖会让两个翻译器分叉的输入
+- 现状：一致性测试共 10 个手写例 + 4 个共享包目录的逐键比较（count 取 1 与 2，其它参数一律 `<name>` 字符串，中英两个语言）。这些例子都是当前目录里的写法，所以全部过。
+- 没覆盖、而本次实测会分叉的输入（对应第 1、2、3、10 条）：
+  1. 参数名与 i18next 保留选项重名（`context`、`ns`、`lng`、`lngs`、`defaultValue`、`replace`）；
+  2. `{{n, number}}` 收到数字字符串；
+  3. 源语言不是 `zh-CN` 且当前语言经回退链落到别的语言时的复数类别与数字格式（手写例里 `en-source` 只测了无复数的 `hello`）；
+  4. 占位符名带 `-`、`.`，`{{- v}}`、`{{{v}}}`、`{{n, number(...)}}`、`{{s, uppercase}}`；
+  5. `variants()` 在两个实现之间没有对拍（宿主只有“输出 10”一个例子，最小实现在 `text.test.ts` 有一个，没有同一组目录对比）；
+  6. 非严格模式下缺键/缺参数的上报内容（`report` 回调收到的 `TextProblem` 序列）没有对拍，只比返回的字符串。
+- 为什么是问题：输出 9 是 Spec 对“两个实现可以互换”的唯一保证，现在的测试只证明“已有目录没问题”，不证明“实现等价”。第 1 条是已经能在宿主里复现的静默错字。
+- 如何核实：读测试；用 `/tmp/w00028-t03/review-impl/exp/a.ts`、`b.ts`、`c.ts` 逐项复现。
+- 建议改法：把 a/b/c 三个实验的输入做成表驱动的一致性例（两个实现各跑一遍、`toBe` 对拍；确认等价的写进 Spec，不等价的在检查脚本里禁止，见第 10 条）。
+
+补充（第 5 条已在真实组件上复现，不再是“从代码推断”）：在 `/tmp/w00028-t03/review-impl/exp/repro/shadow.dom.test.ts`（用实现 worktree 的 `node_modules` 符号链接和临时 vitest 配置跑，不改仓库）里，把 nb-markdown 的真 `MarkdownDisplay` 作为 `renderers.markdown` 交给真 `AgentConversationView`，不注入端口，助手消息是 `![甲](a.png)`。结果：图片的说明文字渲染成键名 `"image.none"`（期望“甲（不显示）”之类的中文）。命令：`cd .worktree/w00028-i18n/packages/nb-markdown && bunx vitest run --config /tmp/w00028-t03/review-impl/exp/repro/vitest.config.ts --reporter=verbose`。已发布的 nb-agent-ui 0.1.0 + nb-markdown 0.1.0 的第三方使用方升级后就是这个样子；严重度上调为“重要”的依据：用户可见、无任何诊断、只有 nb-story 手写合并端口绕开了。
+
+### 15. 建议 / 正确性 / `packages/nb-ui/src/text/minimal.ts:49,59`：缺省端口的语言是任意字符串后，非法标签会在渲染期抛 `RangeError`，大小写不同则静默显示键名
+- 现象：`AgentLocale`/`PromptLocale`/`MarkdownLocale`/nb-form 的 `locale` 这轮从两个字面量的联合改成了 `string`，没有宿主时它直接进缺省端口。`createMinimalTranslator` 对带 `count` 的引用调 `new Intl.PluralRules(locale)`、对 `{{x, number}}` 调 `new Intl.NumberFormat(locale)`，都对非法标签抛错。实测（`bun run /tmp/w00028-t03/review-impl/exp/d.ts`）：`"zh_CN"`、`""` 对带 `count` 和带 `number` 格式的键都抛 `RangeError: invalid language tag`；`"en-us"` 不抛，但目录查找区分大小写，带复数的键显示成键名 `f`，其余键走源语言回退。
+- 为什么是问题：抛在组件渲染里，会让整棵对话视图/表单/Markdown 展示器渲染失败（Vue 的渲染错误），而不是退化成中文。类型放宽前这类调用编译不过。宿主引擎有 `supported` 集合保护，只有共享包的缺省端口受影响。
+- 如何核实：同上。
+- 建议改法：缺省端口在 `packagePort`/`defaultTextPort` 里把 `locale` 规范化一次（`Intl.getCanonicalLocales` 成功用规范形，失败回退 `zh-CN`），最小实现内的 `Intl.*` 调用也包 `try`，失败当 `other` 类别/原样数字；顺手在 Spec 输出 8 写明“非法标签按 `zh-CN`”。
+
+## 未发现问题的方面（仔细检查后没有发现）
+- 反应性：对 `nb-ui`、`nb-form`、`nb-agent-ui`、`nb-markdown` 的 `.vue` 与 115 个本分支改动的 `.vue` 做了启动期求值的搜索（顶层 `const x = t(`、`ref(t(`、对象字面量里的 `key: t(`），没有在 `setup` 里一次性求值的残留；`text-engine.ts` 的 `t()` 读 `version` 与 `locale`，目录增删和切换语言都会触发依赖它的 computed/渲染重算。`resolverFor` 的两条路径在生产里一致（语言设置是枚举 `HOST_LOCALES`，引擎也只接受这个集合）。
+- “文字不变”：nb-agent-ui 189 个中文键与旧 `messages.ts` 逐键比对全部相同，英文单数键相同，12 个复数键（含 `readChanged` 按 `read` 数量选复数，用 `count: read` 保持行为）按结构核对；explorer（276 条字面量）、editor（122）、projects（104）与旧 `web/messages.ts` 逐条比对，只有 4 条不在新目录（`读取失败：{reason}`、`预览` 及其英文，旧文件里就是未用的条目）。新写英文抽查 editor 的 `refusal.*`/`notice.*`、workbench 第 14 片新增、nb-form 目录、nb-ui 目录，术语与同目录一致（`Use Current Text`/`Show Block`/`Keep This View's Text` 在目录里确有对应键）。
+- 测试：本分支新增测试里没有 `vi.fn`/`spyOn`/`mock(`/`setTimeout`/固定等待；等待用 `waitUntil`/`nextTick`；`text.dom.test.ts` 系列断言的是渲染出的文字，是可观察行为。
+- `state:inject`：`bun scripts/ci/component-inject-tags.ts` 与 `bun scripts/ci/message-catalogs.ts` 在实现 worktree 退出 0；`bun test src/web/host/text-engine.test.ts` 27 过，`nb-markdown/src/host/text.dom.test.ts` 8 过。
+- nb-ui 20 个组件的 `props.x ?? text(key)`：显式传空串时与迁移前行为相同（空串即空串，不退回缺省）；没有无用键（四个共享包目录对源码引用做了反查，动态拼接的键除外）。
+
+## 汇总
+- 共 15 条：阻断 0，重要 2（第 1 条参数名撞 i18next 保留选项、第 5 条共享包缺省端口遮住兄弟包目录且已在真实组件复现），建议 13（第 2、3、4、6 到 15 条）。
+- 最严重的几条：第 5 条（nb-markdown 嵌进 nb-agent-ui、无宿主时图片说明显示 `image.none`，应在 nb-ui 底层做目录登记表解决，附改法与代价）；第 1 条（`context`/`ns`/`lngs` 等参数名在宿主引擎里改变查找或抛错，最小实现不一致，用 `replace` 选项即可修）；第 15 条（缺省端口收到非法语言标签渲染期抛 `RangeError`）；第 7 条（版本表对 nb-agent-ui/nb-form/nb-ui 的破坏性变化写得不准）。
+- 实验文件都在 `/tmp/w00028-t03/review-impl/exp/`，没有改动任何仓库文件。

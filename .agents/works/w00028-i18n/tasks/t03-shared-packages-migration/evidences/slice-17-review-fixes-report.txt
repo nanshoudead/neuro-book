@@ -1,0 +1,91 @@
+# brief-17 审查处理 交付报告
+
+worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00028-i18n（feat/w00028-i18n），未 commit、未暂存（git diff --cached 为空）。
+主工作区只改了 .agents/works/w00028-i18n/tasks/t03-shared-packages-migration/README.md 一个文件，未提交。
+
+## 1 审查第 1 条 宿主引擎参数进 replace
+- packages/neuro-book/src/web/host/text-engine.ts：translateRef 改为 i18n.t(key, {lng, ns, count?, replace: params})（exists 同样）；count 是数字时另放顶层。文件头注明原因。
+- 同文件加了 number 格式器（addCached("number")）：只格式化 typeof number，字符串原样（见第 4 项）。
+- text-engine.test.ts 输出 9 一致性补：参数名 context（目录另有 ctx_foo，修复前会取到上下文形 FOO）、ns、lngs（修复前抛错）；另加一个“取值”用例直接断言结果。修复前 7 例失败、修复后全过（把 HEAD 的 text-engine.ts 换回去跑过）。
+
+## 2 审查第 5 条 nb-ui 目录登记表
+- packages/nb-ui/src/text-port/index.ts：registerDefaultCatalog(ns, catalogs, source = "zh-CN")、provideDefaultText(locale)；登记表挂 globalThis[Symbol.for("nb-ui.default-catalogs")]（与 TEXT_PORT_KEY 一样用 Symbol.for），带版本号，登记后缺省翻译器按需重建；defaultTextPort() 与 useText() 的缺省都用这张表；nb-ui 自己的目录在模块顶层登记。
+- nb-agent-ui/src/vue/text.ts、nb-form/src/vue/text.ts、nb-markdown/src/host/text.ts：模块顶层 registerDefaultCatalog(本包)；provideXxxText 只剩 textApi(provideDefaultText(locale))；删掉各自的 packageTranslator/packagePort；markdownTextIn 无上下文时用 defaultTextPort()。
+- nb-story：删 src/web/qa/text-port.ts 与 text-port.test.ts（删除未暂存），QaPage.vue 去掉 provide(TEXT_PORT_KEY, storyTextPort()) 与相关 import。
+- 测试：nb-markdown/src/host/text.dom.test.ts 新增“嵌在别的共享包里”：真 AgentConversationView + renderers.markdown = 真 MarkdownDisplay，不注入端口，locale en-US，助手消息 ![甲](a.png)，断言 "甲 (not shown)"。修复前得 "image.none"。nb-ui text-port.test.ts 加“晚登记的命名空间也翻得出来”。
+- 各包 package.json 都没有 "sideEffects"。nb-story build:web 后查产物：QaPage chunk 里有 ue(an,sn,on)（nb-markdown 的登记调用，an=`nb-markdown`），models chunk 有 ue(yt,xt,bt)（nb-agent-ui），SettingsPage chunk 有 de(Vm,Um,Hm)（nb-form），英文串 "{{name}} (not shown)" 在 QaPage chunk 里。
+- 文档：25 处“包内的缺省端口”改“缺省端口”；nb-agent-ui、nb-markdown、nb-form、nb-ui 的 README 相应句改写；Spec docs/specs/ui/i18n.md 输出 8 改为“缺省端口含所有已导入共享包的目录”，公开接口、实现合同（不变量 6：globalThis 登记表、不能写 sideEffects:false）同步。
+
+## 3 审查第 15 条 语言标签规范化
+- provideDefaultText 入口 Intl.getCanonicalLocales 规范化，失败（zh_CN、空串）按 zh-CN；minimal.ts 的 PluralRules/NumberFormat 先用 isLocaleTag 判，不合法时类别取 other、数字原样。
+- 测试：text-port.test.ts 根组件 "en-us"→en-US、"zh_CN"/"" →zh-CN；text.test.ts “语言标签不合法时不抛”。Spec 输出 8 写明“不合法时按 zh-CN”。
+
+## 4 审查第 2、3、4、10、14 条 最小实现与宿主分叉
+- ①数字字符串：两边都只格式化有限数字，字符串原样。宿主端是改了 i18next 的 number 格式器（内置的会把 "1234567" 格式化成 1,234,567），最小实现原本就原样。
+- ②minimal.ts 的复数类别与数字格式按“取到文字的那一级候选语言”算（lookup 返回 {text, locale}）。
+- ③scripts/ci/message-catalogs.ts：占位正则认 {{name}}、{{name, number}}、{{name,number}}；别的写法（{{x, date}}、{{- v}}、{{{v}}}、{{a.b}}、{{file-name}}、number(...)、uppercase）逐个报“不支持的占位写法”；$t( 照旧报。
+- ④一致性用例：text-engine.test.ts 加数字字符串、en 源语言在 zh-CN 下回退的复数（count 1）、de 源语言的数字格式（1.234.567）；text.test.ts 复数测试加英文源语言例。修复前失败、修复后过。
+- message-catalogs.test.ts 加坏样本（number 占位不一致、不支持的写法）与合格写法（无空格 number、英文只写裸键）。
+
+## 5 审查第 9 条 英文单数
+- 17 处英文 _one 改正（settings、explorer、plugins、projects、editor 的 en-US.json），中文不动。单复数本来就相同的英文（explorer tree.drop.open/openSome、editor status.unsaved/status.more）改成只写不带后缀的键（两种翻译器都会回退到裸键，带 count 也行）。
+- 检查脚本加规则：英文 _one 与 _other 去掉数字后相同 → 报“复数键 X 的 _one 与 _other 去掉数字后相同……”。改目录前脚本恰好报 17 条，现在 0。
+- 各插件 locales.test.ts 加 ENGLISH_ONE 对照表（editor、explorer 另有 ENGLISH_SAME），plugins 的旧英文对照改成新复数；PluginsPage.dom.test.ts 一条期望改为 "1 entry point not running"。
+
+## 6 审查第 8 条 引用小块悬停提示
+- packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.vue：setup 里取 useMarkdownText()，交给 markdownViewContext(text)；watch(text.locale) 时 dispatch REFRESH_REFERENCE_LINKS（addToHistory false）。同名 .md 补一句。
+- packages/nb-markdown/src/display/MarkdownDisplay.vue：watch(text.locale) 时取消待画的帧、renderer.destroy() 后 flush() 整篇重画。
+- 测试：MarkdownControl.dom.test.ts 引用小块那例末尾切 en-US，title 由“引用：林雪 · 设定/林雪.md”变“Reference: …”（去掉 watch 时失败：Received 仍是中文）；nb-markdown host/text.dom.test.ts 展示器那例切回 zh-CN 后断言 title 与 HTML 卡片按钮也换了（用 HEAD 的 MarkdownDisplay.vue 跑会失败）；节点视图那例补“宿主发 REFRESH_REFERENCE_LINKS 后提示换语言”。
+- 文档：MarkdownDisplay.md、nb-markdown README、docs/specs/ui/markdown-display.md 的合同测试说明改写。
+
+## 7 审查第 11 条 nb-form 全角标点
+- nb-form 目录加 format.labelled "{{label}}：{{text}}" / "{{label}}: {{text}}"、format.labelPrefix、format.noted "{{text}}（{{note}}）" / "{{text}} ({{note}})"、format.note、format.clauseSeparator "；" / "; "。
+- 替换：vue/order.ts（describeIssues）、vue/IssueSummary.vue（条目文字、读屏前缀“警告：”）、vue/FieldShell.vue（警告句与“；”连接、读屏“（必填）”、清除按钮读屏名）、vue/choices.ts（“（已不存在）”）、vue/text.ts（issueText 的“（位置）”）、vue/controls/ListActions.vue（上移、下移、删除三个读屏名）。
+- 测试：locales.test.ts 新增一例，中文与迁移前代码写死的写法逐字相同、英文不含全角标点；“每个键都有条目用到”登记这五个键。原有中文断言（“警告：已不存在”“名字：必填”“格式（必填）”）照旧通过。
+
+## 8 审查第 13 条 中文开发诊断改英文
+- packages/nb-markdown/src/host/text.ts:83  "markdownViewContext must be called inside a component's setup"
+- packages/neuro-book/src/web/host/connection.ts:83  `Cannot fetch the message catalog (HTTP ${status}, ${code})`（errorCode 加 separator 参数，缺省仍是全角逗号，英文传 ", "；原有的中文“服务端暂不可用”一行不变）
+- packages/neuro-book/src/web/host/connection.ts:87  "Failed to read the message catalog response"
+- packages/neuro-book/src/plugin-platform/build/build-plugin.ts:218  "Invalid message catalogs"（没有测试断言这句）
+- packages/neuro-book/src/plugins/workbench/web/commands/keymap.ts:103 与 WorkbenchCommandHost.vue:46  `Command ${id} failed: ${reason}`；keymap.test.ts:212、WorkbenchCommandHost.dom.test.ts:108、136 的期望同步改
+- packages/neuro-book/src/web/index.html:50、src/web/testing/index.html:47  "[nbook] Cannot read the stored interface language"
+- 注意：connection.ts 这两句不只是开发诊断，也会显示在界面上。window.ts 的 fetchCatalog 遇到非 404 时调 problem("fetch-failed", error.message)，PluginsPage.vue:184 再用 problems.withDetail 把它当作 detail 显示，所以中文界面的插件问题行里现在会出现英文细节。这是照说明改的；要不要改回由你定。同一个 catalog() 里网络失败那句 "无法连接服务端"（本分支新写，审查没列）没有改：它同样会显示在界面上，而且同文件 bootstrap、openRemote 的同类报错也是中文。
+
+## 9 审查第 7 条 版本表（主工作区文件，未提交）
+| 包 | 现版本 | 建议 | 破坏性变化 | 消费者 |
+|---|---|---|---|---|
+| nb-runtime | 0.2.0 | 0.3.0 | 无破坏；清单 schema 加可选 `l10n`、新增共享的目录校验导出 | nb-story、应用 |
+| nb-ui | 0.2.0 | 0.3.0 | 放宽类型，调用方传字符串仍有效：`NotificationInput` 的 `title`、`message`、`action.label` 与 `NotificationItem` 的对应字段由 `string` 放宽为 `Text`（自己画视口、把这些字段当字符串读的消费者类型报错）。新增 `./text`、`./text-port`（`TEXT_PORT_KEY`、`useText`、`defaultTextPort`，以及共享包目录的登记表 `registerDefaultCatalog` 与根组件用的 `provideDefaultText`）、`./locales`；组件缺省文案改走端口（没有宿主时仍是中文） | 其余共享包、nb-story、应用 |
+| nb-form | 0.1.0 | 0.2.0 | `describeIssues` 的第 4 个参数由 `locale: string` 换成 `text: FormTextApi`（不是新增；按旧签名传语言标签的 JS 调用方运行期抛 TypeError）；`FormText` 放宽为 `Text`；组件经端口取文字 | nb-story、应用 |
+| nb-agent-ui | 0.1.0 | 0.2.0 | 文字用 `TextRef`（命名空间 `nb-agent-ui`）；`AgentConversationView`、`AgentSessionList`、`AgentModelCatalog` 的 `locale` 由必填改为可选，宿主注入端口时不起作用；删除导出 `ViewText`、`textOf`、`HarnessTranscriptOptions`；`createHarnessTranscript` 去掉参数（传 `{locale}` 的 TS 调用报错，JS 调用方静默失效，错误说明变成 `TextRef`）；`SystemEntry.label` 与错误条目的 `message` 由 `string` 放宽为 `Text`（把它们当字符串读的宿主类型报错） | nb-story、应用 |
+| nb-markdown | 0.1.0 | 0.2.0 | 四个零件去 `locale`；`ChipInput.locale` 换 `translate`；`MarkdownViewHost.locale()` 换 `context?`；删 `prompt-labels.ts` | nb-story、应用 |
+| nb-story | 0.2.1 | 0.2.2 | 无；QaPage 不再注入合并端口（嵌套的共享包目录由 nb-ui 的登记表合起来），`dist/web` 需重建 | 终端用户 |
+| neuro-book 与 nb-plugin-sdk | 0.11.1 | 0.12.0 | SDK 去掉 `localize`、`formatText`，新增 `/text`、`/text/browser`；插件注册表 v5、引导协议 5、命令合同 v2 | 第三方插件作者（SDK 还没有外部发布过的消费者，ADR 0030） |
+（nb-story 一行也改了：原写“QaPage 注入合并端口”，这一轮删掉了。）
+
+## 验证（都在 worktree 里，退出码 0）
+- packages/neuro-book：bun run typecheck；bun run test:bun 1635 过 0 失败（这次 explorer 的已知间歇失败没出现）；bun run test:vitest 71 个文件、410 过。
+- nb-ui：typecheck；test（vitest）41 个文件、652 过。
+- nb-form：typecheck；test：bun 113 过，vitest 92 过。
+- nb-agent-ui：typecheck；test：bun 189 过，vitest 55 过。
+- nb-markdown：typecheck；test：bun 264 过，vitest 121 过。
+- nb-story：typecheck；test 637 过；build:web 成功，登记调用在产物里（见第 2 项）。
+- 公开接口：nb-ui text-port 新增的 registerDefaultCatalog、provideDefaultText 不经 SDK 转出（src/sdk/text-browser.ts 只用具名导出转了 useText 和 TextPort）；单独跑 bun test src/sdk/sdk.test.ts src/sdk/surface.test.ts plugin-sdk/pack.test.ts src/web/host，9 个文件 90 过。
+- 共享包的 TS 目录用临时脚本按同样的规则查过（占位写法、英文 _one 与 _other 相同），没有问题。
+- 仓库根：bun scripts/ci/message-catalogs.ts 退出 0；bunx vitest run --config scripts/vitest.config.ts scripts/ci/message-catalogs.test.ts 10 过；bun scripts/ci/component-inject-tags.ts 退出 0；bun run docs:check 失败 0、警告 0（存量 193 条不在改动范围）；bun run governance:check 失败 0、警告 0。
+
+## 与说明不同之处
+1. 登记写在各包的 Vue 层（vue/text.ts、host/text.ts）顶层，没有写在 locales/index.ts：nb-form 的边界测试规定核心只能 import type nb-ui/text，locales/index.ts 是核心，不能引 text-port（Vue）。效果一样：用到组件就会导入 Vue 层；只导入 ./locales 的纯 TS 消费者不会登记（它也不会用缺省端口）。
+2. 数字字符串按“只格式化数字”对齐，改的是宿主端（换了 i18next 的 number 格式器），不是最小实现。
+3. 英文单复数本来相同的 4 个键改成只写裸键，不写 _one/_other（新规则下两份相同会报错）。
+4. nb-form 除了审查列的 6 处，同类的还有 IssueSummary 读屏前缀、FieldShell 的“（必填）”、ListActions 三个读屏名，一并改了。
+5. MarkdownDisplay 换语言时整篇重画，提示块与 HTML 卡片的展开状态会回到初始（已写进 MarkdownDisplay.md）。
+6. 第 8 项给 connection.ts 的 errorCode 加了 separator 参数（缺省仍是全角逗号），英文那句传 ", "。
+
+## 没做的与遗留
+- 审查第 6、12 条按说明不做。
+- scripts/ci/message-catalogs.ts 只查 JSON 目录（插件与登记的应用目录）；共享包的 TS 目录（nb-ui、nb-form、nb-agent-ui、nb-markdown 的 locales/*.ts）不经它，占位写法与英文单复数规则只靠各包自己的 locales 测试与这次的临时脚本。要统一，得让脚本也读这几个 TS 目录。
+- 宿主端 MarkdownControl 只在语言变了时重算提示；同一语言下目录被重新登记（插件重装）不触发重算。
+- build-plugin.ts 里别的 PluginBuildError 说明还是中文（本分支以前就有，不在第 13 条的范围）。
+- nb-story 的 test:e2e 这轮没有重跑（说明没要求）。Task 记录里的“54 过”是删合并端口之前跑的。删掉的 qa/text-port.ts 只合并了 nb-ui、nb-agent-ui、nb-markdown 三个目录，没有 nb-story 自己的命名空间；QaPage 传的 locale 都是 "zh-CN"。

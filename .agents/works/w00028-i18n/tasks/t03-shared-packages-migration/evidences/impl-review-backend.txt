@@ -1,0 +1,67 @@
+### 重要｜安全与性能｜packages/neuro-book/src/plugin-platform/backend/catalogs.ts:21-35、packages/neuro-book/src/plugin-platform/shared/plugin-files.ts:100-106
+
+现象：目录校验用 readFile(path, "utf8")，Node 会把非法 UTF-8 字节替换为 U+FFFD 后再交给 JSON.parse；同一目录端点只检查路径与普通文件，直接用 Bun.file 返回，不做字节级 UTF-8 校验。
+
+为什么是问题：插件目录合同要求合法 JSON 内容，但这里会把包含非法字节的文件当成合格目录，安装、预览和窗口登记都可能接受不同于磁盘原文的内容。目录端点又把原始字节发给浏览器，服务端“通过”的文件与窗口解析的字符串不再是同一份数据；这会造成源语言目录检查与实际显示不一致，并允许坏编码绕过 catalog-invalid。
+
+如何核实：在实现 worktree 运行临时脚本（文件位于 /tmp/w00028-t03/review-impl/check-utf8.ts）：为 zh-CN.json 与 en-US.json 写入字节 `{"x":"\xff"}`，调用实际的 `catalogProblemsIn`，输出 `[]`；独立调用 `parseCatalog` 对 UTF-8 解码后的替换字符也返回 ok。
+
+建议改法：以 Buffer 读取并用 `TextDecoder("utf-8", {fatal: true})`（或等价的 fatal 解码）拒绝非法字节；安装、构建、端点响应和窗口加载共用同一字节/文本校验，窗口端仍保留结构校验。
+
+### 重要｜安全与性能｜packages/nb-runtime/src/plugin-manifest/catalog.ts:57-74、packages/nb-ui/src/text/index.ts:99-105、packages/nb-ui/src/text/minimal.ts:40-72
+
+现象：目录校验只拒绝冒号和值中的 `$t(`，`__proto__`、`constructor`、`prototype` 等键会通过；随后纯数据层用普通对象展开目录。`flattenCatalog` 对 `result["__proto__"]` 做普通赋值，改变结果对象原型而不是写入键；最小翻译器读取该目录时可能拿到非字符串原型值。
+
+为什么是问题：同一份合格目录在宿主 i18next 与 nb-ui 最小实现中的行为不一致，且恶意目录可让共享包/最小翻译路径在显示时抛 `TypeError: message.replace is not a function`，把“文字坏了”升级成组件或窗口失败。目录合同说任意嵌套字符串对象都合格，却没有排除这组会改变 JavaScript 对象语义的键。
+
+如何核实：在实现 worktree 运行 `bun -e ...` 临时实验（输出保存在命令结果）：`parseCatalog(JSON.stringify({"__proto__":"P",constructor:{prototype:"C"},ok:"O"}))` 返回 ok；`createMinimalTranslator(...).translate({kind:"text",ns:"x",key:"__proto__"},"zh-CN")` 抛上述 TypeError，而 `createTextEngine` 可登记并返回 `P`，证明两套运行时结果不同。
+
+建议改法：目录校验拒绝 `__proto__`、`prototype`、`constructor`（或对所有目录对象使用 null prototype 并在展开、合并、i18next 登记前保留 own-key 语义）；增加每层键边界测试，确保安装、窗口与最小实现共享同一结果。
+
+### 重要｜安全与性能｜packages/neuro-book/src/plugin-platform/backend/catalogs.ts:17-35、packages/neuro-book/src/plugin-platform/backend/plugin-files.ts:82-106、packages/neuro-book/src/web/host/connection.ts:75-87、packages/nb-runtime/src/plugin-manifest/catalog.ts:57-90
+
+现象：4 MiB 的 `CATALOG_LIMIT` 只在安装预览和复制后的 staging 检查；SDK 构建读取目录时没有该上限，已安装目录的 HTTP 端点也没有 stat/流式上限，浏览器 `response.text()` 与 `parseCatalog` 无 body 上限。目录遍历虽改成显式队列，但没有深度、节点数或键总量上限，且每层使用 `pending.shift()`。
+
+为什么是问题：安装后被替换/篡改的目录仍会由端点完整返回，窗口在启动前一次性把每个插件的每种语言读入字符串并解析；一个超过 4 MiB 或极宽/极深的目录即可造成无界内存和 CPU 消耗，目录多语言并发还会把峰值乘上语言数。构建阶段同样可被超大作者文件拖垮。当前实现只限制了“安装时看到的那一份”，没有覆盖实际宿主入口。
+
+如何核实：在实现 worktree 运行 `/tmp/w00028-t03/review-impl/check-catalog-limit.ts`：创建 4 MiB 以上的已安装目录并调用实际 `pluginCatalogHandler`，输出 `200 4194312 4194312`，证明端点照发完整正文；代码路径随后由 `connection.catalog` 的 `response.text()` 全量读取。现有目录测试的 20,000 层只证明不栈溢出，不证明输入有上限。
+
+建议改法：把目录最大字节数、最大深度、最大键数/总字符串量定义在 nb-runtime 的共享校验合同中；端点先检查文件大小并拒绝/返回目录问题，浏览器读取使用带上限的响应读取，构建也复用同一上限；遍历用索引队列或栈，避免 `shift()` 的 O(n²)。
+
+### 重要｜正确性｜scripts/ci/message-catalogs.ts:131-159
+
+现象：目录检查只把 `dirname(file) === set.directory` 的直接子级 `.json` 放进语言集合；最后的未登记扫描也只匹配 `.../locales/[^/]+.json`。`locales/` 下的子目录和其中的 JSON 因此完全不进入检查。
+
+为什么是问题：SDK 构建预设明确禁止 `locales/` 内的非 `<语言>.json` 文件，但治理脚本对仓库内同样的坏布局静默放行；嵌套文件不会被检查 JSON、语言标签、缺键、多键或未登记规则，`governance:check` 不能兑现“提交前目录检查”。
+
+如何核实：在实现 worktree 运行 `/tmp/w00028-t03/review-impl/check-catalog-script.ts`：临时 git 仓库有 `packages/x/package.json` 的 `l10n.source`、合法的 `locales/zh-CN.json` 与未登记的 `locales/nested/en-US.json`，调用 `messageCatalogFailures(root, [])` 输出 `[]`。
+
+建议改法：把作者目录合同的“locales 只能是一层文件”作为脚本的独立失败项；扫描 `locales/` 下所有条目，遇到目录、嵌套 JSON 或非直接 `<规范语言>.json` 逐条报错，并在测试中加入嵌套文件负样本。
+
+### 重要｜安全与性能｜packages/neuro-book/src/plugin-platform/backend/catalogs.ts:21-35、packages/neuro-book/src/plugin-platform/backend/inventory.ts:188-200、packages/neuro-book/src/plugin-platform/backend/copy.ts:72-86
+
+现象：`catalogFileProblems` 只对最终 `locales/<语言>.json` 做 `lstat`；如果 `locales/` 本身是符号链接，`join` 后的最终文件会被跟随，目录校验返回通过。随后复制范围的 `plainKind` 才逐段拒绝父目录符号链接。
+
+为什么是问题：同一个插件的预览与安装结果不一致：预览先过 `catalogProblemsIn`，安装最终在复制阶段以 `path-rejected` 失败，而不是合同要求的 `catalog-invalid`；更重要的是预检读取并解析了插件目录外的文件，目录内容校验不再限定在插件根内。SDK 构建的 `readdir(locales)` 也没有先核对 `locales` 目录自身不是符号链接。
+
+如何核实：在实现 worktree 运行 `/tmp/w00028-t03/review-impl/check-catalog-symlink.ts`：把 `locales` 链到插件根外，输出 `catalogProblemsIn []`，但 `collectCopyRange` 输出 `{ok:false, code:"path-rejected", detail:"复制范围内的路径是符号链接：locales"}`。这正是 inventory 的预检顺序。
+
+建议改法：目录读取统一复用逐段 `lstat`/真实路径边界检查，先核对 `locales` 与最终文件的每个祖先；预览、安装和 SDK 构建遇到链接都明确归为目录无效，并在目录测试加入父目录 symlink（以及源文件替换竞态）负样本。
+
+### 建议｜测试｜packages/nb-runtime/src/plugin-manifest/plugin-manifest.test.ts:413-420、packages/neuro-book/src/plugin-platform/backend/plugins.test.ts:274-305、packages/neuro-book/src/web/host/window-catalogs.test.ts:170-173、scripts/ci/message-catalogs.test.ts:100-124、packages/neuro-book/plugin-sdk/third-party-text.dom.test.ts:139-173
+
+现象：五处新增测试的变异检查结果不均：①目录解析的 20,000 层只验证不栈溢出，没有体积/深度上限；②安装负样本没有非法 UTF-8、原型键、父目录符号链接或超限文件；③端点路径只测未列语言和 `.txt`，没有 `%2f`、`%2e%2e`、重复目录索引或坏 prefix；④治理脚本只测一层 `locales/`，嵌套目录变异可通过；⑤第三方 SDK 的真实翻译与切换路径覆盖良好。
+
+为什么是问题：前四处把对应实现中的边界保护删掉或替换成宽松读取，现有测试仍可通过，正好漏掉本次目录安全、失败降级与检查脚本误放行的合同。前面四条产品问题均有相应的可观察失败路径，但没有回归测试锁住。
+
+如何核实：已运行实现 worktree 的 `bun test ...plugin-manifest.test.ts ...plugins.test.ts ...window-catalogs.test.ts ...remote.test.ts ...text.test.ts ...convention-keys.test.ts`，125 过；`bunx vitest run scripts/ci/message-catalogs.test.ts scripts/ci/component-inject-tags.test.ts`，12 过。另用 `/tmp/w00028-t03/review-impl/check-catalog-script.ts` 证明嵌套目录变异输出 `[]`；`check-utf8.ts` 与 `check-catalog-symlink.ts` 证明其余负样本当前未被测试覆盖。
+
+建议改法：按五组变异各补一条真实文件/端点/窗口合同测试：fatal UTF-8、原型键、大小和深度上限、父目录 symlink、编码路径与嵌套目录；保留第三方 SDK 的现有 tarball + 宿主模块表 + 原位切换测试。
+
+未发现问题的方面：
+- 命令合同 v2 的 `CommandResult.reason: Text`、窗口端远程翻译为字符串、registry v5 与引导协议 5 的版本变更/`version-changed` 路径；已检查实现与对应测试，未发现本次回归。
+- 服务端不翻译 `TextRef` 的命令、公开状态与通知边界；未发现把 `TextRef` 写进服务端日志或持久化的本次新增路径。
+- SDK `/text`、`/text/browser` 的 entries、浏览器/服务端宿主模块表、`TEXT_PORT_KEY` 身份、去除 `localize`/`formatText` 的残留；未发现本次回归。
+- `component-inject-tags` 的已覆盖写法与 `governance:check` 接线；未发现已检查路径中的额外回归。
+
+数量：阻断 0；重要 5；建议 1。
