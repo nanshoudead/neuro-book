@@ -1,0 +1,19 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t20-hooks",
+    "artifactId": "intro",
+    "version": 3,
+    "supersedes": 2,
+    "action": "publish",
+    "kind": "report",
+    "title": "Agent harness 内核：图解与演示（第三稿）",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "72f0613df1f507c364799a7c4e2385a7627915d393035a78614d5e8a2c56d084",
+    "files": [
+        "index.html"
+    ],
+    "questions": [],
+    "publishedAt": "2026-10-29T05:55:40.608Z"
+}
