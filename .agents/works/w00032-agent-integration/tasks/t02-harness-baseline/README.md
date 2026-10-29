@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t02-harness-baseline
 status: planned
-updated: 2026-10-28
+updated: 2026-10-29
 ---
 
 # harness 底座：两条线对照与移植清单
@@ -45,6 +45,8 @@ updated: 2026-10-28
 4. OMP：搬包时升到当时最新（2026-10-28 为 18.13.2），作为第一个切片单独提交并跑 nb-story 测试；计划时先读 18.4 到最新的 changelog。
 5. Spec：分支的 8 份 `docs/specs/harness/*` 随代码搬到 master，先标 planned，合入后晋升；`agent/harness.md` 独有的条目并进对应那份后删除。分支上 w00002 t09 到 t20 的记录拷到 master 留作来历。
 6. 分支 t20 的 5 条待确认推到各自 Task：`<Slot>` 到 t05；插件工具名换算到 t04；ask 遇 yolo、重启后回答提问、在事件里立即应答到 t06。分支 t17 到 t20 的“待开发者评审”在对应 Task 讨论时一起看。
+
+7. （2026-10-29 修订第 1 条）循环由内核自己写，不再套 OMP 的 `Agent`，与服务商通信只用 `streamSimple`（[事件模型提案](../../../../../docs/proposals/agent-harness-event-model.md)的“基本循环”）。分支的 `runtime/session.ts` 也套在 `Agent` 上，所以运行时这一层（会话状态机、审批、插话、中止与收口）按语义参照、不照搬代码；会话格式、工具登记、模型目录与凭据、压缩、Profile 渲染仍以分支为主体。
 
 依据的事实（2026-10-28 核实）：分支 nb-harness 实现 7,192 行、测试 7,160 行，只依赖 OMP 18.4.6 与 typebox；master 三个包实现 3,201 行、测试 2,441 行；nb-story 有 12 个文件、nb-agent-ui 有 1 个文件引用这三个包；三个包与 nb-story 0.1.1 都已在 npm。
 
