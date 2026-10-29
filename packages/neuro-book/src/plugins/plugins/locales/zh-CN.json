@@ -124,5 +124,67 @@
     },
     "failures": {
         "unknown": "操作没有完成"
+    },
+    "builtin": {
+        "nbook-commands": {
+            "name": "命令",
+            "description": "登记与执行命令；命令面板与快捷键执行的都是这里登记的命令。"
+        },
+        "nbook-editor": {
+            "name": "编辑器",
+            "description": "编辑区的标签与分组、文档的打开与保存。"
+        },
+        "nbook-explorer": {
+            "name": "资源管理器",
+            "description": "侧栏里作品的文件树。"
+        },
+        "nbook-files": {
+            "name": "文件",
+            "description": "读写作品目录里的文件与文件夹。"
+        },
+        "nbook-html-preview": {
+            "name": "HTML 预览",
+            "description": "在沙箱里预览 HTML 文件。"
+        },
+        "nbook-http": {
+            "name": "本机服务",
+            "description": "提供页面与接口的本机 HTTP 服务。"
+        },
+        "nbook-image-viewer": {
+            "name": "图片查看器",
+            "description": "查看作品里的图片。"
+        },
+        "nbook-markdown": {
+            "name": "Markdown",
+            "description": "作品的 Markdown 写法：读写规则、编辑器扩展与显示。"
+        },
+        "nbook-plugins": {
+            "name": "插件管理",
+            "description": "安装、启用、禁用与卸载插件。"
+        },
+        "nbook-projects": {
+            "name": "作品",
+            "description": "书架、作品的新建与打开。"
+        },
+        "nbook-settings": {
+            "name": "设置",
+            "description": "设置窗口与设置项的读写。"
+        },
+        "nbook-state": {
+            "name": "公开状态",
+            "description": "插件之间共享的界面状态。"
+        },
+        "nbook-storage": {
+            "name": "存储",
+            "description": "插件的记录与偏好。"
+        },
+        "nbook-workbench": {
+            "name": "工作台",
+            "description": "工作台的外壳：侧栏、面板、标题栏与状态栏。"
+        },
+        "runtime-diagnostics": {
+            "name": "诊断",
+            "description": "运行日志与诊断记录。"
+        }
     }
 }

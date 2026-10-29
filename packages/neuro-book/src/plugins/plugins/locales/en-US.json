@@ -127,5 +127,67 @@
     },
     "failures": {
         "unknown": "The operation did not complete"
+    },
+    "builtin": {
+        "nbook-commands": {
+            "name": "Commands",
+            "description": "Registers and runs commands; the command palette and keybindings run the commands registered here."
+        },
+        "nbook-editor": {
+            "name": "Editor",
+            "description": "Editor tabs and groups; opening and saving documents."
+        },
+        "nbook-explorer": {
+            "name": "Explorer",
+            "description": "The file tree of your book in the sidebar."
+        },
+        "nbook-files": {
+            "name": "Files",
+            "description": "Reads and writes files and folders in your book."
+        },
+        "nbook-html-preview": {
+            "name": "HTML Preview",
+            "description": "Previews HTML files in a sandbox."
+        },
+        "nbook-http": {
+            "name": "Local Server",
+            "description": "The local HTTP server for pages and APIs."
+        },
+        "nbook-image-viewer": {
+            "name": "Image Viewer",
+            "description": "Views images in your book."
+        },
+        "nbook-markdown": {
+            "name": "Markdown",
+            "description": "Markdown for your book: reading and writing rules, editor extensions and rendering."
+        },
+        "nbook-plugins": {
+            "name": "Plugin Manager",
+            "description": "Installs, enables, disables and uninstalls plugins."
+        },
+        "nbook-projects": {
+            "name": "Books",
+            "description": "The bookshelf; creating and opening books."
+        },
+        "nbook-settings": {
+            "name": "Settings",
+            "description": "The settings window and setting values."
+        },
+        "nbook-state": {
+            "name": "Public State",
+            "description": "UI state shared between plugins."
+        },
+        "nbook-storage": {
+            "name": "Storage",
+            "description": "Records and preferences for plugins."
+        },
+        "nbook-workbench": {
+            "name": "Workbench",
+            "description": "The workbench shell: sidebars, panel, title bar and status bar."
+        },
+        "runtime-diagnostics": {
+            "name": "Diagnostics",
+            "description": "Runtime logs and diagnostic records."
+        }
     }
 }
