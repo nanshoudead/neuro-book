@@ -1,0 +1,1009 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NeuroBook Agent harness 内核：图解与演示</title>
+<style>
+:root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --soft: #f1efe9;
+    --accent: #0f766e; --accent-soft: #e3f1ef; --warn: #b45309; --warn-soft: #fdf1df; --bad: #b91c1c; --bad-soft: #fde8e8; --ok: #15803d; --ok-soft: #e4f4e8;
+    --c-reduce: #2563eb; --c-reduce-soft: #e5edfd;
+    --c-react: #c2410c; --c-react-soft: #fdebe1;
+    --c-view: #047857; --c-view-soft: #dcf3ea;
+    --c-intercept: #7c3aed; --c-intercept-soft: #efe7fd;
+    --c-log: #475569; --c-log-soft: #e8edf3;
+    --radius: 10px;
+    --mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #17171a; --card: #212125; --text: #ececea; --muted: #a3a09a; --line: #34343a; --soft: #2a2a2f;
+        --accent: #5eead4; --accent-soft: #123b37; --warn: #fbbf24; --warn-soft: #3a2e12; --bad: #fca5a5; --bad-soft: #3b1a1a; --ok: #86efac; --ok-soft: #173322;
+        --c-reduce: #93b4fb; --c-reduce-soft: #1c2742;
+        --c-react: #fdba8c; --c-react-soft: #3b2417;
+        --c-view: #6ee7b7; --c-view-soft: #133328;
+        --c-intercept: #c4b5fd; --c-intercept-soft: #2a2142;
+        --c-log: #cbd5e1; --c-log-soft: #262c35;
+    }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14.5px/1.75 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+.layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; max-width: 1320px; margin: 0 auto; padding: 28px 24px 140px; }
+@media (max-width: 1000px) { .layout { grid-template-columns: minmax(0, 1fr); } nav.toc { display: none; } }
+nav.toc { position: sticky; top: 20px; align-self: start; font-size: 13px; }
+nav.toc .t { font-weight: 700; margin-bottom: 8px; }
+nav.toc a { display: block; color: var(--muted); text-decoration: none; padding: 3px 0 3px 10px; border-left: 2px solid var(--line); }
+nav.toc a:hover, nav.toc a.on { color: var(--text); border-left-color: var(--accent); }
+main { min-width: 0; }
+h1 { font-size: 26px; line-height: 1.35; margin: 0 0 6px; }
+h2 { font-size: 20px; margin: 56px 0 6px; padding-top: 8px; }
+h3 { font-size: 15.5px; margin: 22px 0 6px; }
+p { margin: 8px 0; max-width: 920px; }
+ul, ol { margin: 6px 0; padding-left: 22px; max-width: 920px; }
+.sub { color: var(--muted); }
+.card { margin-top: 16px; padding: 16px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.note { margin-top: 14px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.note.warn { background: var(--warn-soft); }
+.note.bad { background: var(--bad-soft); }
+code { font-family: var(--mono); font-size: 12.5px; background: var(--soft); padding: 1px 5px; border-radius: 4px; }
+pre { margin: 0; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+pre code { background: none; padding: 0; }
+.codebox { background: var(--soft); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; overflow: auto; }
+.tok-c { color: var(--muted); font-style: italic; }
+.tok-s { color: var(--c-view); }
+.tok-k { color: var(--c-intercept); font-weight: 600; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-top: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; border-top: 0; }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 0 9px; border-radius: 999px; line-height: 20px; white-space: nowrap; }
+.p-reduce { background: var(--c-reduce-soft); color: var(--c-reduce); }
+.p-react { background: var(--c-react-soft); color: var(--c-react); }
+.p-view { background: var(--c-view-soft); color: var(--c-view); }
+.p-intercept { background: var(--c-intercept-soft); color: var(--c-intercept); }
+.p-log { background: var(--c-log-soft); color: var(--c-log); }
+.p-warn { background: var(--warn-soft); color: var(--warn); }
+.p-ok { background: var(--ok-soft); color: var(--ok); }
+.p-bad { background: var(--bad-soft); color: var(--bad); }
+button { font: inherit; font-size: 13px; cursor: pointer; border: 1px solid var(--line); background: var(--card); color: var(--text); padding: 5px 12px; border-radius: 7px; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); color: var(--card); border-color: var(--accent); }
+.controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+.controls .grow { flex: 1; }
+.controls label { font-size: 13px; display: inline-flex; gap: 5px; align-items: center; }
+select, input[type=text] { font: inherit; font-size: 13px; padding: 4px 8px; border-radius: 7px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
+
+/* 头图：循环 */
+.hero { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 24px; align-items: center; }
+@media (max-width: 860px) { .hero { grid-template-columns: minmax(0, 1fr); } }
+.hero svg { width: 100%; height: auto; }
+.loop-node rect { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+.loop-node text { fill: var(--text); font-size: 14px; font-weight: 600; text-anchor: middle; dominant-baseline: middle; }
+.loop-node.on rect { stroke: var(--accent); stroke-width: 2.5; }
+.loop-edge { fill: none; stroke: var(--muted); stroke-width: 1.6; }
+.loop-edge-label { fill: var(--muted); font-size: 12px; text-anchor: middle; }
+.loop-edge-label.reduce { fill: var(--c-reduce); font-weight: 700; }
+.loop-edge-label.view { fill: var(--c-view); font-weight: 700; }
+.loop-edge-label.intercept { fill: var(--c-intercept); font-weight: 700; }
+.loop-edge-label.react { fill: var(--c-react); font-weight: 700; }
+.loop-dot { fill: var(--accent); }
+
+/* 四种能力 */
+.four { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+@media (max-width: 1100px) { .four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.cap { border-radius: var(--radius); padding: 14px 16px; border: 1px solid var(--line); background: var(--card); border-top: 4px solid; }
+.cap h3 { margin: 0 0 4px; }
+.cap .sig { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-bottom: 6px; word-break: break-all; }
+.cap dl { margin: 6px 0 0; font-size: 13px; }
+.cap dt { font-weight: 600; margin-top: 6px; }
+.cap dd { margin: 0; color: var(--muted); }
+.cap.reduce { border-top-color: var(--c-reduce); } .cap.reduce h3 { color: var(--c-reduce); }
+.cap.react { border-top-color: var(--c-react); } .cap.react h3 { color: var(--c-react); }
+.cap.view { border-top-color: var(--c-view); } .cap.view h3 { color: var(--c-view); }
+.cap.intercept { border-top-color: var(--c-intercept); } .cap.intercept h3 { color: var(--c-intercept); }
+
+/* 时序图：你好 */
+.seq-wrap { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 1100px) { .seq-wrap { grid-template-columns: minmax(0, 1fr); } }
+.seq { position: relative; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); overflow: hidden; }
+.seq .lane { display: flex; align-items: center; height: 42px; border-top: 1px solid var(--line); font-size: 12.5px; }
+.seq .lane:first-child { border-top: 0; }
+.seq .lane .name { width: 150px; flex: none; padding: 0 12px; color: var(--muted); font-weight: 600; border-right: 1px solid var(--line); height: 100%; display: flex; align-items: center; background: var(--soft); transition: background .3s, color .3s; }
+.seq .lane.on .name { background: var(--accent-soft); color: var(--accent); }
+.seq svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.seq-trail { fill: none; stroke: var(--accent); stroke-width: 2; stroke-opacity: .55; }
+.seq-pt { fill: var(--accent); fill-opacity: .55; }
+.seq-head { fill: var(--accent); transition: cx .5s ease, cy .5s ease; }
+.seq-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.chat { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); padding: 12px; min-height: 120px; display: flex; flex-direction: column; gap: 8px; }
+.chat .t { font-size: 12px; color: var(--muted); }
+.bubble { max-width: 80%; padding: 6px 12px; border-radius: 12px; font-size: 13.5px; transition: opacity .3s; }
+.bubble.user { align-self: flex-end; background: var(--accent-soft); }
+.bubble.user.sending { opacity: .55; border: 1px dashed var(--accent); }
+.bubble.assistant { align-self: flex-start; background: var(--soft); }
+.bubble.assistant.streaming::after { content: "▍"; animation: blink 1s steps(1) infinite; color: var(--accent); }
+@keyframes blink { 50% { opacity: 0; } }
+.stepinfo { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); padding: 12px 14px; }
+.stepinfo .h { font-weight: 700; margin-bottom: 4px; }
+.stepinfo .d { font-size: 13.5px; color: var(--muted); margin-bottom: 8px; }
+.progress { font-size: 12px; color: var(--muted); }
+
+/* 沙盒：日志、状态、请求 */
+.sandbox { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr) minmax(0, 1.1fr); gap: 12px; margin-top: 12px; }
+@media (max-width: 1200px) { .sandbox { grid-template-columns: minmax(0, 1fr); } }
+.panel { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); padding: 10px 12px; min-width: 0; }
+.panel > .ph { display: flex; align-items: center; gap: 8px; font-weight: 700; margin-bottom: 8px; }
+.panel > .ph .sub { font-weight: 400; font-size: 12px; }
+.logrow { display: grid; grid-template-columns: 34px 52px minmax(0, 1fr); gap: 6px; align-items: start; padding: 4px 6px; border-radius: 6px; font-size: 12.5px; cursor: pointer; border: 1px solid transparent; }
+.logrow:hover { border-color: var(--line); }
+.logrow .id { font-family: var(--mono); color: var(--muted); }
+.logrow .txt { word-break: break-word; }
+.logrow .src { font-size: 11px; color: var(--muted); }
+.logrow.off { opacity: .35; }
+.logrow.leaf { border-color: var(--accent); background: var(--accent-soft); }
+.logrow.fresh { animation: fresh 1.4s ease; }
+@keyframes fresh { from { background: var(--warn-soft); } to { background: transparent; } }
+.cls-conv { background: var(--c-view-soft); color: var(--c-view); }
+.cls-ctrl { background: var(--c-log-soft); color: var(--c-log); }
+.cls-ext { background: var(--c-react-soft); color: var(--c-react); }
+.slice { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; margin-bottom: 8px; font-size: 12.5px; }
+.slice .sh { display: flex; justify-content: space-between; gap: 6px; font-weight: 600; }
+.slice .sv { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+.slice.changed { animation: changed 1.4s ease; }
+@keyframes changed { from { background: var(--c-reduce-soft); border-color: var(--c-reduce); } to { background: transparent; } }
+.slice .tag { font-size: 11px; font-weight: 400; color: var(--muted); }
+.msg { border-radius: 8px; padding: 5px 9px; margin-bottom: 6px; font-size: 12.5px; border: 1px solid var(--line); }
+.msg .role { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.msg.sys { background: var(--soft); }
+.msg.same { border-left: 4px solid var(--ok); }
+.msg.new { border-left: 4px solid var(--warn); }
+.msg.part { border-left: 4px solid; border-image: linear-gradient(var(--ok) 50%, var(--warn) 50%) 1; }
+.msg .att { margin-top: 4px; border: 1px dashed var(--c-view); border-radius: 6px; padding: 2px 7px; color: var(--c-view); }
+.msg .slot { color: var(--c-view); font-weight: 600; }
+.narr { border-left: 4px solid var(--accent); background: var(--card); padding: 10px 14px; border-radius: 0 var(--radius) var(--radius) 0; margin-top: 10px; min-height: 64px; }
+.narr b { color: var(--accent); }
+
+/* 洋葱 */
+.onion-wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 960px) { .onion-wrap { grid-template-columns: minmax(0, 1fr); } }
+.layer { border: 2px solid var(--line); border-radius: 14px; padding: 26px 14px 14px; position: relative; transition: border-color .3s, background .3s; background: var(--card); }
+.layer > .ln { position: absolute; top: 4px; left: 12px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.layer.on { border-color: var(--c-intercept); background: var(--c-intercept-soft); }
+.layer.on > .ln { color: var(--c-intercept); }
+.layer.stop { border-color: var(--bad); background: var(--bad-soft); }
+.layer.core { border-style: dashed; text-align: center; font-weight: 600; padding: 14px; }
+.chainlog { font-size: 13px; }
+.chainlog div { padding: 4px 0; border-top: 1px solid var(--line); animation: fresh 1s ease; }
+.chainlog div:first-child { border-top: 0; }
+.dir { font-family: var(--mono); font-size: 12px; margin-right: 6px; }
+
+/* 时间线 */
+.tl { position: relative; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); padding: 10px 0; }
+.tl .row { position: relative; height: 34px; display: flex; align-items: center; }
+.tl .row .rn { width: 140px; flex: none; padding: 0 12px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.tl .row .track { position: relative; flex: 1; height: 100%; margin-right: 14px; border-left: 1px solid var(--line); }
+.bar { position: absolute; top: 7px; height: 20px; border-radius: 5px; font-size: 11px; line-height: 20px; padding: 0 6px; white-space: nowrap; overflow: hidden; transform-origin: left center; transform: scaleX(0); opacity: 0; }
+.tl.play .bar { animation: grow .5s ease forwards; }
+@keyframes grow { to { transform: scaleX(1); opacity: 1; } }
+.bar.reduce { background: var(--c-reduce-soft); color: var(--c-reduce); border: 1px solid var(--c-reduce); }
+.bar.react { background: var(--c-react-soft); color: var(--c-react); border: 1px solid var(--c-react); }
+.bar.view { background: var(--c-view-soft); color: var(--c-view); border: 1px solid var(--c-view); }
+.bar.log { background: var(--c-log-soft); color: var(--c-log); border: 1px solid var(--c-log); }
+.vline { position: absolute; top: 0; bottom: 0; border-left: 2px dashed var(--warn); opacity: 0; }
+.tl.play .vline { animation: grow .4s ease forwards; transform: none; }
+.vline span { position: absolute; top: -2px; left: 4px; font-size: 11px; color: var(--warn); white-space: nowrap; background: var(--card); padding: 0 4px; }
+
+/* 缓存 */
+.req-bar { display: flex; gap: 3px; margin: 6px 0 2px; flex-wrap: nowrap; }
+.seg { height: 30px; border-radius: 5px; font-size: 11.5px; line-height: 30px; padding: 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 1px solid transparent; }
+.seg.hit { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); }
+.seg.miss { background: var(--bad-soft); color: var(--bad); border-color: var(--bad); }
+.seg.fresh { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+.seg.plain { background: var(--soft); color: var(--text); border-color: var(--line); }
+
+/* 状态共享图 */
+.share { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 900px) { .share { grid-template-columns: minmax(0, 1fr); } }
+.box { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; background: var(--card); }
+.box h4 { margin: 0 0 6px; font-size: 13.5px; }
+.lock { color: var(--warn); }
+.lifecycle { display: flex; flex-direction: column; gap: 10px; }
+.lc-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; }
+.lc-row .lbl { width: 84px; font-weight: 700; color: var(--muted); }
+.chip { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); }
+.chip.hot { border-color: var(--accent); color: var(--accent); }
+.arrow { color: var(--muted); }
+details { margin-top: 12px; }
+summary { cursor: pointer; font-weight: 600; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+@media (max-width: 960px) { .two { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="toc" id="toc">
+<div class="t">目录</div>
+<a href="#s-loop">1. 一句话：一个循环</a>
+<a href="#s-four">2. 扩展只做四件事</a>
+<a href="#s-hello">3. 演示：说一句“你好”</a>
+<a href="#s-event">4. 一条事件怎么处理</a>
+<a href="#s-sandbox">5. 沙盒：写手续写第 3 章</a>
+<a href="#s-state">6. 状态：共享与私有</a>
+<a href="#s-view">7. 视图与缓存</a>
+<a href="#s-chain">8. 拦截链</a>
+<a href="#s-life">9. 生命周期</a>
+<a href="#s-code">10. 写一个扩展</a>
+<a href="#s-pitfall">11. 常见错误</a>
+<a href="#s-status">12. 状态与待定</a>
+</nav>
+<main>
+
+<h1>NeuroBook Agent harness 内核：图解与演示</h1>
+<p class="sub">给 NeuroBook 开发者与插件作者。依据提案 <code>docs/proposals/agent-harness-event-model.md</code>（draft，第二稿，2026-10-29）。接口名字与签名还是草稿，以提案与之后的 Spec 为准；页面里的演示用浏览器里的一个小引擎真的跑归约与反应，不调模型。</p>
+
+<!-- 1 -->
+<h2 id="s-loop">1. 一句话：一个循环</h2>
+<div class="hero">
+<div class="card" style="margin-top:0">
+<svg viewBox="0 0 640 360" id="loopSvg" role="img" aria-label="日志、状态、请求、响应构成的循环">
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" style="color:var(--muted)"/></marker></defs>
+<path class="loop-edge" id="edge0" d="M150,70 L270,70" marker-end="url(#arr)"/>
+<path class="loop-edge" id="edge1" d="M370,70 L490,70" marker-end="url(#arr)"/>
+<path class="loop-edge" id="edge2" d="M540,95 L540,245" marker-end="url(#arr)"/>
+<path class="loop-edge" id="edge3" d="M490,270 L150,270" marker-end="url(#arr)"/>
+<path class="loop-edge" id="edge4" d="M100,245 L100,95" marker-end="url(#arr)"/>
+<path class="loop-edge" id="edge5" d="M150,290 C 200,345 300,345 320,300" marker-end="url(#arr)" style="stroke:var(--c-react);stroke-dasharray:5 4"/>
+<text class="loop-edge-label reduce" x="210" y="58">归约 reduce</text>
+<text class="loop-edge-label view" x="430" y="58">视图 view</text>
+<text class="loop-edge-label intercept" x="596" y="165">拦截链</text>
+<text class="loop-edge-label intercept" x="596" y="182">调用模型</text>
+<text class="loop-edge-label intercept" x="596" y="199">执行工具</text>
+<text class="loop-edge-label" x="320" y="258">追加进日志</text>
+<text class="loop-edge-label react" x="250" y="352">反应 react：追加新的事件</text>
+<text class="loop-edge-label" x="48" y="175">下一条</text>
+<g class="loop-node" id="n0"><rect x="50" y="45" width="100" height="50" rx="10"/><text x="100" y="70">日志</text></g>
+<g class="loop-node" id="n1"><rect x="270" y="45" width="100" height="50" rx="10"/><text x="320" y="70">状态</text></g>
+<g class="loop-node" id="n2"><rect x="490" y="45" width="100" height="50" rx="10"/><text x="540" y="70">请求</text></g>
+<g class="loop-node" id="n3"><rect x="490" y="245" width="100" height="50" rx="10"/><text x="540" y="270">响应</text></g>
+<g class="loop-node" id="n4"><rect x="270" y="245" width="100" height="50" rx="10"/><text x="320" y="270">新事件</text></g>
+<g class="loop-node" id="n5"><rect x="50" y="245" width="100" height="50" rx="10"/><text x="100" y="270">日志 +1</text></g>
+<circle class="loop-dot" id="loopDot" r="7" cx="100" cy="170"/>
+</svg>
+</div>
+<div>
+<p><b>日志是唯一的真相。</b>会话里发生的每件事（用户的话、模型的回复、工具结果、插件记下的事实）都是一条只追加的事件。</p>
+<p><b>状态由日志归约出来</b>，不另外存：回退、fork、重启之后，再归约一遍就对了。</p>
+<p><b>请求是状态的视图</b>：一个纯函数把状态算成发给模型的请求，所以不调模型也能预览。</p>
+<p><b>调用模型、执行工具是副作用</b>，经拦截链执行，结果写回日志，循环继续。</p>
+<p class="sub">熟悉 Elm 或 Redux 的话：事件就是 Msg 或 action，<code>reduce</code> 就是 update 或 reducer，视图算出的不是界面，而是请求。</p>
+</div>
+</div>
+
+<!-- 2 -->
+<h2 id="s-four">2. 扩展只做四件事</h2>
+<p>Profile 与插件都是“扩展”，用同一套接口；Profile 排在最后、地位最高。四样都是可选的，用到哪个写哪个。页面里这四种颜色固定代表它们。</p>
+<div class="four">
+<div class="cap reduce"><h3>归约</h3><div class="sig">reduce(state, entry) → state</div>
+<dl><dt>什么时候跑</dt><dd>每条事件写进日志之后，全部扩展都跑</dd><dt>能做什么</dt><dd>维护自己那一片状态：计数、记下没送达的改动</dd><dt>不能做什么</dt><dd>I/O；看别人的状态；改日志</dd></dl></div>
+<div class="cap react"><h3>反应</h3><div class="sig">react(entry, ctx) → 新事件[]</div>
+<dl><dt>什么时候跑</dt><dd>这条事件被全部扩展归约之后</dd><dt>能做什么</dt><dd>I/O（检索、读文件、调小模型），返回要追加的事件：种子、提醒、通知、“接着写”</dd><dt>不能做什么</dt><dd>改已经写下的事件；阻止模型消息与工具结果写入</dd></dl></div>
+<div class="cap view"><h3>视图</h3><div class="sig">view(mine, input) → {slots, tail, attach}</div>
+<dl><dt>什么时候跑</dt><dd>只在要发请求、或预览的时候</dd><dt>能做什么</dt><dd>往 Profile 留的槽里填稳定内容；在请求末尾放只对这一次有效的内容</dd><dt>不能做什么</dt><dd>I/O；写日志</dd></dl></div>
+<div class="cap intercept"><h3>拦截</h3><div class="sig">model(request, next, ctx) → response</div>
+<dl><dt>什么时候跑</dt><dd>接受输入、调用模型、执行工具、压缩这四个副作用发生时</dd><dt>能做什么</dt><dd>改请求与结果、拦下、重试、换模型；日志会记下谁改了什么</dd><dt>不能做什么</dt><dd>改服务商格式的原始请求体；盖过用户配置的拒绝与只读模式</dd></dl></div>
+</div>
+
+<!-- 3 -->
+<h2 id="s-hello">3. 演示：说一句“你好”</h2>
+<p>从用户点“发送”到看到回复，数据经过哪些层、每一步长什么样。左边是时序图（每个点是一步），右边是用户看到的界面和这一步的数据。数据形状是示意。</p>
+<div class="controls">
+<button id="hPrev">上一步</button><button id="hNext" class="primary">下一步</button><button id="hPlay">自动播放</button><button id="hReset">重来</button>
+<span class="grow"></span><span class="progress" id="hProg"></span>
+</div>
+<div class="seq-wrap">
+<div class="seq" id="seq"></div>
+<div class="seq-side">
+<div class="chat" id="hChat"><div class="t">用户看到的</div></div>
+<div class="stepinfo"><div class="h" id="hTitle"></div><div class="d" id="hDesc"></div><div class="codebox"><pre><code id="hCode"></code></pre></div></div>
+</div>
+</div>
+
+<!-- 4 -->
+<h2 id="s-event">4. 一条事件怎么处理</h2>
+<p>用户说“续写第 3 章”，这条事件写进日志后：</p>
+<ol>
+<li><span class="pill p-reduce">归约</span> 全部扩展各更新自己那片。同步、纯函数、很快；谁先谁后结果都一样，因为每个 <code>reduce</code> 只看得到自己那片。</li>
+<li><span class="pill p-react">反应</span> 全部扩展拿到<b>同一份</b>归约后的状态，并发执行，可以做 I/O。</li>
+<li>反应<b>全部</b>完成后，追加的事件按扩展顺序写入（插件按依赖顺序，Profile 最后）。每条新事件再走一遍 1、2。</li>
+<li><span class="pill p-view">视图</span> 不跟着事件跑，只在没有新事件、要请求模型时算一次。</li>
+</ol>
+<div class="controls"><button id="tlPlay" class="primary">播放</button><span class="sub">横轴是时间（示意）。</span></div>
+<div class="tl" id="tl"></div>
+<div class="note"><b>同一轮看不到彼此追加的事件。</b> 上图里 nb-memory 的检索结果与 nbook.history 的通知是同一轮的反应，谁也看不到谁这一轮追加的东西；要看到，得等那条事件自己被归约、反应的时候。这样结果不取决于谁先跑完。</div>
+
+<!-- 5 -->
+<h2 id="s-sandbox">5. 沙盒：写手续写第 3 章</h2>
+<p>四个扩展挂在这个会话上：<span class="pill p-log">nbook.history</span> 记下用户改过的文件，下次发言时告诉模型；<span class="pill p-log">nb-memory</span> 用户发言后检索记忆；<span class="pill p-log">reminder</span> 每 3 次用户发言提醒一次文风；<span class="pill p-log">Profile：写手</span> 写种子、记字数、不到 3000 字就让模型接着写、只许改正文目录。</p>
+<p>先按“下一步”看一遍剧本（模型的回复是写好的）。剧本放完后进入自由模式：<b>点日志里任意一条就是回退到那里</b>，状态会重新归约；也可以自己发消息、在编辑器里改文件，看扩展怎样反应、请求怎样变。</p>
+<div class="controls">
+<button id="sPrev">上一步</button><button id="sNext" class="primary">下一步</button><button id="sPlay">自动播放</button><button id="sReset">重来</button>
+<span class="grow"></span><span class="progress" id="sProg"></span>
+</div>
+<div class="controls" id="freeCtl" style="display:none">
+<input type="text" id="fText" value="把打斗那段再写紧一点" style="flex:1;min-width:200px">
+<button id="fSend" class="primary">发送（只跑到算出请求）</button>
+<button id="fReply">模拟一次最终回复</button>
+<button id="fEdit">用户在编辑器里改第 5 章</button>
+</div>
+<div class="narr" id="sNarr"></div>
+<div class="sandbox">
+<div class="panel"><div class="ph">日志 <span class="sub">当前路径之外的条目变淡；点一条回退到那里</span></div><div id="sLog"></div></div>
+<div class="panel"><div class="ph">状态片 <span class="sub">由路径归约出来；刚变的闪一下</span></div><div id="sState"></div></div>
+<div class="panel"><div class="ph">本次请求 <span class="sub">视图算出的</span></div><div id="sReq"></div></div>
+</div>
+<p class="sub">图例：<span class="pill cls-conv">对话</span> 进模型上下文；<span class="pill cls-ctrl">控制</span> 运行与设置；<span class="pill cls-ext">扩展</span> 不进上下文，扩展自己归约。请求里绿色左边线是与上一次请求相同的前缀（缓存命中），橙色是新增的，半绿半橙是只命中前半段（上一次 attach 附在它后面），虚线框是 <code>attach</code>（只这一次有效、不进日志）。</p>
+
+<!-- 6 -->
+<h2 id="s-state">6. 状态：共享与私有</h2>
+<div class="share">
+<div class="box"><h4>内置的片 <span class="pill p-ok">全部扩展只读</span></h4>
+<ul><li>历史：沿当前路径的消息，处理过压缩</li><li>工具集</li><li>会话设置：模型、推理档、审批模式、Agent 模式（会话级，不跟路径走）</li><li>运行状态与待处理事项</li></ul>
+<p class="sub">只有内核能改，由对应的控制事件推动。</p></div>
+<div class="box"><h4>扩展的片 <span class="pill p-warn">默认私有</span></h4>
+<p>只有它自己的 <code>reduce</code> 能改，只有它自己读得到原样。</p>
+<p>想给别人看，导出一个只读的选择器：</p>
+<div class="codebox"><pre><code class="ts">exports: {pendingChanges: (s) =&gt; s.pending}</code></pre></div>
+<p>别的扩展这样读：</p>
+<div class="codebox"><pre><code class="ts">ctx.state.read("nbook.history", "pendingChanges")</code></pre></div>
+<p class="sub">选择器的返回类型就是公开接口，内部结构随便改。</p></div>
+<div class="box"><h4>不是状态的东西</h4>
+<ul><li><b>内存缓存</b>：数据库连接、索引句柄，放在 <code>setup</code> 的闭包里；丢了要能从状态重建</li><li><b>配置</b>：Profile 设置、插件设置，经 <code>ctx</code> 读，用户在设置里改</li><li><b>作用域 session</b> 的片（<code>scope: "session"</code>）：和标题一样在树外，回退不影响，例如“记忆已索引到哪一章”</li></ul></div>
+</div>
+<div class="note"><b>为什么状态由日志归约，而不另存一份？</b> 状态要跟着对话路径走：回退到第 3 次发言，提醒计数也要回到 3。存在内存里，回退和重启都不对；另存状态文件，要给树上每个节点存一份才回得去（那就是又一份日志），而且日志写成了、状态没写成时两边会对不上。只有日志一个真相源，换一片叶子重新归约就对。代价是 <code>reduce</code> 要守纯函数的纪律，扩展事件要带版本（改了事件含义就升版本，否则旧会话重新归约出来的状态会变）。</div>
+
+<!-- 7 -->
+<h2 id="s-view">7. 视图与缓存</h2>
+<p>请求由两部分算出来：Profile 的 <code>prompt</code> 是主视图，决定整体组装；扩展的 <code>view</code> 往里补三样东西。</p>
+<table>
+<tr><th>谁</th><th>产出</th><th>去处</th><th>放什么</th></tr>
+<tr><td>Profile <code>prompt</code></td><td>TSX</td><td>系统提示词、历史的位置与渲染、固定消息</td><td>能读全部状态、按模型能力写条件、<code>&lt;History render filter&gt;</code> 控制每条怎么渲染</td></tr>
+<tr><td>扩展 <code>view</code></td><td><code>slots</code></td><td>Profile 留的同名 <code>&lt;Slot&gt;</code></td><td>稳定的内容：书的设定、记忆的长期摘要。Profile 没留这个槽就丢弃并写诊断</td></tr>
+<tr><td></td><td><code>tail</code></td><td>接在历史末尾的消息</td><td>每次都变的内容，只对这一次有效</td></tr>
+<tr><td></td><td><code>attach</code></td><td>附在请求最末尾那条消息里（用户消息或工具结果）</td><td>同上，但不想多出一条消息。只附在最末尾：附在更早的消息上，内容一变，它之后的整段历史都失去缓存</td></tr>
+<tr><td>扩展 <code>render</code></td><td>消息</td><td>历史里它自己的事件</td><td>例如检索结果存结构化数据，渲染成 <code>&lt;memory&gt;</code> 块；Profile 可以覆盖</td></tr>
+</table>
+<h3>为什么会变的内容不能放进系统提示词</h3>
+<p>服务商的提示词缓存按前缀命中：两次请求从头开始相同的部分越长，越便宜越快。下面是同一会话里连续两次请求。</p>
+<div class="controls"><label><input type="checkbox" id="cWrong"> 错误示范：把“本章当前字数”放进系统提示词的槽</label></div>
+<div class="card" id="cache"></div>
+
+<!-- 8 -->
+<h2 id="s-chain">8. 拦截链</h2>
+<p>四个副作用（输入、模型调用、工具执行、压缩）各有一条拦截链，一层套一层：外层是插件，里面是 Profile，最里层是真正干活的。每层拿到 <code>next</code>：改了再调、调两次（重试）、不调（拦下）都可以。</p>
+<div class="controls">
+<select id="oKind"><option value="model">模型调用</option><option value="tool">工具执行</option></select>
+<span id="oOptsModel"><label><input type="checkbox" id="oRoute" checked> 装了路由插件</label> <label>问题 <select id="oQ"><option value="simple">简单</option><option value="hard">难</option></select></label></span>
+<span id="oOptsTool" style="display:none"><label>edit 的路径 <select id="oPath"><option value="正文">project://正文/第3章.md</option><option value="设定">project://设定/人物.md</option></select></label> <label>审批 <select id="oAppr"><option value="allow">写入默认放行</option><option value="ask">要询问</option></select></label></span>
+<button id="oRun" class="primary">运行</button>
+</div>
+<div class="onion-wrap">
+<div id="onion"></div>
+<div class="card" style="margin-top:0"><div style="font-weight:700;margin-bottom:6px">每层做了什么</div><div class="chainlog" id="oLog"><div class="sub">点“运行”。</div></div></div>
+</div>
+<div class="note">审批永远在工具链的最里层：扩展的放行只能免掉审批模式本来要弹的询问，盖不过用户配置的拒绝、工具声明的拒绝与只读模式。预览时模型链也会跑，只是最里层不发请求、把请求截下来，所以预览看到的就是最终请求。</div>
+
+<!-- 9 -->
+<h2 id="s-life">9. 生命周期</h2>
+<div class="card lifecycle">
+<div class="lc-row"><span class="lbl">扩展</span><span class="chip">插件激活</span><span class="arrow">→</span><span class="chip">声明登记</span><span class="arrow">→</span><span class="chip hot">每个会话 setup</span><span class="arrow">→</span><span class="chip hot">dispose</span><span class="arrow">→</span><span class="chip">插件停用</span></div>
+<div class="lc-row"><span class="lbl">会话</span><span class="chip">创建（一次）</span><span class="arrow">→</span><span class="chip hot">打开（每次加载，含重启后）</span><span class="arrow">⇄</span><span class="chip">空闲 / 运行中 / 等用户</span><span class="arrow">→</span><span class="chip">关闭</span></div>
+<div class="lc-row"><span class="lbl">运行</span><span class="chip">受理</span><span class="arrow">→</span><span class="chip">输入</span><span class="arrow">→</span><span class="chip hot">循环：请求 → 回复 → 工具 × N</span><span class="arrow">→</span><span class="chip">准备结束</span><span class="arrow">→</span><span class="chip">结束</span><span class="sub">（循环中随时可能压缩；中止或出错时收口）</span></div>
+<div class="lc-row"><span class="lbl">一条事件</span><span class="chip">写进日志</span><span class="arrow">→</span><span class="chip" style="border-color:var(--c-reduce);color:var(--c-reduce)">全部归约</span><span class="arrow">→</span><span class="chip" style="border-color:var(--c-react);color:var(--c-react)">全部反应</span><span class="arrow">→</span><span class="chip">追加的事件各走一遍</span></div>
+</div>
+<p>没有单独的钩子点：“会话已创建”“运行开始”“最终回复”“压缩完成”“运行结束”都是日志里的事件，扩展在 <code>react</code> 里按 <code>entry.type</code> 处理。<code>setup</code> 在每次打开会话时调用（包括服务端重启后），所以扩展的内存缓存要在这里建、在 <code>dispose</code> 里放。</p>
+<h3><code>ctx</code> 给什么、不给什么</h3>
+<div class="two">
+<div class="box"><h4>给</h4><ul>
+<li>读：内置的片、自己的片、别人导出的选择器、工具、当前模型、上下文用量、<code>read(uri)</code></li>
+<li>主动：<code>complete</code>（不进会话的模型调用）、<code>invokeTool</code>（走审批）、<code>ask</code>、<code>send</code>（插话或排队）、<code>emit</code>、<code>compact</code>、<code>abort</code>、<code>setTitle</code>、诊断</li>
+<li>会话身份、<code>preview</code> 标志、中止信号</li></ul></div>
+<div class="box"><h4>不给</h4><ul>
+<li>改工具绑定（归用户）</li>
+<li>改会话设置（归用户；按请求换模型用模型拦截）</li>
+<li>服务商格式的原始请求体</li>
+<li>定时器与界面（插件自己的入口与贡献点能做）</li></ul></div>
+</div>
+
+<!-- 10 -->
+<h2 id="s-code">10. 写一个扩展</h2>
+<h3>文件改动通知：归约加反应</h3>
+<div class="codebox"><pre><code class="ts">export default defineAgentExtension({
+    id: "nbook.history.file-notice",
+    setup: () =&gt; ({
+        state: {
+            initial: {pending: [] as string[]},
+            // 只看得到自己这一片与这条事件；不认识的事件原样返回
+            reduce(s, e) {
+                if (e.type === "nbook.history/file-changed") return {pending: [...s.pending, e.data.path]};
+                if (e.type === "nbook.history/notice-delivered") return {pending: []};
+                return s;
+            },
+            exports: {pendingChanges: (s) =&gt; s.pending},
+        },
+        // 用户发言之后：有没送达的改动就追加一条通知，再记“已送达”
+        async react(e, ctx) {
+            const {pending} = ctx.state.mine();
+            if (e.type !== "user" || pending.length === 0) return;
+            return [
+                {kind: "message", role: "user", content: await describeChanges(pending, ctx)},
+                {kind: "extension", type: "nbook.history/notice-delivered", v: 1},
+            ];
+        },
+    }),
+});</code></pre></div>
+<p>回退到用户发言之前，“已送达”那条不在路径上，<code>pending</code> 自动恢复，下次发言时模型会重新收到通知。这里没有一行处理回退的代码。</p>
+<h3>只想存一个值：<code>pathState</code></h3>
+<div class="codebox"><pre><code class="ts">const outline = pathState&lt;{chapter: number}&gt;({initial: {chapter: 1}});
+
+defineAgentExtension({
+    id: "demo.outline",
+    setup: () =&gt; ({
+        state: outline.slice,                                  // 内核生成的 reduce：取路径上最后一次 set
+        async react(e, ctx) {
+            if (e.type === "tool_result" &amp;&amp; e.tool === "outline.move") await outline.set(ctx, {chapter: e.data.to});
+        },
+        view: (mine) =&gt; ({slots: {outline: `当前写到第 ${mine.chapter} 章`}}),
+    }),
+});</code></pre></div>
+<h3>Profile：主视图加自己的扩展</h3>
+<div class="codebox"><pre><code class="tsx">export default defineProfile({
+    id: "writer",
+    tools: {required: ["read", "edit"], optional: ["grep"]},
+    globalExtensions: {exclude: []},
+    prompt: ({state, model}) =&gt; (
+        &lt;&gt;
+            &lt;System&gt;
+                你是本书的写手，只改正文目录。
+                {model.capabilities.vision &amp;&amp; "用户可能贴图，按图写场景。"}
+                &lt;Slot name="memory" /&gt;
+            &lt;/System&gt;
+            &lt;History render={{"nb-memory/result": (e) =&gt; `&lt;memory&gt;${e.data.text}&lt;/memory&gt;`}} /&gt;
+        &lt;/&gt;
+    ),
+    setup: () =&gt; ({
+        // 只对这一次请求有效、不进日志、不破坏前缀
+        view: (mine) =&gt; ({attach: [{type: "text", text: `本章当前字数：${mine.words}`}]}),
+        intercept: {
+            async tool(call, next) {
+                if (call.name === "edit" &amp;&amp; !call.args.path.startsWith("project://正文/"))
+                    return {isError: true, content: "写手只改正文目录"};    // 不调 next：拦下
+                return next(call);
+            },
+        },
+    }),
+});</code></pre></div>
+
+<!-- 11 -->
+<h2 id="s-pitfall">11. 常见错误</h2>
+<table>
+<tr><th>写法</th><th>后果</th><th>改成</th></tr>
+<tr><td>在 <code>reduce</code> 里读文件、查数据库、取当前时间</td><td>重放与回退得到不同的状态</td><td>在 <code>react</code> 里做 I/O，把结果作为事件写进日志</td></tr>
+<tr><td>在 <code>view</code> 里调 <code>ctx.complete</code> 或读文件</td><td>预览会发请求；每次请求结果不同</td><td>同上；视图只读状态</td></tr>
+<tr><td>把字数、时间放进 <code>slots</code></td><td>系统提示词每次都变，缓存从头失效</td><td><code>tail</code> 或 <code>attach</code></td></tr>
+<tr><td>读别的扩展的内部状态</td><td>对方改了结构，你悄悄坏掉</td><td>用对方导出的选择器</td></tr>
+<tr><td>改了扩展事件的含义却没升版本</td><td>旧会话重新归约出来的状态和当时不一样</td><td>升 <code>v</code>，<code>reduce</code> 对旧版本按旧含义处理</td></tr>
+<tr><td>在反应里无条件追加“接着做”</td><td>死循环</td><td>按状态判断；内核也有上限（连续 3 次）</td></tr>
+<tr><td>在 <code>setup</code> 闭包里的变量当真相</td><td>重启、回退后丢失或不对</td><td>真相放状态片，闭包只放能重建的缓存</td></tr>
+</table>
+
+<!-- 12 -->
+<h2 id="s-status">12. 状态与待定</h2>
+<p>提案是 draft（第二稿）。开发者已同意的方向与细节见提案的“决策记录”；还待定的：</p>
+<ol>
+<li>名字叫“扩展”还是“钩子”（推荐扩展）。</li>
+<li>Profile 在拦截链的最里层（推荐）还是最外层。</li>
+<li>归约的快照存在压缩点（推荐）还是每 N 条。</li>
+<li>反应链深度最多 3 层、“接着做”连续最多 3 次。</li>
+<li>请求录制缺省关（推荐）。</li>
+<li><code>reminder()</code> 缺省写进历史（推荐）。</li>
+<li>工具拦截里附加的说明写进日志（推荐）。</li>
+<li>反应直接调 <code>ctx</code> 做 I/O、内核给每个动作记一条日志（推荐），还是像 Elm 那样只返回动作的描述。</li>
+<li>不经事件就会变的数据（当前时间、字数）：扩展的在反应里读、写成事件（沙盒里写手的字数就是这样）；时间这类通用的由内核在算视图前取一次、记进请求记录。</li>
+</ol>
+<p class="sub">循环由内核自己写，与服务商通信只用 OMP 的 <code>streamSimple</code>（2026-10-29 已定）。</p>
+</main>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+// ---------- 代码高亮：只做注释、字符串、关键字三类 ----------
+function highlight(text) {
+    const re = /(\/\/[^\n]*)|("(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`)|\b(const|let|return|if|async|await|function|export|default|import|from|interface|type|new|as)\b/g;
+    let out = "", last = 0, m;
+    while ((m = re.exec(text))) {
+        out += esc(text.slice(last, m.index));
+        if (m[1]) out += `<span class="tok-c">${esc(m[1])}</span>`;
+        else if (m[2]) out += `<span class="tok-s">${esc(m[2])}</span>`;
+        else out += `<span class="tok-k">${esc(m[3])}</span>`;
+        last = re.lastIndex;
+    }
+    return out + esc(text.slice(last));
+}
+document.querySelectorAll("code.ts, code.tsx").forEach((el) => { el.innerHTML = highlight(el.textContent); });
+
+// ---------- 目录高亮 ----------
+const tocLinks = [...document.querySelectorAll("#toc a")];
+const tocObs = new IntersectionObserver((items) => {
+    for (const it of items) if (it.isIntersecting) {
+        tocLinks.forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + it.target.id));
+    }
+}, {rootMargin: "0px 0px -70% 0px"});
+document.querySelectorAll("h2[id]").forEach((h) => tocObs.observe(h));
+
+// ---------- 1. 循环动画 ----------
+(() => {
+    // 点走在边的中点上，它指向的节点亮起
+    const pts = [[100, 170], [210, 70], [430, 70], [540, 170], [430, 270], [210, 270]];
+    const dot = $("loopDot");
+    let i = 0;
+    function tick() {
+        // 第 i 个中点所在的边指向第 i 个节点
+        document.querySelectorAll(".loop-node").forEach((n, k) => n.classList.toggle("on", k === i));
+        dot.style.cx = pts[i][0] + "px"; dot.style.cy = pts[i][1] + "px";
+        i = (i + 1) % pts.length;
+    }
+    dot.style.transition = "cx .8s ease, cy .8s ease";
+    tick(); setInterval(tick, 1300);
+})();
+
+// ---------- 3. 你好：时序图 ----------
+const LANES = [
+    ["ui", "浏览器 · Composer"], ["run", "运行控制"], ["chain", "拦截链"], ["log", "会话日志"],
+    ["ext", "扩展：归约 / 反应"], ["view", "视图"], ["adapter", "模型适配器 · pi-ai"], ["provider", "服务商"],
+];
+const HELLO = [
+    {lane: "ui", t: "点“发送”", d: "Composer 先把“你好”显示成发送中，再经远程服务（WebSocket 上的 RPC）发给服务端。界面不等回复。",
+        chat: {u: "sending"}, code: `{"method": "agent.send",\n "params": {"sessionId": "s_8f2", "text": "你好", "clientId": "c_17"}}`},
+    {lane: "run", t: "运行控制受理", d: "会话还没加载就先读日志、沿当前叶子归约出状态、对每个扩展调 setup。会话空闲就开始一次运行；正在运行就按插话或排队处理。",
+        chat: {u: "sending"}, code: `会话空闲 → 开始一次运行\n写入控制事件 {"type": "run_started"}`},
+    {lane: "chain", t: "输入拦截链", d: "扩展可以在这里改写或拦下用户的话。这个会话里没有扩展拦截输入，直接 next。",
+        chat: {u: "sending"}, code: `input(input, next) → 没有扩展 → next(input)`},
+    {lane: "log", t: "写进日志", d: "用户消息作为对话事件追加一行。日志只追加，写下的条目谁都不能改。",
+        chat: {u: "sending"}, code: `{"id": "e2", "parent": "e1", "type": "message",\n "message": {"role": "user", "content": "你好"},\n "source": "user", "clientId": "c_17"}`},
+    {lane: "ext", t: "全部扩展归约，再反应", d: "每个扩展的 reduce 看一眼 e2：认识就更新自己那片，不认识就原样返回。然后各扩展的 react 拿到同一份状态，决定要不要追加事件。这里都没有追加。",
+        chat: {u: "sending"}, code: `reduce：reminder.turns 0 → 1；其它原样\nreact：全部返回空`},
+    {lane: "ui", t: "推给窗口", d: "e2 推给订阅这个会话的窗口，界面按 clientId 把“发送中”换成正式消息。",
+        chat: {u: "ok"}, code: `push {"entry": "e2", "clientId": "c_17"}`},
+    {lane: "view", t: "视图：算出请求", d: "没有新事件了，要请求模型。Profile 的 prompt 加各扩展的 view，从状态算出与服务商无关的请求。纯函数，预览也是这一步。",
+        chat: {u: "ok"}, code: `{\n  "model": {"provider": "deepseek", "id": "deepseek-flash"},\n  "params": {"maxTokens": 8192},\n  "headers": {},\n  "system": "你是 NeuroBook 的写作助手。……",\n  "messages": [{"role": "user", "content": "你好"}],\n  "tools": [{"name": "read"}, {"name": "edit"}, …]\n}`},
+    {lane: "chain", t: "模型拦截链（往里）", d: "请求从外往里穿过每层拦截：可以改模型、参数、header、系统提示词、消息。日志记下谁改了哪几项与最终请求的哈希。",
+        chat: {u: "ok"}, code: `修改记录：{"modifiedBy": [], "hash": "sha256:9c1e…"}`},
+    {lane: "adapter", t: "模型适配器", d: "最里层是 nbook.models：解析模型、从凭据库取密钥，调 OMP 的 streamSimple。工具名里的 . 在这里换成 __。",
+        chat: {u: "ok"}, code: `streamSimple(model,\n  {systemPrompt: [system], messages, tools},\n  {apiKey, signal, maxTokens: 8192, headers, reasoning})`},
+    {lane: "provider", t: "发出 HTTP 请求", d: "pi-ai 按服务商的协议转换。DeepSeek 走 OpenAI 兼容接口。这一层的原始请求体不开放给扩展。",
+        chat: {u: "ok"}, code: `POST https://api.deepseek.com/v1/chat/completions\nAuthorization: Bearer ****\n\n{"model": "deepseek-flash", "stream": true,\n "max_tokens": 8192,\n "messages": [{"role": "system", "content": "你是 NeuroBook 的写作助手。……"},\n              {"role": "user", "content": "你好"}],\n "tools": [{"type": "function", "function": {"name": "read", …}}, …]}`},
+    {lane: "adapter", t: "解析流式回复", d: "服务商回 SSE，pi-ai 解析成文字、思考、工具调用的增量。",
+        chat: {u: "ok", a: "streaming", text: "你好！"}, code: `data: {"choices":[{"delta":{"content":"你好！"}}]}\ndata: {"choices":[{"delta":{"content":"今天想写点"}}]}\n…`},
+    {lane: "ui", t: "流式推给窗口", d: "同一条消息每 100 毫秒最多推一次。增量不写日志，只用于显示。",
+        chat: {u: "ok", a: "streaming", text: "你好！今天想写点"}, code: `push {"streaming": "你好！今天想写点"}`},
+    {lane: "chain", t: "模型拦截链（往外）", d: "完整回复由内往外穿过拦截链，外层可以改写。改写过的话，原文与改后都记进日志。",
+        chat: {u: "ok", a: "streaming", text: "你好！今天想写点什么？"}, code: `回复没有被改写`},
+    {lane: "log", t: "回复写进日志", d: "完整的助手消息写成 e3，带模型、推理档与用量。",
+        chat: {u: "ok", a: "streaming", text: "你好！今天想写点什么？"}, code: `{"id": "e3", "parent": "e2", "type": "message",\n "message": {"role": "assistant", "content": "你好！今天想写点什么？"},\n "model": "deepseek/deepseek-flash", "usage": {"input": 812, "output": 9}}`},
+    {lane: "ext", t: "归约、反应：最终回复", d: "回复里没有工具调用，所以是最终回复。扩展可以在这里追加“接着做”，没有扩展追加，运行可以结束。",
+        chat: {u: "ok", a: "streaming", text: "你好！今天想写点什么？"}, code: `react(e3)：全部返回空 → 运行结束`},
+    {lane: "log", t: "写入运行结束", d: "",
+        chat: {u: "ok", a: "streaming", text: "你好！今天想写点什么？"}, code: `{"type": "run_ended", "reason": "completed"}`},
+    {lane: "ui", t: "界面完成", d: "界面用日志里的正式版本替换流式显示的文字。下一句话的请求是 [system][user 你好][assistant …][user 下一句]，前缀和这次相同，服务商的缓存命中。",
+        chat: {u: "ok", a: "done", text: "你好！今天想写点什么？"}, code: `push {"entry": "e3"}, {"entry": "run_ended"}`},
+];
+(() => {
+    const seq = $("seq");
+    seq.innerHTML = LANES.map(([id, name]) => `<div class="lane" data-lane="${id}"><div class="name">${name}</div></div>`).join("") +
+        `<svg id="seqSvg"><polyline class="seq-trail" id="seqTrail" points=""/><g id="seqPts"></g><circle class="seq-head" id="seqHead" r="7" cx="-20" cy="-20"/></svg>`;
+    let step = -1, timer = null;
+    function point(i) {
+        const lane = seq.querySelector(`[data-lane="${HELLO[i].lane}"]`);
+        const x0 = 150 + 22, x1 = seq.clientWidth - 22;
+        return [x0 + (x1 - x0) * (i / (HELLO.length - 1)), lane.offsetTop + lane.offsetHeight / 2];
+    }
+    function render() {
+        const s = HELLO[step];
+        seq.querySelectorAll(".lane").forEach((l) => l.classList.toggle("on", !!s && l.dataset.lane === s.lane));
+        const pts = [];
+        for (let i = 0; i <= step; i++) pts.push(point(i));
+        $("seqTrail").setAttribute("points", pts.map((p) => p.join(",")).join(" "));
+        $("seqPts").innerHTML = pts.slice(0, -1).map(([x, y]) => `<circle class="seq-pt" r="4" cx="${x}" cy="${y}"/>`).join("");
+        const head = $("seqHead");
+        const [hx, hy] = pts.length ? pts.at(-1) : [-20, -20];
+        head.style.cx = hx + "px"; head.style.cy = hy + "px";
+        $("hTitle").textContent = s ? `${step + 1}. ${s.t}` : "点“下一步”开始";
+        $("hDesc").textContent = s ? s.d : "共 " + HELLO.length + " 步。";
+        $("hCode").textContent = s ? s.code : "";
+        $("hProg").textContent = `${step + 1} / ${HELLO.length}`;
+        const c = s ? s.chat : {};
+        let html = `<div class="t">用户看到的</div>`;
+        if (c.u) html += `<div class="bubble user ${c.u === "sending" ? "sending" : ""}">你好${c.u === "sending" ? "（发送中）" : ""}</div>`;
+        if (c.a) html += `<div class="bubble assistant ${c.a === "streaming" ? "streaming" : ""}">${esc(c.text)}</div>`;
+        $("hChat").innerHTML = html;
+        $("hPrev").disabled = step < 0; $("hNext").disabled = step >= HELLO.length - 1;
+    }
+    function stop() { clearInterval(timer); timer = null; $("hPlay").textContent = "自动播放"; }
+    $("hNext").onclick = () => { if (step < HELLO.length - 1) { step++; render(); } };
+    $("hPrev").onclick = () => { stop(); if (step >= 0) { step--; render(); } };
+    $("hReset").onclick = () => { stop(); step = -1; render(); };
+    $("hPlay").onclick = () => {
+        if (timer) return stop();
+        if (step >= HELLO.length - 1) step = -1;
+        $("hPlay").textContent = "暂停";
+        timer = setInterval(() => { if (step >= HELLO.length - 1) return stop(); step++; render(); }, 1700);
+    };
+    window.addEventListener("resize", render);
+    render();
+})();
+
+// ---------- 4. 时间线 ----------
+(() => {
+    const rows = [
+        ["日志", [["log", 0, 9, "e4 用户消息"], ["log", 51, 7.5, "e5 通知"], ["log", 59, 7.5, "e6 送达"], ["log", 67, 7.5, "e7 检索"], ["log", 75, 7.5, "e8 字数"]]],
+        ["nbook.history", [["reduce", 10, 2, ""], ["react", 13, 15, "有改动 → 2 条"], ["reduce", 84, 2, ""], ["react", 86.5, 2, ""]]],
+        ["nb-memory", [["reduce", 10, 2, ""], ["react", 13, 35, "检索记忆（I/O，最慢）→ 1 条"], ["reduce", 84, 2, ""], ["react", 86.5, 2, ""]]],
+        ["reminder", [["reduce", 10, 2, ""], ["react", 13, 6, "空"], ["reduce", 84, 2, ""], ["react", 86.5, 2, ""]]],
+        ["Profile：写手", [["reduce", 10, 2, ""], ["react", 13, 20, "读字数 → 1 条"], ["reduce", 84, 2, ""], ["react", 86.5, 2, ""]]],
+        ["视图", [["view", 91, 9, "算请求"]]],
+    ];
+    const tl = $("tl");
+    tl.innerHTML = rows.map(([name, bars]) => `<div class="row"><div class="rn">${name}</div><div class="track">${
+        bars.map(([k, l, w, t]) => `<div class="bar ${k}" style="left:${l}%;width:${w}%;animation-delay:${(l / 100 * 3.2).toFixed(2)}s" title="${t}">${t}</div>`).join("")
+    }</div></div>`).join("");
+    // 两条竖线画在轨道坐标系里：放进第一行轨道的同一坐标，用绝对定位覆盖全部行
+    const first = tl.querySelector(".track");
+    const lineWrap = document.createElement("div");
+    lineWrap.style.cssText = "position:absolute;top:0;bottom:0;pointer-events:none";
+    tl.appendChild(lineWrap);
+    function placeLines() {
+        const r = first.getBoundingClientRect(), t = tl.getBoundingClientRect();
+        lineWrap.style.left = (r.left - t.left) + "px"; lineWrap.style.width = r.width + "px";
+    }
+    lineWrap.innerHTML = `<div class="vline" style="left:49.5%;animation-delay:1.6s"><span>全部反应完成</span></div><div class="vline" style="left:83%;animation-delay:2.65s"><span>新事件各走一遍</span></div>`;
+    placeLines(); window.addEventListener("resize", placeLines);
+    $("tlPlay").onclick = () => { tl.classList.remove("play"); void tl.offsetWidth; tl.classList.add("play"); };
+    const obs = new IntersectionObserver((it) => { if (it[0].isIntersecting) { tl.classList.add("play"); obs.disconnect(); } }, {threshold: .5});
+    obs.observe(tl);
+})();
+
+// ---------- 5. 沙盒：一个真的跑归约与反应的小引擎 ----------
+const CLS = {conv: ["对话", "cls-conv"], ctrl: ["控制", "cls-ctrl"], ext: ["扩展", "cls-ext"]};
+// 扩展顺序：插件按依赖顺序，Profile 最后。反应追加的事件按这个顺序写入。
+const EXTS = [
+    {
+        id: "nbook.history", initial: {pending: []},
+        reduce(s, e) {
+            if (e.type === "file_changed") return {pending: [...s.pending, e.data.path]};
+            if (e.type === "notice_delivered") return {pending: []};
+            return s;
+        },
+        react(e, c) {
+            if (e.type !== "user" || c.mine.pending.length === 0) return [];
+            return [
+                {cls: "conv", type: "notice", text: `用户刚修改了${c.mine.pending.join("、")}（附改动摘要）`},
+                {cls: "ext", type: "notice_delivered", text: "已送达"},
+            ];
+        },
+    },
+    {
+        id: "nb-memory", initial: null,
+        react(e) {
+            if (e.type !== "user") return [];
+            const hit = /打斗|剑|手/.test(e.text) ? "林舟左手有旧伤，不能持剑" : "林舟与沈澜在第 2 章结下梁子";
+            return [{cls: "conv", type: "memory_result", text: hit}];
+        },
+        render: (e) => `<memory>${e.text}</memory>`,
+    },
+    {
+        id: "reminder", initial: {turns: 0, lastAt: 0},
+        reduce(s, e) {
+            if (e.type === "user") return {...s, turns: s.turns + 1};
+            if (e.type === "reminder") return {...s, lastAt: s.turns};
+            return s;
+        },
+        react(e, c) {
+            if (e.type === "user" && c.mine.turns - c.mine.lastAt >= 3) return [{cls: "conv", type: "reminder", text: "文风提醒：短句，少用形容词"}];
+            return [];
+        },
+    },
+    {
+        id: "Profile：写手", initial: {words: 0, continues: 0},
+        reduce(s, e) {
+            if (e.type === "words") return {...s, words: e.data.words};
+            if (e.type === "continue") return {...s, continues: s.continues + 1};
+            if (e.type === "user") return {...s, continues: 0};
+            return s;
+        },
+        react(e, c) {
+            if (e.type === "session_created") return [{cls: "conv", type: "seed", text: "你是本书的写手；正文在 project://正文/，只改正文目录。"}];
+            // 读文件是 I/O，所以在反应里读，结果作为事件写进日志；视图只读状态
+            if (e.type === "user" || (e.type === "tool_result" && e.data && e.data.tool === "edit")) return [{cls: "ext", type: "words", text: `本章字数 ${world.words}`, data: {words: world.words}}];
+            if (e.type === "assistant" && !e.data.tool && c.mine.words < 3000 && c.mine.continues < 3) return [{cls: "conv", type: "continue", text: `请接着写完（本章 ${c.mine.words} 字，不到 3000 字）`}];
+            return [];
+        },
+        view: (s) => ({attach: [`本章当前字数：${s.words}`]}),
+    },
+];
+let world, entries, seq, leaf, prevReq, prevState, freshIds;
+function resetEngine() { world = {words: 0}; entries = []; seq = 0; leaf = null; prevReq = null; prevState = null; freshIds = new Set(); }
+function byId(id) { return entries.find((e) => e.id === id); }
+function pathTo(id) { const p = []; for (let e = id && byId(id); e; e = e.parent && byId(e.parent)) p.unshift(e); return p; }
+function foldPath(path) {
+    const st = {};
+    for (const x of EXTS) st[x.id] = path.reduce((s, e) => (x.reduce ? x.reduce(s, e) : s), x.initial);
+    let running = false;
+    for (const e of path) { if (e.type === "run_started") running = true; if (e.type === "run_ended") running = false; }
+    st["内置：运行状态"] = running ? "运行中" : "空闲";
+    return st;
+}
+function append(input) {
+    const e = {id: "e" + (++seq), parent: leaf, data: {}, ...input};
+    entries.push(e); leaf = e.id; freshIds.add(e.id);
+    return e;
+}
+// 一批事件：先全部写入，再逐条（按写入顺序）拿到它那一刻的状态快照做反应；追加的事件作为下一批，最多 3 层
+function dispatch(inputs) {
+    let batch = inputs, depth = 0;
+    while (batch.length && depth <= 3) {
+        const written = batch.map(append);
+        const next = [];
+        for (const e of written) {
+            const st = foldPath(pathTo(e.id));
+            for (const x of EXTS) if (x.react) for (const out of x.react(e, {mine: st[x.id]}) || []) next.push({...out, source: x.id});
+        }
+        batch = next; depth++;
+    }
+}
+function renderMsg(e) {
+    switch (e.type) {
+        case "user": return {role: "user", text: e.text};
+        case "assistant": return {role: "assistant", text: e.text + (e.data.tool ? `\n→ 调用 ${e.data.tool}(${e.data.path})` : "")};
+        case "tool_result": return {role: "tool", text: e.text};
+        case "seed": case "notice": case "reminder": return {role: "user", text: `<system-reminder>${e.text}</system-reminder>`};
+        case "memory_result": return {role: "user", text: EXTS[1].render(e)};
+        case "continue": return {role: "user", text: e.text};
+        default: return null;
+    }
+}
+function buildRequest(path, st) {
+    const msgs = path.filter((e) => e.cls === "conv").map((e) => ({...renderMsg(e), from: e.source, id: e.id}));
+    const attach = EXTS[3].view(st[EXTS[3].id]).attach;
+    // attach 只附在最末尾那条（用户消息或工具结果）：附在更早的消息上，内容一变它之后的历史全失去缓存
+    return {system: "你是本书的写手，只改正文目录。", slot: "（memory 槽：长期记忆摘要，稳定）", msgs, attach, at: msgs.length - 1};
+}
+function showReq(path) {
+    const st = foldPath(path);
+    const req = buildRequest(path, st);
+    // 前缀按“同一条、内容也相同”比；上一次带着 attach 的那条，这次只命中到 attach 之前
+    let same = 0;
+    if (prevReq) while (same < req.msgs.length && same < prevReq.msgs.length && req.msgs[same].id === prevReq.msgs[same].id && same !== prevReq.at) same++;
+    const part = prevReq && same === prevReq.at && req.msgs[same] && req.msgs[same].id === prevReq.msgs[same].id ? same : -1;
+    let html = `<div class="msg sys${prevReq ? " same" : ""}"><div class="role">system · Profile prompt</div>${esc(req.system)} <span class="slot">${esc(req.slot)}</span></div>`;
+    req.msgs.forEach((m, i) => {
+        const cls = prevReq ? (i < same ? "same" : i === part ? "part" : "new") : "";
+        html += `<div class="msg ${cls}"><div class="role">${m.role} · ${esc(m.id)} · 来自 ${esc(m.from)}${i === part ? " · 命中到上次的 attach 之前" : ""}</div>${esc(m.text).replace(/\n/g, "<br>")}${
+            i === req.at ? req.attach.map((a) => `<div class="att">attach（Profile：写手 的 view）：${esc(a)}</div>`).join("") : ""}</div>`;
+    });
+    html += `<div class="msg sys"><div class="role">tools</div>read, edit, grep</div>`;
+    if (prevReq) html += `<div class="sub">与上一次请求相同的前缀：system + ${same} 条消息${part >= 0 ? "，再加上一条的前半段" : ""}</div>`;
+    $("sReq").innerHTML = html;
+    prevReq = req;
+}
+function render(showRequest) {
+    const path = pathTo(leaf), onPath = new Set(path.map((e) => e.id));
+    $("sLog").innerHTML = entries.map((e) => {
+        const [n, c] = CLS[e.cls];
+        return `<div class="logrow ${onPath.has(e.id) ? "" : "off"} ${e.id === leaf ? "leaf" : ""} ${freshIds.has(e.id) ? "fresh" : ""}" data-id="${e.id}">
+<span class="id">${e.id}</span><span class="pill ${c}">${n}</span><span class="txt">${esc(e.text)}<div class="src">${esc(e.source)}${e.parent ? " · 父 " + e.parent : ""}</div></span></div>`;
+    }).join("") || `<div class="sub">还没有事件</div>`;
+    const st = foldPath(path);
+    $("sState").innerHTML = Object.entries(st).map(([k, v]) => {
+        const changed = prevState && JSON.stringify(prevState[k]) !== JSON.stringify(v);
+        const tag = k.startsWith("内置") ? "内核维护" : (v === null ? "没有状态（只有反应）" : "私有");
+        return `<div class="slice ${changed ? "changed" : ""}"><div class="sh"><span>${esc(k)}</span><span class="tag">${tag}</span></div><div class="sv">${esc(v === null ? "—" : JSON.stringify(v))}</div></div>`;
+    }).join("");
+    prevState = st;
+    if (showRequest) showReq(path);
+    freshIds = new Set();
+}
+const SCRIPT = [
+    {n: "<b>创建会话。</b>内核写“会话已创建”；写手对它反应，追加种子。", run: () => dispatch([{cls: "ctrl", type: "session_created", text: "会话已创建", source: "内核"}])},
+    {n: "<b>用户在编辑器里改了第 3 章</b>（还没说话）。nbook.history 写一条扩展事件，它那片状态记下 pending。扩展事件不进模型上下文：模型现在什么都不知道。", run: () => { world.words = 2100; dispatch([{cls: "ext", type: "file_changed", text: "第 3 章被用户修改", source: "nbook.history", data: {path: "第 3 章"}}]); }},
+    {n: "<b>用户说“续写第 3 章”。</b>先写“运行开始”，再写用户消息。全部扩展归约（reminder 计数 +1），再对同一份状态反应：nbook.history 追加通知与“已送达”，nb-memory 追加检索结果，写手读字数（I/O）写成扩展事件。", run: () => { dispatch([{cls: "ctrl", type: "run_started", text: "运行开始", source: "内核"}]); dispatch([{cls: "conv", type: "user", text: "续写第 3 章", source: "用户"}]); }},
+    {n: "<b>没有新事件了，算请求（视图）。</b>右边是视图算出来的：种子、用户消息、通知、检索结果（经 nb-memory 的 render 渲染成 &lt;memory&gt;）；写手的 view 把字数 attach 在请求最末尾那条消息里，只这一次有效、不进日志。", req: true},
+    {n: "<b>模型拦截链 → 服务商 → 回复。</b>回复里有工具调用 edit，写成对话事件。", run: () => dispatch([{cls: "conv", type: "assistant", text: "我先接着写打斗那段。", source: "模型", data: {tool: "edit", path: "project://正文/第3章.md"}}])},
+    {n: "<b>工具拦截链。</b>写手检查路径在 project://正文/ 下，调 next；审批在最里层，写入默认放行；执行，结果写进日志。写手对工具结果反应，重新读字数。", run: () => { world.words = 2900; dispatch([{cls: "conv", type: "tool_result", text: "已写入 800 字", source: "工具 edit", data: {tool: "edit"}}]); }},
+    {n: "<b>第二次请求。</b>绿色左边线是与上一次相同的前缀，缓存命中；橙色是新增的。字数变了，但它在 attach 里、总在最末尾，只影响最后一小段。", req: true},
+    {n: "<b>最终回复。</b>没有工具调用。写手对最终回复反应：字数 2900 不到 3000，追加“请接着写完”，循环继续（连续最多 3 次）。", run: () => dispatch([{cls: "conv", type: "assistant", text: "第 3 章续写了约 800 字。", source: "模型"}])},
+    {n: "<b>第三次请求</b>，带着“请接着写完”。", req: true},
+    {n: "<b>又一次工具调用与结果。</b>字数到 3400。", run: () => { dispatch([{cls: "conv", type: "assistant", text: "补上结尾。", source: "模型", data: {tool: "edit", path: "project://正文/第3章.md"}}]); world.words = 3400; dispatch([{cls: "conv", type: "tool_result", text: "已写入 500 字", source: "工具 edit", data: {tool: "edit"}}]); }},
+    {n: "<b>最终回复，运行结束。</b>字数够了，写手不再追加；内核写“运行结束”。<br>剧本放完了。<b>试试点日志里的 e3</b>（第 3 章被改之后、用户说话之前）：“已送达”不在路径上，nbook.history 的 pending 自动回来，reminder 计数回到 0。再在下面发一句话，看通知重新送达。", run: () => { dispatch([{cls: "conv", type: "assistant", text: "第 3 章写完了，共 3400 字。", source: "模型"}]); dispatch([{cls: "ctrl", type: "run_ended", text: "运行结束", source: "内核"}]); }},
+];
+(() => {
+    let step = -1, timer = null;
+    // 剧本是确定的：上一步 = 从头重放到 step，借此也演示“状态总能由日志重建”
+    // 前 n 步静默重放，闪烁标记只留给第 n 步新写的条目与刚变的状态
+    function replayTo(n) {
+        resetEngine();
+        for (let i = 0; i < n; i++) { if (SCRIPT[i].run) SCRIPT[i].run(); if (SCRIPT[i].req) showReq(pathTo(leaf)); }
+        freshIds = new Set(); prevState = foldPath(pathTo(leaf));
+        if (n >= 0 && SCRIPT[n].run) SCRIPT[n].run();
+    }
+    function draw() {
+        if (step >= 0) replayTo(step); else resetEngine();
+        render(false);
+        if (step >= 0 && SCRIPT[step].req) showReq(pathTo(leaf)); else if (!prevReq) $("sReq").innerHTML = `<div class="sub">要请求模型时，这里显示视图算出的请求。</div>`;
+        $("sNarr").innerHTML = step >= 0 ? SCRIPT[step].n : "点“下一步”开始。";
+        $("sProg").textContent = `${step + 1} / ${SCRIPT.length}`;
+        $("sPrev").disabled = step < 0; $("sNext").disabled = step >= SCRIPT.length - 1;
+        $("freeCtl").style.display = step >= SCRIPT.length - 1 ? "flex" : "none";
+    }
+    function stepTo(n) {
+        // 前进一步时只执行这一步，这样“刚写入”“刚变”的闪烁只落在这一步上
+        if (n === step + 1 && n >= 0) {
+            const s = SCRIPT[n];
+            step = n;
+            if (s.run) s.run();
+            render(false);
+            if (s.req) showReq(pathTo(leaf));
+            $("sNarr").innerHTML = s.n;
+            $("sProg").textContent = `${step + 1} / ${SCRIPT.length}`;
+            $("sPrev").disabled = false; $("sNext").disabled = step >= SCRIPT.length - 1;
+            $("freeCtl").style.display = step >= SCRIPT.length - 1 ? "flex" : "none";
+            return;
+        }
+        step = n; draw();
+    }
+    function stop() { clearInterval(timer); timer = null; $("sPlay").textContent = "自动播放"; }
+    $("sNext").onclick = () => { if (step < SCRIPT.length - 1) stepTo(step + 1); };
+    $("sPrev").onclick = () => { stop(); if (step >= 0) stepTo(step - 1); };
+    $("sReset").onclick = () => { stop(); stepTo(-1); };
+    $("sPlay").onclick = () => {
+        if (timer) return stop();
+        if (step >= SCRIPT.length - 1) stepTo(-1);
+        $("sPlay").textContent = "暂停";
+        timer = setInterval(() => { if (step >= SCRIPT.length - 1) return stop(); stepTo(step + 1); }, 3200);
+    };
+    $("sLog").addEventListener("click", (ev) => {
+        const row = ev.target.closest(".logrow");
+        if (!row || step < SCRIPT.length - 1) {
+            if (row) $("sNarr").innerHTML = "剧本放完后才能回退（运行中不能改树，t07）。";
+            return;
+        }
+        const st = foldPath(pathTo(leaf));
+        if (st["内置：运行状态"] === "运行中") { $("sNarr").innerHTML = "运行中不能回退：先点“模拟一次最终回复”让运行结束（t07）。"; return; }
+        leaf = row.dataset.id; prevReq = null;
+        render(false);
+        $("sReq").innerHTML = `<div class="sub">回退到 ${leaf}。状态沿新路径重新归约，没有任何“处理回退”的代码。发一句话看看请求。</div>`;
+        $("sNarr").innerHTML = `<b>回退到 ${leaf}。</b>右边的状态片是沿 e1 → ${leaf} 重新归约的结果。之后写入的条目挂在 ${leaf} 下面，成为新分支；旧分支变淡但还在日志里。`;
+    });
+    $("fSend").onclick = () => {
+        const text = $("fText").value.trim(); if (!text) return;
+        if (foldPath(pathTo(leaf))["内置：运行状态"] === "运行中") { $("sNarr").innerHTML = "正在运行：真实系统里这句话会按插话或排队处理（t07）；沙盒里先点“模拟一次最终回复”。"; return; }
+        dispatch([{cls: "ctrl", type: "run_started", text: "运行开始", source: "内核"}]);
+        dispatch([{cls: "conv", type: "user", text, source: "用户"}]);
+        render(false); showReq(pathTo(leaf));
+        $("sNarr").innerHTML = "<b>用户消息写入、归约、反应，然后算出请求。</b>到这里就是“预览”：不调模型。点“模拟一次最终回复”继续。";
+    };
+    $("fReply").onclick = () => {
+        if (foldPath(pathTo(leaf))["内置：运行状态"] !== "运行中") { $("sNarr").innerHTML = "现在没有在运行，先发一句话。"; return; }
+        const before = entries.length;
+        dispatch([{cls: "conv", type: "assistant", text: "（模拟的最终回复）", source: "模型"}]);
+        const cont = entries.slice(before).some((e) => e.type === "continue");
+        if (!cont) dispatch([{cls: "ctrl", type: "run_ended", text: "运行结束", source: "内核"}]);
+        render(false);
+        if (cont) showReq(pathTo(leaf));
+        $("sNarr").innerHTML = cont ? "<b>写手追加了“请接着写完”</b>（字数不够），运行继续，右边是下一次请求。再点一次“模拟一次最终回复”。" : "<b>运行结束。</b>";
+    };
+    $("fEdit").onclick = () => {
+        dispatch([{cls: "ext", type: "file_changed", text: "第 5 章被用户修改", source: "nbook.history", data: {path: "第 5 章"}}]);
+        render(false);
+        $("sNarr").innerHTML = "nbook.history 记下第 5 章的改动。下一句话发出时它会追加通知。";
+    };
+    resetEngine(); draw();
+})();
+
+// ---------- 7. 缓存演示 ----------
+(() => {
+    function draw() {
+        const wrong = $("cWrong").checked;
+        const sys1 = wrong ? "system（槽里：字数 2100）" : "system", sys2 = wrong ? "system（槽里：字数 2900）" : "system";
+        const r1 = [[sys1, 22], ["种子", 10], ["user 续写", 10], ["通知", 10], ["记忆", 10]];
+        const r2 = [[sys2, 22], ["种子", 10], ["user 续写", 10], ["通知", 10], ["记忆", 10], ["assistant edit", 13], ["tool 结果", 10]];
+        const tail1 = wrong ? null : ["attach 字数 2100", 12], tail2 = wrong ? null : ["attach 字数 2900", 12];
+        const bar = (segs, kinds, tail) => `<div class="req-bar">${segs.map(([t, w], i) => `<div class="seg ${kinds[i]}" style="flex:0 0 ${w}%">${esc(t)}</div>`).join("")}${tail ? `<div class="seg fresh" style="flex:0 0 ${tail[1]}%;border-style:dashed">${esc(tail[0])}</div>` : ""}</div>`;
+        const k1 = r1.map(() => "plain");
+        const k2 = r2.map((_, i) => wrong ? "miss" : (i < r1.length ? "hit" : "fresh"));
+        const hitPct = wrong ? 0 : Math.round(r1.reduce((a, s) => a + s[1], 0) / r2.reduce((a, s) => a + s[1], 0) * 100);
+        $("cache").innerHTML = `<div class="sub">第 1 次请求</div>${bar(r1, k1, tail1)}<div class="sub" style="margin-top:10px">第 2 次请求</div>${bar(r2, k2, tail2)}
+<p style="margin-top:12px">${wrong
+            ? `<span class="pill p-bad">前缀命中 0%</span> 系统提示词在最前面，里面的字数一变，后面的全部都要重算。预览与诊断会给“不利于缓存”的警告。`
+            : `<span class="pill p-ok">前缀命中约 ${hitPct}%</span> 系统提示词与历史只追加不变，字数放在最后的 attach 里，只影响最后一小段。`}</p>`;
+    }
+    $("cWrong").onchange = draw; draw();
+})();
+
+// ---------- 8. 拦截链 ----------
+(() => {
+    const CH = {
+        model: ["插件：路由（可能换模型）", "插件：用量统计（只看不改）", "Profile：写手", "nbook.models 适配器 → 服务商"],
+        tool: ["插件：审计（只看不改）", "Profile：写手（路径检查）", "审批（永远在最里层）", "执行 edit"],
+    };
+    let timer = null;
+    function drawOnion(kind, on, stopAt) {
+        const names = CH[kind];
+        let html = `<div class="layer core ${on === names.length - 1 ? "on" : ""}">${esc(names.at(-1))}</div>`;
+        for (let i = names.length - 2; i >= 0; i--) html = `<div class="layer ${on === i ? "on" : ""} ${stopAt === i ? "stop" : ""}"><span class="ln">${esc(names[i])}</span>${html}</div>`;
+        $("onion").innerHTML = html;
+    }
+    function plan() {
+        const kind = $("oKind").value;
+        if (kind === "model") {
+            const route = $("oRoute").checked, simple = $("oQ").value === "simple";
+            const model = route && simple ? "deepseek-flash" : "deepseek-pro";
+            return [
+                [0, "→", route ? (simple ? "最后一条用户消息很简单：request.model = deepseek-flash，next(request)" : "问题难，不改，next(request)") : "（没装路由插件，这层不存在）next(request)"],
+                [1, "→", "记下开始时间，next(request)"],
+                [2, "→", "Profile 最后拍板：写正文要长回复，params.maxTokens = 8192，next(request)"],
+                [3, "·", `发出请求（model = ${model}），收到回复`],
+                [2, "←", "最先拿到原始回复：不改"],
+                [1, "←", "记用量：输入 812、输出 640"],
+                [0, "←", "不改"],
+                [-1, "✓", `日志：回复写成新事件；修改记录 ${route && simple ? "{路由: model, 写手: params.maxTokens}" : "{写手: params.maxTokens}"}`],
+            ];
+        }
+        const path = $("oPath").value, ask = $("oAppr").value === "ask";
+        if (path === "设定") return [
+            [0, "→", "记下调用 edit(project://设定/人物.md)，next(call)"],
+            [1, "✗", "路径不在 project://正文/ 下：不调 next，直接返回错误结果“写手只改正文目录”", 1],
+            [0, "←", "看到错误结果，照常记录"],
+            [-1, "✓", "日志：工具结果（错误）。模型下一次请求能看到，会改成写正文。审批与执行都没发生"],
+        ];
+        return [
+            [0, "→", "记下调用 edit(project://正文/第3章.md)，next(call)"],
+            [1, "→", "路径在正文目录下，next(call)"],
+            [2, "→", ask ? "要询问：写审批请求事件，运行进入“等用户”；用户批准，写应答事件，继续" : "写入默认放行（t06），继续"],
+            [3, "·", "执行：写入 800 字"],
+            [2, "←", "—"],
+            [1, "←", "不改结果"],
+            [0, "←", "记录结果"],
+            [-1, "✓", "日志：工具结果写成新事件，再归约、反应"],
+        ];
+    }
+    function run() {
+        clearInterval(timer);
+        const kind = $("oKind").value, steps = plan();
+        $("oLog").innerHTML = "";
+        let i = 0;
+        const tick = () => {
+            if (i >= steps.length) { clearInterval(timer); return; }
+            const [layer, dir, text, stop] = steps[i++];
+            drawOnion(kind, layer, stop === 1 ? layer : -1);
+            const div = document.createElement("div");
+            div.innerHTML = `<span class="dir">${dir}</span>${layer >= 0 ? `<b>${esc(CH[kind][layer])}</b>：` : ""}${esc(text)}`;
+            $("oLog").appendChild(div);
+        };
+        tick(); timer = setInterval(tick, 900);
+    }
+    $("oKind").onchange = () => {
+        const m = $("oKind").value === "model";
+        $("oOptsModel").style.display = m ? "" : "none"; $("oOptsTool").style.display = m ? "none" : "";
+        drawOnion($("oKind").value, -1, -1); $("oLog").innerHTML = `<div class="sub">点“运行”。</div>`;
+    };
+    $("oRun").onclick = run;
+    drawOnion("model", -1, -1);
+})();
+</script>
+</body>
+</html>
