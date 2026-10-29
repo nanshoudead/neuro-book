@@ -33,7 +33,9 @@ import SettingsWindow from "./SettingsWindow.vue";
 
 /** 窗口里固定的文字取自 `nbook.settings` 的目录（经测试端口）；断言也经目录解析，不在测试里重复写一份文案。 */
 const textPort = (locale: "zh-CN" | "en-US" = "zh-CN") => testTextPort(locale, {"nbook.settings": settingsCatalogs, "nbook.workbench": workbenchCatalogs});
-const {t} = settingsTestText("zh-CN");
+const {t, resolver} = settingsTestText("zh-CN");
+/** 通知交的是文字引用，视口显示时才翻（docs/specs/workbench/notifications.md 输出 9）：断言按中文翻好的样子。 */
+const shown = (notice: NotificationInput | undefined) => notice === undefined ? undefined : {tone: notice.tone, title: notice.title === undefined ? undefined : resolver.t(notice.title), message: resolver.t(notice.message)};
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -147,12 +149,12 @@ describe("SettingsWindow", () => {
         expect(selected(themeSetting.key)).toBe("macOS");
         segment(themeSetting.key, "NeuroBook").click();
         await flushPromises();
-        expect(notices).toEqual([{tone: "warning", title: t("model.notSavedTitle"), message: t("model.notSaved", {title: "主题", reason: t("writeFailure.writeFailed", {detail: "场景让写入失败"})})}]);
+        expect(notices.map(shown)).toEqual([{tone: "warning", title: t("model.notSavedTitle"), message: t("model.notSaved", {title: "主题", reason: t("writeFailure.writeFailed", {detail: "场景让写入失败"})})}]);
         expect(selected(themeSetting.key)).toBe("macOS");
         host.user.failWrites("unknown-outcome");
         segment(themeSetting.key, "NeuroBook").click();
         await flushPromises();
-        expect(notices[1]).toEqual({tone: "warning", title: t("model.unknownTitle"), message: t("model.notSaved", {title: "主题", reason: t("writeFailure.unknownOutcome")})});
+        expect(shown(notices[1])).toEqual({tone: "warning", title: t("model.unknownTitle"), message: t("model.notSaved", {title: "主题", reason: t("writeFailure.unknownOutcome")})});
     });
 
     it("层文件无效：标题区右侧的警告是按钮，悬停提示写原因、修复前的后果与路径，控件停用；层连不上是不能点的文字；恢复后警告消失", async () => {
@@ -202,7 +204,7 @@ describe("SettingsWindow", () => {
         input.dispatchEvent(new Event("input"));
         input.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
         await flushPromises();
-        expect(notices[0]?.message).toContain("保存间隔（秒）：这个值不能用");
+        expect(shown(notices[0])?.message).toContain("保存间隔（秒）：这个值不能用");
         expect(input.value).toBe("120");
         // 不是数：不写，行里写出原因；改好后原因消失。
         input.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
@@ -250,7 +252,7 @@ describe("SettingsWindow", () => {
         remove.click();
         await flushPromises();
         expect([...tags.querySelectorAll<HTMLInputElement>("[data-nb-list-item] input")].map((element) => element.value)).toEqual(["人物", "地点", "伏笔", "对白"]);
-        expect(notices.at(-1)?.title).toBe(t("model.notSavedTitle"));
+        expect(shown(notices.at(-1))?.title).toBe(t("model.notSavedTitle"));
         expect(tags.contains(document.activeElement)).toBe(true);
         expect(tags.querySelector("[aria-live='polite']")?.textContent).toBe("刚才的改动没有生效");
     });

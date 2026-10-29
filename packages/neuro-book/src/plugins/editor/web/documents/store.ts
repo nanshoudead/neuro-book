@@ -689,7 +689,7 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
 
     const live = (document: TextDocument): Entry => {
         const entry = entryOf(document);
-        if (entry === null) throw new RangeError(`文档 ${document.target.value.path} 已关闭`);
+        if (entry === null) throw new RangeError(`Document ${document.target.value.path} is closed`);
         return entry;
     };
 

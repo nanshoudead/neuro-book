@@ -90,7 +90,7 @@ export function createWelcomeHost(options: WelcomeHostOptions): Component {
 
             const execute = (command: string, args: Record<string, unknown>): void => {
                 void options.commands.execute(command, args, {source: "user"}).then((result) => {
-                    if (!result.ok) options.report(`${command} 执行失败：${diagnosticText(result.reason)}`);
+                    if (!result.ok) options.report(`${command} failed: ${diagnosticText(result.reason)}`);
                 });
             };
 
@@ -106,13 +106,13 @@ export function createWelcomeHost(options: WelcomeHostOptions): Component {
                     description.value = item?.description ?? null;
                     stats.value = item?.stats ?? null;
                 } else {
-                    options.report(`欢迎页取不到作品信息：${shelf.code}`);
+                    options.report(`The welcome page could not read the project info: ${shelf.code}`);
                 }
                 if (listing === null) return;
                 if (listing.ok) {
                     quick.value = quickEntries(listing.value.entries);
                 } else {
-                    options.report(`欢迎页列不出项目根：${listing.code}`);
+                    options.report(`The welcome page could not list the project root: ${listing.code}`);
                 }
             });
 

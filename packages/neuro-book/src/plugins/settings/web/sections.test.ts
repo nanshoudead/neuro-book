@@ -224,7 +224,7 @@ describe("分区的登记校验", () => {
         expect(validation(application, SETTINGS_PAGES_POINT, "x.top.page")).toMatchObject({status: "rejected", reason: "implementation-required"});
         expect(source.sections().map((section) => section.id)).toEqual(["nbook.appearance"]);
         // 浏览器实例里装不进服务端入口，直接用拥有者的校验函数验。
-        expect(validatePageContribution({capability: SETTINGS_PAGES_POINT, id: "x.top.page", plugin: "x.top", entry: "server", location: "server", declaration: page().declaration})).toBe(`${SETTINGS_PAGES_POINT} 只接受浏览器入口的贡献`);
+        expect(validatePageContribution({capability: SETTINGS_PAGES_POINT, id: "x.top.page", plugin: "x.top", entry: "server", location: "server", declaration: page().declaration})).toBe(`${SETTINGS_PAGES_POINT} only accepts contributions from browser entries`);
     });
 
     it("同一 id 出现在两个贡献点上：两者都不进目录，记一条诊断，指向它的配置项归入“其它”", async () => {
@@ -237,7 +237,7 @@ describe("分区的登记校验", () => {
         expect(validation(application, SETTINGS_SECTIONS_POINT, "x.twin.main")).toEqual({status: "accepted"});
         expect(validation(application, SETTINGS_PAGES_POINT, "x.twin.main")).toEqual({status: "accepted"});
         expect(source.sections().map((section) => section.id)).toEqual(["nbook.appearance"]);
-        expect(diagnostics.query({}).records.filter((record) => record.event === "settings.sections").map((record) => record.message)).toEqual(["分区 id x.twin.main 同时出现在 list 与 page 两个贡献点上，两者都不显示"]);
+        expect(diagnostics.query({}).records.filter((record) => record.event === "settings.sections").map((record) => record.message)).toEqual(["Section id x.twin.main appears on both the list and page contribution points; neither is shown"]);
         expect(await source.load("x.twin.main")).toEqual({status: "stale"});
     });
 });
@@ -311,8 +311,8 @@ describe("分区目录与交付状态", () => {
         ]);
         expect(source.delivery("x.empty.page")).toEqual({kind: "available"});
         const empty = await source.load("x.empty.page");
-        expect(empty.status === "failed" && (empty.error as Error).message).toBe("page 分区 x.empty.page 交出的实现没有 load()");
-        expect(diagnostics.query({}).records.filter((record) => record.event === "settings.sections").map((record) => record.message)).toEqual(["page 分区 x.empty.page 交出的实现没有 load()，打开时按加载失败显示"]);
+        expect(empty.status === "failed" && (empty.error as Error).message).toBe("Page section x.empty.page has an implementation without load()");
+        expect(diagnostics.query({}).records.filter((record) => record.event === "settings.sections").map((record) => record.message)).toEqual(["Page section x.empty.page has an implementation without load(); opening it shows a load failure"]);
         const broken = await source.load("x.broken.page");
         expect(broken.status === "failed" && (broken.error as Error).message).toBe("组件模块加载失败");
     });
@@ -328,7 +328,7 @@ describe("分区目录与交付状态", () => {
         expect(await source.retry("x.page.main")).toEqual({status: "activated"});
         expect(delivery.value).toEqual({kind: "available"});
         expect(application.plugins.entryState({plugin: "x.page", entry: "browser"})?.generation).toBe(2);
-        expect(await source.retry("nope.section")).toEqual({status: "failed", reason: "未登记的分区 nope.section"});
+        expect(await source.retry("nope.section")).toEqual({status: "failed", reason: "Section nope.section is not registered"});
     });
 
     it("入口受阻：原位给出原因，没有重试", async () => {

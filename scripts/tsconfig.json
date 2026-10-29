@@ -22,6 +22,7 @@
         "ci/change-scope.ts",
         "ci/check-documentation.ts",
         "ci/community-files.ts",
+        "ci/component-inject-tags.ts",
         "ci/message-catalogs.ts",
         "ci/workspace-graph.ts",
         "cli/agent-context.ts",

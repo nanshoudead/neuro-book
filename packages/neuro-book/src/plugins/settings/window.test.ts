@@ -261,7 +261,7 @@ describe("左栏与配置项的落位（输出 1、2、8、12）", () => {
             ["basics", "基础", ["x.notes/beta", "x.notes/alpha"]],
             ["advanced", "高级", ["x.notes/userOnly"]],
         ]);
-        expect(recorder.reports).toContain("配置项 x.notes/delta 指向分区 x.notes.main 没有声明的小组 missing，排在分区最前");
+        expect(recorder.reports).toContain("Setting x.notes/delta points to group missing, which section x.notes.main does not declare; it goes first in the section");
     });
 
     it("没写分区与指向不存在的分区的项进“其它”，按声明者插件分小组（后者记诊断）；指向 page 分区的项不在任何列表里", async () => {
@@ -274,7 +274,7 @@ describe("左栏与配置项的落位（输出 1、2、8、12）", () => {
             ["x.misc", ["x.misc/flag"]],
             ["x.notes", ["x.notes/loose", "x.notes/orphan"]],
         ]);
-        expect(recorder.reports).toContain("配置项 x.notes/orphan 指向不存在的分区 x.notes.nowhere，归入“其它”");
+        expect(recorder.reports).toContain("Setting x.notes/orphan points to section x.notes.nowhere, which does not exist; it goes under \"Other\"");
         const listed = window.nav.value.flatMap((group) => group.items).flatMap((item) => {
             window.select(item.id);
             const current = window.current.value;
@@ -376,9 +376,9 @@ describe("按需激活（输出 4）：窗口显示 page 分区时触发 onSetti
         const started = await start([contributor("x.notes", {"x.notes.page": pageSection()}, toggle(), [], {activationEvents: []}), other]);
         const {window, recorder} = windowFor(started.probe, false);
         window.openWindow({section: "x.notes.page"});
-        expect(window.page("x.notes.page").delivery).toEqual({kind: "entry-not-activatable", reason: "入口 x.notes/browser 没有声明 onSettingsPage:x.notes.page"});
+        expect(window.page("x.notes.page").delivery).toEqual({kind: "entry-not-activatable", reason: "Entry x.notes/browser does not declare onSettingsPage:x.notes.page"});
         expect(stateOf(started.application, "x.other")).toBe("registered");
-        expect(started.diagnostics.query({}).records.some((record) => record.event === "settings.sections" && record.message.includes("不能按需激活"))).toBe(true);
+        expect(started.diagnostics.query({}).records.some((record) => record.event === "settings.sections" && record.message.includes("cannot be activated on demand"))).toBe(true);
         // 之后入口经别的途径激活了：按它的状态呈现。
         await started.application.plugins.activate({plugin: "x.notes", entry: "browser"});
         expect(window.page("x.notes.page").delivery).toEqual({kind: "available"});
@@ -841,11 +841,16 @@ describe("通用列表的写入（输出 10、12、14）", () => {
         expect(window.pending(themeSetting.key)).toBeUndefined();
         expect(window.editing.get(themeSetting)).toBe("nbook");
         expect(recorder.notices).toHaveLength(1);
-        expect(recorder.notices[0]).toMatchObject({tone: "warning", title: t("model.notSavedTitle")});
-        expect(recorder.notices[0]?.message).toStartWith(beforeDetail(t("model.notSaved", {title: "主题", reason: t("writeFailure.writeFailed", {detail: DETAIL})})));
+        // 通知交的是文字引用，视口显示时才翻：这里按中文翻出来比对，再按英文翻同一条，框架换成英文，代入的标题与原因是发通知时翻好的片段。
+        const shown = (notice: NotificationInput | undefined, resolver = settingsText.resolver) => ({tone: notice?.tone, title: resolver.t(notice?.title ?? ""), message: resolver.t(notice?.message ?? "")});
+        expect(shown(recorder.notices[0])).toMatchObject({tone: "warning", title: t("model.notSavedTitle")});
+        expect(shown(recorder.notices[0]).message).toStartWith(beforeDetail(t("model.notSaved", {title: "主题", reason: t("writeFailure.writeFailed", {detail: DETAIL})})));
+        const english = shown(recorder.notices[0], settingsTestText("en-US").resolver);
+        expect(english.title).toBe("Setting not saved");
+        expect(english.message).toStartWith(beforeDetail(`主题: ${t("writeFailure.writeFailed", {detail: DETAIL})}`));
 
         await window.write(themeOf(window), "solarized");
-        expect(recorder.notices[1]?.message).toStartWith(beforeDetail(t("model.notSaved", {title: "主题", reason: t("writeFailure.invalidValue", {detail: DETAIL})})));
+        expect(shown(recorder.notices[1]).message).toStartWith(beforeDetail(t("model.notSaved", {title: "主题", reason: t("writeFailure.invalidValue", {detail: DETAIL})})));
     });
 });
 

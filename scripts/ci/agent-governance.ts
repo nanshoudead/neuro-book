@@ -14,6 +14,7 @@ import {
 } from "#scripts/ci/agent-governance-contract";
 import {changedFiles, readChangeScopeArguments, scopeWarnings} from "#scripts/ci/change-scope";
 import {communityFileFailures} from "#scripts/ci/community-files";
+import {componentInjectFailures} from "#scripts/ci/component-inject-tags";
 import {messageCatalogFailures} from "#scripts/ci/message-catalogs";
 import {testConventionReport} from "#scripts/ci/test-conventions";
 
@@ -93,6 +94,7 @@ for (const relativePath of inspectPaths) {
 
 failures.push(...await communityFileFailures(repoRoot));
 failures.push(...messageCatalogFailures(repoRoot));
+failures.push(...componentInjectFailures(repoRoot));
 
 const testConventions = testConventionReport(repoRoot);
 failures.push(...testConventions.failures);

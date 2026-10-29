@@ -154,7 +154,6 @@ export const projectsBrowserPlugin: PluginDefinition = {
                         diagnostics.record({level: "warn", event: "projects.library-failed", message: `取作品目录失败：${result.code}`, source: {plugin: descriptor.id}});
                         return null;
                     },
-                    text,
                     notifications,
                     report: (message) => diagnostics.record({level: "warn", event: "projects.library-not-saved", message, source: {plugin: descriptor.id}}),
                 }),

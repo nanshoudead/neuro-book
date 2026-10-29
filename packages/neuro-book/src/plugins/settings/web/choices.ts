@@ -44,25 +44,25 @@ function messageOf(error: unknown): string {
 }
 
 function entryReason(state: EntryState): string {
-    if (state.blocked !== null) return `${state.blocked.reason}：${state.blocked.key}`;
+    if (state.blocked !== null) return `${state.blocked.reason}: ${state.blocked.key}`;
     return state.failure?.error?.message ?? state.failure?.reason ?? state.status;
 }
 
 /** 选项源的形状（`ui.forms` 输出 11），值只能是字符串（配置项的动态选项只用在字符串上）；不合格时给出原因。 */
 function shapeProblem(value: unknown): string | null {
-    if (typeof value !== "object" || value === null) return "不是选项源";
+    if (typeof value !== "object" || value === null) return "not an option source";
     const source = value as Record<string, unknown>;
     if (source.status === "loading") return null;
-    if (source.status === "unavailable") return isFormText(source.reason) ? null : "unavailable 缺少原因文字";
-    if (source.status !== "ready") return `status 是 ${String(source.status)}`;
-    if (!Array.isArray(source.items)) return "items 不是数组";
+    if (source.status === "unavailable") return isFormText(source.reason) ? null : "unavailable has no reason text";
+    if (source.status !== "ready") return `status is ${String(source.status)}`;
+    if (!Array.isArray(source.items)) return "items is not an array";
     for (const [index, item] of (source.items as ReadonlyArray<unknown>).entries()) {
-        if (typeof item !== "object" || item === null) return `第 ${String(index + 1)} 项不是对象`;
+        if (typeof item !== "object" || item === null) return `item ${String(index + 1)} is not an object`;
         const fields = item as Record<string, unknown>;
-        if (typeof fields.value !== "string") return `第 ${String(index + 1)} 项的 value 不是字符串`;
-        if (!isFormText(fields.label)) return `第 ${String(index + 1)} 项的 label 不是文字`;
-        if (fields.description !== undefined && !isFormText(fields.description)) return `第 ${String(index + 1)} 项的 description 不是文字`;
-        if (fields.disabled !== undefined && typeof fields.disabled !== "boolean") return `第 ${String(index + 1)} 项的 disabled 不是布尔`;
+        if (typeof fields.value !== "string") return `item ${String(index + 1)} value is not a string`;
+        if (!isFormText(fields.label)) return `item ${String(index + 1)} label is not text`;
+        if (fields.description !== undefined && !isFormText(fields.description)) return `item ${String(index + 1)} description is not text`;
+        if (fields.disabled !== undefined && typeof fields.disabled !== "boolean") return `item ${String(index + 1)} disabled is not a boolean`;
     }
     return null;
 }
@@ -151,7 +151,7 @@ export class ChoiceSourceRegistry {
         if (provided === undefined) {
             try {
                 const implementation = handle.implementation() as Partial<SettingsChoicesImplementation>;
-                provided = typeof implementation.source === "function" ? {source: implementation.source(), problem: null} : {source: null, problem: "交出的实现没有 source()"};
+                provided = typeof implementation.source === "function" ? {source: implementation.source(), problem: null} : {source: null, problem: "the implementation has no source()"};
             } catch (error) {
                 provided = {source: null, problem: messageOf(error)};
             }
@@ -168,7 +168,7 @@ export class ChoiceSourceRegistry {
             }
         }
         if (problem === null) return value as OptionSource;
-        this.#once(`${id}\n${String(handle.generation)}\n${problem}`, `选项提供者 ${id} 出错：${problem}`);
+        this.#once(`${id}\n${String(handle.generation)}\n${problem}`, `Choice provider ${id} failed: ${problem}`);
         return unavailable("choices.unavailable", {reason: problem});
     }
 
@@ -179,20 +179,20 @@ export class ChoiceSourceRegistry {
         if (this.#plugins.entryState(ref)?.status !== "registered") return;
         const event = settingsChoicesEvent(id);
         const unreachable = (reason: string): void => {
-            this.#once(`${id}\nnot-activatable\n${reason}`, `选项提供者 ${id} 不能按需激活：${reason}`);
+            this.#once(`${id}\nnot-activatable\n${reason}`, `Choice provider ${id} cannot be activated on demand: ${reason}`);
             this.#notActivatable.set(id, reason);
             this.#bump();
         };
-        if (!(this.#plugins.activationEvents(ref) ?? []).includes(event)) return unreachable(`入口 ${known.plugin}/${known.entry} 没有声明 ${event}`);
-        if (this.#trigger === null) return unreachable("窗口没有触发激活事件的出口");
+        if (!(this.#plugins.activationEvents(ref) ?? []).includes(event)) return unreachable(`Entry ${known.plugin}/${known.entry} does not declare ${event}`);
+        if (this.#trigger === null) return unreachable("The window has no way to trigger activation events");
         this.#triggering.add(id);
         void this.#trigger(event).then((result) => {
             this.#triggering.delete(id);
-            if (result.status === "rejected") unreachable(`触发 ${event} 被拒（${result.reason}）`);
+            if (result.status === "rejected") unreachable(`Triggering ${event} was rejected (${result.reason})`);
             else this.#bump();
         }, (error: unknown) => {
             this.#triggering.delete(id);
-            unreachable(`触发 ${event} 出错：${messageOf(error)}`);
+            unreachable(`Triggering ${event} failed: ${messageOf(error)}`);
         });
     }
 

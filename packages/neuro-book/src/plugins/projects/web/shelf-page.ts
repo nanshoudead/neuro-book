@@ -13,7 +13,7 @@ import type {ComputedRef, Ref, ShallowRef} from "vue";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
-import type {TextParams} from "@notnotype/nb-ui/text";
+import type {Text, TextParams} from "@notnotype/nb-ui/text";
 import type {TextPort} from "@notnotype/nb-ui/text-port";
 
 import type {NotificationHandle, Notifications} from "nbook/plugins/workbench/shared/contracts";
@@ -175,7 +175,9 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
 
     const byId = (id: string): ShelfItem | null => items.value.find((item) => item.id === id) ?? null;
 
-    const warn = (title: string, message: string): void => void host.notifications.notify({tone: "warning", title, message});
+    // 通知交文字引用，视口显示时才翻（docs/specs/workbench/notifications.md 输出 9）：切换语言后已显示的通知随之换文字。代入的原因
+    // 这类参数只收字符串，仍是发通知时按当前语言翻好的片段。
+    const warn = (title: Text, message: Text): void => void host.notifications.notify({tone: "warning", title, message});
 
     function schedule(): void {
         cancelTimer?.();
@@ -204,9 +206,9 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
             refreshNotice?.dismiss();
             refreshNotice = host.notifications.notify({
                 tone: "warning",
-                title: t("shelf.refreshFailedTitle"),
-                message: t("shelf.refreshFailed", {reason: reason(result.code, result.detail)}),
-                action: {label: t("shelf.retry"), run: () => void refresh(true)},
+                title: projectsText("shelf.refreshFailedTitle"),
+                message: projectsText("shelf.refreshFailed", {reason: reason(result.code, result.detail)}),
+                action: {label: projectsText("shelf.retry"), run: () => void refresh(true)},
             });
             return;
         }
@@ -290,14 +292,14 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
         openInNewWindow: (id) => {
             const item = byId(id);
             if (item === null) return;
-            if (host.navigation.openExternal(projectUrl(item.name)) === "blocked") warn(t("shelf.popupBlockedTitle"), t("shelf.popupBlocked"));
+            if (host.navigation.openExternal(projectUrl(item.name)) === "blocked") warn(projectsText("shelf.popupBlockedTitle"), projectsText("shelf.popupBlocked"));
         },
         continueWriting: (id) => navigateTo(id, (item) => (item.stats.last === null ? projectUrl(item.name) : continueUrl(item.name, item.stats.last.address))),
         library: async () => {
             const result = await host.remote.library({});
             if (result.ok) return result.value;
             host.report("projects.library-failed", `取作品目录失败：${result.code}`);
-            host.notifications.notify({tone: "error", message: t("shelf.libraryUnavailable", {reason: transport(result.code, result.detail)})});
+            host.notifications.notify({tone: "error", message: projectsText("shelf.libraryUnavailable", {reason: transport(result.code, result.detail)})});
             return null;
         },
         browse: (path) => browseDirectory(host.remote, path, host.text),
@@ -309,7 +311,7 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
                 // 主题色不在 create 的输入里：建好后再写一次作品信息。
                 if (values.color !== null) {
                     const colored = await host.remote.update({id: result.value.id, color: values.color});
-                    if (!colored.ok) warn(t("shelf.fields.color"), t("shelf.updateFailed", {reason: reason(colored.code, colored.detail)}));
+                    if (!colored.ok) warn(projectsText("shelf.fields.color"), projectsText("shelf.updateFailed", {reason: reason(colored.code, colored.detail)}));
                 }
                 await refresh(true);
                 return {ok: true, id: result.value.id};
@@ -378,7 +380,7 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
             const written = await host.settings.update(librarySetting, path);
             if (written.ok) return;
             host.report("projects.library-not-saved", `作品目录没有写进设置：${written.code}：${written.detail}`);
-            warn(t("shelf.libraryNotSavedTitle"), t("shelf.libraryNotSaved", {reason: `${written.code}：${written.detail}`}));
+            warn(projectsText("shelf.libraryNotSavedTitle"), projectsText("shelf.libraryNotSaved", {reason: `${written.code}：${written.detail}`}));
         },
         addExisting: async (path) => {
             const registered = await host.remote.register({path});
@@ -435,10 +437,9 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
         },
     };
 
-    /** 发一条通知并把正文交回（给调用方当失败原因）。 */
+    /** 发一条通知并把正文交回（给调用方当失败原因）：通知交引用，随语言换文字；交回的是此刻翻好的字符串，给窗口的字段显示。 */
     function notified(tone: "error" | "warning", key: ProjectsTextKey, params?: TextParams): string {
-        const body = t(key, params);
-        host.notifications.notify({tone, message: body});
-        return body;
+        host.notifications.notify({tone, message: projectsText(key, params)});
+        return t(key, params);
     }
 }

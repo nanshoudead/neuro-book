@@ -29,7 +29,8 @@ import type {WindowNotifications} from "nbook/plugins/workbench/web/notification
 import {projectHarness} from "nbook/server/testing/projects";
 import type {ProjectHarness} from "nbook/server/testing/projects";
 import type {SettingsService} from "nbook/shared/settings";
-import {testTextPort} from "nbook/shared/testing/text-port";
+import type {WindowText} from "nbook/shared/window-text";
+import {createHostTextEngine} from "nbook/web/host/text-engine";
 import {browserHostPlugins} from "nbook/web/plugins";
 
 import {descriptor as projectsDescriptor} from "./plugin";
@@ -168,6 +169,8 @@ interface World {
     readonly remote: RemoteUse<typeof projectsRemoteContract>;
     readonly settings: SettingsService;
     readonly notifications: WindowNotifications;
+    /** 页面与通知共用的翻译引擎（严格模式）：切换语言看已发出的通知换不换文字。 */
+    readonly text: WindowText;
     readonly navigations: string[];
     readonly reports: string[];
     readonly covers: Array<{readonly id: string; readonly name: string | null}>;
@@ -228,7 +231,9 @@ async function world(initial: ShelfItem[], options: {readonly failShelf?: Script
         await h.parent.stop();
     });
 
-    const text = testTextPort("zh-CN", {"nbook.projects": projectsCatalogs});
+    const engine = createHostTextEngine({locale: "zh-CN", strict: true});
+    engine.register("nbook.projects", projectsCatalogs.catalogs, projectsCatalogs.source);
+    const text = engine.port;
     const reports: string[] = [];
     const notifications = createNotifications((message) => reports.push(message), text);
     closers.push(async () => notifications.dispose());
@@ -246,7 +251,7 @@ async function world(initial: ShelfItem[], options: {readonly failShelf?: Script
         },
     });
     const result: World = {
-        h, script, clock, remote, settings: captured!.settings, notifications, navigations, reports, covers, commands, view, sort,
+        h, script, clock, remote, settings: captured!.settings, notifications, text: engine, navigations, reports, covers, commands, view, sort,
         popup: "opened",
         coverFails: false,
         page: () => {
@@ -369,7 +374,14 @@ describe("Spec bookshelf 取数与刷新", () => {
         await page.refresh(true);
         expect(page.status.value).toBe("ready");
         expect(page.items.value.length).toBe(1);
-        expect(w.notifications.queue.notifications.value).toMatchObject([{title: "书架没有更新", message: expect.stringContaining("registry-invalid"), duration: 0, action: {label: "重试"}}]);
+        expect(w.notifications.queue.notifications.value).toMatchObject([{duration: 0}]);
+        const shown = () => w.notifications.queue.notifications.value.map((notice) => ({id: notice.id, title: w.text.port.t(notice.title ?? ""), message: w.text.port.t(notice.message), action: w.text.port.t(notice.action?.label ?? "")}));
+        expect(shown()).toEqual([{id: expect.any(String), title: "书架没有更新", message: "取不到作品列表：registry-invalid：登记表坏了。显示的是上次的数据。", action: "重试"}]);
+        // 通知交的是文字引用：切换语言后已显示的这一条换成英文，还是同一条；代入的原因是发通知时翻好的片段，不跟着换。
+        const [before] = shown();
+        w.text.setLocale("en-US");
+        expect(shown()).toEqual([{id: before!.id, title: "The shelf was not refreshed", message: "Could not fetch the books: registry-invalid：登记表坏了. Showing the last data.", action: "Retry"}]);
+        w.text.setLocale("zh-CN");
         expect(w.reports).toEqual(["projects.shelf-failed: 取书架失败：registry-invalid"]);
         // 再失败一次只换内容，不堆第二条。
         await page.refresh(true);

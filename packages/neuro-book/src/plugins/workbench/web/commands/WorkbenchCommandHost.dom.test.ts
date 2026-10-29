@@ -20,6 +20,9 @@ import {failureText, workbenchTestText} from "../../testing/text";
 import {OPEN_COMMANDS_DECLARATION, OPEN_COMMANDS_ID, PaletteSlot} from "./open-commands";
 import WorkbenchCommandHost from "./WorkbenchCommandHost.vue";
 
+/** 通知标题是文字引用，视口显示时才翻：按给定语言翻出标题来比对；正文原样留着（有的用例要核对引用本身）。 */
+const titled = (locale: "zh-CN" | "en-US") => (notice: NotificationInput) => ({...notice, title: workbenchTestText(locale).t(notice.title ?? "")});
+
 afterEach(() => {
     document.body.innerHTML = "";
 });
@@ -74,7 +77,7 @@ describe("WorkbenchCommandHost", () => {
         await nextTick();
         document.body.dispatchEvent(new KeyboardEvent("keydown", {key: "J", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true}));
         document.body.dispatchEvent(new KeyboardEvent("keydown", {key: "K", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true}));
-        await vi.waitFor(() => expect(notices).toEqual([{tone: "warning", title: "坏命令没有完成", message: "磁盘满了"}]));
+        await vi.waitFor(() => expect(notices.map(titled("zh-CN"))).toEqual([{tone: "warning", title: "坏命令没有完成", message: "磁盘满了"}]));
         // 诊断照记，两条失败都在。
         expect(reported).toHaveLength(2);
         wrapper.unmount();
@@ -101,7 +104,7 @@ describe("WorkbenchCommandHost", () => {
         shortcut();
         await vi.waitFor(() => expect(document.body.querySelector('[role="option"][id$="-option-nbook.app.count"]')).not.toBeNull());
         document.body.querySelector('[role="combobox"]')?.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
-        await vi.waitFor(() => expect(notices).toEqual([{tone: "warning", title: "统计没有完成", message: "选区里没有文字"}]));
+        await vi.waitFor(() => expect(notices.map(titled("zh-CN"))).toEqual([{tone: "warning", title: "统计没有完成", message: "选区里没有文字"}]));
         expect(reported).toEqual(["命令 nbook.app.count 执行失败：选区里没有文字"]);
         wrapper.unmount();
     });
@@ -125,7 +128,9 @@ describe("WorkbenchCommandHost", () => {
         });
         await nextTick();
         document.body.dispatchEvent(new KeyboardEvent("keydown", {key: "K", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true}));
-        await vi.waitFor(() => expect(notices).toEqual([{tone: "warning", title: "Broken did not complete", message: reason}]));
+        await vi.waitFor(() => expect(notices.map(titled("en-US"))).toEqual([{tone: "warning", title: "Broken did not complete", message: reason}]));
+        // 同一条通知按中文显示：标题的框架换成中文，代入的命令名停在发通知时的语言。
+        expect(titled("zh-CN")(notices[0]!).title).toBe("Broken没有完成");
         expect(workbenchTestText("zh-CN").t(notices[0]!.message)).toBe("当前页面没有命令面板");
         expect(workbenchTestText("en-US").t(notices[0]!.message)).toBe("This page has no command palette");
         expect(reported).toEqual(["命令 nbook.app.broken 执行失败：nbook.workbench:palette.unavailable"]);
@@ -152,7 +157,7 @@ describe("WorkbenchCommandHost", () => {
         shortcut();
         await vi.waitFor(() => expect(document.body.querySelector('[role="option"][id$="-option-nbook.app.count"]')).not.toBeNull());
         document.body.querySelector('[role="combobox"]')?.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
-        await vi.waitFor(() => expect(notices).toEqual([{tone: "warning", title: "Count did not complete", message: "no text selected"}]));
+        await vi.waitFor(() => expect(notices.map(titled("en-US"))).toEqual([{tone: "warning", title: "Count did not complete", message: "no text selected"}]));
         wrapper.unmount();
     });
 });

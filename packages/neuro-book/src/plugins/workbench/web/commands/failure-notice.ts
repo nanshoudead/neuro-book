@@ -18,14 +18,15 @@ const NOTIFIED: ReadonlySet<CommandFailureCode> = new Set<CommandFailureCode>(["
 /**
  * 失败要弹的通知；不弹的码为 null。警告级，按色调自动消失，不在页面上留常驻的错误。正文照原因写：`invalid-args` 可能是
  * 执行入口的参数校验（原因写了哪个参数），也可能是命令自己返回的，不能一律说成“需要参数”。原因是文字值，原样交给通知，
- * 视口显示时才翻，切换语言后正文随之换；标题在这里按当前语言取好，因为命令名要作为参数代入，参数只收字符串。
+ * 视口显示时才翻，切换语言后正文随之换。标题也是文字引用，框架随语言换；代入的命令名在这里按当前语言取好，因为参数只收
+ * 字符串，它停在发通知时的语言。
  */
 export function failureNotice(id: string, metadata: CommandMetadata | null, failure: CommandFailure, text: TextResolver): NotificationInput | null {
     if (!NOTIFIED.has(failure.code)) return null;
     const title = metadata === null ? id : text.t(metadata.title);
     return {
         tone: "warning",
-        title: text.t(workbenchText("palette.commandFailed", {title})),
+        title: workbenchText("palette.commandFailed", {title}),
         message: failure.reason,
     };
 }

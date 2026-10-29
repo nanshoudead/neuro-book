@@ -101,16 +101,16 @@ export const completeSectionDeclaration = conventionCompleter({
 export const completePageDeclaration = conventionCompleter({name: "settingsPages", fields: ["title"]});
 
 /** id 的形状；前缀由内核按贡献点的 `idPrefix` 核对（同视图）。 */
-function idProblem(descriptor: ContributionDescriptor, noun = "分区"): string | null {
+function idProblem(descriptor: ContributionDescriptor, noun = "Section"): string | null {
     const id = descriptor.id;
-    if (!isSettingsSectionId(id)) return `${noun} id 必须是点分的小写段、至多 ${String(SETTINGS_SECTION_ID_MAX_LENGTH)} 个字符：${id}`;
+    if (!isSettingsSectionId(id)) return `${noun} id must be dot-separated lowercase segments of at most ${String(SETTINGS_SECTION_ID_MAX_LENGTH)} characters: ${id}`;
     return null;
 }
 
-function shapeProblem(schema: TSchema, descriptor: ContributionDescriptor, noun = "分区"): string | null {
+function shapeProblem(schema: TSchema, descriptor: ContributionDescriptor, noun = "Section"): string | null {
     if (Value.Check(schema, descriptor.declaration)) return null;
     const first = [...Value.Errors(schema, descriptor.declaration)][0];
-    return `${noun} ${descriptor.id} 的声明不合格：${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}：${first.message}`}`;
+    return `${noun} ${descriptor.id} has an invalid declaration: ${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}: ${first.message}`}`;
 }
 
 /** `settings.sections` 的登记校验：只看这一条声明本身；配置项指向的分区与小组存不存在不在这里核对。 */
@@ -119,23 +119,23 @@ export function validateSectionContribution(descriptor: ContributionDescriptor):
     if (problem !== null) return problem;
     const ids = ((descriptor.declaration as SettingsSectionDeclaration).groups ?? []).map((group) => group.id);
     const malformed = ids.find((group) => !isSettingsGroupId(group));
-    if (malformed !== undefined) return `分区 ${descriptor.id} 的小组 id 必须是一个小写段：${malformed}`;
-    if (new Set(ids).size !== ids.length) return `分区 ${descriptor.id} 的小组 id 有重复`;
+    if (malformed !== undefined) return `Section ${descriptor.id} has a group id that is not a single lowercase segment: ${malformed}`;
+    if (new Set(ids).size !== ids.length) return `Section ${descriptor.id} has duplicate group ids`;
     return null;
 }
 
 /** `settings.pages` 的登记校验：只接受浏览器入口的贡献。 */
 export function validatePageContribution(descriptor: ContributionDescriptor): string | null {
-    if (descriptor.location !== "browser") return `${SETTINGS_PAGES_POINT} 只接受浏览器入口的贡献`;
+    if (descriptor.location !== "browser") return `${SETTINGS_PAGES_POINT} only accepts contributions from browser entries`;
     const problem = idProblem(descriptor) ?? shapeProblem(SettingsPageDeclarationSchema, descriptor);
     if (problem !== null) return problem;
     const layers = (descriptor.declaration as SettingsPageDeclaration).layers;
-    if (layers !== undefined && new Set(layers).size !== layers.length) return `分区 ${descriptor.id} 的 layers 有重复`;
+    if (layers !== undefined && new Set(layers).size !== layers.length) return `Section ${descriptor.id} has duplicate layers`;
     return null;
 }
 
 /** `settings.choices` 的登记校验：只接受浏览器入口的贡献，id 规则同分区（声明里 `choices: {from}` 写的就是它）。 */
 export function validateChoiceContribution(descriptor: ContributionDescriptor): string | null {
-    if (descriptor.location !== "browser") return `${SETTINGS_CHOICES_POINT} 只接受浏览器入口的贡献`;
-    return idProblem(descriptor, "选项提供者") ?? shapeProblem(SettingsChoicesDeclarationSchema, descriptor, "选项提供者");
+    if (descriptor.location !== "browser") return `${SETTINGS_CHOICES_POINT} only accepts contributions from browser entries`;
+    return idProblem(descriptor, "Choice provider") ?? shapeProblem(SettingsChoicesDeclarationSchema, descriptor, "Choice provider");
 }

@@ -101,7 +101,7 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
     /** 队列里的任务不抛：意外异常记诊断，免得一个任务卡住后面的。 */
     const enqueue = <T>(task: () => Promise<T>, fallback: T): Promise<T> => {
         const run = tail.then(task).catch((error: unknown) => {
-            record("warn", "settings.layer.task-failed", "配置层的读写出错", {layer: options.layer}, error);
+            record("warn", "settings.layer.task-failed", "Reading or writing the settings layer failed", {layer: options.layer}, error);
             return fallback;
         });
         tail = run;
@@ -117,7 +117,7 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
             try {
                 listener(current);
             } catch (error) {
-                record("warn", "settings.layer.listener-failed", "配置层的订阅出错", {layer: options.layer}, error);
+                record("warn", "settings.layer.listener-failed", "A settings layer subscription failed", {layer: options.layer}, error);
             }
         }
         return current;
@@ -132,7 +132,7 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
             try {
                 listener(revision);
             } catch (error) {
-                record("warn", "settings.layer.listener-failed", "配置层的订阅出错", {layer: options.layer}, error);
+                record("warn", "settings.layer.listener-failed", "A settings layer subscription failed", {layer: options.layer}, error);
             }
         }
     };
@@ -149,7 +149,7 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
         const text = canonical(problems);
         if (text === reportedProblems) return;
         reportedProblems = text;
-        if (problems.length > 0) record("warn", "settings.layer.dropped", "配置文件里有键被丢弃", {layer: options.layer, problems});
+        if (problems.length > 0) record("warn", "settings.layer.dropped", "Keys in the settings file were dropped", {layer: options.layer, problems});
     };
 
     const reload = async (): Promise<void> => {
@@ -161,12 +161,12 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
         const after = publish(next);
         if (after !== before) {
             const changed = changedKeys(before.values, after.values);
-            if (after.status === "invalid" && before.status === "ok") record("warn", "settings.layer.invalid", "配置文件当前无效，保留上一份有效内容", {layer: options.layer, detail: after.status === "invalid" ? after.detail : ""});
-            if (changed.length > 0) record("info", "settings.layer.changed", "配置文件被外部修改", {layer: options.layer, keys: changed});
+            if (after.status === "invalid" && before.status === "ok") record("warn", "settings.layer.invalid", "The settings file is now invalid; keeping the last valid content", {layer: options.layer, detail: after.status === "invalid" ? after.detail : ""});
+            if (changed.length > 0) record("info", "settings.layer.changed", "The settings file was changed externally", {layer: options.layer, keys: changed});
         }
     };
 
-    const report = (event: string, error: unknown): void => record("warn", event, "配置文件的读写或监视出错", {layer: options.layer}, error);
+    const report = (event: string, error: unknown): void => record("warn", event, "Reading, writing or watching the settings file failed", {layer: options.layer}, error);
     let watcher: LayerWatch | null = null;
     const ready = (async () => {
         // 先监视、再读：读之后才开始监视的话，中间的修改会漏掉。
@@ -179,7 +179,7 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
 
     const write = async (consumer: ConsumerIdentity, key: string, edit: LayerEdit): Promise<OwnerWriteResult> => {
         const result = await admitAndWrite(key, edit, () => writeProblem(consumer.plugin, key, options.declarations().get(key), edit, options.layer));
-        record(result.ok ? "info" : "warn", "settings.write", "配置写入", {key, layer: options.layer, plugin: consumer.plugin, via: consumer.via?.plugin ?? null, code: result.ok ? "ok" : result.code});
+        record(result.ok ? "info" : "warn", "settings.write", "Setting written", {key, layer: options.layer, plugin: consumer.plugin, via: consumer.via?.plugin ?? null, code: result.ok ? "ok" : result.code});
         return result;
     };
 
@@ -191,7 +191,7 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
 
     const userEdit = async (consumer: ConsumerIdentity, key: string, edit: LayerEdit): Promise<OwnerWriteResult> => {
         const result = await admitAndWrite(key, edit, () => userEditDenied(consumer) ?? userEditProblem(key, options.declarations().get(key), edit, options.layer));
-        record(result.ok ? "info" : "warn", "settings.write", "配置写入（用户编辑）", {key, layer: options.layer, plugin: consumer.plugin, via: consumer.via?.plugin ?? null, code: result.ok ? "ok" : result.code, userEdit: true});
+        record(result.ok ? "info" : "warn", "settings.write", "Setting written (user edit)", {key, layer: options.layer, plugin: consumer.plugin, via: consumer.via?.plugin ?? null, code: result.ok ? "ok" : result.code, userEdit: true});
         return result;
     };
 
@@ -247,7 +247,7 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
             noteText(written.text);
             return {ok: true, revision: textRevision(written.text), snapshot: publish(fromText(written.text))};
         }, {ok: false, code: "write-failed", detail: "配置写入出错"});
-        record(result.ok ? "info" : "warn", "settings.write", "设置文件整份写入", {layer: options.layer, plugin: consumer.plugin, code: result.ok ? "ok" : result.code, text: true});
+        record(result.ok ? "info" : "warn", "settings.write", "Settings file written whole", {layer: options.layer, plugin: consumer.plugin, code: result.ok ? "ok" : result.code, text: true});
         return result;
     };
 

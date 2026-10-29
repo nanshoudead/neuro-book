@@ -120,7 +120,7 @@ export function createSettingsInstance(options: SettingsInstanceOptions): Settin
             try {
                 registration.listener(changed);
             } catch (error) {
-                options.record("warn", "settings.listener.failed", "配置变化的监听出错", {keys: [...changed]}, error);
+                options.record("warn", "settings.listener.failed", "A settings change listener failed", {keys: [...changed]}, error);
             }
         }
     };
@@ -154,7 +154,7 @@ export function createSettingsInstance(options: SettingsInstanceOptions): Settin
     /** 层不可用时不再用它上一次的值：订阅已结束，之后的修改收不到，留着旧值会与别的实例分歧。 */
     const unavailable = (layer: SettingLayer, reason: string): void => {
         setState(layer, {status: "unavailable"});
-        options.record("warn", "settings.layer.unavailable", "配置层不可用，按默认值与其它层继续", {layer, reason});
+        options.record("warn", "settings.layer.unavailable", "Settings layer unavailable; continuing with defaults and the other layers", {layer, reason});
     };
 
     const connect = async (layer: SettingLayer, link: LayerLink): Promise<void> => {
@@ -184,7 +184,7 @@ export function createSettingsInstance(options: SettingsInstanceOptions): Settin
         }
         if (!result.ok) {
             connection.retry = result.retry;
-            unavailable(layer, `${result.code}：${result.detail}`);
+            unavailable(layer, `${result.code}: ${result.detail}`);
             firstDone(layer);
             return;
         }
@@ -197,7 +197,7 @@ export function createSettingsInstance(options: SettingsInstanceOptions): Settin
         connections.set(layer, connection);
         connection.cancelDeadline = options.clock.schedule(() => {
             if (connection.first) return;
-            unavailable(layer, `${String(options.firstSnapshotMs)} 毫秒内没有收到第一份快照`);
+            unavailable(layer, `No first snapshot within ${String(options.firstSnapshotMs)} ms`);
             firstDone(layer);
         }, options.firstSnapshotMs);
         void connect(layer, link);

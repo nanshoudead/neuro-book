@@ -294,7 +294,7 @@ function buildCatalog(source: SettingsWindowSource, report: (message: string) =>
         const {key, declaration} = setting.definition;
         const section = declaration.section === undefined ? undefined : declared.get(declaration.section);
         if (section === undefined) {
-            if (declaration.section !== undefined) report(`配置项 ${key} 指向不存在的分区 ${declaration.section}，归入“其它”`);
+            if (declaration.section !== undefined) report(`Setting ${key} points to section ${declaration.section}, which does not exist; it goes under "Other"`);
             other.set(setting.plugin, [...(other.get(setting.plugin) ?? []), setting]);
             continue;
         }
@@ -306,7 +306,7 @@ function buildCatalog(source: SettingsWindowSource, report: (message: string) =>
         const groups = listed.get(declaration.section!) ?? new Map<string | null, WindowSetting[]>();
         listed.set(declaration.section!, groups);
         const known = declaration.group !== undefined && (section.declaration.groups ?? []).some((group) => group.id === declaration.group);
-        if (declaration.group !== undefined && !known) report(`配置项 ${key} 指向分区 ${declaration.section!} 没有声明的小组 ${declaration.group}，排在分区最前`);
+        if (declaration.group !== undefined && !known) report(`Setting ${key} points to group ${declaration.group}, which section ${declaration.section!} does not declare; it goes first in the section`);
         place(groups, known ? declaration.group! : null, setting);
     }
 
@@ -446,13 +446,12 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     const writes = shallowReactive(new Map<string, {readonly token: number; readonly value: unknown}>());
     const pendingKey = (tab: SettingLayer, key: string): string => `${tab}\n${key}`;
 
+    // 通知交文字引用，视口显示时才翻（docs/specs/workbench/notifications.md 输出 9），切换语言后已显示的通知随之换文字；代入的
+    // 设置项标题与失败原因只能是字符串，是发通知时按当前语言翻好的片段。
     const notifyFailure = (setting: WindowSetting, code: SettingsFailure, detail: string): void => {
         const title = options.text.t(setting.definition.declaration.title);
-        if (code === "unknown-outcome") {
-            options.notify({tone: "warning", title: text("model.unknownTitle"), message: text("model.notSaved", {title, reason: settingsFailureText(code, detail, options.text)})});
-            return;
-        }
-        options.notify({tone: "warning", title: text("model.notSavedTitle"), message: text("model.notSaved", {title, reason: settingsFailureText(code, detail, options.text)})});
+        const message = settingsText("model.notSaved", {title, reason: settingsFailureText(code, detail, options.text)});
+        options.notify({tone: "warning", title: settingsText(code === "unknown-outcome" ? "model.unknownTitle" : "model.notSavedTitle"), message});
     };
 
     const editing: SettingsService = {
@@ -814,7 +813,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
             instance.busy = true;
             try {
                 const result = await source.retry(id);
-                if (result.status === "failed") options.report(`重试 page 分区 ${id} 所属的入口没有成功：${result.reason}`);
+                if (result.status === "failed") options.report(`Retrying the entry of page section ${id} did not succeed: ${result.reason}`);
             } finally {
                 instance.busy = false;
             }

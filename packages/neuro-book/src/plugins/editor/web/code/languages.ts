@@ -140,7 +140,7 @@ export class LanguageRegistry {
         if (loading === undefined) {
             const current = handle;
             loading = current.implementation().load().then((definition) => {
-                if (definition.format !== "monarch") throw new Error(`不支持的语言格式：${String(definition.format)}`);
+                if (definition.format !== "monarch") throw new Error(`Unsupported language format: ${String(definition.format)}`);
                 return definition;
             }).catch((error: unknown) => {
                 this.#report(error, current.id);

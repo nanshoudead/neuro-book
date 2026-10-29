@@ -76,6 +76,6 @@ describe("欢迎页宿主的取数标记", () => {
         shelf.resolve({ok: false, code: "unavailable"});
         await flushPromises();
         expect(wrapper.attributes("aria-busy")).toBeUndefined();
-        expect(reports).toEqual(["欢迎页取不到作品信息：unavailable"]);
+        expect(reports).toEqual(["The welcome page could not read the project info: unavailable"]);
     });
 });

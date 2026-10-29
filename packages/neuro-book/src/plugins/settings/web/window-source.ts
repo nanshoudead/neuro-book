@@ -127,7 +127,7 @@ export function choiceReferences(declarations: ReadonlyMap<string, AcceptedSetti
 /** 只发给 `owner` 插件自己、没有经过代理的调用方（见模块头）。 */
 export function provideSettingsWindowSource(source: SettingsWindowSource, owner: string): ProvidedService<SettingsWindowSource> {
     return provideServicePerConsumer(settingsWindowSourceKey, (consumer) => {
-        if (consumer.plugin !== owner || consumer.via !== null) throw new TypeError(`${settingsWindowSourceKey.name} 只提供给 ${owner} 自己的入口，调用方是 ${consumer.plugin ?? "宿主"}`);
+        if (consumer.plugin !== owner || consumer.via !== null) throw new TypeError(`${settingsWindowSourceKey.name} is only provided to entries of ${owner} itself; the caller is ${consumer.plugin ?? "the host"}`);
         return {...source};
     });
 }

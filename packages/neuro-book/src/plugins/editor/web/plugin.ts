@@ -121,11 +121,11 @@ export const editorBrowserPlugin: PluginDefinition = {
             const builtins = builtinComponents(context.services.require(markdownKey));
             const editors = new EditorRegistry(context.declarations, builtins);
             const languages = new LanguageRegistry(context.declarations, (error, language) => {
-                diagnostics.record({level: "error", event: "editor.language", message: `语言 ${language} 的规则加载失败，按纯文本显示：${error instanceof Error ? error.message : String(error)}`, error, data: {language}, source: {plugin: descriptor.id}});
+                diagnostics.record({level: "error", event: "editor.language", message: `Rules for language ${language} failed to load; showing it as plain text: ${error instanceof Error ? error.message : String(error)}`, error, data: {language}, source: {plugin: descriptor.id}});
             });
             const session = createEditorSession({
                 editors: editors.catalog,
-                conflict: (address, ids) => diagnostics.record({level: "warn", event: "editor.editors.conflict", message: `${address} 有 ${String(ids.length)} 个默认编辑器同级命中，取 ${ids[0] ?? ""}`, data: {address, editors: ids}, source: {plugin: descriptor.id}}),
+                conflict: (address, ids) => diagnostics.record({level: "warn", event: "editor.editors.conflict", message: `${address} matches ${String(ids.length)} default editors at the same level; using ${ids[0] ?? ""}`, data: {address, editors: ids}, source: {plugin: descriptor.id}}),
                 files: context.services.require(filesKey),
                 clock: context.services.require(clockKey),
                 project,
@@ -150,11 +150,11 @@ export const editorBrowserPlugin: PluginDefinition = {
                     done = true;
                     if (project === null || !request.address.startsWith("project://")) {
                         area.notify(editorText("notice.continueOutsideProject", {address: request.address}));
-                        diagnostics.record({level: "warn", event: "editor.continue", message: `地址参数指向的不是项目里的资源：${request.address}`, source: {plugin: descriptor.id}});
+                        diagnostics.record({level: "warn", event: "editor.continue", message: `The address parameter does not point to a project resource: ${request.address}`, source: {plugin: descriptor.id}});
                         return;
                     }
                     const opened = area.open(request.address, {mode: "permanent", ...(request.reveal === null ? {} : {reveal: request.reveal})});
-                    if (!opened.ok) diagnostics.record({level: "warn", event: "editor.continue", message: `按地址参数打开失败：${diagnosticText(opened.reason)}`, source: {plugin: descriptor.id}});
+                    if (!opened.ok) diagnostics.record({level: "warn", event: "editor.continue", message: `Opening the address parameter failed: ${diagnosticText(opened.reason)}`, source: {plugin: descriptor.id}});
                 }, {immediate: true});
                 if (done) stop();
                 else context.signal.addEventListener("abort", () => stop(), {once: true});
@@ -169,7 +169,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                         if (opened.has(id)) continue;
                         opened.add(id);
                         const result = session.area.value?.openPage(id);
-                        if (result !== undefined && !result.ok) diagnostics.record({level: "warn", event: "editor.page", message: `自动打开页面 ${id} 失败：${diagnosticText(result.reason)}`, source: {plugin: descriptor.id}});
+                        if (result !== undefined && !result.ok) diagnostics.record({level: "warn", event: "editor.page", message: `Opening page ${id} automatically failed: ${diagnosticText(result.reason)}`, source: {plugin: descriptor.id}});
                     }
                 }, {immediate: true});
                 context.signal.addEventListener("abort", () => stopFirst(), {once: true});
@@ -193,7 +193,7 @@ export const editorBrowserPlugin: PluginDefinition = {
 
             const execute = (command: string): void => {
                 void commands.execute(command, {}, {source: "user"}).then((result) => {
-                    if (!result.ok) diagnostics.record({level: "warn", event: "editor.command", message: `${command} 执行失败：${diagnosticText(result.reason)}`, source: {plugin: descriptor.id}});
+                    if (!result.ok) diagnostics.record({level: "warn", event: "editor.command", message: `${command} failed: ${diagnosticText(result.reason)}`, source: {plugin: descriptor.id}});
                 });
             };
             // 空编辑组的提示：命令增减不经响应式通知，记一个版本号在渲染时读，命令有增减就重算；可用性读公开状态，渲染时求值即可。
@@ -217,7 +217,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                 items: () => tabMenuItems.items(),
                 platform,
                 copy: (tab, relative) => copyTabPath(commandSources, tab, relative),
-                report: (action, reason) => diagnostics.record({level: "warn", event: "editor.tab-menu", message: `标签菜单的 ${action} 没有完成：${reason}`, data: {action}, source: {plugin: descriptor.id}}),
+                report: (action, reason) => diagnostics.record({level: "warn", event: "editor.tab-menu", message: `Tab menu action ${action} did not complete: ${reason}`, data: {action}, source: {plugin: descriptor.id}}),
             });
             // 命令增减不经响应式通知：菜单在渲染时读一次版本号（同标题动作）。
             const tabMenu = {
