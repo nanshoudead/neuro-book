@@ -64,12 +64,13 @@ owners:
 - **释放**：贡献撤回时命令离开命令表，之后执行得到 `unknown-command`。本地命令表的释放函数只删除自己登记时的条目；命令被释放后重新登记同 id 时，旧释放函数不得影响新条目。别名在目标释放时级联清除。
 - **枚举**：任何消费者可获取本运行位置全部 canonical 命令及其元数据（id、贡献方、标题、描述、参数形状、`when`、默认键位、暴露策略、`effect`）；别名不出现在 canonical 枚举中，审计的 `id` 用 canonical，`requestedId` 保留输入。两个运行位置的命令表互不相见。
 - **执行顺序**（固定，不可交换）：解析白名单 → agent 暴露检查 → 严格参数校验 → 当前 `when` → agent 只读检查 → 必要确认 → 复查条目身份/参数不变性/`when`/模式 → `run` → 单次审计。
-- **结果合同**：成功为 `{ok:true, value}`（void 命令显式 `null`，不把 Promise rejection 当成功）；失败为 `{ok:false, code, reason}`，失败码固定九个：`unknown-command`、`unavailable`、`invalid-args`、`not-exposed`、`read-only`、`confirmation-required`、`denied`、`execution-error`、`stale-target`。
+- **结果合同**：成功为 `{ok:true, value}`（void 命令显式 `null`，不把 Promise rejection 当成功）；失败为 `{ok:false, code, reason}`，失败码固定九个：`unknown-command`、`unavailable`、`invalid-args`、`not-exposed`、`read-only`、`confirmation-required`、`denied`、`execution-error`、`stale-target`。`reason` 是界面文字值（字符串、语言映射或文字引用，[`ui.i18n`](../ui/i18n.md)），由显示它的一方（菜单、按钮提示、通知）按当前显示语言翻译；命令返回的别的值转成字符串。
 - **可用性求值**：`when` 是上下文键的 all-of 正条件；登记的键缺失按 false 求值。`when` 引用的键是否存在在求值时判断，不在登记时判断：未登记（或不是布尔）的键使命令不可用，原因写明是哪个键，命令表对同一命令的同一个键只记一次诊断；之后这个键被登记，命令按它的值求值。求值失败/不满足返回 `unavailable` 与缺失原因；原因按求值时的显示语言给出，已记下的诊断保留当时的文字。
 - **`when` 读公开状态**：产品命令表里，`when` 引用的键是本运行位置入口声明的、已被接受的布尔公开键；求值时键未就绪按 false，原因取声明的 `reason`；键未声明、只在别的运行位置声明或不是布尔，按上一条为不可用。`when` 只在命令所在的实例求值，不跨实例读状态；拥有键的入口激活、停止与值的变化即时反映在可用性上，命令面板开着时候选随之变化。
 - **跨实例列出与执行**：浏览器的 `nbook.commands` 入口提供远程服务 `nbook.commands/remote`，第一版只允许服务端调用，服务端插件以 `.at({client: 窗口实例 id})` 选定窗口：
   - `list({})`（读）：该窗口命令表里 `expose.agent` 不为 `never` 的命令元数据，每条带此刻按该窗口公开状态求出的可用性与不满足的原因；`title` 与 `category`（没有为 `null`）是声明里的文字值原样，文字引用不在窗口里翻译，调用方按自己的界面语言翻译或交给模型；
   - `execute({id, args})`（写）：以 `{source: "agent", callerId: 调用方插件}` 走该窗口命令表的执行管线，执行前按该窗口此刻的状态复查 `when`，返回结果合同里的结果；`expose.agent` 为 `never` 的命令为 `not-exposed`。
+  - 两者的不可用原因与失败原因是字符串：文字引用在窗口里按窗口此刻的显示语言翻译；窗口没有翻译端口时写成键名。远程合同的形状不随原因放宽为文字值而变化。
 - **参数校验**：严格（JSON Schema 语义），不转换、不填充默认值、拒绝额外字段与显式 `null`；校验失败返回 `invalid-args` 并指出失败位置。
 - **暴露**：外部 agent 面只可见暴露级别高于 `never` 的命令；`confirm` 命令被 agent 调用时，界面呈现确认（含命令标题、参数、发起者），用户批准后执行、拒绝则返回 `denied`。没有确认通道的命令表返回 `confirmation-required`（产品命令表在 Agent 接入前没有确认通道）。确认使用参数的独立快照，等待期间调用方修改原参数不影响获批内容；等待期间命令被替换返回 `stale-target`。
 - **只读联动**：处于 discuss / plan 时，`effect: "write"` 或带 `destructive` 标注的命令对外部调用直接拒绝（`read-only`），确认等待期间切到这两种模式的，批准后同样拒绝；界面触发不受该模式影响。

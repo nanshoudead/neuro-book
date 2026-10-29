@@ -302,7 +302,7 @@ onBeforeUnmount(() => {
             <NeuroBookLockup v-if="showLockup" class="workbench-titlebar__brand" />
             <NeuroBookMark v-else class="workbench-titlebar__mark" />
             <DropdownMenu v-if="project !== null" :items="projectItems" align="start" @select="select">
-                <Button variant="ghost" size="sm" class="workbench-titlebar__button workbench-titlebar__project" :title="project" :aria-label="`${text('titlebar.project')}：${project}`" data-titlebar-project>
+                <Button variant="ghost" size="sm" class="workbench-titlebar__button workbench-titlebar__project" :title="project" :aria-label="text('titlebar.projectButton', {name: project})" data-titlebar-project>
                     <span class="i-lucide-book-open workbench-titlebar__project-icon h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
                     <span v-if="showProjectName" class="workbench-titlebar__project-name">{{ project }}</span>
                     <span class="i-lucide-chevron-down h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
@@ -324,7 +324,7 @@ onBeforeUnmount(() => {
                 variant="secondary"
                 size="sm"
                 class="workbench-titlebar__search"
-                :aria-label="searchShortcut === null ? text('titlebar.search') : `${text('titlebar.search')}（${searchShortcut}）`"
+                :aria-label="searchShortcut === null ? text('titlebar.search') : text('titlebar.searchWithShortcut', {shortcut: searchShortcut})"
                 data-titlebar-search
                 @click="emit('search')"
             >

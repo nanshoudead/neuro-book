@@ -37,6 +37,16 @@ export function textOf(text: string | LocaleMap, locale: DisplayLocale): string 
 }
 
 /**
+ * 把文字值写进诊断（命令失败记进诊断、Lab 的检视这类给开发者看的地方，手边没有翻译端口）：字符串原样，语言映射取中文
+ * （按 docs/specs/ui/i18n.md 输出 2 回退），文字引用写成 `命名空间:键` 加参数，不翻译。界面上的文字用 `TextResolver.t`。
+ */
+export function diagnosticText(text: Text): string {
+    if (typeof text === "string") return text;
+    if (!isTextRef(text)) return resolveLocaleMap(text, "zh-CN");
+    return `${text.ns ?? ""}:${text.key}${text.params === undefined ? "" : ` ${JSON.stringify(text.params)}`}`;
+}
+
+/**
  * 组件还收着 `locale` 属性的过渡期写法：语言映射与字符串按 `locale()` 取，`TextRef` 交窗口的端口（目录在宿主那边）。
  * `locale()` 在每次解析时才读，所以在 computed 或渲染里用时仍随语言切换重新求值。
  */

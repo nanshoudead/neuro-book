@@ -221,7 +221,7 @@ export function arrangeMenu(items: ReadonlyArray<{readonly id: string; readonly 
             context: declaration.context ?? null,
             label: facts.text.t(declaration.label ?? command.title),
             enabled: enabled.ok && enabled.value,
-            reason: enabled.ok ? null : enabled.reason,
+            reason: enabled.ok ? null : facts.text.t(enabled.reason),
             shortcut: command.keybinding === undefined ? null : formatKeybinding(command.keybinding, facts.platform),
             checked: declaration.toggled === undefined ? null : facts.isOn(declaration.toggled),
             icon: declaration.icon ?? null,

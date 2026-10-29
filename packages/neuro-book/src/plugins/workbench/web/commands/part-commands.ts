@@ -43,7 +43,7 @@ const TEXT = {
     visible: workbenchText("partCommands.visible"),
     hidden: workbenchText("partCommands.hidden"),
     placeholder: workbenchText("partCommands.placeholder"),
-    noLayout: "工作台布局没有打开（这个窗口没有显示外壳）",
+    noLayout: workbenchText("layout.notOpen"),
 } as const;
 
 const DONE: CommandResult<null> = {ok: true, value: null};

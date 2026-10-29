@@ -76,12 +76,15 @@ export interface QuickPickRequest {
     readonly empty?: DisplayText;
 }
 
-/** 选择的结果在浮层关闭完成（焦点已归还）后才给出；当前页面没有命令面板时为 `unavailable`。 */
+/**
+ * 选择的结果在浮层关闭完成（焦点已归还）后才给出；当前页面没有命令面板时为 `unavailable`，`reason` 是文字值，命令把它原样
+ * 交进自己的失败结果，显示的一方再翻。
+ */
 export type QuickPickResult =
     | {readonly kind: "item"; readonly id: string}
     | {readonly kind: "text"; readonly text: string}
     | {readonly kind: "cancelled"}
-    | {readonly kind: "unavailable"; readonly reason: string};
+    | {readonly kind: "unavailable"; readonly reason: DisplayText};
 
 export interface QuickPick {
     pick(request: QuickPickRequest): Promise<QuickPickResult>;

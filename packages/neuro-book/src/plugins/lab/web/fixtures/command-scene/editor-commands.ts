@@ -9,7 +9,7 @@ import {Type} from "typebox";
 import type {Static} from "typebox";
 
 import type {CommandDeclaration, CommandResult, Release} from "nbook/plugins/commands/shared/contracts";
-import type {CommandRegistry} from "nbook/plugins/commands/shared/registry";
+import type {CommandRegistry, RegistrationResult} from "nbook/plugins/commands/shared/registry";
 
 import {matchesEditorDocument} from "./editor-binding";
 import type {CommandEditorBinding} from "./editor-binding";
@@ -104,7 +104,7 @@ function definitions(getActive: () => CommandEditorBinding | null): Definition[]
 }
 
 /** 一次登记四条命令；任何一条失败就撤掉已登记的再报告，不留登记了一半的命令表。 */
-export function registerEditorCommands(registry: CommandRegistry, getActive: () => CommandEditorBinding | null): CommandResult<Release> {
+export function registerEditorCommands(registry: CommandRegistry, getActive: () => CommandEditorBinding | null): RegistrationResult {
     const registered: Release[] = [];
     for (const definition of definitions(getActive)) {
         const result = registry.register({...definition, source: SOURCE});

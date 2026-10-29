@@ -14,8 +14,9 @@ import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
 import {provideText} from "nbook/shared/testing/text-port";
 
 import type {NotificationInput} from "../../shared/contracts";
+import {workbenchText} from "../../shared/text";
 import {completedCommand} from "../../testing/declarations";
-import {workbenchTestText} from "../../testing/text";
+import {failureText, workbenchTestText} from "../../testing/text";
 import {OPEN_COMMANDS_DECLARATION, OPEN_COMMANDS_ID, PaletteSlot} from "./open-commands";
 import WorkbenchCommandHost from "./WorkbenchCommandHost.vue";
 
@@ -50,7 +51,10 @@ describe("WorkbenchCommandHost", () => {
         await nextTick();
         expect(document.body.querySelector('[role="combobox"]')).toBeNull();
         expect(shortcut().defaultPrevented).toBe(false);
-        expect(await registry.execute(OPEN_COMMANDS_ID)).toEqual({ok: false, code: "unavailable", reason: "当前页面没有命令面板"});
+        const detached = await registry.execute(OPEN_COMMANDS_ID);
+        expect(detached).toMatchObject({ok: false, code: "unavailable"});
+        expect(failureText(detached, "zh-CN")).toBe("当前页面没有命令面板");
+        expect(failureText(detached, "en-US")).toBe("This page has no command palette");
         expect(reported).toEqual([]);
     });
 
@@ -99,6 +103,32 @@ describe("WorkbenchCommandHost", () => {
         document.body.querySelector('[role="combobox"]')?.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
         await vi.waitFor(() => expect(notices).toEqual([{tone: "warning", title: "统计没有完成", message: "选区里没有文字"}]));
         expect(reported).toEqual(["命令 nbook.app.count 执行失败：选区里没有文字"]);
+        wrapper.unmount();
+    });
+
+    it("命令给的原因是文字引用：通知正文原样交出，由视口按当前语言翻；诊断写成键名", async () => {
+        const registry = createCommandRegistry({contextKeys: contextTable({}), report: () => undefined});
+        const reason = workbenchText("palette.unavailable");
+        registry.register({
+            id: "nbook.app.broken",
+            source: "nbook.test",
+            declaration: {title: {"zh-CN": "坏命令", "en-US": "Broken"}, description: "broken", args: Type.Object({}, {additionalProperties: false}), effect: "read", keybinding: "Mod+Shift+K"},
+            run: () => ({ok: false, code: "unavailable", reason}),
+        });
+        const notices: NotificationInput[] = [];
+        const reported: string[] = [];
+        const slot = new PaletteSlot();
+        const wrapper = mount(WorkbenchCommandHost, {
+            props: {commands: registry, attach: (host) => slot.attach(host), report: (error: Error) => reported.push(error.message), notify: (input: NotificationInput) => notices.push(input)},
+            attachTo: document.body,
+            global: {provide: provideText(workbenchTestText("en-US"))},
+        });
+        await nextTick();
+        document.body.dispatchEvent(new KeyboardEvent("keydown", {key: "K", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true}));
+        await vi.waitFor(() => expect(notices).toEqual([{tone: "warning", title: "Broken did not complete", message: reason}]));
+        expect(workbenchTestText("zh-CN").t(notices[0]!.message)).toBe("当前页面没有命令面板");
+        expect(workbenchTestText("en-US").t(notices[0]!.message)).toBe("This page has no command palette");
+        expect(reported).toEqual(["命令 nbook.app.broken 执行失败：nbook.workbench:palette.unavailable"]);
         wrapper.unmount();
     });
 

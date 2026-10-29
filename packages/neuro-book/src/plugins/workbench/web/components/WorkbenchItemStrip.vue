@@ -25,6 +25,8 @@ const emit = defineEmits<{
 }>();
 
 const port = useText();
+/** 条目名加文字的一句（读屏名称、“更多”菜单里没有命令的项）；中间的标点随语言，写在目录里。 */
+const titled = (entry: StripEntry): string => port.t(workbenchText("items.titled", {title: entry.title, text: entry.text}));
 /** 条目之间的间距，与样式里的 gap 一致；测量的宽度要把它算进去。 */
 const GAP = 4;
 
@@ -74,7 +76,7 @@ const hidden = computed(() => props.entries.filter((entry) => layout.value.hidde
 
 const moreItems = computed<DropdownMenuItemData[]>(() => hidden.value.map((entry) => ({
     value: entry.id,
-    label: entry.command === null ? `${entry.title}：${entry.text}` : entry.text,
+    label: entry.command === null ? titled(entry) : entry.text,
     title: entry.disabledReason ?? entry.tooltip ?? undefined,
     disabled: entry.command === null || entry.disabledReason !== null,
 })));
@@ -103,7 +105,7 @@ function tooltipOf(entry: StripEntry): string | undefined {
                 :class="`workbench-item-strip__item--${entry.state}`"
                 :disabled="entry.disabledReason !== null"
                 :title="tooltipOf(entry)"
-                :aria-label="entry.text === entry.title ? entry.text : `${entry.title}：${entry.text}`"
+                :aria-label="entry.text === entry.title ? entry.text : titled(entry)"
                 :data-workbench-item="entry.id"
                 @click="emit('run', entry.id)"
             >{{ entry.text }}</Button>
@@ -113,7 +115,7 @@ function tooltipOf(entry: StripEntry): string | undefined {
                 class="workbench-item-strip__item workbench-item-strip__text"
                 :class="`workbench-item-strip__item--${entry.state}`"
                 :title="tooltipOf(entry)"
-                :aria-label="`${entry.title}：${entry.text}`"
+                :aria-label="titled(entry)"
                 :data-workbench-item="entry.id"
             >{{ entry.text }}</span>
         </template>

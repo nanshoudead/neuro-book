@@ -112,7 +112,7 @@ const frameActions = computed<ReadonlyArray<PanelFrameAction>>(() => {
             icon,
             label: message(title),
             disabled: !available,
-            ...(enabled.ok ? {} : {reason: enabled.reason}),
+            ...(enabled.ok ? {} : {reason: resolver.t(enabled.reason)}),
             ...(id === SET_PANEL_COLLAPSED_COMMAND ? {pressed: panel.collapsed} : id === TOGGLE_PANEL_MAXIMIZED_COMMAND ? {pressed: panel.maximized} : {}),
         };
     });

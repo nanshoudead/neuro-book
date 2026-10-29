@@ -70,7 +70,7 @@ export async function createChapter(files: Pick<FilesService, "list" | "create">
     const created = await files.create(address, "file");
     if (!created.ok) return text.t(projectsText("welcome.createFailed", {reason: created.code}));
     const opened = await commands.execute("nbook.editor.open", {address, mode: "permanent"}, {source: "user"});
-    return opened.ok ? null : text.t(projectsText("welcome.openFailed", {name, reason: opened.reason}));
+    return opened.ok ? null : text.t(projectsText("welcome.openFailed", {name, reason: text.t(opened.reason)}));
 }
 
 export function createWelcomeHost(options: WelcomeHostOptions): Component {

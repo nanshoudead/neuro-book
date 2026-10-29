@@ -13,12 +13,14 @@ import {Type} from "typebox";
 
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
+import {textRef} from "@notnotype/nb-ui/text";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {settingsWorld} from "nbook/plugins/settings/testing/world";
 import type {SettingsWorld, WorldWindow} from "nbook/plugins/settings/testing/world";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
+import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import {COMMANDS_POINT, commandServiceKey, commandsRemoteContract} from "./contracts";
 import type {CommandDeclaration} from "./contracts";
@@ -163,6 +165,37 @@ describe("Spec workbench.commands 场景 14：两个窗口的状态不同", () =
         a.armed.value = false;
         expect(await atA.execute({id: "example.tools.go"})).toEqual({ok: true, value: {ok: false, code: "unavailable", reason: "这个窗口没有准备好"}});
         expect(a.observed.runs).toBe(0);
+    });
+});
+
+describe("Spec workbench.commands“跨实例列出与执行”：失败原因是文字引用", () => {
+    /** 窗口里的一条命令，失败原因是本插件目录里的文字引用（浏览器里的命令就这样写）。 */
+    const blocked: PluginDefinition = {
+        id: "example.blocked",
+        entries: [{
+            id: "browser",
+            location: "browser",
+            activationEvents: ["onStartup"],
+            contributions: [{capability: COMMANDS_POINT, id: "example.blocked.go", declaration: declaration()}],
+            activate: () => ({contributions: {[COMMANDS_POINT]: {"example.blocked.go": {run: () => ({ok: false, code: "unavailable", reason: textRef("reasons.blocked", {name: "甲"}, "example.blocked")})}}}}),
+        }],
+    };
+
+    it("服务端拿到的原因是窗口按此刻的语言翻好的字符串，窗口切换语言后随之换；窗口没有翻译引擎时是键名", async () => {
+        counter += 1;
+        const agent = caller("example.agent", "server");
+        const world = await settingsWorld(join(tmp, `case-${String(counter)}`), [agent.plugin]);
+        worlds.push(world);
+        const text = createHostTextEngine({locale: "zh-CN", strict: true});
+        text.register("example.blocked", {"zh-CN": {reasons: {blocked: "{{name}} 被挡住了"}}, "en-US": {reasons: {blocked: "{{name}} is blocked"}}}, "zh-CN");
+        await world.window("with-text", [statePlugin, commandsPlugin, blocked], {bound: false, text});
+        await world.window("without-text", [statePlugin, commandsPlugin, blocked], {bound: false});
+        const remote = agent.remote().use(commandsRemoteContract);
+
+        expect(await remote.at({client: "with-text"}).execute({id: "example.blocked.go"})).toEqual({ok: true, value: {ok: false, code: "unavailable", reason: "甲 被挡住了"}});
+        text.setLocale("en-US");
+        expect(await remote.at({client: "with-text"}).execute({id: "example.blocked.go"})).toEqual({ok: true, value: {ok: false, code: "unavailable", reason: "甲 is blocked"}});
+        expect(await remote.at({client: "without-text"}).execute({id: "example.blocked.go"})).toEqual({ok: true, value: {ok: false, code: "unavailable", reason: "reasons.blocked"}});
     });
 });
 

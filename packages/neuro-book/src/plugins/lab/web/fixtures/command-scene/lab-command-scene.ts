@@ -25,7 +25,7 @@ import {createKeymapDispatcher} from "nbook/plugins/workbench/web/commands/keyma
 import type {KeymapDispatcher} from "nbook/plugins/workbench/web/commands/keymap";
 import {createPaletteHost} from "nbook/plugins/workbench/web/commands/palette-host";
 import type {PaletteHost} from "nbook/plugins/workbench/web/commands/palette-host";
-import {resolverFor} from "nbook/shared/localized-text";
+import {diagnosticText, resolverFor} from "nbook/shared/localized-text";
 
 import {LAB_LOCALE} from "../../lab-locale";
 import {useLabEventSink} from "../../lab-event-sink";
@@ -155,7 +155,7 @@ export function useLabCommandScene(): LabCommandScene {
             reason: event.result.ok ? null : event.result.reason,
             durationMs: event.durationMs,
         });
-        if (!event.result.ok) failure.value = `${event.id}：${event.result.reason}`;
+        if (!event.result.ok) failure.value = `${event.id}：${diagnosticText(event.result.reason)}`;
     });
 
     const releasePaletteCommands = registerPaletteCommands(registry, palette, (reason) => {

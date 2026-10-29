@@ -6,7 +6,6 @@
 import {Type} from "typebox";
 
 import type {CommandImplementation, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
-import type {TextResolver} from "nbook/shared/localized-text";
 import type {WindowNavigation} from "nbook/shared/host";
 
 import {workbenchText} from "../../shared/text";
@@ -38,7 +37,7 @@ export const APP_COMMAND_DECLARATIONS = {
     },
 } as const satisfies Readonly<Record<string, WrittenCommandDeclaration>>;
 
-export function appCommands(navigation: WindowNavigation, text: TextResolver): {readonly [K in keyof typeof APP_COMMAND_DECLARATIONS]: CommandImplementation} {
+export function appCommands(navigation: WindowNavigation): {readonly [K in keyof typeof APP_COMMAND_DECLARATIONS]: CommandImplementation} {
     return {
         [RELOAD_COMMAND]: {
             run: () => {
@@ -47,7 +46,7 @@ export function appCommands(navigation: WindowNavigation, text: TextResolver): {
             },
         },
         [DOCUMENTATION_COMMAND]: {
-            run: () => (navigation.openExternal(DOCUMENTATION_URL) === "opened" ? {ok: true, value: null} : {ok: false, code: "unavailable", reason: text.t(workbenchText("appCommands.blocked"))}),
+            run: () => (navigation.openExternal(DOCUMENTATION_URL) === "opened" ? {ok: true, value: null} : {ok: false, code: "unavailable", reason: workbenchText("appCommands.blocked")}),
         },
     };
 }

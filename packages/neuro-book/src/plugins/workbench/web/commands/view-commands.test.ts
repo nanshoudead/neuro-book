@@ -26,7 +26,7 @@ import {workbenchStateBindings} from "../state/public-state";
 import {openLayout} from "../testing/layout";
 import {MOVE_VIEW_COMMAND, OPEN_VIEW_COMMAND, VIEW_COMMAND_DECLARATIONS, viewCommands} from "./view-commands";
 import {completedCommand} from "../../testing/declarations";
-import {workbenchTestText} from "../../testing/text";
+import {failureText, workbenchTestText} from "../../testing/text";
 
 let tmp = "";
 let counter = 0;
@@ -98,13 +98,19 @@ describe("移动视图", () => {
     it("三项参数直接移动；只给一部分为 invalid-args；来源已变为 stale-target 且不写；不可移动、目标不存在为 invalid-args", async () => {
         const store = await layout();
         const silent = picker(() => ({kind: "cancelled"}));
-        expect(await run(store, silent, {viewId: "test.b", targetContainerId: "view:test.a"})).toMatchObject({ok: false, code: "invalid-args"});
+        const partial = await run(store, silent, {viewId: "test.b", targetContainerId: "view:test.a"});
+        expect(partial).toMatchObject({ok: false, code: "invalid-args"});
+        expect(failureText(partial, "zh-CN")).toBe("要么都不给，要么给 viewId、sourceContainerId 和 targetContainerId、newContainerIn 中的一个");
+        expect(failureText(partial, "en-US")).toBe("Give nothing, or give viewId, sourceContainerId and one of targetContainerId and newContainerIn");
         expect(await run(store, silent, {viewId: "test.b", sourceContainerId: "view:test.b", targetContainerId: "view:test.a"})).toEqual({ok: true, value: null});
         expect(store.state.placement.views.get("test.b")?.container).toBe("view:test.a");
         expect(store.state.placement.selected.sidebar).toBe("view:test.a");
         await waitUntil("保存完成", () => store.state.customizations.queue === 0);
         const before = structuredClone(store.state.customizations.display);
-        expect(await run(store, silent, {viewId: "test.b", sourceContainerId: "view:test.b", targetContainerId: "view:test.c"})).toMatchObject({ok: false, code: "stale-target"});
+        const stale = await run(store, silent, {viewId: "test.b", sourceContainerId: "view:test.b", targetContainerId: "view:test.c"});
+        expect(stale).toMatchObject({ok: false, code: "stale-target"});
+        expect(failureText(stale, "zh-CN")).toBe("视图已经不在发起时的容器里，没有移动");
+        expect(failureText(stale, "en-US")).toBe("The view is no longer in the container it was in when the move started, so it was not moved");
         expect(await run(store, silent, {viewId: "test.d", sourceContainerId: "view:test.d", targetContainerId: "view:test.a"})).toMatchObject({ok: false, code: "invalid-args"});
         expect(await run(store, silent, {viewId: "test.a", sourceContainerId: "view:test.a", targetContainerId: "view:nope"})).toMatchObject({ok: false, code: "invalid-args"});
         expect(await run(store, silent, {viewId: "test.a", sourceContainerId: "view:test.a", targetContainerId: "view:test.a"})).toEqual({ok: true, value: null});
@@ -216,9 +222,15 @@ describe("打开视图（docs/specs/workbench/views.md 输出 14）", () => {
 
     it("没有这个视图为 invalid-args 且不写；外壳没打开为 unavailable", async () => {
         const store = await layout();
-        expect(await open(store, silent, {viewId: "test.nowhere"})).toMatchObject({ok: false, code: "invalid-args", reason: expect.stringContaining("test.nowhere")});
+        const unknown = await open(store, silent, {viewId: "test.nowhere"});
+        expect(unknown).toMatchObject({ok: false, code: "invalid-args"});
+        expect(failureText(unknown, "zh-CN")).toBe("没有这个视图（没有已接受的声明）：test.nowhere");
+        expect(failureText(unknown, "en-US")).toBe("No such view (no accepted declaration): test.nowhere");
         expect(store.state.customizations.queue).toBe(0);
-        expect(await open(null, silent, {viewId: "test.a"})).toMatchObject({ok: false, code: "unavailable"});
+        const detached = await open(null, silent, {viewId: "test.a"});
+        expect(detached).toMatchObject({ok: false, code: "unavailable"});
+        expect(failureText(detached, "zh-CN")).toBe("工作台布局没有打开（这个窗口没有显示外壳）");
+        expect(failureText(detached, "en-US")).toBe("The workbench layout is not open (this window does not show the shell)");
     });
 
     it("不给 viewId：经选择挑一个（标签是视图标题、说明是所在容器）；取消时成功且不写", async () => {

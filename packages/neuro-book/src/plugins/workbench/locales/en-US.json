@@ -37,12 +37,19 @@
         "label": "Title bar",
         "menuButton": "Menu",
         "search": "Search commands",
+        "searchWithShortcut": "Search commands ({{shortcut}})",
         "openProject": "Open Project…",
-        "project": "Project",
+        "projectButton": "Project: {{name}}",
         "toggle": {
             "sidebar": "Toggle Sidebar",
             "panel": "Toggle Panel",
-            "auxiliarybar": "Toggle Auxiliary Bar"
+            "auxiliarybar": "Toggle Secondary Side Bar"
+        },
+        "menuItems": {
+            "sidebar": "Sidebar",
+            "auxiliarybar": "Secondary Side Bar",
+            "activitybar": "Activity Bar",
+            "panel": "Panel"
         },
         "nativeEditing": "The focused input handles undo itself"
     },
@@ -107,6 +114,9 @@
     "appCommands": {
         "blocked": "The browser blocked the new tab; allow pop-ups for this site and try again"
     },
+    "layout": {
+        "notOpen": "The workbench layout is not open (this window does not show the shell)"
+    },
     "palette": {
         "title": "Command Palette",
         "placeholder": "Type a command, or : to go to a line",
@@ -120,7 +130,8 @@
         "editorGone": "The original editor was closed or switched",
         "lineUnsupported": "The active editor does not support line navigation",
         "editorNotReady": "The editor is not ready yet",
-        "commandFailed": "{{title}} did not complete"
+        "commandFailed": "{{title}} did not complete",
+        "unavailable": "This page has no command palette"
     },
     "panelCommands": {
         "positions": {
@@ -132,7 +143,7 @@
         "alignments": {
             "center": "Center (under the editor)",
             "left": "Left (with the sidebar)",
-            "right": "Right (with the auxiliary bar)",
+            "right": "Right (with the secondary side bar)",
             "justify": "Justify (both sidebars)"
         },
         "current": "current",
@@ -141,7 +152,7 @@
     "partCommands": {
         "parts": {
             "sidebar": "Sidebar",
-            "auxiliarybar": "Auxiliary Bar",
+            "auxiliarybar": "Secondary Side Bar",
             "activitybar": "Activity Bar"
         },
         "visible": "shown",
@@ -164,8 +175,12 @@
         "pickView": "Pick a view to move",
         "pickOpen": "Pick a view to open",
         "noOpenable": "No view to open",
+        "unknownView": "No such view (no accepted declaration): {{viewId}}",
+        "unplaced": "The view is not in the layout: {{viewId}}",
         "pickTarget": "Move to",
         "noViews": "No view can be moved",
+        "partial": "Give nothing, or give viewId, sourceContainerId and one of targetContainerId and newContainerIn",
+        "stale": "The view is no longer in the container it was in when the move started, so it was not moved",
         "newContainer": {
             "sidebar": "New Container in Sidebar",
             "auxiliarybar": "New Container in Secondary Side Bar",
@@ -192,7 +207,7 @@
             "container": "All views in this container are hidden"
         },
         "activityBar": "Activity Bar",
-        "moveTo": "Move To",
+        "moveTo": "Move to",
         "drag": {
             "label": "Drag {{title}}",
             "hint": "Press Space to pick up and drag"
@@ -201,7 +216,7 @@
             "moveView": "Move here",
             "detachView": "New container",
             "moveContainer": "Move container",
-            "mergeContainer_one": "Merge {{count}} views",
+            "mergeContainer_one": "Merge {{count}} view",
             "mergeContainer_other": "Merge {{count}} views",
             "reveal": "Show in {{part}}",
             "before": "Place before “{{title}}”",
@@ -245,7 +260,8 @@
         "failed": "The editor failed to load: {{reason}}"
     },
     "items": {
-        "broken": "This item failed: {{message}}"
+        "broken": "This item failed: {{message}}",
+        "titled": "{{title}}: {{text}}"
     },
     "activityItems": {
         "profile": {
@@ -272,7 +288,7 @@
             "reason": "The sidebar is hidden or dragged closed"
         },
         "auxiliaryBarVisible": {
-            "reason": "The auxiliary bar is hidden or dragged closed"
+            "reason": "The secondary side bar is hidden or dragged closed"
         },
         "activityBarVisible": {
             "reason": "The activity bar is hidden"

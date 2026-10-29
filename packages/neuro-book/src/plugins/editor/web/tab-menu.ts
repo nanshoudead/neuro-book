@@ -9,6 +9,7 @@
 import {arrangeMenu} from "nbook/plugins/commands/shared/contracts";
 import type {CommandService, KeyPlatform} from "nbook/plugins/commands/shared/contracts";
 import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
+import {diagnosticText} from "nbook/shared/localized-text";
 import type {DisplayText, TextResolver} from "nbook/shared/localized-text";
 
 import type {EditorTabContextItemDeclaration} from "../shared/contracts";
@@ -96,7 +97,7 @@ export function createEditorTabMenu(options: {
     const find = (tabId: string) => options.area()?.groups.find(tabId) ?? null;
     const execute = (command: string, args: Record<string, unknown>): void => {
         void options.commands.execute(command, args, {source: "user"}).then((result) => {
-            if (!result.ok) options.report(command, `${result.code}：${result.reason}`);
+            if (!result.ok) options.report(command, `${result.code}：${diagnosticText(result.reason)}`);
         });
     };
     return {
@@ -110,7 +111,7 @@ export function createEditorTabMenu(options: {
             if (file(tab) && reveal.ok) {
                 const enabled = options.commands.isEnabled(REVEAL_COMMAND);
                 const label = text.t(editorText("tabMenu.reveal"));
-                own[own.length - 1]?.push({kind: "item", key: REVEAL_KEY, label, disabled: !(enabled.ok && enabled.value), reason: enabled.ok ? (enabled.value ? null : label) : enabled.reason, shortcut: null});
+                own[own.length - 1]?.push({kind: "item", key: REVEAL_KEY, label, disabled: !(enabled.ok && enabled.value), reason: enabled.ok ? (enabled.value ? null : label) : text.t(enabled.reason), shortcut: null});
             }
             const address = tab.kind === "file" ? tab.address : null;
             const contributed = arrangeMenu(options.items(), {

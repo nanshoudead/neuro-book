@@ -33,7 +33,7 @@ import {
     TOGGLE_PANEL_MAXIMIZED_COMMAND,
 } from "./panel-commands";
 import {completedCommand} from "../../testing/declarations";
-import {workbenchTestText} from "../../testing/text";
+import {failureText, workbenchTestText} from "../../testing/text";
 
 let tmp = "";
 let counter = 0;
@@ -151,7 +151,10 @@ describe("命令", () => {
         expect(store.state.panel.maximized).toBe(false);
 
         const detached = panelCommands(() => null, picker(() => ({kind: "cancelled"})));
-        expect(await detached[SET_PANEL_HIDDEN_COMMAND].run({hidden: true})).toMatchObject({ok: false, code: "unavailable"});
+        const notOpen = await detached[SET_PANEL_HIDDEN_COMMAND].run({hidden: true});
+        expect(notOpen).toMatchObject({ok: false, code: "unavailable"});
+        expect(failureText(notOpen, "zh-CN")).toBe("工作台布局没有打开（这个窗口没有显示外壳）");
+        expect(failureText(notOpen, "en-US")).toBe("The workbench layout is not open (this window does not show the shell)");
     });
 });
 

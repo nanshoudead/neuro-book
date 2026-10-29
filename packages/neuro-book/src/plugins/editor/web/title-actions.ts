@@ -85,7 +85,7 @@ export function createEditorTitleActions(options: {
                     command: action.command,
                     title,
                     icon: action.icon,
-                    disabledReason: enabled.ok ? (enabled.value ? null : title) : enabled.reason,
+                    disabledReason: enabled.ok ? (enabled.value ? null : title) : text.t(enabled.reason),
                     ...(keybinding === undefined ? {} : {shortcut: formatKeybinding(keybinding, options.platform)}),
                 }}];
             });

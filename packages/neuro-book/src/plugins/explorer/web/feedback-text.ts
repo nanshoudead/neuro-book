@@ -48,7 +48,7 @@ export function noticeText(text: TextResolver, notice: Notice): string {
         case "editor-missing":
             return text.t(explorerText("feedback.notice.editorMissing", {address: notice.address}));
         case "open-failed":
-            return text.t(explorerText("feedback.notice.openFailed", {address: notice.address, reason: notice.reason}));
+            return text.t(explorerText("feedback.notice.openFailed", {address: notice.address, reason: text.t(notice.reason)}));
         case "failed":
             return text.t(explorerText("feedback.notice.failed", {action: actionText(text, notice.action), address: notice.address, reason: reasonText(text, notice.code, notice.detail)}));
         case "manifest":

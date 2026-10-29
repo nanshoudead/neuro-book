@@ -11,6 +11,7 @@ import {useText} from "@notnotype/nb-ui/text-port";
 
 import {currentKeyPlatform} from "nbook/plugins/commands/shared/contracts";
 import type {CommandFailure, CommandService, Release} from "nbook/plugins/commands/shared/contracts";
+import {diagnosticText} from "nbook/shared/localized-text";
 
 import type {NotificationInput} from "../../shared/contracts";
 import WorkbenchCommandPalette from "../components/WorkbenchCommandPalette.vue";
@@ -42,7 +43,7 @@ function notifyFailure(id: string, failure: CommandFailure): void {
 const host = createPaletteHost({
     commands: props.commands,
     onFailure: (id, failure) => {
-        props.report(new Error(`命令 ${id} 执行失败：${failure.reason}`));
+        props.report(new Error(`命令 ${id} 执行失败：${diagnosticText(failure.reason)}`));
         notifyFailure(id, failure);
     },
 });

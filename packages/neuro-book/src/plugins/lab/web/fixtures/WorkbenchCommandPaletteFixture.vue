@@ -10,6 +10,7 @@ import {Button, SegmentedControl} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, ref} from "vue";
 
 import type {AgentMode, CommandInvocation, Release} from "nbook/plugins/commands/shared/contracts";
+import {diagnosticText} from "nbook/shared/localized-text";
 
 import {useLabEventSink} from "../lab-event-sink";
 import type {LabFixtureProps} from "../lab-subject";
@@ -82,7 +83,7 @@ function enabled(id: string): boolean {
 
 async function run(id: string, invocation?: CommandInvocation): Promise<void> {
     const result = await scene.registry.execute(id, {}, invocation);
-    lastResult.value = result.ok ? `${id}：完成` : `${id}：${result.code}（${result.reason}）`;
+    lastResult.value = result.ok ? `${id}：完成` : `${id}：${result.code}（${diagnosticText(result.reason)}）`;
 }
 
 onBeforeUnmount(() => {

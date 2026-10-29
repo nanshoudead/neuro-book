@@ -8,8 +8,10 @@ import {describe, expect, it} from "vitest";
 import {nextTick} from "vue";
 
 import {provideText} from "nbook/shared/testing/text-port";
+import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import {workbenchTestText} from "../../testing/text";
+import {workbenchCatalogs} from "../text";
 
 import type {MenuGroup} from "../titlebar/menu-model";
 import WorkbenchTitleBar from "./WorkbenchTitleBar.vue";
@@ -39,6 +41,21 @@ describe("WorkbenchTitleBar", () => {
         expect(wrapper.get('[data-titlebar-layout="auxiliarybar"]').attributes("disabled")).toBeDefined();
         await wrapper.get('[data-titlebar-layout="panel"]').trigger("click");
         expect(wrapper.emitted("toggle-part")).toEqual([["panel"]]);
+        wrapper.unmount();
+    });
+
+    it("搜索与项目切换的名字是整句：中文用全角标点，英文用半角；切换语言后原地换", async () => {
+        const engine = createHostTextEngine({locale: "zh-CN", strict: true});
+        engine.register("nbook.workbench", workbenchCatalogs.catalogs, workbenchCatalogs.source);
+        const wrapper = mount(WorkbenchTitleBar, {props: {project: "雾港", menus, searchShortcut: "Ctrl+Shift+P", layout, items: []}, global: {provide: provideText(engine.port)}, attachTo: document.body});
+        expect(wrapper.get("[data-titlebar-search]").attributes("aria-label")).toBe("搜索命令（Ctrl+Shift+P）");
+        expect(wrapper.get("[data-titlebar-project]").attributes("aria-label")).toBe("项目：雾港");
+        engine.setLocale("en-US");
+        await nextTick();
+        expect(wrapper.get("[data-titlebar-search]").attributes("aria-label")).toBe("Search commands (Ctrl+Shift+P)");
+        expect(wrapper.get("[data-titlebar-project]").attributes("aria-label")).toBe("Project: 雾港");
+        await wrapper.setProps({searchShortcut: null});
+        expect(wrapper.get("[data-titlebar-search]").attributes("aria-label")).toBe("Search commands");
         wrapper.unmount();
     });
 

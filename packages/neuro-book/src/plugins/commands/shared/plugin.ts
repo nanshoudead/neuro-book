@@ -130,8 +130,11 @@ function receiverOf(registry: CommandRegistry, diagnostics: DiagnosticsService):
 /**
  * 窗口里的命令表交给服务端（`nbook.commands/remote`）：列出与执行都按本窗口此刻的公开状态；执行以调用方插件的
  * Agent 身份走同一条执行管线，`expose.agent` 为 `never` 的命令不列出、执行为 `not-exposed`。
+ *
+ * 不可用与失败的原因在这里按窗口此刻的语言翻成字符串（`reasonString`）：服务端不翻译文字引用，原因又是给 Agent 与人直接读的，
+ * 所以线上仍是字符串，远程合同不变。
  */
-function remoteCommands(registry: CommandRegistry): RemoteProvision<typeof commandsRemoteContract> {
+function remoteCommands(registry: CommandRegistry, reasonString: (reason: Text) => string): RemoteProvision<typeof commandsRemoteContract> {
     return provideRemote(commandsRemoteContract, (consumer) => ({
         methods: {
             list: async () => ({
@@ -150,11 +153,14 @@ function remoteCommands(registry: CommandRegistry): RemoteProvision<typeof comma
                         effect: command.effect,
                         agent,
                         available: enabled.ok && enabled.value,
-                        reason: enabled.ok ? null : enabled.reason,
+                        reason: enabled.ok ? null : reasonString(enabled.reason),
                     }];
                 }),
             }),
-            execute: async ({id, args}) => ({ok: true, value: await registry.execute(id, args, {source: "agent", callerId: consumer.plugin ?? consumer.instanceId})}),
+            execute: async ({id, args}) => {
+                const result = await registry.execute(id, args, {source: "agent", callerId: consumer.plugin ?? consumer.instanceId});
+                return {ok: true, value: result.ok ? result : {ok: false, code: result.code, reason: reasonString(result.reason)}};
+            },
         },
     }));
 }
@@ -175,6 +181,11 @@ function commandsEntry(location: RuntimeLocation): PluginEntryDefinition {
             const settings = context.services.require(settingsKey);
             const windowText = await context.services.resolve(windowTextKey);
             const translate = windowText.status === "resolved" ? (text: Text) => windowText.instance.port.t(text) : null;
+            // 没有翻译端口时文字引用落到键名，与窗口里缺键时的显示相同（docs/specs/ui/i18n.md 输出 4）。
+            const reasonString = (reason: Text): string => {
+                if (!isTextRef(reason)) return textOf(reason, displayLocale(settings));
+                return translate === null ? reason.key : translate(reason);
+            };
             const registry = createCommandRegistry({
                 contextKeys: publicStateKeys(context.services.require(publicStateKey), () => displayLocale(settings), translate),
                 report: (error) => {
@@ -185,7 +196,7 @@ function commandsEntry(location: RuntimeLocation): PluginEntryDefinition {
                 services: [provideService(commandServiceKey, serviceOf(registry))],
                 receivers: {[COMMANDS_POINT]: receiverOf(registry, diagnostics)},
                 // 只有窗口把命令表交给服务端；按位置整段加上 remote，类型才能与按位置的 remoteProvides 对上。
-                ...(browser ? {remote: [remoteCommands(registry)]} : {}),
+                ...(browser ? {remote: [remoteCommands(registry, reasonString)]} : {}),
             };
         },
     });

@@ -13,6 +13,7 @@ import type {CommandService, MenuItemRegistry} from "nbook/plugins/commands/shar
 import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
 import {OPEN_PROJECT_COMMAND} from "nbook/plugins/projects/shared/contracts";
 import type {ViewContext} from "nbook/plugins/workbench/web/contracts";
+import {diagnosticText} from "nbook/shared/localized-text";
 import type {TextResolver} from "nbook/shared/localized-text";
 
 import type {DropOver} from "./actions/drop";
@@ -84,7 +85,7 @@ export function createExplorerViewHost(view: Component, options: ExplorerViewHos
     const {session} = options;
     const execute = (id: string, args: Record<string, unknown> = {}): void => {
         void options.commands.execute(id, args).then((result) => {
-            if (!result.ok) options.report(id, `${result.code}：${result.reason}`);
+            if (!result.ok) options.report(id, `${result.code}：${diagnosticText(result.reason)}`);
         });
     };
     return defineComponent({

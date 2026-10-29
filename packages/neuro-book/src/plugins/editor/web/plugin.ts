@@ -15,6 +15,7 @@ import {COMMANDS_POINT, commandServiceKey, completeMenuItemDeclaration, currentK
 import {filesKey} from "nbook/plugins/files/shared/contracts";
 import {dialectTable, MARKDOWN_DIALECTS_POINT, markdownKey} from "nbook/plugins/markdown/shared/contracts";
 import type {DialectDeclaration, MarkdownService} from "nbook/plugins/markdown/shared/contracts";
+import {diagnosticText} from "nbook/shared/localized-text";
 import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {breadcrumbsSetting, codeSettings, enablePreviewSetting, wrapTabsSetting} from "../shared/settings";
@@ -191,7 +192,7 @@ export const editorBrowserPlugin: PluginDefinition = {
 
             const execute = (command: string): void => {
                 void commands.execute(command, {}, {source: "user"}).then((result) => {
-                    if (!result.ok) diagnostics.record({level: "warn", event: "editor.command", message: `${command} 执行失败：${result.reason}`, source: {plugin: descriptor.id}});
+                    if (!result.ok) diagnostics.record({level: "warn", event: "editor.command", message: `${command} 执行失败：${diagnosticText(result.reason)}`, source: {plugin: descriptor.id}});
                 });
             };
             // 空编辑组的提示：命令增减不经响应式通知，记一个版本号在渲染时读，命令有增减就重算；可用性读公开状态，渲染时求值即可。

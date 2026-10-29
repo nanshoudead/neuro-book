@@ -71,14 +71,12 @@ const TEXT = {
     pickView: workbenchText("viewCommands.pickView"),
     pickOpen: workbenchText("viewCommands.pickOpen"),
     noOpenable: workbenchText("viewCommands.noOpenable"),
-    unknownView: "没有这个视图（没有已接受的声明）：",
-    unplaced: "视图不在布局里：",
     pickTarget: workbenchText("viewCommands.pickTarget"),
     noViews: workbenchText("viewCommands.noViews"),
     reset: workbenchText("views.resetLocation"),
-    noLayout: "工作台布局没有打开（这个窗口没有显示外壳）",
-    partial: "要么都不给，要么给 viewId、sourceContainerId 和 targetContainerId、newContainerIn 中的一个",
-    stale: "视图已经不在发起时的容器里，没有移动",
+    noLayout: workbenchText("layout.notOpen"),
+    partial: workbenchText("viewCommands.partial"),
+    stale: workbenchText("viewCommands.stale"),
 } as const;
 
 /** 选择项里“重置位置”与“新建容器（在 X）”的 id；容器 id 不会以它们开头。 */
@@ -154,10 +152,10 @@ async function pickAndMove(store: LayoutStore, quickPick: QuickPick): Promise<Co
  */
 function openView(store: LayoutStore, viewId: string): CommandResult<null> {
     const {catalog, placement, presentation} = store.state;
-    if (!catalog.has(viewId)) return {ok: false, code: "invalid-args", reason: `${TEXT.unknownView}${viewId}`};
+    if (!catalog.has(viewId)) return {ok: false, code: "invalid-args", reason: workbenchText("viewCommands.unknownView", {viewId})};
     const containerId = placement.views.get(viewId)?.container;
     const part = containerId === undefined ? undefined : VIEW_LOCATIONS.find((location) => placement.parts[location].includes(containerId));
-    if (containerId === undefined || part === undefined) return {ok: false, code: "invalid-args", reason: `${TEXT.unplaced}${viewId}`};
+    if (containerId === undefined || part === undefined) return {ok: false, code: "invalid-args", reason: workbenchText("viewCommands.unplaced", {viewId})};
     const container = presentation.containers.get(containerId);
     if (container?.mode === "multiple" && container.views.some((view) => view.id === viewId && view.collapsed)) {
         const expanded = store.actions.applyView({kind: "set-view-collapsed", viewId, collapsed: false});

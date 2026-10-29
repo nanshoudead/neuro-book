@@ -13,6 +13,7 @@ import type {ComputedRef, ShallowRef} from "@vue/reactivity";
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import type {DocumentCoordinator, DocumentLease} from "nbook/plugins/editor/shared/contracts";
 import type {BatchHandle, BatchResult, FilesResult, FilesService, ItemResult, ManifestIssue, OperationDone, Scheme} from "nbook/plugins/files/shared/contracts";
+import type {DisplayText} from "nbook/shared/localized-text";
 
 import {resolveBlankDrop, resolveDrop, resolveEditorDrop} from "./actions/drop";
 import type {DropAction, DropOver} from "./actions/drop";
@@ -44,7 +45,8 @@ export type BatchAction = "delete" | "copy" | "move";
 /** 结果区的一条提示。 */
 export type Notice =
     | {readonly kind: "editor-missing"; readonly address: string}
-    | {readonly kind: "open-failed"; readonly address: string; readonly reason: string}
+    /** `reason` 是打开命令给的原因，显示时才按当前语言翻。 */
+    | {readonly kind: "open-failed"; readonly address: string; readonly reason: DisplayText}
     | {readonly kind: "failed"; readonly action: ActionName; readonly address: string; readonly code: string; readonly detail: string}
     /** 文件已改而清单没改成（docs/specs/workspace/folder-kinds.md 的“失败与恢复”）。 */
     | {readonly kind: "manifest"; readonly action: ActionName; readonly address: string; readonly issues: ReadonlyArray<ManifestIssue>};

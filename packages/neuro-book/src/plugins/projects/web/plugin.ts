@@ -135,7 +135,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
                         cover: coverTransport(),
                         commands: {execute: async (id) => {
                             const result = await commands.execute(id, undefined, {source: "user"});
-                            return result.ok ? {ok: true} : {ok: false, reason: `${result.code}：${result.reason}`};
+                            return result.ok ? {ok: true} : {ok: false, reason: `${result.code}：${text.t(result.reason)}`};
                         }},
                         report: (event, message) => diagnostics.record({level: "warn", event, message, source: {plugin: descriptor.id}}),
                     }),

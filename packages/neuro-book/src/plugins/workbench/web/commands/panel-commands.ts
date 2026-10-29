@@ -88,7 +88,7 @@ const ALIGNMENT_LABELS: Readonly<Record<PanelAlignment, DisplayText>> = {
 const TEXT = {
     current: workbenchText("panelCommands.current"),
     placeholder: workbenchText("panelCommands.placeholder"),
-    noLayout: "工作台布局没有打开（这个窗口没有显示外壳）",
+    noLayout: workbenchText("layout.notOpen"),
 } as const;
 
 const DONE: CommandResult<null> = {ok: true, value: null};

@@ -299,15 +299,22 @@ describe("参数严格校验与执行错误", () => {
         expect(events.map((event) => event.result.ok)).toEqual([false, false, false]);
     });
 
-    it("成功但没给值归一为 null；处理函数给出的失败码不在合同内时改为 execution-error", async () => {
+    it("成功但没给值归一为 null；处理函数给出的失败码不在合同内时改为 execution-error；原因是文字值时原样交出，不是时转成字符串", async () => {
         const {registry} = harness();
+        const blocked = {kind: "text", ns: "nbook.workbench", key: "layout.notOpen"} as const;
         value(registry.register(command("nbook.editor.focus", {run: () => ({ok: true, value: undefined})})));
         value(registry.register(command("nbook.edit.undo", {run: () => ({ok: false, code: "boom", reason: "自定义"}) as unknown as CommandResult<unknown>})));
         value(registry.register(command("nbook.edit.redo", {run: () => ({ok: false, code: "stale-target", reason: "文档已换代"})})));
+        value(registry.register(command("nbook.editor.go-to-line", {run: () => ({ok: false, code: "unavailable", reason: blocked})})));
+        value(registry.register(command("nbook.quick-open.open-line", {run: () => ({ok: false, code: "unavailable", reason: {"zh-CN": "没有", "en-US": "None"}})})));
+        value(registry.register(command("nbook.quick-open.open-commands", {run: () => ({ok: false, code: "unavailable", reason: 42}) as unknown as CommandResult<unknown>})));
 
         expect(await registry.execute("nbook.editor.focus")).toEqual({ok: true, value: null});
         expect(await registry.execute("nbook.edit.undo")).toEqual({ok: false, code: "execution-error", reason: "自定义"});
         expect(await registry.execute("nbook.edit.redo")).toEqual({ok: false, code: "stale-target", reason: "文档已换代"});
+        expect(await registry.execute("nbook.editor.go-to-line")).toEqual({ok: false, code: "unavailable", reason: blocked});
+        expect(await registry.execute("nbook.quick-open.open-line")).toEqual({ok: false, code: "unavailable", reason: {"zh-CN": "没有", "en-US": "None"}});
+        expect(await registry.execute("nbook.quick-open.open-commands")).toEqual({ok: false, code: "unavailable", reason: "42"});
     });
 
     it("审计监听器抛错不影响执行结果，其它监听器照常收到", async () => {

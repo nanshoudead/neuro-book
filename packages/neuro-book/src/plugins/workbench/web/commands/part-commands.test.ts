@@ -28,7 +28,7 @@ import {openLayout} from "../testing/layout";
 import {APP_COMMAND_DECLARATIONS, appCommands, DOCUMENTATION_COMMAND, DOCUMENTATION_URL, RELOAD_COMMAND} from "./app-commands";
 import {PART_COMMAND_DECLARATIONS, partCommands, SET_PART_HIDDEN_COMMAND} from "./part-commands";
 import {completedCommand} from "../../testing/declarations";
-import {workbenchTestText} from "../../testing/text";
+import {failureText, workbenchTestText} from "../../testing/text";
 
 let tmp = "";
 let counter = 0;
@@ -120,7 +120,10 @@ describe("区域显隐", () => {
         expect(await partCommands(() => store, picker(() => ({kind: "cancelled"})))[SET_PART_HIDDEN_COMMAND].run({})).toEqual({ok: true, value: null});
         expect(store.actions.partVisible("sidebar")).toBe(true);
         expect(await partCommands(() => store, picker(() => ({kind: "unavailable", reason: "没有面板"})))[SET_PART_HIDDEN_COMMAND].run({})).toEqual({ok: false, code: "unavailable", reason: "没有面板"});
-        expect(await partCommands(() => null, choose)[SET_PART_HIDDEN_COMMAND].run({part: "sidebar"})).toMatchObject({ok: false, code: "unavailable"});
+        const notOpen = await partCommands(() => null, choose)[SET_PART_HIDDEN_COMMAND].run({part: "sidebar"});
+        expect(notOpen).toMatchObject({ok: false, code: "unavailable"});
+        expect(failureText(notOpen, "zh-CN")).toBe("工作台布局没有打开（这个窗口没有显示外壳）");
+        expect(failureText(notOpen, "en-US")).toBe("The workbench layout is not open (this window does not show the shell)");
     });
 });
 
@@ -135,12 +138,14 @@ describe("应用命令", () => {
 
     it("重新载入只请求宿主重新载入当前文档；文档在新标签打开文档站，被拦截时 unavailable 并说明", async () => {
         const host = navigation("opened");
-        const commands = appCommands(host, workbenchTestText("zh-CN"));
+        const commands = appCommands(host);
         expect(await commands[RELOAD_COMMAND].run({})).toEqual({ok: true, value: null});
         expect(await commands[DOCUMENTATION_COMMAND].run({})).toEqual({ok: true, value: null});
         expect(host.requests).toEqual(["reload", `open ${DOCUMENTATION_URL}`]);
 
-        const blocked = appCommands(navigation("blocked"), workbenchTestText("en-US"));
-        expect(await blocked[DOCUMENTATION_COMMAND].run({})).toEqual({ok: false, code: "unavailable", reason: "The browser blocked the new tab; allow pop-ups for this site and try again"});
+        const blocked = await appCommands(navigation("blocked"))[DOCUMENTATION_COMMAND].run({});
+        expect(blocked).toMatchObject({ok: false, code: "unavailable"});
+        expect(failureText(blocked, "zh-CN")).toBe("浏览器拦截了新标签页；请允许本站打开弹出窗口后再试");
+        expect(failureText(blocked, "en-US")).toBe("The browser blocked the new tab; allow pop-ups for this site and try again");
     });
 });

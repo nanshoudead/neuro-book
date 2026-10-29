@@ -14,6 +14,8 @@ import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
+import type {Text} from "@notnotype/nb-ui/text";
+
 import {conventionCompleter} from "nbook/shared/convention-keys";
 import {TextSchema} from "nbook/shared/text";
 
@@ -35,12 +37,17 @@ export type CommandFailureCode =
     | "execution-error"
     | "stale-target";
 
-export type CommandResult<T> = {ok: true; value: T} | {ok: false; code: CommandFailureCode; reason: string};
+/**
+ * 失败的 `reason` 是给人看的文字值（docs/specs/workbench/commands.md 的“结果合同”）：浏览器里的命令交目录里的文字引用，
+ * 显示的一方（命令面板、失败通知、菜单）按当前语言翻，切换语言后随之换文字；服务端没有翻译端口，那里产生的原因写字符串或
+ * 语言映射。交给服务端的远程结果在窗口里先翻成字符串（`plugin.ts` 的 `remoteCommands`）。
+ */
+export type CommandResult<T> = {ok: true; value: T} | {ok: false; code: CommandFailureCode; reason: Text};
 
 /** 失败的结果里调用方要读的两项。 */
 export interface CommandFailure {
     readonly code: CommandFailureCode;
-    readonly reason: string;
+    readonly reason: Text;
 }
 
 /**

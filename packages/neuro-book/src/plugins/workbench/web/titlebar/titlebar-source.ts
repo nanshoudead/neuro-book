@@ -91,14 +91,14 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
     options.signal.addEventListener("abort", () => release(), {once: true});
 
     /** 命令此刻不可用的原因；没有命令或可用时为 null。 */
-    const disabledReason = (item: {readonly title: string; readonly command: {readonly id: string} | null}): string | null => {
+    const disabledReason = (item: {readonly title: string; readonly command: {readonly id: string} | null}, text: TextResolver): string | null => {
         if (item.command === null) return null;
         const enabled = commands.isEnabled(item.command.id);
-        return enabled.ok ? (enabled.value ? null : item.title) : enabled.reason;
+        return enabled.ok ? (enabled.value ? null : item.title) : text.t(enabled.reason);
     };
     const entries = (registry: ItemRegistry, text: TextResolver): StripEntry[] => {
         void version.value;
-        return registry.shown(text).map((item) => ({...item, disabledReason: disabledReason(item)}));
+        return registry.shown(text).map((item) => ({...item, disabledReason: disabledReason(item, text)}));
     };
 
     /** 菜单项求值要的事实：命令目录、可用性、公开状态；标题栏菜单没有位置参数，视图标题另给 `instance`。 */
@@ -135,7 +135,7 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
         titleEntries: (text) => entries(options.titleItems, text),
         activityEntries: (text) => {
             void version.value;
-            return options.activityItems.shown(text).map((item) => ({...item, disabledReason: disabledReason(item)}));
+            return options.activityItems.shown(text).map((item) => ({...item, disabledReason: disabledReason(item, text)}));
         },
         viewActions: (viewId, actions, text, instance) => {
             void version.value;
@@ -152,7 +152,7 @@ export function createShellChrome(options: ShellChromeOptions): ShellChrome {
                     command: action.command,
                     title,
                     icon: action.icon,
-                    disabledReason: waiting ? loading : enabled.ok ? (enabled.value ? null : title) : enabled.reason,
+                    disabledReason: waiting ? loading : enabled.ok ? (enabled.value ? null : title) : text.t(enabled.reason),
                     ...(read === null ? {} : {pressed: read.status === "ready" && read.value === true}),
                     ...(keybinding === undefined ? {} : {shortcut: formatKeybinding(keybinding, options.platform)}),
                 }};

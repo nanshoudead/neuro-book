@@ -11,6 +11,7 @@ import type {ShallowRef} from "@vue/reactivity";
 import type {CommandImplementation, CommandResult, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import type {FilesService} from "nbook/plugins/files/shared/contracts";
 import type {QuickPick} from "nbook/plugins/workbench/shared/contracts";
+import type {DisplayText} from "nbook/shared/localized-text";
 
 import {OPEN_PAGE_COMMAND} from "../shared/contracts";
 import {editorText} from "../shared/text";
@@ -115,7 +116,7 @@ export const EDITOR_COMMAND_DECLARATIONS: Readonly<Record<string, WrittenCommand
     [GO_TO_LINE_COMMAND]: {category: EDITOR, description: "Move the caret to a one-based line in the specified active document.", args: GO_TO_LINE_ARGS, effect: "read", when: when("active", "lineNavigation"), expose: {human: false, agent: "auto"}},
 };
 
-const unavailable = (reason: string): CommandResult<unknown> => ({ok: false, code: "unavailable", reason});
+const unavailable = (reason: DisplayText): CommandResult<unknown> => ({ok: false, code: "unavailable", reason});
 /** 把文件标签的路径写进剪贴板（docs/specs/workbench/editor.md 输出 57）：绝对路径取自 Files 的 `realPath`，相对路径是相对所在根的路径。 */
 export async function copyTabPath(sources: Pick<EditorCommandSources, "files" | "clipboard">, tab: EditorTab, relative: boolean): Promise<ActionResult> {
     if (tab.kind === "page") return {ok: false, reason: "页面标签没有路径"};

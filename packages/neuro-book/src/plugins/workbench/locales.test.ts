@@ -2,9 +2,12 @@
  * `nbook.workbench` 的消息目录（docs/specs/ui/i18n.md 的“目录与键”）。
  *
  * 第一条防止迁移改错文字：`LEGACY` 是迁移前（提交 4e5b99459）代码里的双语字面量，按迁移后的键原样抄下，占位符还是旧的
- * `{name}` 写法。目录里的每个键都要在表里、表里的每个键都要在目录里，值换成 `{{name}}` 后逐字相同；数量键的各复数形都与
- * 旧文字相同。`viewCommands.newContainer.*` 三条是旧代码把“新建容器（在{区域}）”“New Container in {区域}”的模板按区域名
- * 代入后的结果，迁移后拆成每个区域一条，这里写的是代入后的整句。以后有意改文字时，同一次改动里同步改这张表。
+ * `{name}` 写法；`viewCommands.newContainer.*` 三条是旧代码把“新建容器（在{区域}）”“New Container in {区域}”的模板按区域名
+ * 代入后的结果，迁移后拆成每个区域一条，这里写的是代入后的整句；`titlebar.menuItems.*` 是提交 a4a94a451 时标题栏菜单项
+ * 写在声明里的双语字面量。`RUNTIME` 是提交 a4a94a451 时只有中文、或由代码拼接的运行期文字：中文是旧代码显示的整句（拼接的
+ * 写成代入前的模板），英文是迁入目录时新写的。`REVISED` 是有意改过的文字（旧文字仍在上两张表里），按带复数后缀的完整键给出。
+ * 目录里的每个键都要在前两张表里、表里的每个键都要在目录里，值换成 `{{name}}` 后逐字相同。以后有意改文字时，同一次改动里
+ * 在 `REVISED` 里登记。
  */
 
 import {describe, expect, it} from "bun:test";
@@ -18,6 +21,7 @@ import zhCN from "./locales/zh-CN.json";
 import {descriptor} from "./plugin";
 import {workbenchText} from "./shared/text";
 import {workbenchCatalogs} from "./web/text";
+import {WORKBENCH_TITLEBAR_MENU_ITEMS} from "./web/titlebar/menu-items";
 
 const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US": string}>> = {
     "settings.theme.title": {"zh-CN": "主题", "en-US": "Theme"},
@@ -138,11 +142,14 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "titlebar.menuButton": {"zh-CN": "菜单", "en-US": "Menu"},
     "titlebar.search": {"zh-CN": "搜索命令", "en-US": "Search commands"},
     "titlebar.openProject": {"zh-CN": "打开项目…", "en-US": "Open Project…"},
-    "titlebar.project": {"zh-CN": "项目", "en-US": "Project"},
     "titlebar.toggle.sidebar": {"zh-CN": "切换侧栏", "en-US": "Toggle Sidebar"},
     "titlebar.toggle.panel": {"zh-CN": "切换面板", "en-US": "Toggle Panel"},
     "titlebar.toggle.auxiliarybar": {"zh-CN": "切换右栏", "en-US": "Toggle Auxiliary Bar"},
     "titlebar.nativeEditing": {"zh-CN": "焦点在输入框里时由它自己撤销", "en-US": "The focused input handles undo itself"},
+    "titlebar.menuItems.sidebar": {"zh-CN": "侧栏", "en-US": "Sidebar"},
+    "titlebar.menuItems.auxiliarybar": {"zh-CN": "右栏", "en-US": "Auxiliary Bar"},
+    "titlebar.menuItems.activitybar": {"zh-CN": "活动栏", "en-US": "Activity Bar"},
+    "titlebar.menuItems.panel": {"zh-CN": "面板", "en-US": "Panel"},
     "editorArea.loading": {"zh-CN": "正在加载编辑器…", "en-US": "Loading the editor…"},
     "editorArea.failed": {"zh-CN": "编辑器加载失败：{reason}", "en-US": "The editor failed to load: {reason}"},
     "items.broken": {"zh-CN": "这个条目出错了：{message}", "en-US": "This item failed: {message}"},
@@ -161,6 +168,32 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "viewCommands.newContainer.panel": {"zh-CN": "新建容器（在面板）", "en-US": "New Container in Panel"},
 };
 
+const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US": string}>> = {
+    "layout.notOpen": {"zh-CN": "工作台布局没有打开（这个窗口没有显示外壳）", "en-US": "The workbench layout is not open (this window does not show the shell)"},
+    "palette.unavailable": {"zh-CN": "当前页面没有命令面板", "en-US": "This page has no command palette"},
+    "viewCommands.unknownView": {"zh-CN": "没有这个视图（没有已接受的声明）：{viewId}", "en-US": "No such view (no accepted declaration): {viewId}"},
+    "viewCommands.unplaced": {"zh-CN": "视图不在布局里：{viewId}", "en-US": "The view is not in the layout: {viewId}"},
+    "viewCommands.partial": {"zh-CN": "要么都不给，要么给 viewId、sourceContainerId 和 targetContainerId、newContainerIn 中的一个", "en-US": "Give nothing, or give viewId, sourceContainerId and one of targetContainerId and newContainerIn"},
+    "viewCommands.stale": {"zh-CN": "视图已经不在发起时的容器里，没有移动", "en-US": "The view is no longer in the container it was in when the move started, so it was not moved"},
+    // 下面三条旧代码在两种语言下都用全角标点拼接（“项目”+“：”+名字、“搜索命令”+“（”+快捷键+“）”、条目名+“：”+文字）。
+    "titlebar.projectButton": {"zh-CN": "项目：{name}", "en-US": "Project: {name}"},
+    "titlebar.searchWithShortcut": {"zh-CN": "搜索命令（{shortcut}）", "en-US": "Search commands ({shortcut})"},
+    "items.titled": {"zh-CN": "{title}：{text}", "en-US": "{title}: {text}"},
+};
+
+/** 有意改过的英文：右栏统一叫 Secondary Side Bar，“Move To” 改成与 viewCommands.pickTarget 相同的 “Move to”，数量键的单数形用单数。 */
+const REVISED: Readonly<Record<string, {readonly "zh-CN"?: string; readonly "en-US"?: string}>> = {
+    "titlebar.toggle.auxiliarybar": {"en-US": "Toggle Secondary Side Bar"},
+    "titlebar.menuItems.auxiliarybar": {"en-US": "Secondary Side Bar"},
+    "panelCommands.alignments.right": {"en-US": "Right (with the secondary side bar)"},
+    "partCommands.parts.auxiliarybar": {"en-US": "Secondary Side Bar"},
+    "state.auxiliaryBarVisible.reason": {"en-US": "The secondary side bar is hidden or dragged closed"},
+    "shell.moveTo": {"en-US": "Move to"},
+    "shell.drop.mergeContainer_one": {"en-US": "Merge {count} view"},
+};
+
+const EXPECTED = {...LEGACY, ...RUNTIME};
+
 const CATALOGS = {"zh-CN": zhCN, "en-US": enUS} as const;
 
 /** 数量键（带 `count` 参数、按复数选形）。 */
@@ -170,14 +203,20 @@ const PLURAL_KEYS = ["shell.drop.mergeContainer"];
 const baseKey = (key: string): string => key.replace(/_(?:zero|one|two|few|many|other)$/u, "");
 
 describe("nbook.workbench 的目录", () => {
-    it("每个键的文字与迁移前的字面量逐字相同（占位符从 {name} 换成 {{name}}），两边的键一一对应", () => {
+    it("每个键的文字与迁移前的字面量逐字相同（占位符从 {name} 换成 {{name}}），有意改过的按 REVISED，两边的键一一对应", () => {
         for (const [locale, catalog] of Object.entries(CATALOGS)) {
             const flat = flattenCatalog(catalog);
-            expect({locale, keys: [...new Set(Object.keys(flat).map(baseKey))].sort()}).toEqual({locale, keys: Object.keys(LEGACY).sort()});
+            expect({locale, keys: [...new Set(Object.keys(flat).map(baseKey))].sort()}).toEqual({locale, keys: Object.keys(EXPECTED).sort()});
             for (const [key, value] of Object.entries(flat)) {
-                const legacy = LEGACY[baseKey(key)]![locale as keyof typeof CATALOGS].replace(/\{(\w+)\}/gu, "{{$1}}");
-                expect({locale, key, value}).toEqual({locale, key, value: legacy});
+                const written = REVISED[key]?.[locale as keyof typeof CATALOGS] ?? EXPECTED[baseKey(key)]![locale as keyof typeof CATALOGS];
+                expect({locale, key, value}).toEqual({locale, key, value: written.replace(/\{(\w+)\}/gu, "{{$1}}")});
             }
+        }
+    });
+
+    it("REVISED 登记的键都在目录里", () => {
+        for (const [key, revised] of Object.entries(REVISED)) {
+            for (const locale of Object.keys(revised)) expect({locale, key, present: Object.hasOwn(flattenCatalog(CATALOGS[locale as keyof typeof CATALOGS]), key)}).toEqual({locale, key, present: true});
         }
     });
 
@@ -190,12 +229,24 @@ describe("nbook.workbench 的目录", () => {
         }
     });
 
-    it("数量键经引擎取文字：英文一个与多个沿用旧文字的同一句（旧文字单数也写 views，只在报告里提），中文同一句", () => {
+    it("数量键经引擎取文字：英文一个用单数、多个用复数，中文同一句", () => {
         const zh = testTextPort("zh-CN", {"nbook.workbench": workbenchCatalogs});
         const en = testTextPort("en-US", {"nbook.workbench": workbenchCatalogs});
-        expect(en.t(workbenchText("shell.drop.mergeContainer", {count: 1}))).toBe("Merge 1 views");
+        expect(en.t(workbenchText("shell.drop.mergeContainer", {count: 1}))).toBe("Merge 1 view");
         expect(en.t(workbenchText("shell.drop.mergeContainer", {count: 3}))).toBe("Merge 3 views");
         expect(zh.t(workbenchText("shell.drop.mergeContainer", {count: 1}))).toBe("并入 1 个视图");
+    });
+
+    it("工作台自己的标题栏菜单项名字走目录：中文与原文相同，英文统一叫 Secondary Side Bar", () => {
+        const zh = testTextPort("zh-CN", {"nbook.workbench": workbenchCatalogs});
+        const en = testTextPort("en-US", {"nbook.workbench": workbenchCatalogs});
+        const labels = WORKBENCH_TITLEBAR_MENU_ITEMS.flatMap(({id, declaration}) => (declaration.label === undefined ? [] : [[id, zh.t(declaration.label), en.t(declaration.label)]]));
+        expect(labels).toEqual([
+            ["nbook.workbench.menu.sidebar", "侧栏", "Sidebar"],
+            ["nbook.workbench.menu.auxiliarybar", "右栏", "Secondary Side Bar"],
+            ["nbook.workbench.menu.activitybar", "活动栏", "Activity Bar"],
+            ["nbook.workbench.menu.panel", "面板", "Panel"],
+        ]);
     });
 
     it("文字引用的命名空间就是插件 id", () => {
