@@ -136,7 +136,9 @@ interface ModelRequest {
 }
 ```
 
-**Profile 的 `prompt` 是主视图**，签名是 `(view: {state, settings, tools, model}) => TSX`：
+“视图”指整个“状态 → 请求”这一步，由两样东西一起完成：Profile 的 `prompt` 定布局，扩展的 `contribute` 交片段。布局只能有一个拥有者，否则谁先谁后会影响结果、前面的内容会被改掉；要改整个请求的，用模型拦截（下一节）。
+
+**Profile 的 `prompt` 定布局**，可选，签名是 `(input: {state, settings, tools, model}) => TSX`。不写时用缺省布局 `<System>{声明里的 system}<Slot name="*" /></System><History />`，只写一段系统提示词的 Profile 不必写它。写的话：
 
 - 读状态：全部内置的片、自己的片、别的扩展导出的选择器；例如“有大纲时才放大纲那段”。
 - 按模型能力写条件：`model.capabilities.vision` 等（t05 的模型能力声明）。
@@ -144,7 +146,7 @@ interface ModelRequest {
 - 控制历史里每条怎么渲染：`<History render={...} filter={...}>`。例如注入的消息包成 `<system-reminder>`、太旧的工具结果只留摘要、某类事件在这个 Profile 里不显示。同一条事件每次渲染的结果必须相同，否则前缀变了、缓存失效；改了渲染规则会让缓存失效一次，预览给出警告。
 - 模型与参数的缺省值从会话设置与 Profile 设置取。
 
-**扩展的 `view` 是补充**，从状态算出三样东西，按扩展顺序拼接，Profile 自己的 `view` 最后：
+**扩展的 `contribute` 交片段**，从状态算出三样东西，按扩展顺序拼接，Profile 自己的扩展最后：
 
 | 产出 | 去处 | 用于 |
 |---|---|---|
@@ -200,7 +202,7 @@ react?(entry: SessionEntry, ctx: ExtensionContext): Promise<EventInput[] | void>
 1. **浏览器**：Composer 先显示一条“发送中”的用户消息，经远程服务（ADR 0024，WebSocket 上的 RPC，t10）发出 `agent.send({sessionId, text: "你好", clientId})`。
 2. **运行控制**（t07）：会话还没加载时，读日志、沿当前叶子归约出状态、对每个扩展调用 `setup`；空闲就开始一次运行，写 `run_started`；正在运行就按插话或排队处理。
 3. **输入**：经输入拦截链，写入对话事件 `{id: "e2", parent: "e1", message: {role: "user", content: "你好"}, clientId}`；全部扩展归约、反应；e2 推给订阅的窗口，界面按 `clientId` 把“发送中”换成正式消息。
-4. **视图**：Profile 的 `prompt` 加各扩展的 `view` 算出 `ModelRequest`：模型按“会话里选的 → Profile 设置 → 全局缺省”取（t09），系统提示词、`[user: 你好]`、工具清单。
+4. **视图**：Profile 的 `prompt` 定布局、各扩展的 `contribute` 交片段，算出 `ModelRequest`：模型按“会话里选的 → Profile 设置 → 全局缺省”取（t09），系统提示词、`[user: 你好]`、工具清单。
 5. **模型拦截链**：从外到里，日志记下修改记录；最里层的适配器取密钥，调 `streamSimple(model, {systemPrompt, messages, tools}, {apiKey, signal, maxTokens, temperature, headers, reasoning})`；`pi-ai` 按服务商协议转换（DeepSeek 走 OpenAI 兼容的 `/chat/completions`，`stream: true`）并发出 HTTP 请求。
 6. **流式回复**：服务商回 SSE，`pi-ai` 解析成文字、思考、工具调用的增量，最后给出完整的助手消息与用量。服务端把增量推给窗口，同一条消息每 100 毫秒最多推一次（t10）；增量不写日志。
 7. **写回**：完整回复由内往外穿过拦截链，写成 e3（带模型、推理档与用量）；归约、反应。有工具调用就逐个走工具拦截链，结果写日志后回到第 4 步。
@@ -215,7 +217,7 @@ interface AgentExtension {
     setup(ctx: ExtensionContext): {           // 每打开一个会话调用一次
         state?: StateSlice<unknown>;
         react?: (entry: SessionEntry, ctx: ExtensionContext) => Promise<EventInput[] | void>;
-        view?: (mine: unknown, view: ViewInput) => {slots?: {[name: string]: string}; tail?: MessageInput[]; attach?: ContentBlock[]};
+        contribute?: (mine: unknown, input: ViewInput) => {slots?: {[name: string]: string}; tail?: MessageInput[]; attach?: ContentBlock[]};
         render?: {[entryType: string]: (entry: SessionEntry) => Message[] | null};   // 自己的对话事件的缺省渲染
         intercept?: Interceptors;
         dispose?(): void | Promise<void>;
@@ -226,7 +228,7 @@ interface AgentExtension {
 }
 ```
 
-`state`、`react`、`view`、`render`、`intercept` 都是可选的，扩展用到哪个写哪个。
+`state`、`react`、`contribute`、`render`、`intercept` 都是可选的，扩展用到哪个写哪个。
 
 生命周期：
 
@@ -248,8 +250,8 @@ interface AgentExtension {
 Profile 是一个扩展，加上一组声明，排在最后：
 
 - **声明**：身份、`initialSchema`、要哪些工具（必需、可选，t04）、需要的模型能力（t05）、压缩要求（t11）。
-- **`prompt`**：主视图，见第 4 节；TSX 只写组装（`<System>`、`<Slot>`、`<History>`、`<History as="text">`、固定消息、`<ToolName>`、`<If tool>`），条件与数据从参数里的状态取。
-- **`setup`**：Profile 自己的状态、反应、视图、拦截，写法与插件相同。
+- **`prompt`**：布局，可选，见第 4 节；TSX 只写组装（`<System>`、`<Slot>`、`<History>`、`<History as="text">`、固定消息、`<ToolName>`、`<If tool>`），条件与数据从参数里的状态取。
+- **`extensions`**：Profile 自带的扩展列表，每一项的写法与插件的扩展相同（有自己的 id 与状态片），排在全局扩展之后、按列出的顺序，拦截链里在最里层（待定项 2）。辅助函数 `seed()`、`reminder()`、`sessionState()` 都返回一个扩展，直接放进列表（待定项 10）。
 
 旧节点的去处：
 
@@ -286,7 +288,94 @@ Profile 是一个扩展，加上一组声明，排在最后：
 
 **Profile 改版（t04 方案 D）。** “Profile 已更新”“工具集变化”是事件；旧 Profile 的扩展 `dispose`、新的 `setup`；工具集那一片据此更新，并追加提醒。
 
-### 11. 备选方案与取舍
+### 11. 验证：改写旧应用的 `leader.default`
+
+用旧应用的默认主创 Profile（`packages/neuro-book-legacy/assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx`，2026-10-29 读）检验本稿的能力与写法。提示词正文不改写，只看结构。
+
+旧版的 `context(ctx)` 是一个异步函数，每次渲染都读人设文件，返回 `ProfilePrompt`：`System`（置顶提示词、人设、三项设置各挑一段、主提示词）、`HistorySet`（只在历史为空时写入的 14 条消息：11 个 `Import` 与 3 个目录）、`ModelContext`（`SqlSchemaSummary`，不落盘，每次请求插在本轮的追加消息之前）、`AppendingSet`（工作区焦点、文件变更、模式可用性、已关联 Agent、任务、模式、提到的 Skill 七种提醒，每轮写进日志）。另有 `runtimeDefaults.summarizer`：每 16 次调用后跑一次 summarizer Profile。
+
+| 旧机制 | 新设计 | 变化 |
+|---|---|---|
+| 七种提醒写在 `AppendingSet` 里，每个 Profile 各列一遍（`WorkspaceFocusReminder` 出现在 9 个内置 Profile 里） | 各自归拥有那份数据的插件，作为全局扩展：工作区焦点归宿主、文件变更归 `nbook.history`（t13）、模式归 `nbook.agent`（t06）、任务归 `todo` 工具所在的插件（t12）、已关联 Agent 归多 Agent（t14）、提到的 Skill 归 Skill（t15） | Profile 里这部分是零行；不要的按标签排除；插件不改 Profile 就能给它加上下文 |
+| `TaskReminder` 靠 `stateKey: "agent.tasks"` 字符串读 `customState`，工具往同一个键写 | 任务的状态片由 `todo` 工具的结果归约而来，提醒和工具在同一个插件里 | 没有跨模块的字符串约定 |
+| `ModelContext` 的库结构摘要不落盘，每次请求插在本轮追加消息之前；下一轮它挪到新一轮之前，上一轮那段的缓存就失效（从 `server/agent/profiles/prompt-order.ts` 推断） | `nbook.sql` 扩展从状态填系统提示词里的 `<Slot name="sql-schema">`，库结构变了才变 | 每轮不再丢一段缓存 |
+| `context()` 每次渲染读一次人设文件 | 人设是 `sessionState`，在会话打开、设置变化、人设文件被改时读一次，写成事件 | `prompt` 变成纯函数，预览不读盘，回放用记下的值 |
+| `HistorySet` 只在历史为空时写入 | `seed()` 在“会话已创建”与“压缩完成”时写 | 压缩后种子自动重写（t11） |
+| “写作任务必须交给 writer”只写在提示词里 | Profile 自带的工具拦截：`write`、`edit` 改 `project://正文/` 时返回错误结果，告诉它用 writer | 规则从“请求模型遵守”变成能挡住 |
+| 模式提醒的措辞经 `ModeReminder` 专用的 `ModeSlot` 子节点定制 | 通用的 `<History render>`：Profile 可以覆盖任何扩展事件的渲染 | 一种机制覆盖所有扩展，不用每种提醒各开插槽 |
+| 文件变更感知的档位（完整、精简、关闭）是主创自己的设置项 | 是 `nbook.history` 扩展的设置，用户在 Profile 设置里按 Profile 配（t20） | 每个 Profile 不必各写一遍同样的设置 |
+| 固定顺序 History → ModelContext → AppendingSet → CurrentUserInput | 布局由 `prompt` 定；提醒是日志里真实的事件，按写入的顺序出现 | 顺序看日志就知道，不靠一处硬编码 |
+| `runtimeDefaults.summarizer` 每 16 次调用跑一次 | `nb-memory` 扩展归约“运行结束”计数，到 16 次启动 summarizer（后台运行等 t22） | 记忆归记忆插件，Profile 不再配置它 |
+| `toolset(...)` 由 Profile 带工具 | 只声明必需与可选（t04） | 已在 t04 定 |
+
+改写后的结构（提示词常量与设置表单省略，照旧）：
+
+```tsx
+const persona = sessionState<string>({id: "leader.default/persona", initial: DEFAULT_LEADER_PERSONA});
+
+export default defineProfile({
+    id: "leader.default",
+    name: "主创",
+    initialSchema: LeaderDefaultInitialSchema,
+    outputSchema: LeaderDefaultOutputSchema,
+    settingsSchema: SettingsSchema,                 // 去掉 fileChangeAwareness：它归 nbook.history
+    tools: {
+        required: ["read", "write", "edit", "shell", "ask", "todo", "agent.invoke"],
+        optional: ["world.execute", "plot.*", "sql.execute", "workflow.run"],
+    },
+    prompt: ({state, settings}) => (
+        <>
+            <System>
+                {settings.customTopSystemPrompt && <Tag name="custom_top_system_prompt">{settings.customTopSystemPrompt}</Tag>}
+                <Tag name="leader_persona">{state.read("leader.default/persona")}</Tag>
+                {COLLABORATION[settings.collaborationMode]}
+                {FAMILIARITY[settings.neuroBookFamiliarity]}
+                {QUESTION_STRATEGY[settings.questionStrategy]}
+                {LEADER_SYSTEM_PROMPT}
+                <If tool="world.execute">{WORLD_ENGINE_SECTION}</If>
+                <Slot name="sql-schema" />
+            </System>
+            <History render={{"nbook.agent/mode-reminder": leaderModeReminder}} />
+        </>
+    ),
+    extensions: [
+        persona.loader({
+            on: ["session_opened", "settings_changed", fileChanged(({settings}) => `profile://${settings.leaderPersonaPreset}`)],
+            load: (ctx) => ctx.read(`profile://${ctx.settings.leaderPersonaPreset}`),
+        }),
+        seed({
+            on: ["session_created", "compaction_done"],
+            messages: async (ctx) => [
+                await agentCatalog(ctx),
+                await ctx.read("docs://builtin/agent/profile-routing.md"),
+                await skillCatalog(ctx),
+                // ……其余 11 条照旧，路径改用 t08 的地址
+            ],
+        }),
+        {
+            id: "leader.default/writer-only",
+            setup: () => ({
+                intercept: {
+                    async tool(call, next) {
+                        if (["write", "edit"].includes(call.name) && call.args.path.startsWith("project://正文/"))
+                            return {isError: true, content: "正文交给 writer：用 agent.invoke 调用 writer"};
+                        return next(call);
+                    },
+                },
+            }),
+        },
+    ],
+});
+```
+
+结论：
+
+- **能力**：旧版能做的都能做；多出来的是规则能挡住（工具拦截）、插件能给不认识的 Profile 加上下文、回退与预览自动正确、压缩后种子重写、缓存不再每轮丢一段。
+- **写法**：主创里与上下文有关的部分从约 120 行（`context()` 一段）缩到约 60 行，七种提醒不再出现；写法上要学的是 `sessionState`、`seed`、`<Slot>` 与 `<History render>` 四样。
+- **代价**：主创收到的完整上下文分散在多个插件里，要靠预览看全（预览里每条标了来源）；人设的改动会让系统提示词变、缓存失效一次（用户改的，可以接受）；扩展的设置要能在 Profile 设置里按 Profile 显示（t17、t05 的设置界面要支持）。
+- **验证中改的写法**：Profile 自带的扩展写成 `extensions` 列表，辅助函数各返回一个扩展（待定项 10）；`sessionState` 的 `set` 值没变时不写事件，否则每次打开会话都多一条。
+
+### 12. 备选方案与取舍
 
 | 方案 | 做法 | 不选的理由 |
 |---|---|---|
@@ -326,6 +415,7 @@ Profile 是一个扩展，加上一组声明，排在最后：
 7. **工具拦截里附加的说明**：写进日志（推荐：模型看到了就要能重放），还是像 omp 那样只交给下一次请求。
 8. **反应怎样做 I/O**：直接调 `ctx` 的主动接口（推荐：写多步逻辑方便；内核给每个主动动作记一条日志，测试与回放看得到反应做了什么），还是像 Elm 那样只返回动作的描述、由内核执行（可测性更好，多步逻辑要绕）。
 9. **不经事件就会变的数据**（当前时间、本章字数、阅读位置）：视图是纯函数，不能自己去取。推荐两条路：扩展自己的外部数据在反应里读、写成扩展事件（例如写手在用户发言后与 `edit` 的结果之后重新读字数）；当前时间这类通用的，由内核在每次算视图前取一次，作为视图的输入，并记进这次请求的修改记录，回放时用记下的值。
+10. **Profile 自带扩展的写法**：`extensions: [...]` 列表，`seed()`、`reminder()`、`sessionState()` 等辅助函数各返回一个扩展（推荐：每项有自己的 id 与状态片，和插件的扩展同一个形状，辅助函数能自由组合）；还是 Profile 只有一个 `setup`，辅助函数返回片段再由作者合并。
 
 ## 决策记录
 
@@ -336,3 +426,4 @@ Profile 是一个扩展，加上一组声明，排在最后：
 | 2026-10-29 | 开发者 | 同意：`reduce` 只看自己那一片；同一条事件的反应看同一份状态快照、追加的事件按扩展顺序写入；视图只在发请求与预览时算；扩展的片默认私有、经导出的选择器共享；`pathState()` 与 `scope: "session"`；扩展事件带版本 |
 | 2026-10-29 | 开发者 | 同意：`prompt` 能读状态、按模型能力写条件、`<History render filter>`；视图加 `attach`、扩展给自己的事件提供缺省渲染、没留槽时丢弃并写诊断；预览也跑模型拦截链、最里层截下请求 |
 | 2026-10-29 | 开发者 | 循环由内核自己写，不再套 OMP 的 `Agent`，与服务商通信只用 `streamSimple`；t02 的“代码以分支为主体”在运行时这一层改为按语义参照 |
+| 2026-10-29 | 开发者 | 扩展交片段的字段改名 `contribute`，“视图”只指“状态 → 请求”这一步；Profile 的 `prompt` 改为可选，不写用缺省布局 |
