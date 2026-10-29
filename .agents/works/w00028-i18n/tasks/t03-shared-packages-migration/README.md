@@ -54,6 +54,24 @@ updated: 2026-10-27
 | 15 editor 运行期文字 | `3e54b8712` | Opus 编码子代理写，我重跑验证：`typecheck` 0、`test:bun` 1624 过、`test:vitest` 406 过；目录脚本、`docs:check`、`governance:check` 无失败。editor 的 area.notice/notify、各动作与命令的 reason、LOST_FORMAT、Monaco 两条原因改为 `editorText` 引用（新增 52 键，英文 2 个单数形），area 不收翻译器；提示条经端口翻译，换语言原位更新；`RescuedText.note` 放宽为 `DisplayText`（browser-host.md、FailurePage.md 同步）；Lab 命令场景自建宿主引擎翻译原因。未做：`saveAll` 失败原因的全角“；”拼接、文件服务失败码、中文开发者诊断（按 ADR 0034 应改英文）、Lab 自己的 editor-commands 与 SampleTextEditor 仍返回中文。详见 `evidences/slice-15-editor-report.txt` |
 | 16 收尾 | `1eca95a97` | Opus 编码子代理写，我重跑验证：`typecheck` 0、`test:bun` 1624 过、`test:vitest` 406 过；目录脚本、`docs:check`、`governance:check` 无失败。书架、作品目录、设置窗口、命令失败的通知改传 `TextRef`；新增机检 `scripts/ci/component-inject-tags.ts`（112 个取端口的组件，94 个有 `.md` 且全带 `state:inject`）；editor/settings/projects(welcome) 的开发者诊断改英文。`locale` 属性盘点后全部保留（见待确认）。遗留：projects/workbench 另有约 45 处中文开发者诊断；`WorkbenchDocument.locale` 与 boot.ts 重复；Lab 事件页显示 TextRef 对象；18 个组件无 `.md`。详见 `evidences/slice-16-cleanup-report.txt` |
 
+## 交付：版本表（待开发者授权后再改版本与发布）
+
+改版本、发布按 [`repository-workflow.md`](../../../../docs/standards/repository-workflow.md) 都要开发者授权，本表只是建议，没有动任何 `version`。0.x 的破坏性变化走次版本号。发布顺序按依赖：nb-runtime 与 nb-ui 先，再 nb-form、nb-agent-ui、nb-markdown，然后 nb-story，最后应用与 SDK（同一个版本号）。
+
+| 包 | 现版本 | 建议 | 破坏性变化 | 消费者 |
+|---|---|---|---|---|
+| nb-runtime | 0.2.0 | 0.3.0 | 无破坏；清单 schema 加可选 `l10n`、新增共享的目录校验导出 | nb-story、应用 |
+| nb-ui | 0.2.0 | 0.3.0 | 无破坏；新增 `./text`、`./text-port`、`./locales`；组件缺省文案改走端口（没有宿主时仍是中文） | 其余共享包、nb-story、应用 |
+| nb-form | 0.1.0 | 0.2.0 | `describeIssues` 增 `text` 参数；`FormText` 放宽为 `Text`；组件经端口取文字 | nb-story、应用 |
+| nb-agent-ui | 0.1.0 | 0.2.0 | 文字用 `TextRef`（命名空间 `nb-agent-ui`）；组件去掉 `locale` 属性 | nb-story、应用 |
+| nb-markdown | 0.1.0 | 0.2.0 | 四个零件去 `locale`；`ChipInput.locale` 换 `translate`；`MarkdownViewHost.locale()` 换 `context?`；删 `prompt-labels.ts` | nb-story、应用 |
+| nb-story | 0.2.1 | 0.2.2 | 无；QaPage 注入合并端口，`dist/web` 需重建 | 终端用户 |
+| neuro-book 与 nb-plugin-sdk | 0.11.1 | 0.12.0 | SDK 去掉 `localize`、`formatText`，新增 `/text`、`/text/browser`；插件注册表 v5、引导协议 5、命令合同 v2 | 第三方插件作者（SDK 还没有外部发布过的消费者，ADR 0030） |
+
+nb-harness、nb-profile、nb-session 本 Task 没改，版本不动。
+
+已跑的发布前检查（合入 master 之前的 Work 分支上，未发布）：`bun run release:check` 通过；`bun run release:smoke` 通过（本地打包：nbstory 与查看器、Vite 宿主导入 8 个公开入口、`bun add -g` 后 nbook 打开书架、`bunx -p` SDK 生成插件并构建、`nbook plugin install` 后重启已加载）。发布后还要在发布用的提交上跑 `release:smoke --from registry`。
+
 ## 下一步
 
 交付片（版本表、`release:check`、`release:smoke`、体积预算、Spec 晋升；发布要开发者授权）；然后实现审查与收口（全量 e2e、Lab 截图、explorer 间歇失败排查）。
