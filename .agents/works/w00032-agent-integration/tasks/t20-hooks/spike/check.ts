@@ -291,7 +291,7 @@ await check("事件名（R1-2）：扩展写不出内核事件（例如 user）�
     await s.create();
     await s.send("真实的输入");
     assert.equal(s.pathTo(s.leaf).filter((e) => is(e, K.user)).length, 1);
-    assert.equal(s.diagnostics.filter((d) => d.code === "bad-event" && d.ext === "lab.forger").length, 2);
+    assert.equal(s.diagnostics.filter((d) => d.code === "bad-event" && d.ext === "lab.forger").length, 1, "一次反应的输出是整体，整体不写");
     assert.ok(m.seen[0]!.messages.some((x) => text(x) === "真实的输入") && !m.seen[0]!.messages.some((x) => text(x).includes("伪造")));
 });
 
@@ -593,6 +593,32 @@ await check("审计（R1o-14）：拦截改过参数与结果时，实际执行�
     const r = s.pathTo(s.leaf).find((e) => is(e, K.toolResult))!.data as any;
     assert.deepEqual([r.text, r.args, r.raw], ["里面有***", {path: "正文/安全.md"}, "里面有密钥"]);
     assert.ok(s.pathTo(s.leaf).find((e) => is(e, K.modelStarted)));
+});
+
+// 39. 幂等与因果（R1o-27）
+await check("幂等与因果（R1o-27）：同一来源同一个幂等键只写一次；反应写的事件带引出它的事件与层数", async () => {
+    const s = session(writer, scripted({text: "好"}).model);
+    await s.create();
+    await s.external("nbook.history", {...fileNotice.ev.fileChanged({path: "第 3 章"}), key: "watch:42"});
+    await s.external("nbook.history", {...fileNotice.ev.fileChanged({path: "第 3 章"}), key: "watch:42"});   // 监听器重复通知
+    assert.equal(s.entries.filter((e) => e.type === "nbook.history/fileChanged").length, 1);
+    await s.send("续写");
+    const user = s.pathTo(s.leaf).find((e) => is(e, K.user))!;
+    const notice = s.pathTo(s.leaf).find((e) => e.type === "nbook.history/notice")!;
+    assert.deepEqual([notice.cause, notice.depth], [user.id, 1]);
+});
+
+// 40. 依赖排序（R1o-32）
+await check("依赖排序（R1o-32）：插件按依赖排序、同层按 id，与传入顺序无关；缺失与成环拒绝", async () => {
+    const a = defineExtension({id: "lab.a"});
+    const b = defineExtension({id: "lab.b", dependsOn: ["lab.c"]});
+    const c = defineExtension({id: "lab.c"});
+    const order = (plugins: Extension[]) => new Session({profile: writer, plugins, core: [coreHistory], model: () => ({text: ""})}).exts.map((x) => x.def.id).filter((id) => id.startsWith("lab."));
+    assert.deepEqual(order([b, a, c]), order([c, b, a]));
+    assert.deepEqual(order([b, a, c]), ["lab.a", "lab.c", "lab.b"]);
+    assert.throws(() => order([b, a]), /lab.b 依赖的 lab.c 没有装上/);
+    const x = defineExtension({id: "lab.x", dependsOn: ["lab.y"]}), y = defineExtension({id: "lab.y", dependsOn: ["lab.x"]});
+    assert.throws(() => order([x, y]), /依赖成环/);
 });
 
 void ({} as Extension);

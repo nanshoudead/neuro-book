@@ -90,6 +90,28 @@ export class ProtocolError extends Error {
     }
 }
 
+/**
+ * 插件按依赖排序：先依赖、后被依赖；同一层按 id，所以结果与插件的激活顺序无关（重放确定）。
+ * 依赖缺失或成环直接拒绝。Profile 自带的扩展保持列出的顺序，排在全部插件之后。
+ */
+function sortByDependencies(plugins: Extension[]): Extension[] {
+    const byId = new Map(plugins.map((p) => [p.id, p]));
+    for (const p of plugins) for (const d of p.dependsOn ?? []) if (!byId.has(d) && d !== "core.history") throw new Error(`${p.id} 依赖的 ${d} 没有装上`);
+    const out: Extension[] = [];
+    const done = new Set<string>();
+    let rest = [...plugins].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    while (rest.length) {
+        const ready = rest.filter((p) => (p.dependsOn ?? []).every((d) => done.has(d) || d === "core.history"));
+        if (!ready.length) throw new Error(`扩展依赖成环：${rest.map((p) => p.id).join("、")}`);
+        for (const p of ready) {
+            out.push(p);
+            done.add(p.id);
+        }
+        rest = rest.filter((p) => !done.has(p.id));
+    }
+    return out;
+}
+
 /** 冻结新产生的状态：遇到已冻结的对象就停（持久链表的尾巴早已冻结），所以每次只冻结新的部分。 */
 function freezeNew(v: unknown): void {
     const stack = [v];
@@ -163,7 +185,7 @@ export class Session {
         const plugins = g === "none" ? [] : pluginList.filter((p) => !(g?.exclude ?? []).some((t) => p.tags?.includes(t)));
         const exts: Loaded[] = [];
         for (const c of core) if (!replaced.has(c.id)) exts.push({def: c, own: false});
-        for (const p of plugins) exts.push({def: p, own: false});
+        for (const p of sortByDependencies(plugins)) exts.push({def: p, own: false});
         for (const o of own) exts.push({def: o, own: true});
         const ids = new Map<string, string>();
         for (const x of exts) {
@@ -256,10 +278,21 @@ export class Session {
     }
 
     /** 写进日志。来源是扩展时，类型必须以 `<扩展 id>/` 开头：扩展写不出内核事件，也撞不了别人的名字。 */
-    private append(out: EventOut, source: string): Entry {
+    private readonly keys = new Map<string, Entry>();
+
+    private check(out: EventOut, source: string): void {
         const ext = this.exts.find((x) => x.def.id === source);
         if (ext && !out.type.startsWith(`${source}/`)) throw new Error(`${source} 写的事件类型 ${out.type} 不以 ${source}/ 开头`);
         if (!ext && !KERNEL_TYPES.has(out.type)) throw new Error(`内核不认识的事件类型 ${out.type}`);
+    }
+
+    /** 写进日志；带幂等键的，同一来源同一个键已经写过就返回已有的那条、不再写。 */
+    private append(out: EventOut, source: string, cause?: {cause: string; depth: number}): Entry {
+        this.check(out, source);
+        if (out.key !== undefined) {
+            const hit = this.keys.get(`${source}|${out.key}`);
+            if (hit) return hit;
+        }
         const e: Entry = {
             id: `e${++this.seq}`,
             seq: this.seq,
@@ -270,11 +303,14 @@ export class Session {
             type: out.type,
             ...(out.v === undefined ? {} : {v: out.v}),
             source,
+            ...(cause ?? {}),
+            ...(out.key === undefined ? {} : {key: out.key}),
             data: out.data ?? {},
         };
         if (this.opts.freeze !== false) freezeNew(e);
         this.entries.push(e);
         this.byId.set(e.id, e);
+        if (e.key !== undefined) this.keys.set(`${source}|${e.key}`, e);
         this.apply(e);
         return e;
     }
@@ -319,6 +355,7 @@ export class Session {
             this.entries.push(e);
             this.byId.set(e.id, e);
             this.seq = Math.max(this.seq, e.seq);
+            if (e.key !== undefined) this.keys.set(`${e.source}|${e.key}`, e);
             this.apply(e);
         }
     }
@@ -412,6 +449,7 @@ export class Session {
             },
             settings: this.settings,
             tools: this.tools,
+            run: {running: this.running},
             preview,
             signal: this.controller?.signal ?? NEVER,
             file: (f: string) => this.files.get(f),
@@ -448,13 +486,22 @@ export class Session {
         const continueBy: string[] = [];
         let batch = written;
         for (let depth = 0; batch.length > 0; depth++) {
-            const outputs: {x: Loaded; events: EventOut[]; continue: boolean}[] = [];
+            const outputs: {x: Loaded; events: EventOut[]; continue: boolean; cause: Entry}[] = [];
             for (const e of batch) {
                 const p = this.pairs.get(e) ?? {path: this.leafSnap, session: this.sessionSnap};
-                outputs.push(...await Promise.all(this.exts.map(async (x) => ({x, ...await this.runReact(x, e, p)}))));
+                outputs.push(...(await Promise.all(this.exts.map(async (x) => ({x, ...await this.runReact(x, e, p)})))).map((o) => ({...o, cause: e})));
             }
             for (const o of outputs) if (o.continue) continueBy.push(o.x.def.id);
-            const pending = outputs.flatMap((o) => o.events.map((ev) => ({x: o.x, ev})));
+            // 一个扩展对一条事件的输出是一个整体：有一条不合规矩，这次的全部不写
+            for (const o of outputs) {
+                try {
+                    for (const ev of o.events) this.check(ev, o.x.def.id);
+                } catch (err) {
+                    this.diag({level: "error", code: "bad-event", ext: o.x.def.id, entry: o.cause.id, message: `${(err as Error).message}；这次反应的 ${o.events.length} 条都不写`});
+                    o.events = [];
+                }
+            }
+            const pending = outputs.flatMap((o) => o.events.map((ev) => ({x: o.x, ev, cause: o.cause})));
             if (depth >= REACT_DEPTH_LIMIT && pending.length) {
                 const r = root ?? written[0]?.id ?? "?";
                 this.diag({level: "warn", code: "react-depth", ext: pending[0]!.x.def.id, entry: r, message: `反应链到了第 ${REACT_DEPTH_LIMIT} 层，${pending.map((p) => p.x.def.id).join("、")} 还要写 ${pending.length} 条，不写`});
@@ -462,12 +509,9 @@ export class Session {
                 break;
             }
             const next: Entry[] = [];
-            for (const {x, ev} of pending) {
-                try {
-                    next.push(this.append(ev, x.def.id));
-                } catch (err) {
-                    this.diag({level: "error", code: "bad-event", ext: x.def.id, message: (err as Error).message});
-                }
+            for (const {x, ev, cause} of pending) {
+                const e = this.append(ev, x.def.id, {cause: cause.id, depth: depth + 1});
+                if (e.cause === cause.id) next.push(e);   // 幂等键命中已有的条目时不再派发
             }
             batch = next;
         }

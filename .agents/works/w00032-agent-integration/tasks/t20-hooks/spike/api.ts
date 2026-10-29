@@ -74,6 +74,11 @@ export interface Entry<T extends string = string, D = unknown> {
     type: T;
     v?: number;
     source: string;
+    /** 反应写的事件：引出它的那条事件（因果链的上一环）与它在链里的层数。 */
+    cause?: string;
+    depth?: number;
+    /** 幂等键：同一来源同一个键只写一次（文件监听重复通知、重连后重发的外部事实）。 */
+    key?: string;
     data: D;
 }
 
@@ -102,6 +107,7 @@ export interface EventOut {
     v?: number;
     scope: Scope;
     data: unknown;
+    key?: string;
 }
 
 export interface EventHandle<T extends string, D> {
@@ -182,6 +188,8 @@ export interface BaseCtx<S, E, Id extends string> extends Reader {
     message(text: string): EventOut;
     settings: Record<string, any>;
     tools: string[];
+    /** 内核的运行状态（只读）。 */
+    run: {running: boolean};
     preview: boolean;
     /** 这次运行的中止信号；I/O 要接上它。 */
     signal: AbortSignal;
@@ -224,6 +232,8 @@ export interface ExtensionSpec<Id extends string, S, E, Sm, Ex> {
     id: Id;
     tags?: string[];
     replaces?: "core.history";
+    /** 依赖的其它扩展：装配时按依赖排序（同一层按 id），缺失或成环直接拒绝。 */
+    dependsOn?: string[];
     preview?: "run" | "skip";
     /** 片：path 跟着对话路径走，session 在树外。 */
     state?: S;
@@ -257,6 +267,7 @@ export interface AnyExtension {
     readonly id: string;
     tags?: string[];
     replaces?: "core.history";
+    dependsOn?: string[];
     preview?: "run" | "skip";
     state?: object;
     events?: object;
