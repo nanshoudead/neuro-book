@@ -50,4 +50,4 @@ interface PromptPasteFrameSlots {
 
 ## 隐藏通道理由
 
-- `state:inject`：界面文字读注入的翻译端口（nb-ui 的 `TEXT_PORT_KEY`）：在根组件（`PromptEditor`、`PromptTextView`）里拿到根提供的同一个端口；单独挂载、上面也没有注入时用包内的缺省端口，语言 zh-CN（[README](../../README.md#界面文字)）。这条通道属于组件本身：文字是零件自己画的，翻译端口是整棵子树共用的环境，经属性逐层传语言会让每个调用方（包括 `render()` 挂到普通 DOM 上的位置）各传一份。
+- `state:inject`：界面文字读注入的翻译端口（nb-ui 的 `TEXT_PORT_KEY`）：在根组件（`PromptEditor`、`PromptTextView`）里拿到根提供的同一个端口；单独挂载、上面也没有注入时用缺省端口，语言 zh-CN（[README](../../README.md#界面文字)）。这条通道属于组件本身：文字是零件自己画的，翻译端口是整棵子树共用的环境，经属性逐层传语言会让每个调用方（包括 `render()` 挂到普通 DOM 上的位置）各传一份。

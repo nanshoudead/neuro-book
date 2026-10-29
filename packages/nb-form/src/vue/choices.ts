@@ -77,7 +77,7 @@ export function choiceState(node: FieldNode, value: unknown, source: OptionSourc
         if (!isChoiceValue(entry) || known.has(optionKey(entry))) continue;
         known.add(optionKey(entry));
         // 加载中与不可用时选项还没有，当前值照常显示，不标“已不存在”。
-        const label = inlineStale && dynamic && status === "ready" ? `${String(entry)}（${text.t("stale")}）` : String(entry);
+        const label = inlineStale && dynamic && status === "ready" ? text.t("format.noted", {text: String(entry), note: text.t("stale")}) : String(entry);
         items.push({key: optionKey(entry), value: entry, label, disabled: true, stale: status === "ready"});
     }
     return status === "unavailable" ? {status, reason, items} : {status, items};

@@ -7,7 +7,7 @@
  * 换成 `{{name, number}}`。数量键的各复数形都与旧文字相同。以后有意改文字时，同一次改动里同步改这张表。`RUNTIME` 是
  * 提交 4aabb5ae7 时只有中文、或由代码拼接的运行期文字（编辑器区的提示与各动作、命令的失败原因）：中文是旧代码显示的整句
  * （拼接的写成代入前的模板，`refusal.current*`、`refusal.target*` 是“当前视图”“目标组”代入后的整句），英文是迁入目录时新写的；
- * 数量键英文的单数形另列在 `RUNTIME_ONE`。
+ * 数量键英文的单数形另列在 `RUNTIME_ONE` 与 `ENGLISH_ONE`；单复数写法相同的数量键（`ENGLISH_SAME`）英文只写不带后缀的键。
  */
 
 import {describe, expect, it} from "bun:test";
@@ -241,6 +241,17 @@ const RUNTIME_ONE: Readonly<Record<string, string>> = {
     "refusal.batchSaveFailed_one": "Closed {count} editor; saving {address} failed",
 };
 
+/**
+ * 数量键英文的单数形（`_one`）：旧英文不分单复数（`{count} items`），迁移时两形抄成一样；w00028 t03 审查第 9 条改成正确的
+ * 单数，这里逐字列出。单复数写法本来就相同的键英文只写不带后缀的键，不在这里。
+ */
+const ENGLISH_ONE: Readonly<Record<string, string>> = {
+    "status.words_one": "{count} word",
+};
+
+/** 英文单复数写法相同的数量键：英文只写不带后缀的键，中文照常写 `_other`。 */
+const ENGLISH_SAME: ReadonlySet<string> = new Set(["status.unsaved", "status.more"]);
+
 const EXPECTED = {...LEGACY, ...RUNTIME};
 
 const CATALOGS = {"zh-CN": zhCN, "en-US": enUS} as const;
@@ -262,19 +273,19 @@ describe("nbook.editor 的目录", () => {
             const flat = flattenCatalog(catalog);
             expect({locale, keys: [...new Set(Object.keys(flat).map(baseKey))].sort()}).toEqual({locale, keys: Object.keys(EXPECTED).sort()});
             for (const [key, value] of Object.entries(flat)) {
-                const written = (locale === "en-US" ? RUNTIME_ONE[key] : undefined) ?? EXPECTED[baseKey(key)]![locale as keyof typeof CATALOGS];
+                const written = (locale === "en-US" ? RUNTIME_ONE[key] ?? ENGLISH_ONE[key] : undefined) ?? EXPECTED[baseKey(key)]![locale as keyof typeof CATALOGS];
                 const legacy = migrated(baseKey(key), written);
                 expect({locale, key, value}).toEqual({locale, key, value: legacy});
             }
         }
     });
 
-    it("数量键：中文有 _other，英文有 _one 与 _other", () => {
+    it("数量键：中文有 _other，英文有 _one 与 _other；英文单复数相同的只写不带后缀的键", () => {
         const flatZh = Object.keys(flattenCatalog(zhCN));
         const flatEn = Object.keys(flattenCatalog(enUS));
         for (const key of PLURAL_KEYS) {
             expect(flatZh.filter((candidate) => baseKey(candidate) === key)).toEqual([`${key}_other`]);
-            expect(flatEn.filter((candidate) => baseKey(candidate) === key)).toEqual([`${key}_one`, `${key}_other`]);
+            expect(flatEn.filter((candidate) => baseKey(candidate) === key)).toEqual(ENGLISH_SAME.has(key) ? [key] : [`${key}_one`, `${key}_other`]);
         }
     });
 

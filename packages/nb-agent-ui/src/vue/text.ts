@@ -6,46 +6,25 @@
  * 1. 宿主注入的端口（nb-ui 的 `TEXT_PORT_KEY`）。宿主要登记本包目录（`@notnotype/nb-agent-ui/locales`），语言以它为准，
  *    根组件的 `locale` 属性不起作用。
  * 2. 没有注入时，根组件（`AgentConversationView`、`AgentSessionList`、`AgentModelCatalog`，以及调用 `provideAgentView` 的
- *    提供方）按自己的 `locale`（缺省 zh-CN）建包内的缺省端口并 provide：子组件与嵌套的 nb-ui 控件拿到同一个。
- * 3. 零件脱离根组件单独挂载、上面也没有注入时，用包内的缺省端口，语言 zh-CN。
+ *    提供方）按自己的 `locale`（缺省 zh-CN）建 nb-ui 的缺省端口并 provide：子组件、嵌套的 nb-ui 控件与嵌进来的别的共享包
+ *    （例如 nb-markdown 的展示器）拿到同一个。
+ * 3. 零件脱离根组件单独挂载、上面也没有注入时，用 nb-ui 的缺省端口，语言 zh-CN。
  *
- * 不直接用 nb-ui 的 `useText()`：它在没有注入时给 nb-ui 的缺省端口，那里没有本包目录，只会显示键名。也不在“端口取不到
- * 本包的键”时再兜底：端口取不到时返回键名或（测试环境的宿主引擎）抛错，没有可靠的判据。
+ * 缺省端口的目录是所有已导入共享包登记的（nb-ui 的 `registerDefaultCatalog`）：本模块导入时登记本包目录，用到本包组件就会导入它。
  */
 
-import {computed, inject, provide, readonly, ref} from "vue";
 import type {Ref} from "vue";
 
-import {NB_UI_CATALOGS, NB_UI_NAMESPACE} from "@notnotype/nb-ui/locales";
 import type {Text, TextParams} from "@notnotype/nb-ui/text";
-import {createMinimalTranslator} from "@notnotype/nb-ui/text/minimal";
-import type {MinimalTranslator} from "@notnotype/nb-ui/text/minimal";
-import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
+import {provideDefaultText, registerDefaultCatalog, useText} from "@notnotype/nb-ui/text-port";
 import type {TextPort} from "@notnotype/nb-ui/text-port";
 
-import {NB_AGENT_UI_CATALOGS, NB_AGENT_UI_NAMESPACE} from "../locales";
+import {NB_AGENT_UI_CATALOGS, NB_AGENT_UI_NAMESPACE, NB_AGENT_UI_SOURCE_LOCALE} from "../locales";
 import {agentRef} from "../text";
 import type {AgentTextKey} from "../text";
 import type {AgentLocale} from "../types";
 
-let translator: MinimalTranslator | undefined;
-let fallbackPort: TextPort | undefined;
-
-/** nb-ui 与本包的目录、最小实现；按需建一次，所有缺省端口共用。 */
-function packageTranslator(): MinimalTranslator {
-    translator ??= createMinimalTranslator({catalogs: {[NB_UI_NAMESPACE]: NB_UI_CATALOGS, [NB_AGENT_UI_NAMESPACE]: NB_AGENT_UI_CATALOGS}});
-    return translator;
-}
-
-function packagePort(locale: Readonly<Ref<string>>): TextPort {
-    const text = packageTranslator();
-    return {locale, t: (value) => text.translate(value, locale.value), variants: (value) => text.variants(value)};
-}
-
-function defaultPort(): TextPort {
-    fallbackPort ??= packagePort(readonly(ref("zh-CN")));
-    return fallbackPort;
-}
+registerDefaultCatalog(NB_AGENT_UI_NAMESPACE, NB_AGENT_UI_CATALOGS, NB_AGENT_UI_SOURCE_LOCALE);
 
 export type AgentTextApi = {
     /** 当前语言；格式化时间与数字、交给宿主注入的渲染组件时用。 */
@@ -61,18 +40,14 @@ function textApi(port: TextPort): AgentTextApi {
 }
 
 /**
- * 根组件在 `setup` 里调用：有注入的端口就用它；没有时按 `locale` 建包内的缺省端口并 provide 给子树。返回提供方自己用的
- * 文字函数（Vue 的 `inject` 只看祖先，提供方自己调用 `useAgentText` 拿不到它 provide 的端口）。
+ * 根组件在 `setup` 里调用：有注入的端口就用它；没有时按 `locale` 建缺省端口并 provide 给子树（nb-ui 的 `provideDefaultText`）。
+ * 返回提供方自己用的文字函数（Vue 的 `inject` 只看祖先，提供方自己调用 `useAgentText` 拿不到它 provide 的端口）。
  */
 export function provideAgentText(locale: () => AgentLocale | undefined): AgentTextApi {
-    const injected = inject(TEXT_PORT_KEY, null);
-    if (injected !== null) return textApi(injected);
-    const port = packagePort(computed(() => locale() ?? "zh-CN"));
-    provide(TEXT_PORT_KEY, port);
-    return textApi(port);
+    return textApi(provideDefaultText(locale));
 }
 
 /** 组件在 `setup` 里调用。读注入的组件要在同名 `.md` 里声明 `state:inject`。 */
 export function useAgentText(): AgentTextApi {
-    return textApi(inject(TEXT_PORT_KEY, null) ?? defaultPort());
+    return textApi(useText());
 }

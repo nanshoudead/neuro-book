@@ -215,7 +215,7 @@ async function readAuthorCatalogs(root: string, raw: Record<string, unknown>, au
     const hasDirectory = existsSync(directory);
     if (field === undefined && !hasDirectory) return null;
     const fail = (problems: ReadonlyArray<ManifestProblem>): never => {
-        throw new PluginBuildError("消息目录不合格", problems);
+        throw new PluginBuildError("Invalid message catalogs", problems);
     };
     if (field === undefined) fail([{path: "l10n", message: "有 locales/ 目录时要在 package.json 写 l10n.source（源语言）"}]);
     if (typeof field !== "object" || field === null || Array.isArray(field) || Object.keys(field).some((key) => key !== "source")) {

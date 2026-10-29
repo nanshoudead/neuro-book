@@ -43,7 +43,7 @@ function notifyFailure(id: string, failure: CommandFailure): void {
 const host = createPaletteHost({
     commands: props.commands,
     onFailure: (id, failure) => {
-        props.report(new Error(`命令 ${id} 执行失败：${diagnosticText(failure.reason)}`));
+        props.report(new Error(`Command ${id} failed: ${diagnosticText(failure.reason)}`));
         notifyFailure(id, failure);
     },
 });

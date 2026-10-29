@@ -47,7 +47,7 @@
                     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", label);
                     else label();
                 } catch (error) {
-                    console.warn("[nbook] 读不出界面语言的本地记录", error);
+                    console.warn("[nbook] Cannot read the stored interface language", error);
                 }
             })();
         </script>

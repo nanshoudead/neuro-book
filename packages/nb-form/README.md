@@ -32,7 +32,7 @@ Vue 渲染层（`@notnotype/nb-form/vue`）：
   engine.register(NB_FORM_NAMESPACE, NB_FORM_CATALOGS, "zh-CN");
   ```
 
-- **没有宿主**（nbdev 面板、独立页面）：不用注入。`SchemaForm`、`SchemaField` 按 `locale`（缺省 zh-CN）用包内的缺省端口，目录里没有的语言显示中文；描述里只能写字符串与语言映射，写目录里的键时显示键名。
+- **没有宿主**（nbdev 面板、独立页面）：不用注入。`SchemaForm`、`SchemaField` 按 `locale`（缺省 zh-CN）用缺省端口，目录里没有的语言显示中文；描述里写别的命名空间的键时，那份目录要先用 nb-ui 的 `registerDefaultCatalog` 登记进缺省端口，否则显示键名。
 
 核心（`@notnotype/nb-form`）没有目录：`resolveText(text, locale)` 只解析字符串与语言映射，遇到 `TextRef` 返回键名作兜底；界面上的文字由 Vue 层经端口翻译。调用方要在自己的位置写出问题时，在组件的 `setup` 里 `useFormText()` 取得表单所用的端口，交给 `describeIssues(schema, value, issues, text, hints?)`。
 

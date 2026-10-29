@@ -336,7 +336,7 @@ describe("PluginsPage", () => {
         }});
         const wrapper = await open(fake.client, "en-US");
         expect(row("nbook.settings").textContent).toContain("Built-in");
-        expect(row("example.hello").querySelector("[data-plugin-problems=entries]")?.textContent).toContain("1 entry point(s) not running");
+        expect(row("example.hello").querySelector("[data-plugin-problems=entries]")?.textContent).toContain("1 entry point not running");
         expect([...row("example.hello").querySelectorAll("[data-plugin-problem-line]")].map((line) => line.textContent)).toEqual(["Entry server (server) failed to activate: boom"]);
         await submitPath(wrapper, "/plugins/new");
         expect(document.querySelector("[role=dialog]")?.textContent).toContain("Upgrade plugin");

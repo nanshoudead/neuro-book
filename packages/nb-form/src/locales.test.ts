@@ -16,6 +16,7 @@ import type {TextRef} from "@notnotype/nb-ui/text";
 import {createMinimalTranslator} from "@notnotype/nb-ui/text/minimal";
 
 import {formRef, issueWording} from "./builtin-text";
+import type {FormTextKey} from "./builtin-text";
 import {NB_FORM_CATALOGS, NB_FORM_NAMESPACE, NB_FORM_SOURCE_LOCALE} from "./locales";
 import {SCHEMA_ISSUE_CODES} from "./validate";
 
@@ -289,6 +290,15 @@ const CASES: ReadonlyArray<Case> = [
     ["page", (m) => m.page(2, 5), formRef("page", {current: 2, total: 5})],
 ];
 
+/** 拼句子的键：样例参数与迁移前代码的中文写法（`${label}：${wording}`、`${wording}（${at}）`、`（必填）`、`；`）。 */
+const FORMAT_ZH: ReadonlyArray<readonly [FormTextKey, Readonly<Record<string, string>>, string]> = [
+    ["format.labelled", {label: "上移", text: "第 1 项"}, "上移：第 1 项"],
+    ["format.labelPrefix", {label: "警告"}, "警告："],
+    ["format.noted", {text: "不能为空", note: "/a/0"}, "不能为空（/a/0）"],
+    ["format.note", {note: "必填"}, "（必填）"],
+    ["format.clauseSeparator", {}, "；"],
+];
+
 /** 问题的参数样例：TypeBox 给的常见参数、两种比较、有无 `key`，以及缺参数（旧写法写出 `undefined`）。 */
 const PARAMS: ReadonlyArray<Readonly<Record<string, unknown>>> = [
     {limit: 2},
@@ -357,12 +367,22 @@ describe("nb-form 的目录", () => {
         }
         used.add("fallback");
         used.add("listSeparator");
+        for (const [key] of FORMAT_ZH) used.add(key);
         expect([...keysOf("zh-CN")].filter((key) => !used.has(key))).toEqual([]);
     });
 
     it("连接选项名字的分隔符（迁移前写在代码里：中文“、”，其余“, ”）", () => {
         expect(translator.translate(formRef("listSeparator"), "zh-CN")).toBe("、");
         expect(translator.translate(formRef("listSeparator"), "en-US")).toBe(", ");
+    });
+
+    it("拼句子的标点：中文与迁移前代码里写死的全角标点逐字相同，英文不出现全角标点", () => {
+        for (const [key, params, legacyZh] of FORMAT_ZH) {
+            expect(translator.translate(formRef(key, params), "zh-CN"), key).toBe(legacyZh);
+            expect(translator.translate(formRef(key, params), "en-US"), key).not.toMatch(/[\u3000-\u303f\uff00-\uffef]/u);
+        }
+        expect(translator.translate(formRef("format.labelled", {label: "Move up", text: "Item 1"}), "en-US")).toBe("Move up: Item 1");
+        expect(translator.translate(formRef("format.noted", {text: "x", note: "/a/0"}), "en-US")).toBe("x (/a/0)");
     });
 
     it("调用方的问题用它自己的文字", () => {

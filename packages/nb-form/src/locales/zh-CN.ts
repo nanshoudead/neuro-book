@@ -57,6 +57,19 @@ export default {
     page: "第 {{current}} / {{total}} 页",
     /** 几个选项名字连起来（缺值时的“默认：A、B”、展示态里多选的值）。 */
     listSeparator: "、",
+    /** 代码里拼句子用的标点（迁移前写死的全角标点）：英文目录用半角，由语言决定。 */
+    format: {
+        /** 字段名加一句话：问题汇总、`describeIssues`、按钮的读屏名。 */
+        labelled: "{{label}}：{{text}}",
+        /** 读屏前缀，后面紧跟另一个元素里的文字。 */
+        labelPrefix: "{{label}}：",
+        /** 一句话加括注：JSON 里的位置、已不存在的选项。 */
+        noted: "{{text}}（{{note}}）",
+        /** 只有括注，接在前一个元素的文字后面。 */
+        note: "（{{note}}）",
+        /** 几句话连起来（同一字段的几条警告）。 */
+        clauseSeparator: "；",
+    },
     codes: {
         "required": "必填",
         "type": "类型不对",

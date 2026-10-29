@@ -38,7 +38,7 @@ describe("MarkdownImage", () => {
         expect([wrapper.attributes("data-state"), wrapper.text()]).toEqual(["failed", "封面 读不出"]);
     });
 
-    it("没有应用上下文时照常显示（包内的缺省端口，中文）：展示器的静态视图与编辑器的节点视图用 render() 把它挂到普通 DOM 上", () => {
+    it("没有应用上下文时照常显示（缺省端口，中文）：展示器的静态视图与编辑器的节点视图用 render() 把它挂到普通 DOM 上", () => {
         const element = document.createElement("div");
         render(h(MarkdownImage, {src: "x.png", alt: "甲"}), element);
         expect(element.textContent?.trim()).toBe("甲（不显示）");

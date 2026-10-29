@@ -96,6 +96,6 @@ export function describeIssues(schema: object, value: unknown, issues: ReadonlyA
     return sortIssues(issues, model).map((issue) => {
         const label = fieldLabel(model.root, value, issue.path, text);
         const wording = issueText(issue, text);
-        return label === "" ? wording : `${label}：${wording}`;
+        return label === "" ? wording : text.t("format.labelled", {label, text: wording});
     });
 }

@@ -46,7 +46,7 @@ interface MarkdownImageEmits {
 
 ## 隐藏通道理由
 
-- `state:inject`：界面文字读宿主注入的翻译端口（nb-ui 的 `TEXT_PORT_KEY`），宿主要登记本包的目录（`@notnotype/nb-markdown/locales`）。挂在普通 DOM 上时，建视图的组件用 `markdownViewContext` 把端口带进挂载的上下文；单独挂载、上面也没有注入时用包内的缺省端口，语言 zh-CN（[README](../../README.md#界面文字)）。
+- `state:inject`：界面文字读宿主注入的翻译端口（nb-ui 的 `TEXT_PORT_KEY`），宿主要登记本包的目录（`@notnotype/nb-markdown/locales`）。挂在普通 DOM 上时，建视图的组件用 `markdownViewContext` 把端口带进挂载的上下文；单独挂载、上面也没有注入时用缺省端口，语言 zh-CN（[README](../../README.md#界面文字)）。
 
 没有 slot 与 expose。根元素带 `data-markdown-image`，状态写在 `data-state`（`loading`、`shown`、`none`、`failed`）。
 

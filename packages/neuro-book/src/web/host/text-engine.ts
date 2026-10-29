@@ -7,6 +7,9 @@
  * - `nsSeparator: false`：只经选项传命名空间不够，i18next 仍会先从键里解析 `ns:`（t02 原型与提案审查实测）。
  * - nesting 的前后缀设成目录里不会出现的控制字符，等于关掉 `$t(…)`；目录检查另外拒绝 `$t(`。
  * - 不转义插值：交给 Vue。
+ * - 插值参数放进 `replace`，不摊进 `t` 的选项：参数名叫 `context`、`ns`、`lng`、`lngs` 时，摊开会被 i18next 当成控制项
+ *   （换命名空间、取上下文形，`lngs` 还会抛错）。`count` 另放顶层，i18next 只从顶层取它选复数形。
+ * - `number` 格式只格式化数字，字符串原样：内置的会把 `"1234567"` 也格式化（`"abc"` 得 `NaN`），最小实现不会（输出 6、9）。
  */
 
 import i18next from "i18next";
@@ -75,12 +78,18 @@ export function createTextEngine(options: TextEngineOptions): WindowText {
             return value?.[0] ?? text;
         },
     });
+    // `initAsync: false` 时 init 同步完成，formatter 此时已建好。语言是正在探的那一级（`t` 选项里的 `lng`）。
+    i18n.services.formatter?.addCached("number", (lng, formatOptions: Intl.NumberFormatOptions) => {
+        const format = new Intl.NumberFormat(lng, formatOptions);
+        return (value: unknown) => (typeof value === "number" ? format.format(value) : String(value));
+    });
 
     const translateRef = (ns: string | undefined, key: string, rawParams: TextParams | undefined): string => {
         const params = sanitizeParams(rawParams, (param, kind) => report({kind, ns, key, param}));
         if (rawParams !== undefined && "count" in rawParams && typeof params["count"] !== "number") report({kind: "param-dropped", ns, key, param: "count"});
         const chain = [...new Set([locale.value, sources.get(ns ?? "") ?? "zh-CN", "en-US"])];
-        const lookup = {ns: ns ?? "", ...params};
+        const count = params["count"];
+        const lookup = {ns: ns ?? "", ...(typeof count === "number" ? {count} : {}), replace: params};
         for (const lng of chain) {
             if (!i18n.exists(key, {...lookup, lng})) continue;
             current = {ns, key};
@@ -146,7 +155,7 @@ export function createTextEngine(options: TextEngineOptions): WindowText {
 /**
  * 宿主窗口用的引擎：在 `createTextEngine` 之上登记共享包的目录（`nb-ui`、`nb-agent-ui`、`nb-form`、`nb-markdown`）与宿主自己的目录（`nbook.host`），
  * 源语言都是 `zh-CN`。窗口缺省与浏览器引导都用它，页面和失败页才翻得出文字；插件的目录由各插件自己登记。共享包的
- * 组件读注入的端口，不再用包内的缺省，所以用到哪个共享包，就要在这里登记它的目录。
+ * 组件读注入的端口，不用 nb-ui 的缺省端口，所以用到哪个共享包，就要在这里登记它的目录。
  */
 export function createHostTextEngine(options: TextEngineOptions): WindowText {
     const text = createTextEngine(options);

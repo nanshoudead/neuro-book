@@ -24,7 +24,7 @@ const hasError = computed(() => issues.value.some((issue) => issue.severity === 
 const entries = computed(() => issues.value.map((issue) => {
     const label = fieldLabel(scope.model.value.root, scope.rootValue(), issue.path, text);
     const wording = issueText(issue, text);
-    return {issue, text: label ? `${label}：${wording}` : wording};
+    return {issue, text: label ? text.t("format.labelled", {label, text: wording}) : wording};
 }));
 
 const announcement = ref("");
@@ -52,7 +52,7 @@ watch(() => scope.revealCount.value, () => {
                 <button type="button" class="nb-form-summary__item" :data-severity="entry.issue.severity" @click="emit('focus', entry.issue)">
                     <svg v-if="entry.issue.severity === 'warning'" class="nb-form-summary__mark" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg>
                     <svg v-else class="nb-form-summary__mark" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 8v4" /><path d="M12 16h.01" /></svg>
-                    <span v-if="entry.issue.severity === 'warning'" class="nb-form-sr-only">{{ text.t('warning') }}：</span>
+                    <span v-if="entry.issue.severity === 'warning'" class="nb-form-sr-only">{{ text.t('format.labelPrefix', {label: text.t('warning')}) }}</span>
                     <span class="nb-form-summary__text">{{ entry.text }}</span>
                 </button>
             </li>

@@ -58,7 +58,7 @@ type SchemaFormProps = {
     /** 受控的根值；表单从不修改它，提交时发出新值。 */
     modelValue?: unknown;
     /**
-     * 显示语言，只在宿主没有注入翻译端口时起作用：表单按它建包内的缺省端口，内建文字与 `FormText` 按它取；缺省 zh-CN。
+     * 显示语言，只在宿主没有注入翻译端口时起作用：表单按它建缺省端口，内建文字与 `FormText` 按它取；缺省 zh-CN。
      * 注入了端口时语言以端口为准（Spec 输出 24）。
      */
     locale?: string;

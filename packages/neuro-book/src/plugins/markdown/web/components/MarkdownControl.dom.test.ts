@@ -345,9 +345,9 @@ describe("写不出（editor 输出 61）", () => {
 });
 
 describe("引用小块与图片（方言 Spec 输出 18、27）", () => {
-    it("指向作品里文件的链接是一个引用小块，被批注盖住一半时也是一个；文字照常可编辑，写回不变；外部链接仍是普通链接", async () => {
+    it("指向作品里文件的链接是一个引用小块，被批注盖住一半时也是一个；文字照常可编辑，写回不变；外部链接仍是普通链接；悬停提示跟着窗口换语言", async () => {
         const source = "见[<comment body=\"意见\">林</comment>雪](设定/林雪.md)与[官网](https://example.com)。\n";
-        const {editor, handle, binding} = await opened(source);
+        const {editor, handle, binding, text} = await opened(source);
         const root = editor.view.dom;
         expect(root.querySelectorAll(".nb-chip-link__icon")).toHaveLength(1);
         expect(root.querySelectorAll(".nb-chip-link--end")).toHaveLength(1);
@@ -373,6 +373,12 @@ describe("引用小块与图片（方言 Spec 输出 18、27）", () => {
         };
         expect(linked(codecFor(editor.schema, markdownLanguage()).read(binding.text.value).doc)).toEqual(linked(editor.state.doc));
         expect(root.querySelectorAll(".nb-chip-link__icon")).toHaveLength(1);
+        const title = (): string | null | undefined => root.querySelector("[data-reference-link]")?.getAttribute("title");
+        const chinese = title() ?? "";
+        expect(chinese).toMatch(/^引用：/u);
+        text.setLocale("en-US");
+        await nextTick();
+        expect(title()).toBe(chinese.replace(/^引用：/u, "Reference: "));
     });
 
     it("图片按所在文件的目录解析，经文件服务显示；作品根以外的不显示、写明原因（窗口换语言时跟着换）；不编辑写回不变", async () => {

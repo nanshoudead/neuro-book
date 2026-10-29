@@ -1,6 +1,6 @@
 /**
  * 组件从哪个端口取文字（`text.ts`，docs/specs/ui/agent-conversation-view.md“边界与兼容”）：宿主注入的端口优先；没有注入时
- * 根组件按 `locale` 建包内的缺省端口给子树（嵌套的 nb-ui 控件也拿得到）；零件单独挂载时是中文。
+ * 根组件按 `locale` 建缺省端口给子树（嵌套的 nb-ui 控件也拿得到）；零件单独挂载时是中文。
  */
 import {describe, expect, it} from "vitest";
 import {mount} from "@vue/test-utils";
@@ -41,7 +41,7 @@ function hostPort(initial: string): {port: TextPort; locale: Ref<string>} {
 }
 
 describe("组件取文字的端口", () => {
-    it("零件单独挂载、上面没有注入：包内的缺省端口，中文", () => {
+    it("零件单独挂载、上面没有注入：缺省端口，中文", () => {
         expect(mount(Part).text()).toBe("发送|zh-CN|zh-CN");
     });
 

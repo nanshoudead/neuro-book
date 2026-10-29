@@ -3,8 +3,8 @@
  *
  * 第一条防止迁移改错文字：`LEGACY` 是迁移前（提交 8dfda688b）代码里的双语字面量，按迁移后的键原样抄下，占位符还是旧的
  * `{name}` 写法。目录里的每个键都要在表里、表里的每个键都要在目录里，值换成 `{{name}}` 后逐字相同；数量键的各复数形都与
- * 旧文字相同。以后有意改文字时，同一次改动里同步改这张表。`builtin.*`（内置插件的名称与说明）不在这张表里，
- * 它们的逐字对照在 `web/builtin-names.test.ts`。
+ * 旧文字相同，英文的单数形另列在 `ENGLISH_ONE`（三个数量键的英文复数形同时从 `(s)` 改成了正确的复数）。以后有意改文字时，
+ * 同一次改动里同步改这张表。`builtin.*`（内置插件的名称与说明）不在这张表里，它们的逐字对照在 `web/builtin-names.test.ts`。
  */
 
 import {describe, expect, it} from "bun:test";
@@ -35,9 +35,9 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "row.toggle": {"zh-CN": "启用 {id}", "en-US": "Enable {id}"},
     "row.uninstall": {"zh-CN": "卸载", "en-US": "Uninstall"},
     "row.uninstallNamed": {"zh-CN": "卸载 {id}", "en-US": "Uninstall {id}"},
-    "row.entryProblems": {"zh-CN": "{count} 个入口没有运行", "en-US": "{count} entry point(s) not running"},
-    "row.rejectedProblems": {"zh-CN": "{count} 项贡献被拒", "en-US": "{count} contribution(s) rejected"},
-    "row.catalogProblems": {"zh-CN": "{count} 种语言的文字没有取到", "en-US": "Text missing for {count} language(s)"},
+    "row.entryProblems": {"zh-CN": "{count} 个入口没有运行", "en-US": "{count} entry points not running"},
+    "row.rejectedProblems": {"zh-CN": "{count} 项贡献被拒", "en-US": "{count} contributions rejected"},
+    "row.catalogProblems": {"zh-CN": "{count} 种语言的文字没有取到", "en-US": "Text missing for {count} languages"},
     "row.pending.install": {"zh-CN": "重启后安装", "en-US": "Installs on restart"},
     "row.pending.uninstall": {"zh-CN": "重启后卸载", "en-US": "Uninstalls on restart"},
     "row.pending.enable": {"zh-CN": "重启后启用", "en-US": "Enabled on restart"},
@@ -101,6 +101,16 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "failures.unknown": {"zh-CN": "操作没有完成", "en-US": "The operation did not complete"},
 };
 
+/**
+ * 数量键英文的单数形（`_one`）：旧英文不分单复数（`{count} items`），迁移时两形抄成一样；w00028 t03 审查第 9 条改成正确的
+ * 单数，这里逐字列出。单复数写法本来就相同的键英文只写不带后缀的键，不在这里。
+ */
+const ENGLISH_ONE: Readonly<Record<string, string>> = {
+    "row.entryProblems_one": "{count} entry point not running",
+    "row.rejectedProblems_one": "{count} contribution rejected",
+    "row.catalogProblems_one": "Text missing for {count} language",
+};
+
 const CATALOGS = {"zh-CN": zhCN, "en-US": enUS} as const;
 
 /** 复数形 `<键>_<类别>` 归到 `<键>`。 */
@@ -112,7 +122,8 @@ describe("nbook.plugins 的目录", () => {
             const flat = Object.fromEntries(Object.entries(flattenCatalog(catalog)).filter(([key]) => !key.startsWith("builtin.")));
             expect({locale, keys: [...new Set(Object.keys(flat).map(baseKey))].sort()}).toEqual({locale, keys: Object.keys(LEGACY).sort()});
             for (const [key, value] of Object.entries(flat)) {
-                const legacy = LEGACY[baseKey(key)]![locale as keyof typeof CATALOGS].replace(/\{(\w+)\}/gu, "{{$1}}");
+                const written = (locale === "en-US" ? ENGLISH_ONE[key] : undefined) ?? LEGACY[baseKey(key)]![locale as keyof typeof CATALOGS];
+                const legacy = written.replace(/\{(\w+)\}/gu, "{{$1}}");
                 expect({locale, key, value}).toEqual({locale, key, value: legacy});
             }
         }

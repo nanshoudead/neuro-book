@@ -1,6 +1,6 @@
 /**
  * 表单从哪个端口取文字（`text.ts`，docs/specs/ui/forms.md 输出 24）：宿主注入的端口优先，根的 `locale` 不起作用；没有注入时
- * 根按 `locale` 建包内的缺省端口给子树（嵌套的 nb-ui 控件也拿得到）；描述里写目录里的键时经端口翻译。
+ * 根按 `locale` 建缺省端口给子树（嵌套的 nb-ui 控件也拿得到）；描述里写目录里的键时经端口翻译。
  */
 import {mount} from "@vue/test-utils";
 import {Type} from "typebox";
@@ -49,7 +49,7 @@ const Root = defineComponent({
 });
 
 describe("表单取文字的端口", () => {
-    it("在表单的根之外、上面没有注入：包内的缺省端口，中文", () => {
+    it("在表单的根之外、上面没有注入：缺省端口，中文", () => {
         expect(mount(Part).text()).toBe("添加|zh-CN|zh-CN");
     });
 

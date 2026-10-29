@@ -17,7 +17,14 @@ const own: Readonly<Record<string, Catalog>> = {
     "en-US": {big: "{{n, number}} lines", files: {count_one: "{{count}} file", count_other: "{{count}} files"}, path: "Path: {{path}}", onlyEnglish: "English only"},
 };
 const other: Readonly<Record<string, Catalog>> = {"zh-CN": {secret: "机密"}};
-const english: Readonly<Record<string, Catalog>> = {"en-US": {hello: "Hello"}};
+const english: Readonly<Record<string, Catalog>> = {"en-US": {hello: "Hello", files: {count_one: "{{count}} file", count_other: "{{count}} files"}, big: "{{n, number}} lines"}};
+/** 源语言的数字写法与中文、英文都不同（千分位是点）：看得出数字按哪一级语言格式化。 */
+const german: Readonly<Record<string, Catalog>> = {"de-DE": {big: "{{n,number}} Zeilen"}};
+/**
+ * 参数名与 i18next 的选项同名：`ctx_foo` 是 i18next 的上下文形，参数 `context` 被当成控制项时会取到它；`nsp` 的参数 `ns`
+ * 会把查找换到别的命名空间；`lngs` 不是数组时 i18next 抛错。
+ */
+const reserved: Readonly<Record<string, Catalog>> = {"zh-CN": {ctx: "x {{context}}", ctx_foo: "FOO", nsp: "命名空间 {{ns}}", langs: "语言 {{lngs}}"}};
 
 function engine(problems: TextProblem[] = [], strict = false) {
     const text = createTextEngine({locale: "zh-CN", strict, report: (problem) => problems.push(problem)});
@@ -92,8 +99,8 @@ describe("宿主引擎", () => {
 });
 
 describe("输出 9：最小实现与宿主引擎对同一组目录输出一致", () => {
-    const catalogs = {own: {"zh-CN": own["zh-CN"] ?? {}, "en-US": own["en-US"] ?? {}}, "en-source": english};
-    const minimal = createMinimalTranslator({catalogs, sources: {"en-source": "en-US"}});
+    const catalogs = {own: {"zh-CN": own["zh-CN"] ?? {}, "en-US": own["en-US"] ?? {}}, "en-source": english, "de-source": german, reserved, other};
+    const minimal = createMinimalTranslator({catalogs, sources: {"en-source": "en-US", "de-source": "de-DE"}});
     const cases: ReadonlyArray<readonly [string, Text]> = [
         ["zh-CN", textRef("files.count", {count: 1}, "own")],
         ["en-US", textRef("files.count", {count: 1}, "own")],
@@ -105,15 +112,40 @@ describe("输出 9：最小实现与宿主引擎对同一组目录输出一致",
         ["zh-CN", "字面"],
         ["zh-CN", textRef("big", {n: 1234567}, "own")],
         ["en-US", textRef("big", {n: 1234567}, "own")],
+        // 下面是两个翻译器曾经分叉的输入（审查实测）。
+        // 参数名与 i18next 的选项同名：按普通插值代入。
+        ["zh-CN", textRef("ctx", {context: "foo"}, "reserved")],
+        ["zh-CN", textRef("nsp", {ns: "other"}, "reserved")],
+        ["zh-CN", textRef("langs", {lngs: "en"}, "reserved")],
+        // number 格式收到数字字符串：原样代入，不格式化。
+        ["en-US", textRef("big", {n: "1234567"}, "own")],
+        // 回退到源语言取到文字时，复数类别与数字格式按取到文字的那一级语言（这里是 en-US、de-DE），不按当前语言。
+        ["zh-CN", textRef("files.count", {count: 1}, "en-source")],
+        ["zh-CN", textRef("big", {n: 1234567}, "de-source")],
     ];
     for (const [locale, text] of cases) {
         it(`${locale} ${JSON.stringify(text)}`, () => {
             const host = createTextEngine({locale});
             host.register("own", own, "zh-CN");
             host.register("en-source", english, "en-US");
+            host.register("de-source", german, "de-DE");
+            host.register("reserved", reserved, "zh-CN");
+            host.register("other", other, "zh-CN");
             expect(host.port.t(text)).toBe(minimal.translate(text, locale));
         });
     }
+
+    it("取值：参数名与选项同名时是普通插值，数字字符串原样，回退时按取到文字的那一级语言", () => {
+        const host = createTextEngine({locale: "zh-CN"});
+        host.register("en-source", english, "en-US");
+        host.register("de-source", german, "de-DE");
+        host.register("reserved", reserved, "zh-CN");
+        expect(host.port.t(textRef("ctx", {context: "foo"}, "reserved"))).toBe("x foo");
+        expect(host.port.t(textRef("langs", {lngs: "en"}, "reserved"))).toBe("语言 en");
+        expect(host.port.t(textRef("big", {n: "1234567"}, "en-source"))).toBe("1234567 lines");
+        expect(host.port.t(textRef("files.count", {count: 1}, "en-source"))).toBe("1 file");
+        expect(host.port.t(textRef("big", {n: 1234567}, "de-source"))).toBe("1.234.567 Zeilen");
+    });
 });
 
 /** 共享包自带的目录：宿主引擎与最小实现（共享包没有宿主时的缺省）对每个键给出相同的文字（输出 9）。 */

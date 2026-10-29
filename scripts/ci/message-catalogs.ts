@@ -3,8 +3,9 @@
  * 一个命名空间在各语言下的目录文件，以源语言为准核对：
  *
  * - 各语言相对源语言的缺键与多余键（复数形按不带后缀的键比）；
- * - 同一个键在各语言的占位符 `{{name}}` 集合相同；
+ * - 同一个键在各语言的占位符 `{{name}}` 集合相同；占位只能是 `{{name}}` 与 `{{name, number}}`，别的 `{{…}}` 写法报错；
  * - 每种语言的复数形齐全：按这种语言的复数规则（`Intl.PluralRules`）要有的后缀都在，英文因此要有 `_one` 与 `_other`；
+ * - 英文的 `_one` 与 `_other` 去掉数字与占位后不能相同（为了过上一条把 `_other` 抄一份，`1 items`）；
  * - 值不含 `$t(`，键不含 `:`（目录的格式规则，与安装检查同一套）；
  * - 给了闭合错误域的码表时，源语言目录的 `errors.<码>` 恰好覆盖全部码。
  *
@@ -60,7 +61,20 @@ const SKIPPED_ROOTS: readonly string[] = ["packages/neuro-book-legacy/", "docs/a
 /** CLDR 的复数类别：目录键 `<键>_<类别>` 是 `<键>` 的一种复数形。 */
 const PLURAL_CATEGORIES: ReadonlySet<string> = new Set(["zero", "one", "two", "few", "many", "other"]);
 
-const PLACEHOLDER = /\{\{\s*([^{}\s]+)\s*\}\}/gu;
+/**
+ * 支持的占位写法：`{{name}}` 与 `{{name, number}}`（逗号两边可以没有空格），与最小实现（`packages/nb-ui/src/text/minimal.ts` 的
+ * `PLACEHOLDER`）相同。两个翻译器只在这两种写法上结果相同（docs/specs/ui/i18n.md 输出 9）：i18next 认的别的格式（`{{x, date}}`、
+ * `{{- x}}`）最小实现原样留着，所以目录里一律不许写。前后紧挨着花括号的（`{{{x}}}`）也不算。
+ */
+const PLACEHOLDER = /(?<!\{)\{\{\s*(\w+)(?:\s*,\s*number)?\s*\}\}(?!\})/gu;
+
+/** 去掉支持的占位之后还剩下的 `{{…}}` 写法。 */
+function unsupportedPlaceholders(value: string): string[] {
+    const rest = value.replace(PLACEHOLDER, "");
+    const odd = [...rest.matchAll(/\{*\{\{[^{}]*\}\}\}*/gu)].map((match) => match[0]);
+    if (odd.length === 0 && /\{\{|\}\}/u.test(rest)) return [rest];
+    return odd;
+}
 
 /** 一种语言的目录展开后的样子：每个点号键的值与它归属的键（复数形归到不带后缀的键），复数键写了哪些类别。 */
 interface Flattened {
@@ -192,6 +206,7 @@ function flatten(catalog: unknown): Flattened {
             if (key.includes(":")) problems.push(`${path}：键不能含 :`);
             if (typeof item === "string") {
                 if (item.includes("$t(")) problems.push(`${path}：值不能含 $t(`);
+                for (const odd of unsupportedPlaceholders(item)) problems.push(`${path}：不支持的占位写法 ${odd}（只能写 {{name}} 与 {{name, number}}）`);
                 const plural = pluralOf(key, siblings);
                 if (plural === null) {
                     strings.set(path, {value: item, key: path});
@@ -247,11 +262,23 @@ function pluralFailures(locale: string, flat: Flattened): string[] {
         return [`语言标签不合法：${locale}`];
     }
     const failures: string[] = [];
+    // 只比英文：别的语言的单数可能本来就与复数同形。
+    const english = locale === "en" || locale.startsWith("en-");
     for (const [base, categories] of flat.plurals) {
         const missing = required.filter((category) => !categories.has(category));
         if (missing.length > 0) failures.push(`复数键 ${base} 缺 ${missing.map((category) => `_${category}`).join("、")}（${locale} 的复数规则要有）`);
+        const one = flat.strings.get(`${base}_one`)?.value;
+        const other = flat.strings.get(`${base}_other`)?.value;
+        if (english && one !== undefined && other !== undefined && withoutNumbers(one) === withoutNumbers(other)) {
+            failures.push(`复数键 ${base} 的 _one 与 _other 去掉数字后相同：单数要写对（1 item）；单复数写法相同时只写不带后缀的键 ${base}`);
+        }
     }
     return failures;
+}
+
+/** 去掉占位与数字：`{{count}} items` 与 `1 items` 得到同一个结果。 */
+function withoutNumbers(value: string): string {
+    return value.replace(/\{\{[^{}]*\}\}/gu, "").replace(/\d/gu, "");
 }
 
 function sameSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {

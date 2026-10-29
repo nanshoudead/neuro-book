@@ -297,13 +297,11 @@
         }
     },
     "status": {
-        "unsaved_one": "{{count, number}} unsaved",
-        "unsaved_other": "{{count, number}} unsaved",
+        "unsaved": "{{count, number}} unsaved",
         "saving": "Saving",
         "failed": "Save failed: {{path}} ({{reason}})",
-        "more_one": "and {{count, number}} more",
-        "more_other": "and {{count, number}} more",
-        "words_one": "{{count, number}} words",
+        "more": "and {{count, number}} more",
+        "words_one": "{{count, number}} word",
         "words_other": "{{count, number}} words",
         "cursor": "Ln {{line, number}}, Col {{column, number}}"
     },

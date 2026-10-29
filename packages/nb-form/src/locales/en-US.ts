@@ -52,6 +52,13 @@ export default {
     nextPage: "Next page",
     page: "Page {{current}} of {{total}}",
     listSeparator: ", ",
+    format: {
+        labelled: "{{label}}: {{text}}",
+        labelPrefix: "{{label}}: ",
+        noted: "{{text}} ({{note}})",
+        note: " ({{note}})",
+        clauseSeparator: "; ",
+    },
     codes: {
         "required": "Required",
         "type": "Wrong type",

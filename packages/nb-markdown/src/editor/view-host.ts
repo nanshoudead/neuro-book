@@ -20,7 +20,7 @@ export interface MarkdownViewHost {
     base(): string | null;
     /**
      * 建编辑器的组件在 `setup` 里用 `markdownViewContext()`（`@notnotype/nb-markdown/host`）取得：节点视图里的图片挂在它上面，
-     * 链接小块的悬停提示在算装饰时从它带着的翻译端口取文字。没有时用包内的缺省端口（中文）。
+     * 链接小块的悬停提示在算装饰时从它带着的翻译端口取文字。没有时用缺省端口（中文）。
      */
     readonly context?: AppContext | null;
     /** 没有图片地址服务时（例如 Lab 的场景）图片一律不显示，只有说明。 */

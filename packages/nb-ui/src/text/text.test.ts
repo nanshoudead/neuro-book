@@ -60,10 +60,18 @@ describe("输出 4 到 7：最小实现翻译引用", () => {
         expect(bare.translate(textRef("n", {count: 1}, "x"), "en-US")).toBe("1 item");
     });
 
-    it("复数按当前语言选后缀，中文只写 _other 时 count 为 1 也取得到", () => {
+    it("复数按取到文字的那一级语言选后缀，中文只写 _other 时 count 为 1 也取得到", () => {
         expect(translator.translate(textRef("files.count", {count: 1}, "own"), "en-US")).toBe("1 file");
         expect(translator.translate(textRef("files.count", {count: 2}, "own"), "en-US")).toBe("2 files");
         expect(translator.translate(textRef("files.count", {count: 1}, "own"), "zh-CN")).toBe("1 个文件");
+        const english = createMinimalTranslator({catalogs: {e: {"en-US": {f_one: "{{count}} file", f_other: "{{count}} files"}}}, sources: {e: "en-US"}});
+        expect(english.translate(textRef("f", {count: 1}, "e"), "zh-CN")).toBe("1 file");
+    });
+
+    it("语言标签不合法时不抛：复数按 other，数字原样", () => {
+        const odd = createMinimalTranslator({catalogs: {x: {"zh_CN": {n_other: "{{count}} 条", big: "{{n, number}} 行"}}}, sources: {x: "zh_CN"}});
+        expect(odd.translate(textRef("n", {count: 1}, "x"), "")).toBe("1 条");
+        expect(odd.translate(textRef("big", {n: 1234567}, "x"), "zh_CN")).toBe("1234567 行");
     });
 
     it("插值不做 HTML 转义", () => {

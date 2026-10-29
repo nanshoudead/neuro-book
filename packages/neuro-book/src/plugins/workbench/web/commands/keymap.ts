@@ -100,7 +100,7 @@ export function createKeymapDispatcher(commands: CommandService, platform: KeyPl
             event.stopImmediatePropagation();
             void commands.execute(id, {}, {source: "user"}).then((result) => {
                 if (result.ok) return;
-                report(new Error(`命令 ${id} 执行失败：${diagnosticText(result.reason)}`));
+                report(new Error(`Command ${id} failed: ${diagnosticText(result.reason)}`));
                 failed?.(id, result);
             });
         },

@@ -4,7 +4,7 @@
  * 第一条防止迁移改错文字：`LEGACY` 是迁移前（提交 d2adbdd8e）代码里的双语字面量，按迁移后的键原样抄下，占位符还是旧的
  * `{name}` 写法。目录里的每个键都要在表里、表里的每个键都要在目录里，值换成 `{{name}}` 后逐字相同。有三处按设计偏离，
  * 各在下面单独列出并核对：数字参数改写成 `{{count, number}}`、两个拼好的数字串改名为 `amount`、登记失败的标题按失败码拆成整句
- * （旧代码是模板加原因两段拼的）。以后有意改文字时，同一次改动里同步改这张表。
+ * （旧代码是模板加原因两段拼的）；数量键英文的单数形另列在 `ENGLISH_ONE`。以后有意改文字时，同一次改动里同步改这张表。
  */
 
 import {describe, expect, it} from "bun:test";
@@ -210,6 +210,17 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
 /** 迁移前的登记失败标题模板（`MESSAGES.retryTitle`），`{reason}` 是按失败码取的原因。 */
 const LEGACY_RETRY_TITLE = {"zh-CN": "打开项目：登记失败（{reason}）", "en-US": "Open Project: registration failed ({reason})"} as const;
 
+/**
+ * 数量键英文的单数形（`_one`）：旧英文不分单复数（`{count} items`），迁移时两形抄成一样；w00028 t03 审查第 9 条改成正确的
+ * 单数，这里逐字列出。单复数写法本来就相同的键英文只写不带后缀的键，不在这里。
+ */
+const ENGLISH_ONE: Readonly<Record<string, string>> = {
+    "format.words_one": "{count} word",
+    "format.files_one": "{count} file",
+    "format.books_one": "{count} book",
+    "bookshelfPage.count_one": "{count} book",
+};
+
 const CATALOGS = {"zh-CN": zhCN, "en-US": enUS} as const;
 
 /** 数字参数：旧代码传格式化好的字符串，现在传数字、由目录里的 `{{count, number}}` 加千分位并取复数形。 */
@@ -243,7 +254,7 @@ describe("nbook.projects 的目录", () => {
             expect({locale, keys}).toEqual({locale, keys: Object.keys(LEGACY).sort()});
             for (const [key, value] of Object.entries(flat)) {
                 if (key.startsWith(RETRY_PREFIX)) continue;
-                const legacy = LEGACY[baseKey(key)]![locale as keyof typeof CATALOGS];
+                const legacy = (locale === "en-US" ? ENGLISH_ONE[key] : undefined) ?? LEGACY[baseKey(key)]![locale as keyof typeof CATALOGS];
                 expect({locale, key, value}).toEqual({locale, key, value: expected(baseKey(key), legacy)});
             }
         }

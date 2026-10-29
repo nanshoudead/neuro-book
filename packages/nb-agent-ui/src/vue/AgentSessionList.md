@@ -70,4 +70,4 @@ emits: {action: [action: AgentViewAction]}
 
 ## 隐藏通道理由
 
-- `state:inject`：读宿主注入的翻译端口（nb-ui 的 `TEXT_PORT_KEY`）取界面文字；宿主要登记本包的目录（`@notnotype/nb-agent-ui/locales`），语言以端口为准。上面没有注入时按 `locale`（缺省 zh-CN）建包内的缺省端口并提供给子组件，见 [README](../../README.md#没有宿主时)。时间的格式也按端口的语言。
+- `state:inject`：读宿主注入的翻译端口（nb-ui 的 `TEXT_PORT_KEY`）取界面文字；宿主要登记本包的目录（`@notnotype/nb-agent-ui/locales`），语言以端口为准。上面没有注入时按 `locale`（缺省 zh-CN）建缺省端口并提供给子组件，见 [README](../../README.md#没有宿主时)。时间的格式也按端口的语言。

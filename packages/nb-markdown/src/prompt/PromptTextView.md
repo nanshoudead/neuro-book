@@ -47,7 +47,7 @@ interface PromptTextViewEmits {
 
 没有 slot 与 expose。未声明的 attribute 落到根元素上。
 
-界面文字读宿主注入的翻译端口（nb-ui 的 `TEXT_PORT_KEY`，宿主要登记本包的目录 `@notnotype/nb-markdown/locales`），语言以端口为准；上面没有注入时按 `locale`（缺省 zh-CN）建包内的缺省端口，提供给子组件与嵌套的 nb-ui 控件（[README](../../README.md#界面文字)）。
+界面文字读宿主注入的翻译端口（nb-ui 的 `TEXT_PORT_KEY`，宿主要登记本包的目录 `@notnotype/nb-markdown/locales`），语言以端口为准；上面没有注入时按 `locale`（缺省 zh-CN）建缺省端口，提供给子组件与嵌套的 nb-ui 控件（[README](../../README.md#界面文字)）。
 
 ## 不支持
 

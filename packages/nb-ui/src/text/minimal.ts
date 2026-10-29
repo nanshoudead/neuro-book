@@ -3,7 +3,7 @@
  * 复数后缀。nb-ui 的缺省端口与没有宿主的共享包用它；宿主的引擎对同一组目录必须给出相同的结果（输出 9）。
  */
 
-import {flattenCatalog, isLocaleMap, isTextRef, resolveLocaleMap, sanitizeParams} from "./index";
+import {flattenCatalog, isLocaleMap, isLocaleTag, isTextRef, resolveLocaleMap, sanitizeParams} from "./index";
 import type {Catalog, ReportTextProblem, Text, TextParams} from "./index";
 
 export interface MinimalTranslatorOptions {
@@ -21,8 +21,18 @@ export interface MinimalTranslator {
     variants(text: Text): readonly string[];
 }
 
-/** `{{name}}` 与带数字格式的 `{{name, number}}`（按当前语言的千分位等，与 i18next 的内置格式一致）。 */
+/**
+ * `{{name}}` 与带数字格式的 `{{name, number}}`（逗号两边可以没有空格）。目录检查（`scripts/ci/message-catalogs.ts`）只放行
+ * 这两种写法，改这里要同步改那里。
+ */
 const PLACEHOLDER = /\{\{\s*(\w+)(\s*,\s*number)?\s*\}\}/gu;
+
+/**
+ * 复数类别与数字格式按取到文字的那一级语言算（i18next 的做法，输出 5、6）。语言标签不合法时 `Intl` 会抛 `RangeError`：
+ * 调用方直接用最小实现时可能传进来，这时按 `other` 类别、数字原样，不让渲染失败。
+ */
+const pluralCategory = (count: number, locale: string): string => (isLocaleTag(locale) ? new Intl.PluralRules(locale).select(count) : "other");
+const formatNumber = (value: number, locale: string): string => (isLocaleTag(locale) ? new Intl.NumberFormat(locale).format(value) : String(value));
 
 export function createMinimalTranslator(options: MinimalTranslatorOptions): MinimalTranslator {
     const flat = new Map<string, Map<string, Readonly<Record<string, string>>>>();
@@ -38,11 +48,12 @@ export function createMinimalTranslator(options: MinimalTranslatorOptions): Mini
     };
 
     const chain = (ns: string | undefined, locale: string): readonly string[] => [...new Set([locale, options.sources?.[ns ?? ""] ?? "zh-CN", "en-US"])];
-    const lookup = (ns: string | undefined, key: string, locales: readonly string[]): string | undefined => {
+    /** 按顺序在几种语言里找键；带回取到文字的那一级语言。 */
+    const lookup = (ns: string | undefined, key: string, locales: readonly string[]): {readonly text: string; readonly locale: string} | undefined => {
         const byLocale = flat.get(ns ?? "");
         for (const locale of locales) {
             const hit = byLocale?.get(locale)?.[key];
-            if (hit !== undefined) return hit;
+            if (hit !== undefined) return {text: hit, locale};
         }
         return undefined;
     };
@@ -51,12 +62,13 @@ export function createMinimalTranslator(options: MinimalTranslatorOptions): Mini
         const params = sanitizeParams(rawParams, (param, kind) => report({kind, ns, key, param}));
         const locales = chain(ns, locale);
         const count = params["count"];
-        let message: string | undefined;
+        let message: {readonly text: string; readonly locale: string} | undefined;
         if (typeof count === "number") {
-            // 输出 5：先按当前语言的复数类别取，再取 `_other`，最后才取不带后缀的键。
-            // 逐个语言走完整的三级：中文目录只写裸键时，不能先被回退链后面的英文 `_other` 抢走。复数类别按当前语言算。
-            const category = new Intl.PluralRules(locale).select(count);
+            // 输出 5：先按复数类别取，再取 `_other`，最后才取不带后缀的键。
+            // 逐个语言走完整的三级：中文目录只写裸键时，不能先被回退链后面的英文 `_other` 抢走。复数类别按正在探的那一级语言算：
+            // 当前语言是中文、落到英文目录时，1 要取英文的 `_one`。
             for (const candidate of locales) {
+                const category = pluralCategory(count, candidate);
                 message = lookup(ns, `${key}_${category}`, [candidate]) ?? lookup(ns, `${key}_other`, [candidate]) ?? lookup(ns, key, [candidate]);
                 if (message !== undefined) break;
             }
@@ -69,9 +81,11 @@ export function createMinimalTranslator(options: MinimalTranslatorOptions): Mini
             report({kind: "missing-key", ns, key});
             return key;
         }
-        return message.replace(PLACEHOLDER, (placeholder, name: string, numberFormat: string | undefined) => {
+        const found = message.locale;
+        return message.text.replace(PLACEHOLDER, (placeholder, name: string, numberFormat: string | undefined) => {
             const value = params[name];
-            if (typeof value === "number" && numberFormat !== undefined) return new Intl.NumberFormat(locale).format(value);
+            // 只格式化数字：数字字符串原样代入，宿主引擎同样（输出 6）。
+            if (typeof value === "number" && numberFormat !== undefined) return formatNumber(value, found);
             if (value !== undefined) return String(value);
             if (options.strict === true) throw new Error(`Missing text param "${name}" for key "${key}" in namespace "${ns ?? ""}"`);
             report({kind: "missing-param", ns, key, param: name});

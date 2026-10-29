@@ -105,7 +105,7 @@ describe("WorkbenchCommandHost", () => {
         await vi.waitFor(() => expect(document.body.querySelector('[role="option"][id$="-option-nbook.app.count"]')).not.toBeNull());
         document.body.querySelector('[role="combobox"]')?.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
         await vi.waitFor(() => expect(notices.map(titled("zh-CN"))).toEqual([{tone: "warning", title: "统计没有完成", message: "选区里没有文字"}]));
-        expect(reported).toEqual(["命令 nbook.app.count 执行失败：选区里没有文字"]);
+        expect(reported).toEqual(["Command nbook.app.count failed: 选区里没有文字"]);
         wrapper.unmount();
     });
 
@@ -133,7 +133,7 @@ describe("WorkbenchCommandHost", () => {
         expect(titled("zh-CN")(notices[0]!).title).toBe("Broken没有完成");
         expect(workbenchTestText("zh-CN").t(notices[0]!.message)).toBe("当前页面没有命令面板");
         expect(workbenchTestText("en-US").t(notices[0]!.message)).toBe("This page has no command palette");
-        expect(reported).toEqual(["命令 nbook.app.broken 执行失败：nbook.workbench:palette.unavailable"]);
+        expect(reported).toEqual(["Command nbook.app.broken failed: nbook.workbench:palette.unavailable"]);
         wrapper.unmount();
     });
 

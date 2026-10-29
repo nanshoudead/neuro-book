@@ -4,52 +4,33 @@
  * 端口从哪来，按先后：
  * 1. 宿主注入的端口（nb-ui 的 `TEXT_PORT_KEY`）。宿主要登记本包目录（`@notnotype/nb-markdown/locales`），语言以它为准，
  *    根组件的 `locale` 属性不起作用。
- * 2. 没有注入时，根组件（`MarkdownDisplay`、`PromptEditor`、`PromptTextView`）按自己的 `locale`（缺省 zh-CN）建包内的
+ * 2. 没有注入时，根组件（`MarkdownDisplay`、`PromptEditor`、`PromptTextView`）按自己的 `locale`（缺省 zh-CN）建 nb-ui 的
  *    缺省端口并 provide：子组件与嵌套的 nb-ui 控件拿到同一个。
- * 3. 零件脱离根组件单独挂载、上面也没有注入时，用包内的缺省端口，语言 zh-CN。
+ * 3. 零件脱离根组件单独挂载、上面也没有注入时，用 nb-ui 的缺省端口，语言 zh-CN。
  *
- * 不直接用 nb-ui 的 `useText()`：它在没有注入时给 nb-ui 的缺省端口，那里没有本包目录，只会显示键名。也不在“端口取不到
- * 本包的键”时再兜底：端口取不到时返回键名或（测试环境的宿主引擎）抛错，没有可靠的判据。
+ * 缺省端口的目录是所有已导入共享包登记的（nb-ui 的 `registerDefaultCatalog`）：本模块导入时登记本包目录。所以本包的组件嵌在
+ * 别的共享包的根组件下面（对话视图里的展示器与输入框）、上面没有宿主时，读到外层建的缺省端口也翻得出本包的键。登记放在这里、
+ * 不放进 `../locales`：那里是给编辑器装饰等普通 DOM 取键引用的纯数据模块，宿主也从那里取目录，不该有登记这一副作用。
  *
  * 编辑器的节点视图与展示器的静态视图是普通 DOM，用 Vue 的 `render()` 挂组件，挂上的组件没有父组件、inject 只看它的
  * `appContext`。所以建视图的组件在 `setup` 里用 `markdownViewContext` 取一个带着端口的上下文交给视图：挂组件时设到 vnode
  * 上，普通 DOM 的文字（小块的悬停提示、HTML 卡片的按钮）用 `markdownTextIn` 从它取端口。
  */
 
-import {computed, getCurrentInstance, inject, provide, readonly, ref} from "vue";
+import {getCurrentInstance} from "vue";
 import type {AppContext, Ref} from "vue";
 
-import {NB_UI_CATALOGS, NB_UI_NAMESPACE} from "@notnotype/nb-ui/locales";
 import {isTextRef} from "@notnotype/nb-ui/text";
 import type {TextParams} from "@notnotype/nb-ui/text";
-import {createMinimalTranslator} from "@notnotype/nb-ui/text/minimal";
-import type {MinimalTranslator} from "@notnotype/nb-ui/text/minimal";
-import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
+import {defaultTextPort, provideDefaultText, registerDefaultCatalog, TEXT_PORT_KEY, useText} from "@notnotype/nb-ui/text-port";
 import type {TextPort} from "@notnotype/nb-ui/text-port";
 
 import {fillBraces} from "../locale";
 import type {MarkdownLocale, MarkdownText} from "../locale";
-import {markdownRef, NB_MARKDOWN_CATALOGS, NB_MARKDOWN_NAMESPACE} from "../locales";
+import {markdownRef, NB_MARKDOWN_CATALOGS, NB_MARKDOWN_NAMESPACE, NB_MARKDOWN_SOURCE_LOCALE} from "../locales";
 import type {MarkdownTextKey} from "../locales";
 
-let translator: MinimalTranslator | undefined;
-let fallbackPort: TextPort | undefined;
-
-/** nb-ui 与本包的目录、最小实现；按需建一次，所有缺省端口共用。 */
-function packageTranslator(): MinimalTranslator {
-    translator ??= createMinimalTranslator({catalogs: {[NB_UI_NAMESPACE]: NB_UI_CATALOGS, [NB_MARKDOWN_NAMESPACE]: NB_MARKDOWN_CATALOGS}});
-    return translator;
-}
-
-function packagePort(locale: Readonly<Ref<string>>): TextPort {
-    const text = packageTranslator();
-    return {locale, t: (value) => text.translate(value, locale.value), variants: (value) => text.variants(value)};
-}
-
-function defaultPort(): TextPort {
-    fallbackPort ??= packagePort(readonly(ref("zh-CN")));
-    return fallbackPort;
-}
+registerDefaultCatalog(NB_MARKDOWN_NAMESPACE, NB_MARKDOWN_CATALOGS, NB_MARKDOWN_SOURCE_LOCALE);
 
 export interface MarkdownTextApi {
     /** 当前语言。 */
@@ -78,20 +59,16 @@ function textApi(port: TextPort): MarkdownTextApi {
 }
 
 /**
- * 根组件在 `setup` 里调用：有注入的端口就用它；没有时按 `locale` 建包内的缺省端口并 provide 给子树。返回提供方自己用的
- * 文字函数（Vue 的 `inject` 只看祖先，提供方自己调用 `useMarkdownText` 拿不到它 provide 的端口）。
+ * 根组件在 `setup` 里调用：有注入的端口就用它；没有时按 `locale` 建缺省端口并 provide 给子树（nb-ui 的 `provideDefaultText`）。
+ * 返回提供方自己用的文字函数（Vue 的 `inject` 只看祖先，提供方自己调用 `useMarkdownText` 拿不到它 provide 的端口）。
  */
 export function provideMarkdownText(locale: () => MarkdownLocale | undefined): MarkdownTextApi {
-    const injected = inject(TEXT_PORT_KEY, null);
-    if (injected !== null) return textApi(injected);
-    const port = packagePort(computed(() => locale() ?? "zh-CN"));
-    provide(TEXT_PORT_KEY, port);
-    return textApi(port);
+    return textApi(provideDefaultText(locale));
 }
 
 /** 组件在 `setup` 里调用。读注入的组件要在同名 `.md` 里声明 `state:inject`。 */
 export function useMarkdownText(): MarkdownTextApi {
-    return textApi(inject(TEXT_PORT_KEY, null) ?? defaultPort());
+    return textApi(useText());
 }
 
 /**
@@ -103,7 +80,7 @@ export function useMarkdownText(): MarkdownTextApi {
  */
 export function markdownViewContext(text: MarkdownTextApi = useMarkdownText()): AppContext {
     const instance = getCurrentInstance();
-    if (instance === null) throw new Error("markdownViewContext 要在组件的 setup 里调用");
+    if (instance === null) throw new Error("markdownViewContext must be called inside a component's setup");
     const app = instance.appContext;
     // 原型链接上应用级的 provide（Vue 自己也是这样逐级遮盖的），不复制。
     const provides = Object.create(app.provides) as Record<string | symbol, unknown>;
@@ -111,8 +88,8 @@ export function markdownViewContext(text: MarkdownTextApi = useMarkdownText()): 
     return {...app, provides};
 }
 
-/** 普通 DOM 的文字：取 `markdownViewContext` 带着的端口；没有上下文时用包内的缺省端口（zh-CN）。 */
+/** 普通 DOM 的文字：取 `markdownViewContext` 带着的端口；没有上下文时用 nb-ui 的缺省端口（zh-CN）。 */
 export function markdownTextIn(context: AppContext | null | undefined): MarkdownTextApi {
     const port = context?.provides[TEXT_PORT_KEY as symbol] as TextPort | undefined;
-    return textApi(port ?? defaultPort());
+    return textApi(port ?? defaultTextPort());
 }

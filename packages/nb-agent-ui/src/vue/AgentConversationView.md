@@ -99,7 +99,7 @@ type AgentConversationViewExpose = {
 
 - `state:local`：未受控时的视图模式、输入框中尚未发送的文字、是否跟随底部与阅读锚点、正在预览的图片。这些是纯界面状态，不影响会话数据。每一轮里的展开状态由 `AgentConversationTurn` 自持。
 - `env:portal`：溢出菜单使用 nb-ui `Dropdown`，其菜单浮层渲染到 `body`。原图预览对话框和后续切片的面板与弹窗渲染到 `teleportTarget`，目标不存在时就地渲染。
-- `state:inject`：读宿主注入的翻译端口（nb-ui 的 `TEXT_PORT_KEY`）取界面文字；宿主要登记本包的目录（`@notnotype/nb-agent-ui/locales`），语言以端口为准。上面没有注入时按 `locale`（缺省 zh-CN）建包内的缺省端口并提供给子组件，见 [README](../../README.md#没有宿主时)。渲染组件经 `provideAgentView` 交给子组件。
+- `state:inject`：读宿主注入的翻译端口（nb-ui 的 `TEXT_PORT_KEY`）取界面文字；宿主要登记本包的目录（`@notnotype/nb-agent-ui/locales`），语言以端口为准。上面没有注入时按 `locale`（缺省 zh-CN）建缺省端口并提供给子组件，见 [README](../../README.md#没有宿主时)。渲染组件经 `provideAgentView` 交给子组件。
 
 ## 已知偏差
 

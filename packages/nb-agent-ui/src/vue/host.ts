@@ -39,7 +39,7 @@ const hostKey: InjectionKey<AgentViewHost> = Symbol("nb-agent-ui/host");
 const FALLBACK_HOST: AgentViewHost = {renderers: () => ({})};
 
 /**
- * 交出渲染组件；没有注入翻译端口时按 `locale`（缺省 zh-CN）建包内的缺省端口一并交出（`provideAgentText`）。返回提供方
+ * 交出渲染组件；没有注入翻译端口时按 `locale`（缺省 zh-CN）建缺省端口一并交出（`provideAgentText`）。返回提供方
  * 自己用的文字函数：Vue 的 `inject` 只看祖先提供的值。
  */
 export function provideAgentView(options: {locale?: () => AgentLocale | undefined; renderers?: () => AgentViewRenderers}): AgentTextApi {

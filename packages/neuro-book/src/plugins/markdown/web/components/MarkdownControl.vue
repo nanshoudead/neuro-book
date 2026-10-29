@@ -9,7 +9,7 @@ import "@notnotype/nb-markdown/markdown.css";
 
 import {createMarkdownEditorExtensions, REFRESH_REFERENCE_LINKS} from "@notnotype/nb-markdown/editor";
 import type {MarkdownViewHost} from "@notnotype/nb-markdown/editor";
-import {markdownViewContext} from "@notnotype/nb-markdown/host";
+import {markdownViewContext, useMarkdownText} from "@notnotype/nb-markdown/host";
 import {codecFor} from "@notnotype/nb-markdown/language";
 import type {MarkdownCodec, MarkdownLanguage, SourceMap} from "@notnotype/nb-markdown/language";
 
@@ -48,13 +48,15 @@ interface MarkdownViewState {
     scroll: number;
 }
 
+const text = useMarkdownText();
+
 /**
  * 方言外观（引用小块、图片）要的宿主信息：地址按函数取，换文档不重建扩展；`context` 带着注入的翻译端口，节点视图挂的图片
- * 跟着端口换语言。
+ * 跟着端口换语言。引用小块的悬停提示是算装饰时取的字符串，不跟着端口，换语言时由下面的 `watch` 重算。
  */
 const viewHost: MarkdownViewHost = {
     base: () => bound?.address.value ?? null,
-    context: markdownViewContext(),
+    context: markdownViewContext(text),
     assets: inject(markdownAssetsKey, null),
     chips: nbookChips,
     imageMissing: NBOOK_IMAGE_MISSING,
@@ -252,6 +254,11 @@ watch(() => [props.binding?.revision.value, props.binding?.unresolved(), props.b
 
 // 变成只读（例如文件被外部删除）之前敲下、还在延迟里的输入照常由计时器交出：文档在已删除时仍接受输入回执。
 watch(() => props.readonly, (readonly) => editor?.setEditable(!readonly));
+
+// 换语言：引用小块的悬停提示重算一次。留在槽里的别的文档的编辑状态不用管，换回来时 `enter` 会重算。
+watch(() => text.locale.value, () => {
+    editor?.view.dispatch(editor.state.tr.setMeta(REFRESH_REFERENCE_LINKS, true).setMeta("addToHistory", false));
+});
 
 /**
  * 大纲（面包屑用，docs/specs/workbench/editor.md 输出 60）：跟着当前绑定。正文变了重算、`version` 加一；光标动了只换

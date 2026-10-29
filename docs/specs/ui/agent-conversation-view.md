@@ -385,7 +385,7 @@ type AgentSessionListItem = {
 - 顶层视图的能力标签只有 `state:local`、`state:inject`（宿主注入的渲染组件）与 `env:portal`；各渲染器与子组件的标签为空或只有 `state:local`，符合[组件规范](../../standards/code/components.md)。
 - 视觉取值遵循 [nb-ui 设计语言](../../../packages/nb-ui/docs/design-language.md)与 [UI 开发规范](../../../packages/nb-ui/docs/ui-development-spec.md)，明暗两种主题都要满足对比度要求。
 - 注册表中对插件稳定的部分，在 `runtime.plugins` 定型后另行确认；在此之前，注册表形状可以随内置需要调整。
-- 界面文字在本包自带的消息目录里（命名空间 `nb-agent-ui`，源语言 zh-CN，经 `@notnotype/nb-agent-ui/locales` 导出），按[界面语言与消息目录](i18n.md)显示：宿主注入了翻译端口时登记这份目录，语言以端口为准，`locale` 属性不起作用；没有注入时视图、会话列表与模型目录按 `locale`（缺省 zh-CN）用包内的缺省端口，单独挂载的内部零件用中文。分轮规则、注册表与 harness 适配器产出的文字是文字引用，显示时才翻译。宿主与插件登记的文字写中英两份或文字引用。
+- 界面文字在本包自带的消息目录里（命名空间 `nb-agent-ui`，源语言 zh-CN，经 `@notnotype/nb-agent-ui/locales` 导出），按[界面语言与消息目录](i18n.md)显示：宿主注入了翻译端口时登记这份目录，语言以端口为准，`locale` 属性不起作用；没有注入时视图、会话列表与模型目录按 `locale`（缺省 zh-CN）用缺省端口，单独挂载的内部零件用中文。分轮规则、注册表与 harness 适配器产出的文字是文字引用，显示时才翻译。宿主与插件登记的文字写中英两份或文字引用。
 - 折叠的思维链不渲染其内部步骤，保证长会话的渲染开销与展开的内容量成正比。
 
 ## 验收与 Smoke

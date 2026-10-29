@@ -108,6 +108,14 @@ onMounted(() => {
 });
 
 watch(() => props.text, schedule);
+// 换语言：静态视图里画在普通 DOM 上的文字（小块的悬停提示、HTML 卡片的按钮）是画的时候取的字符串，整篇重画一次。
+// 提示块的展开与 HTML 卡片的展开状态随之回到初始。
+watch(() => text.locale.value, () => {
+    if (renderer === null) return;
+    if (frame !== null) cancelAnimationFrame(frame);
+    renderer.destroy();
+    flush();
+});
 watch(() => props.streaming, placeCursor);
 
 onBeforeUnmount(() => {

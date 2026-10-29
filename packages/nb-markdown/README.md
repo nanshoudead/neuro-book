@@ -29,10 +29,10 @@ Markdown 的语言、编解码器与组件。行为合同见 [`ui/markdown-displ
    engine.register(NB_MARKDOWN_NAMESPACE, NB_MARKDOWN_CATALOGS, "zh-CN");
    ```
 
-2. **没有注入**：根组件按自己的 `locale`（缺省 zh-CN）建包内的缺省端口（nb-ui 与本包的目录，最小实现），提供给子组件与嵌套的 nb-ui 控件。
-3. **零件单独挂载、上面也没有注入**（`InlineChip`、`MarkdownImage`、附件条、粘贴块外框）：用包内的缺省端口，语言 zh-CN。
+2. **没有注入**：根组件按自己的 `locale`（缺省 zh-CN）建 nb-ui 的缺省端口（所有已导入共享包登记的目录，最小实现），提供给子组件与嵌套的 nb-ui 控件。本包的组件嵌在别的共享包的根组件下面时（对话视图里的展示器），读到外层建的缺省端口，同样翻得出本包的键。
+3. **零件单独挂载、上面也没有注入**（`InlineChip`、`MarkdownImage`、附件条、粘贴块外框）：用缺省端口，语言 zh-CN。
 
-展示器的静态视图与编辑器的节点视图用 Vue 的 `render()` 把图片挂到普通 DOM 上，挂上的组件没有父组件。建视图的组件在 `setup` 里用 `markdownViewContext()` 取一个带着端口的应用上下文交给视图，端口换语言时图片不重挂就换文字。宿主自己建编辑器时同样在控件的 `setup` 里取，经 `MarkdownViewHost.context` 给扩展组；不给时用包内的缺省端口。普通 DOM 上画的文字（小块的悬停提示、HTML 卡片的按钮）按画的时候的语言，换语言后要等那一块重画。
+展示器的静态视图与编辑器的节点视图用 Vue 的 `render()` 把图片挂到普通 DOM 上，挂上的组件没有父组件。建视图的组件在 `setup` 里用 `markdownViewContext()` 取一个带着端口的应用上下文交给视图，端口换语言时图片不重挂就换文字。宿主自己建编辑器时同样在控件的 `setup` 里取，经 `MarkdownViewHost.context` 给扩展组；不给时用缺省端口。普通 DOM 上画的文字（小块的悬停提示、HTML 卡片的按钮）是画的时候取的字符串：换语言时展示器整篇重画一次，编辑器里的引用小块要宿主的控件发一次 `REFRESH_REFERENCE_LINKS`（neuro-book 的 `MarkdownControl` 这样做）。
 
 ## 安装
 

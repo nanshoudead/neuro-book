@@ -73,7 +73,7 @@ const warningId = computed(() => (props.warnings.length > 0 ? `${props.id}-warni
 const statusId = computed(() => (props.status ? `${props.id}-status` : undefined));
 const unitId = computed(() => (props.unit ? `${props.id}-unit` : undefined));
 const ariaDescribedby = computed(() => [errorId.value, warningId.value, statusId.value, unitId.value, helpId.value, props.describedby].filter(Boolean).join(" ") || undefined);
-const warningText = computed(() => props.warnings.map((warning) => `${text.t("warning")}：${warning}`).join("；"));
+const warningText = computed(() => props.warnings.map((warning) => text.t("format.labelled", {label: text.t("warning"), text: warning})).join(text.t("format.clauseSeparator")));
 
 type ReasonTone = "error" | "warning" | "muted";
 /** 状态图标提示里的原因，按出错、警告、状态的顺序；第一条的色调就是最重的那个。 */
@@ -122,7 +122,7 @@ provide(NB_FIELD_CONTEXT_KEY, {
                 :id="labelId"
                 class="nb-form-field__label"
                 :for="props.group ? undefined : props.id"
-            >{{ props.label }}<span v-if="props.required" class="nb-form-field__required" aria-hidden="true">*</span><span v-if="props.required && props.group" class="nb-form-sr-only">（{{ text.t('required') }}）</span></component>
+            >{{ props.label }}<span v-if="props.required" class="nb-form-field__required" aria-hidden="true">*</span><span v-if="props.required && props.group" class="nb-form-sr-only">{{ text.t('format.note', {note: text.t('required')}) }}</span></component>
             <Tooltip v-if="tone" placement="right" :force-open="focused">
                 <span class="nb-form-field__reason" :class="`nb-form-field__reason--${tone}`" :data-tone="tone" aria-hidden="true">
                     <svg v-if="tone === 'warning'" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg>
@@ -142,7 +142,7 @@ provide(NB_FIELD_CONTEXT_KEY, {
             v-if="props.clearLabel && !props.bare"
             type="button"
             class="nb-form-field__clear"
-            :aria-label="props.label ? `${props.clearLabel}：${props.label}` : props.clearLabel"
+            :aria-label="props.label ? text.t('format.labelled', {label: props.clearLabel, text: props.label}) : props.clearLabel"
             @click="emit('clear')"
         >{{ props.clearLabel }}</button>
         <p v-if="helpId" :id="helpId" class="nb-form-field__help">{{ helpText }}</p>

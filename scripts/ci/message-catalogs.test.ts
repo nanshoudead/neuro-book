@@ -65,6 +65,10 @@ const BAD: ReadonlyArray<{readonly name: string; readonly catalogs: Readonly<Rec
     {name: "多余的键", catalogs: {...GOOD, "en-US": {...GOOD["en-US"], extra: "Extra"}}, reported: "en-US.json：多余的键 extra"},
     {name: "占位符不一致", catalogs: {...GOOD, "en-US": {...GOOD["en-US"], errors: {gone: "Gone", busy: "{{who}} is busy"}}}, reported: "en-US.json：errors.busy 的占位符 {who} 与源语言的 {name} 不一致"},
     {name: "英文缺 _one", catalogs: {...GOOD, "en-US": {...GOOD["en-US"], files_one: undefined}}, reported: "en-US.json：复数键 files 缺 _one"},
+    {name: "英文 _one 抄了 _other", catalogs: {...GOOD, "en-US": {...GOOD["en-US"], files_one: "{{count}} files"}}, reported: "en-US.json：复数键 files 的 _one 与 _other 去掉数字后相同"},
+    // 带 number 格式的占位也要比：英文漏写了它。
+    {name: "number 格式的占位不一致", catalogs: {"zh-CN": {...GOOD["zh-CN"], lines: "共 {{n, number}} 行"}, "en-US": {...GOOD["en-US"], lines: "Lines"}}, reported: "en-US.json：lines 的占位符 {} 与源语言的 {n} 不一致"},
+    {name: "不支持的占位写法", catalogs: {...GOOD, "zh-CN": {...GOOD["zh-CN"], commands: {say: {title: "打招呼 {{when, date}}"}}}}, reported: "zh-CN.json：commands.say.title：不支持的占位写法 {{when, date}}"},
     {name: "值含 $t(", catalogs: {...GOOD, "zh-CN": {...GOOD["zh-CN"], commands: {say: {title: "$t(other)"}}}}, reported: "zh-CN.json：commands.say.title：值不能含 $t("},
     {name: "闭合码缺文案", catalogs: GOOD, closedCodes: ["gone", "busy", "late"], reported: "zh-CN.json：闭合码 late 没有文案 errors.late"},
     {name: "闭合码多文案", catalogs: GOOD, closedCodes: ["gone"], reported: "zh-CN.json：errors.busy 不在码表里"},
@@ -77,6 +81,20 @@ describe("消息目录检查", () => {
 
     it("合格的目录通过：中文只写 _other、英文写 _one 与 _other，闭合码恰好覆盖", () => {
         expect(catalogFailures({label: "x", source: "zh-CN", catalogs: GOOD, closedCodes: ["gone", "busy"]})).toEqual([]);
+    });
+
+    it("合格的写法：number 格式逗号两边可以没有空格；英文单复数相同时只写不带后缀的键", () => {
+        const catalogs = {
+            "zh-CN": {lines: "共 {{n,number}} 行", unsaved_other: "未保存 {{count}} 个"},
+            "en-US": {lines: "{{ n , number }} lines", unsaved: "{{count, number}} unsaved"},
+        };
+        expect(catalogFailures({label: "x", source: "zh-CN", catalogs})).toEqual([]);
+    });
+
+    it("只有 {{name}} 与 {{name, number}} 两种占位：两个翻译器在别的写法上结果不同，逐个报出", () => {
+        const odd = ["{{- v}}", "{{{v}}}", "{{a.b}}", "{{file-name}}", "{{n, number(minimumFractionDigits: 2)}}", "{{s, uppercase}}"];
+        const catalogs = {"zh-CN": Object.fromEntries(odd.map((value, index) => [`k${String(index)}`, value]))};
+        expect(catalogFailures({label: "x", source: "zh-CN", catalogs}).map((failure) => failure.replace(/^.*不支持的占位写法 /u, "").replace(/（.*$/u, ""))).toEqual(odd);
     });
 
     it("每种坏样本各报出一条", () => {

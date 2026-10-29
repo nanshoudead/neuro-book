@@ -101,8 +101,8 @@ engine.register(NB_AGENT_UI_NAMESPACE, NB_AGENT_UI_CATALOGS, NB_AGENT_UI_SOURCE_
 
 宿主不注入翻译端口时什么都不用做：
 
-- 三个根组件按自己的 `locale` 属性（缺省 zh-CN）建包内的缺省端口（nb-ui 与本包的目录、nb-ui 的最小实现），并提供给子组件，嵌套的 nb-ui 控件也用它；`locale` 变了文字跟着变，不用重新挂载。
-- 内部零件脱离根组件单独挂载、上面也没有端口时，用包内的缺省端口，语言 zh-CN。单独挂零件又要别的语言，就在外面调用 `provideAgentView({locale})`（`./lab` 入口）或自己注入端口。
+- 三个根组件按自己的 `locale` 属性（缺省 zh-CN）建 nb-ui 的缺省端口（所有已导入共享包登记的目录、nb-ui 的最小实现），并提供给子组件，嵌套的 nb-ui 控件与嵌进来的别的共享包（例如 nb-markdown 的展示器）也用它；`locale` 变了文字跟着变，不用重新挂载。
+- 内部零件脱离根组件单独挂载、上面也没有端口时，用缺省端口，语言 zh-CN。单独挂零件又要别的语言，就在外面调用 `provideAgentView({locale})`（`./lab` 入口）或自己注入端口。
 
 缺省端口用的最小实现（nb-ui 的 `createMinimalTranslator`）只认 `{{name}}` 插值与 `_one`、`_other` 这类复数后缀，本包的目录只用到这些。
 

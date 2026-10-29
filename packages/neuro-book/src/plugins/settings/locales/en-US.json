@@ -162,7 +162,7 @@
         "on": "On",
         "off": "Off",
         "empty": "(empty)",
-        "items_one": "{{count}} items",
+        "items_one": "{{count}} item",
         "items_other": "{{count}} items"
     },
     "applies": {

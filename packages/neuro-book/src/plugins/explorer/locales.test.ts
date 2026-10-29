@@ -3,7 +3,7 @@
  *
  * 第一条防止迁移改错文字：`LEGACY` 是迁移前（提交 5b52fe5d5）代码里的双语字面量，按迁移后的键原样抄下，占位符还是旧的
  * `{name}` 写法。目录里的每个键都要在表里、表里的每个键都要在目录里，值换成 `{{name}}` 后逐字相同；数量键的各复数形都与
- * 旧文字相同。以后有意改文字时，同一次改动里同步改这张表。
+ * 旧文字相同，英文的单数形另列在 `ENGLISH_ONE`。以后有意改文字时，同一次改动里同步改这张表。
  */
 
 import {describe, expect, it} from "bun:test";
@@ -199,6 +199,20 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "unavailable.staleView": {"zh-CN": "资源管理器视图已重建", "en-US": "The explorer view was recreated"},
 };
 
+/**
+ * 数量键英文的单数形（`_one`）：旧英文不分单复数（`{count} items`），迁移时两形抄成一样；w00028 t03 审查第 9 条改成正确的
+ * 单数，这里逐字列出。单复数写法本来就相同的键英文只写不带后缀的键，不在这里。
+ */
+const ENGLISH_ONE: Readonly<Record<string, string>> = {
+    "feedback.running_one": "{action}: {count} item in progress…",
+    "feedback.unknown.title_one": "The outcome of {action} for {count} item is unknown. Copy, cut, paste, drag and delete are unavailable until you dismiss it.",
+    "dialog.delete.title_one": "Delete {count} item?",
+    "tree.dragItems_one": "{count} item",
+};
+
+/** 英文单复数写法相同的数量键：英文只写不带后缀的键，中文照常写 `_other`。 */
+const ENGLISH_SAME: ReadonlySet<string> = new Set(["tree.drop.open", "tree.drop.openSome"]);
+
 const CATALOGS = {"zh-CN": zhCN, "en-US": enUS} as const;
 
 /** 复数形 `<键>_<类别>` 归到 `<键>`。 */
@@ -210,18 +224,19 @@ describe("nbook.explorer 的目录", () => {
             const flat = flattenCatalog(catalog);
             expect({locale, keys: [...new Set(Object.keys(flat).map(baseKey))].sort()}).toEqual({locale, keys: Object.keys(LEGACY).sort()});
             for (const [key, value] of Object.entries(flat)) {
-                const legacy = LEGACY[baseKey(key)]![locale as keyof typeof CATALOGS].replace(/\{(\w+)\}/gu, "{{$1}}");
+                const written = (locale === "en-US" ? ENGLISH_ONE[key] : undefined) ?? LEGACY[baseKey(key)]![locale as keyof typeof CATALOGS];
+                const legacy = written.replace(/\{(\w+)\}/gu, "{{$1}}");
                 expect({locale, key, value}).toEqual({locale, key, value: legacy});
             }
         }
     });
 
-    it("数量键：中文有 _other，英文有 _one 与 _other", () => {
+    it("数量键：中文有 _other，英文有 _one 与 _other；英文单复数相同的只写不带后缀的键", () => {
         const flatZh = Object.keys(flattenCatalog(zhCN));
         const flatEn = Object.keys(flattenCatalog(enUS));
         for (const key of ["feedback.running", "feedback.unknown.title", "dialog.delete.title", "tree.drop.open", "tree.drop.openSome", "tree.dragItems"]) {
             expect(flatZh.filter((candidate) => baseKey(candidate) === key)).toEqual([`${key}_other`]);
-            expect(flatEn.filter((candidate) => baseKey(candidate) === key)).toEqual([`${key}_one`, `${key}_other`]);
+            expect(flatEn.filter((candidate) => baseKey(candidate) === key)).toEqual(ENGLISH_SAME.has(key) ? [key] : [`${key}_one`, `${key}_other`]);
         }
     });
 

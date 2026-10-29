@@ -220,12 +220,10 @@
             "before": "Place before {{name}}",
             "afterInto": "Place after {{name}} (into {{target}})",
             "beforeInto": "Place before {{name}} (into {{target}})",
-            "open_one": "Open {{count}} in this group",
-            "open_other": "Open {{count}} in this group",
-            "openSome_one": "Open {{count}} in this group ({{skipped}} more not opened)",
-            "openSome_other": "Open {{count}} in this group ({{skipped}} more not opened)"
+            "open": "Open {{count}} in this group",
+            "openSome": "Open {{count}} in this group ({{skipped}} more not opened)"
         },
-        "dragItems_one": "{{count}} items",
+        "dragItems_one": "{{count}} item",
         "dragItems_other": "{{count}} items"
     },
     "view": {
@@ -244,7 +242,7 @@
     },
     "dialog": {
         "delete": {
-            "title_one": "Delete {{count}} items?",
+            "title_one": "Delete {{count}} item?",
             "title_other": "Delete {{count}} items?",
             "confirm": "Delete",
             "description": "These items and everything inside them will be deleted. This cannot be undone.",
@@ -277,7 +275,7 @@
     },
     "feedback": {
         "dismiss": "Dismiss",
-        "running_one": "{{action}}: {{count}} items in progress…",
+        "running_one": "{{action}}: {{count}} item in progress…",
         "running_other": "{{action}}: {{count}} items in progress…",
         "notice": {
             "editorMissing": "The editor is not available yet; cannot open {{address}}",
@@ -286,7 +284,7 @@
         },
         "manifestNotUpdated": "{{action}} done, but the manifest {{path}} was not updated: {{reason}}",
         "unknown": {
-            "title_one": "The outcome of {{action}} for {{count}} items is unknown. Copy, cut, paste, drag and delete are unavailable until you dismiss it.",
+            "title_one": "The outcome of {{action}} for {{count}} item is unknown. Copy, cut, paste, drag and delete are unavailable until you dismiss it.",
             "title_other": "The outcome of {{action}} for {{count}} items is unknown. Copy, cut, paste, drag and delete are unavailable until you dismiss it.",
             "hint": "Dismissing does not cancel an operation that may still be running; these clipboard items are cleared too.",
             "recheck": "Refresh",
