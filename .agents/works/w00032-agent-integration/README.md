@@ -34,6 +34,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-10-28 | t13 方向已讨论、优先级不高，排到末尾：归属 `nbook.history`；插件写入也记来源；收件箱不挡流程、参考旧组件迁移；会话回退与文件回退分开（[t13](tasks/t13-history/README.md)） |
 | 2026-10-28 | t20：harness 以事件模型为骨架（日志 → 折叠 → 状态 → 视图 → 请求 → 副作用 → 日志），写成提案 [agent-harness-event-model](../../../docs/proposals/agent-harness-event-model.md) 待讨论 |
 | 2026-10-29 | 提案第二稿：`reduce` 只看自己那一片、反应看同一份快照、扩展状态默认私有经选择器共享、`prompt` 能读状态、视图加 `attach`、预览也跑拦截链；循环由内核自己写，不再套 OMP 的 `Agent`（改 t02 决定 1）（[t20](tasks/t20-hooks/README.md)） |
+| 2026-10-29 | t20：开发者同意历史是投影、模板四节点、内核与内置扩展的分工；按开发者要求做了 spike 并做两轮深入审查（omp 与 Opus），提案改成第三稿、介绍页发布 v3；第三稿改变已定写法的六处待开发者确认（[t20](tasks/t20-hooks/README.md)） |
 
 ## 调研
 
