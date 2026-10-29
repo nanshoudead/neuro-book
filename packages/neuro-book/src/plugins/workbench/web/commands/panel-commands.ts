@@ -8,10 +8,11 @@
 
 import {Type} from "typebox";
 
-import type {CommandDeclaration, CommandImplementation, CommandResult} from "nbook/plugins/commands/shared/contracts";
-import type {LocalizedText} from "nbook/shared/localized-text";
+import type {CommandImplementation, CommandResult, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
+import type {DisplayText} from "nbook/shared/localized-text";
 
 import type {QuickPick} from "../../shared/contracts";
+import {workbenchText} from "../../shared/text";
 import {PANEL_ALIGNMENTS, PANEL_POSITIONS} from "../shell/panel-state";
 import type {PanelAlignment, PanelPosition} from "../shell/panel-state";
 import type {LayoutStore} from "../state/layout-store";
@@ -23,13 +24,12 @@ export const SET_PANEL_HIDDEN_COMMAND = "nbook.view.set-panel-hidden";
 export const SET_PANEL_COLLAPSED_COMMAND = "nbook.view.set-panel-collapsed";
 export const TOGGLE_PANEL_MAXIMIZED_COMMAND = "nbook.view.toggle-panel-maximized";
 
-const CATEGORY = {"zh-CN": "视图", "en-US": "View"};
+const CATEGORY = workbenchText("categories.view");
 const requires = (...names: ReadonlyArray<keyof typeof workbenchState.declarations & string>) => ({requires: names.map((name) => workbenchState.key(name))});
 const literals = <const T extends ReadonlyArray<string>>(values: T) => Type.Union(values.map((value) => Type.Literal(value)));
 
 export const PANEL_COMMAND_DECLARATIONS = {
     [SET_PANEL_POSITION_COMMAND]: {
-        title: {"zh-CN": "面板位置", "en-US": "Panel Position"},
         category: CATEGORY,
         description: "Move the panel to the bottom, top, left or right. Without arguments, the user picks one.",
         args: Type.Object({position: Type.Optional(literals(PANEL_POSITIONS))}, {additionalProperties: false}),
@@ -38,7 +38,6 @@ export const PANEL_COMMAND_DECLARATIONS = {
         when: requires("layoutReady", "nonCompact"),
     },
     [SET_PANEL_ALIGNMENT_COMMAND]: {
-        title: {"zh-CN": "面板对齐", "en-US": "Panel Alignment"},
         category: CATEGORY,
         description: "Set how far a bottom or top panel spans: center, left, right or justify. Without arguments, the user picks one.",
         args: Type.Object({alignment: Type.Optional(literals(PANEL_ALIGNMENTS))}, {additionalProperties: false}),
@@ -47,7 +46,6 @@ export const PANEL_COMMAND_DECLARATIONS = {
         when: requires("panelHorizontal", "nonCompact"),
     },
     [SET_PANEL_HIDDEN_COMMAND]: {
-        title: {"zh-CN": "隐藏/显示面板", "en-US": "Hide or Show Panel"},
         category: CATEGORY,
         description: "Hide or show the panel; showing it also expands a collapsed panel. Without arguments, toggles.",
         args: Type.Object({hidden: Type.Optional(Type.Boolean())}, {additionalProperties: false}),
@@ -56,7 +54,6 @@ export const PANEL_COMMAND_DECLARATIONS = {
         when: requires("layoutReady"),
     },
     [SET_PANEL_COLLAPSED_COMMAND]: {
-        title: {"zh-CN": "收起为标题头", "en-US": "Collapse to Title Bar"},
         category: CATEGORY,
         description: "Collapse a bottom or top panel to its 32px title bar, or expand it. Without arguments, toggles.",
         args: Type.Object({collapsed: Type.Optional(Type.Boolean())}, {additionalProperties: false}),
@@ -65,7 +62,6 @@ export const PANEL_COMMAND_DECLARATIONS = {
         when: requires("panelHorizontal"),
     },
     [TOGGLE_PANEL_MAXIMIZED_COMMAND]: {
-        title: {"zh-CN": "最大化/还原面板", "en-US": "Maximize or Restore Panel"},
         category: CATEGORY,
         description: "Maximize the panel over the editor column, or restore it. Not saved.",
         args: Type.Object({}, {additionalProperties: false}),
@@ -73,32 +69,32 @@ export const PANEL_COMMAND_DECLARATIONS = {
         expose: {agent: "never"},
         when: requires("panelMaximizable", "nonCompact"),
     },
-} as const satisfies Readonly<Record<string, CommandDeclaration>>;
+} as const satisfies Readonly<Record<string, WrittenCommandDeclaration>>;
 
-const POSITION_LABELS: Readonly<Record<PanelPosition, LocalizedText>> = {
-    bottom: {"zh-CN": "底部", "en-US": "Bottom"},
-    top: {"zh-CN": "顶部", "en-US": "Top"},
-    left: {"zh-CN": "左侧", "en-US": "Left"},
-    right: {"zh-CN": "右侧", "en-US": "Right"},
+const POSITION_LABELS: Readonly<Record<PanelPosition, DisplayText>> = {
+    bottom: workbenchText("panelCommands.positions.bottom"),
+    top: workbenchText("panelCommands.positions.top"),
+    left: workbenchText("panelCommands.positions.left"),
+    right: workbenchText("panelCommands.positions.right"),
 };
 
-const ALIGNMENT_LABELS: Readonly<Record<PanelAlignment, LocalizedText>> = {
-    center: {"zh-CN": "居中（只在编辑器下）", "en-US": "Center (under the editor)"},
-    left: {"zh-CN": "靠左（含侧栏）", "en-US": "Left (with the sidebar)"},
-    right: {"zh-CN": "靠右（含右栏）", "en-US": "Right (with the auxiliary bar)"},
-    justify: {"zh-CN": "两端（含左右侧栏）", "en-US": "Justify (both sidebars)"},
+const ALIGNMENT_LABELS: Readonly<Record<PanelAlignment, DisplayText>> = {
+    center: workbenchText("panelCommands.alignments.center"),
+    left: workbenchText("panelCommands.alignments.left"),
+    right: workbenchText("panelCommands.alignments.right"),
+    justify: workbenchText("panelCommands.alignments.justify"),
 };
 
 const TEXT = {
-    current: {"zh-CN": "当前", "en-US": "current"},
-    placeholder: {"zh-CN": "选中后立即生效", "en-US": "Takes effect immediately"},
-    noLayout: "工作台布局没有打开（这个窗口没有显示外壳）",
+    current: workbenchText("panelCommands.current"),
+    placeholder: workbenchText("panelCommands.placeholder"),
+    noLayout: workbenchText("layout.notOpen"),
 } as const;
 
 const DONE: CommandResult<null> = {ok: true, value: null};
 
 /** 选一项：取消、选择服务不可用、选了不认识的都不写。 */
-async function choose<T extends string>(quickPick: QuickPick, title: LocalizedText, values: ReadonlyArray<T>, labels: Readonly<Record<T, LocalizedText>>, current: T): Promise<T | CommandResult<null>> {
+async function choose<T extends string>(quickPick: QuickPick, title: DisplayText, values: ReadonlyArray<T>, labels: Readonly<Record<T, DisplayText>>, current: T): Promise<T | CommandResult<null>> {
     const picked = await quickPick.pick({
         title,
         placeholder: TEXT.placeholder,
@@ -122,13 +118,13 @@ export function panelCommands(layout: () => LayoutStore | null, quickPick: Quick
     });
     return {
         [SET_PANEL_POSITION_COMMAND]: withStore(async (store, args) => {
-            const position = (args.position as PanelPosition | undefined) ?? (await choose(quickPick, PANEL_COMMAND_DECLARATIONS[SET_PANEL_POSITION_COMMAND].title, PANEL_POSITIONS, POSITION_LABELS, store.state.panel.position));
+            const position = (args.position as PanelPosition | undefined) ?? (await choose(quickPick, workbenchText("commands.nbook.view.set-panel-position.title"), PANEL_POSITIONS, POSITION_LABELS, store.state.panel.position));
             if (typeof position !== "string") return position;
             store.actions.setPanelPosition(position);
             return DONE;
         }),
         [SET_PANEL_ALIGNMENT_COMMAND]: withStore(async (store, args) => {
-            const alignment = (args.alignment as PanelAlignment | undefined) ?? (await choose(quickPick, PANEL_COMMAND_DECLARATIONS[SET_PANEL_ALIGNMENT_COMMAND].title, PANEL_ALIGNMENTS, ALIGNMENT_LABELS, store.state.panel.alignment));
+            const alignment = (args.alignment as PanelAlignment | undefined) ?? (await choose(quickPick, workbenchText("commands.nbook.view.set-panel-alignment.title"), PANEL_ALIGNMENTS, ALIGNMENT_LABELS, store.state.panel.alignment));
             if (typeof alignment !== "string") return alignment;
             store.actions.setPanelAlignment(alignment);
             return DONE;

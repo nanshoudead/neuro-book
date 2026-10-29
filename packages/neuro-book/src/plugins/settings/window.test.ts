@@ -51,6 +51,7 @@ import {createSettingsWindow, DEFAULT_SETTINGS_WINDOW_SIZE, FILE_SECTION_ID, MIN
 import type {SettingsLeaveTarget, SettingsWindow, SettingsWindowSize} from "./web/settings-window";
 import {settingsWindowSourceKey} from "./web/window-source";
 import type {SettingsWindowSource, WindowSetting} from "./web/window-source";
+import {settingsTestText} from "./testing/text";
 
 const silent = {error: () => undefined};
 /** 工作台描述里的配置项（主题、明暗），不装它的浏览器入口：外观分区里的两项要有人声明。 */
@@ -88,6 +89,7 @@ function windowFor(probe: Probe, bound: boolean): {readonly window: SettingsWind
     const size = ref<SettingsWindowSize | null>(null);
     const recorder: Recorder = {notices: [], reports: [], size};
     const window = createSettingsWindow({
+        text: settingsText.resolver,
         source: probe.source,
         settings: probe.settings,
         bound,
@@ -103,9 +105,17 @@ function windowFor(probe: Probe, bound: boolean): {readonly window: SettingsWind
     return {window, recorder};
 }
 
+/** 窗口模型的文字来自 `nbook.settings` 的目录；断言经同一份目录取，不在测试里另写一遍。 */
+const settingsText = settingsTestText("zh-CN");
+const t = settingsText.t;
+
 const disposers: Array<() => void> = [];
 const started: Application[] = [];
 const worlds: SettingsWorld[] = [];
+
+/** 失败原因里带的详情是底层给的（系统错误文字等），不在断言里写死：取详情之前的部分比较。 */
+const DETAIL = "\u0000detail";
+const beforeDetail = (text: string): string => text.slice(0, text.indexOf(DETAIL));
 let tmp = "";
 let counter = 0;
 
@@ -238,7 +248,7 @@ describe("左栏与配置项的落位（输出 1、2、8、12）", () => {
         // 刷新后回到第一个分区。
         expect(window.section.value).toBe("x.notes.first");
         // 没有可列的项的 list 分区停用，以原因作提示。
-        expect(window.nav.value.flatMap((group) => group.items).find((item) => item.id === "x.notes.first")?.unavailable).toBe("这个分区还没有设置项");
+        expect(window.nav.value.flatMap((group) => group.items).find((item) => item.id === "x.notes.first")?.unavailable).toBe(t("model.emptySection"));
     });
 
     it("分区里先列没写小组的项，再按声明的顺序列小组；组内按 order、同值按键；指向没有声明的小组按没写处理并记诊断", async () => {
@@ -251,7 +261,7 @@ describe("左栏与配置项的落位（输出 1、2、8、12）", () => {
             ["basics", "基础", ["x.notes/beta", "x.notes/alpha"]],
             ["advanced", "高级", ["x.notes/userOnly"]],
         ]);
-        expect(recorder.reports).toContain("配置项 x.notes/delta 指向分区 x.notes.main 没有声明的小组 missing，排在分区最前");
+        expect(recorder.reports).toContain("Setting x.notes/delta points to group missing, which section x.notes.main does not declare; it goes first in the section");
     });
 
     it("没写分区与指向不存在的分区的项进“其它”，按声明者插件分小组（后者记诊断）；指向 page 分区的项不在任何列表里", async () => {
@@ -259,12 +269,12 @@ describe("左栏与配置项的落位（输出 1、2、8、12）", () => {
         window.select(OTHER_SECTION_ID);
         const view = window.current.value;
         if (view?.kind !== "list") throw new Error("“其它”应是 list 分区");
-        expect(view.title).toBe("插件设置");
+        expect(view.title).toBe(t("model.otherTitle"));
         expect(view.groups.map((group) => [group.title, keysOf(group.settings)])).toEqual([
             ["x.misc", ["x.misc/flag"]],
             ["x.notes", ["x.notes/loose", "x.notes/orphan"]],
         ]);
-        expect(recorder.reports).toContain("配置项 x.notes/orphan 指向不存在的分区 x.notes.nowhere，归入“其它”");
+        expect(recorder.reports).toContain("Setting x.notes/orphan points to section x.notes.nowhere, which does not exist; it goes under \"Other\"");
         const listed = window.nav.value.flatMap((group) => group.items).flatMap((item) => {
             window.select(item.id);
             const current = window.current.value;
@@ -284,8 +294,8 @@ describe("左栏与配置项的落位（输出 1、2、8、12）", () => {
         window.setLayer("project");
         const items = new Map(window.nav.value.flatMap((group) => group.items).map((item) => [item.id, item.unavailable]));
         expect(items.get("x.notes.main")).toBeNull();
-        expect(items.get("x.notes.user")).toBe("这个分区的设置仅可在用户设置中修改");
-        expect(items.get("x.notes.page")).toBe("这个分区的设置仅可在用户设置中修改");
+        expect(items.get("x.notes.user")).toBe(t("model.userOnlySection"));
+        expect(items.get("x.notes.page")).toBe(t("model.userOnlySection"));
         window.select("x.notes.main");
         const view = window.current.value;
         if (view?.kind !== "list") throw new Error("x.notes.main 应是 list 分区");
@@ -293,7 +303,7 @@ describe("左栏与配置项的落位（输出 1、2、8、12）", () => {
         expect(view.excluded).toEqual(["戊"]);
         // 当前分区在新标签下不可用：右边原位给原因（输出 8）。
         window.select("x.notes.user");
-        expect(window.current.value?.unavailable).toBe("这个分区的设置仅可在用户设置中修改");
+        expect(window.current.value?.unavailable).toBe(t("model.userOnlySection"));
         window.setLayer("user");
         expect(window.current.value?.unavailable).toBeNull();
     });
@@ -307,7 +317,7 @@ describe("打开窗口（输出 15、16）", () => {
 
     it("分区不在左栏里为 invalid-args，未绑定作品却要本作品标签为 unavailable：两种都不打开、不改变窗口", async () => {
         const {window} = await plain();
-        expect(window.openWindow({section: "x.notes.nowhere"})).toEqual({ok: false, code: "invalid-args", reason: "设置里没有分区 x.notes.nowhere"});
+        expect(window.openWindow({section: "x.notes.nowhere"})).toEqual({ok: false, code: "invalid-args", reason: t("model.unknownSection", {section: "x.notes.nowhere"})});
         expect(window.openWindow({layer: "project"})).toMatchObject({ok: false, code: "unavailable"});
         expect(window.open.value).toBe(false);
         expect(window.section.value).toBe("nbook.appearance");
@@ -366,9 +376,9 @@ describe("按需激活（输出 4）：窗口显示 page 分区时触发 onSetti
         const started = await start([contributor("x.notes", {"x.notes.page": pageSection()}, toggle(), [], {activationEvents: []}), other]);
         const {window, recorder} = windowFor(started.probe, false);
         window.openWindow({section: "x.notes.page"});
-        expect(window.page("x.notes.page").delivery).toEqual({kind: "entry-not-activatable", reason: "入口 x.notes/browser 没有声明 onSettingsPage:x.notes.page"});
+        expect(window.page("x.notes.page").delivery).toEqual({kind: "entry-not-activatable", reason: "Entry x.notes/browser does not declare onSettingsPage:x.notes.page"});
         expect(stateOf(started.application, "x.other")).toBe("registered");
-        expect(started.diagnostics.query({}).records.some((record) => record.event === "settings.sections" && record.message.includes("不能按需激活"))).toBe(true);
+        expect(started.diagnostics.query({}).records.some((record) => record.event === "settings.sections" && record.message.includes("cannot be activated on demand"))).toBe(true);
         // 之后入口经别的途径激活了：按它的状态呈现。
         await started.application.plugins.activate({plugin: "x.notes", entry: "browser"});
         expect(window.page("x.notes.page").delivery).toEqual({kind: "available"});
@@ -831,11 +841,16 @@ describe("通用列表的写入（输出 10、12、14）", () => {
         expect(window.pending(themeSetting.key)).toBeUndefined();
         expect(window.editing.get(themeSetting)).toBe("nbook");
         expect(recorder.notices).toHaveLength(1);
-        expect(recorder.notices[0]).toMatchObject({tone: "warning", title: "设置没有保存"});
-        expect(recorder.notices[0]?.message).toStartWith("主题：写不进设置文件");
+        // 通知交的是文字引用，视口显示时才翻：这里按中文翻出来比对，再按英文翻同一条，框架换成英文，代入的标题与原因是发通知时翻好的片段。
+        const shown = (notice: NotificationInput | undefined, resolver = settingsText.resolver) => ({tone: notice?.tone, title: resolver.t(notice?.title ?? ""), message: resolver.t(notice?.message ?? "")});
+        expect(shown(recorder.notices[0])).toMatchObject({tone: "warning", title: t("model.notSavedTitle")});
+        expect(shown(recorder.notices[0]).message).toStartWith(beforeDetail(t("model.notSaved", {title: "主题", reason: t("writeFailure.writeFailed", {detail: DETAIL})})));
+        const english = shown(recorder.notices[0], settingsTestText("en-US").resolver);
+        expect(english.title).toBe("Setting not saved");
+        expect(english.message).toStartWith(beforeDetail(`主题: ${t("writeFailure.writeFailed", {detail: DETAIL})}`));
 
         await window.write(themeOf(window), "solarized");
-        expect(recorder.notices[1]?.message).toStartWith("主题：这个值不能用");
+        expect(shown(recorder.notices[1]).message).toStartWith(beforeDetail(t("model.notSaved", {title: "主题", reason: t("writeFailure.invalidValue", {detail: DETAIL})})));
     });
 });
 
@@ -864,7 +879,7 @@ describe("设置文件视图（输出 23）：经远程合同整份读写，真�
     it("“设置文件”是左栏固定的一项，编辑当前标签那一层；项目层带文件路径，用户层不带", async () => {
         const {world: created, window} = await world();
         window.openWindow({section: FILE_SECTION_ID});
-        expect(window.current.value).toMatchObject({kind: "file", id: FILE_SECTION_ID, title: "设置文件", layer: "user", path: null});
+        expect(window.current.value).toMatchObject({kind: "file", id: FILE_SECTION_ID, title: t("model.fileTitle"), layer: "user", path: null});
         window.setLayer("project");
         expect(window.current.value).toMatchObject({kind: "file", layer: "project", path: created.projectFile});
     });

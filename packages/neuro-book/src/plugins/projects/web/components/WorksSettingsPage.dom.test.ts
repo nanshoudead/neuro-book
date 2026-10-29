@@ -14,14 +14,29 @@ import type {Ref} from "vue";
 import {createSettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
 import type {HostLayer} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
+import {settingsCatalogs} from "nbook/plugins/settings/web/text";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import type {SettingLayer} from "nbook/shared/settings";
+import {provideText} from "nbook/shared/testing/text-port";
+import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import type {BrowseEntry} from "../../shared/contracts";
 import {librarySetting} from "../../shared/contracts";
 import type {LibraryInfo} from "../shelf-page";
+import {projectsCatalogs} from "../text";
 import {createWorksPage} from "../works-section";
 import WorksSettingsPage from "./WorksSettingsPage.vue";
+
+/**
+ * 窗口同款的翻译引擎（严格模式），每次打开一个：页面经 `useText()` 取文字，通知交出的文字引用也按它翻；页面里的设置行
+ * （`SettingsRow`）用 `nbook.settings` 的文字。
+ */
+function textEngine() {
+    const engine = createHostTextEngine({locale: "zh-CN", strict: true});
+    engine.register("nbook.projects", projectsCatalogs.catalogs, projectsCatalogs.source);
+    engine.register("nbook.settings", settingsCatalogs.catalogs, settingsCatalogs.source);
+    return engine;
+}
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -40,6 +55,8 @@ const TREE: Record<string, {parent: string | null; entries: BrowseEntry[]}> = {
 
 /** `library`：false 时取不到有效的作品目录（产品里远程调用失败）。 */
 function open(user: HostLayer, library = true) {
+    const text = textEngine();
+    const port = text.port;
     const notices: NotificationInput[] = [];
     const listed: Array<string | null> = [];
     const host = createSettingsHost({settings: [{plugin: "nbook.projects", definition: librarySetting}], sections: [], user, notify: () => undefined, report: () => undefined});
@@ -59,7 +76,6 @@ function open(user: HostLayer, library = true) {
             const node = TREE[key];
             return node === undefined ? {ok: false, message: `列不出目录：${key}`} : {ok: true, value: {path: key, ...node}};
         }},
-        locale: ref("zh-CN" as const),
         notifications: {notify: (input) => {
             notices.push(input);
             return {id: String(notices.length), update: () => undefined, dismiss: () => undefined};
@@ -67,9 +83,9 @@ function open(user: HostLayer, library = true) {
         report: () => undefined,
     });
     const context: SettingsPageContext = {id: "nbook.works", layer: readonly(ref<SettingLayer>("user")) as Readonly<Ref<SettingLayer>>, projectTitle: readonly(ref(null)), writable: readonly(ref(true)), options: {}, dirty: () => undefined};
-    const wrapper = mount(page, {props: {context}, attachTo: document.body});
+    const wrapper = mount(page, {global: {provide: provideText(port)}, props: {context}, attachTo: document.body});
     cleanup.push(() => wrapper.unmount());
-    return {host, notices, listed, wrapper};
+    return {host, notices, listed, wrapper, text};
 }
 
 const one = <T extends Element = HTMLElement>(selector: string): T => {
@@ -137,14 +153,20 @@ describe("WorksSettingsPage", () => {
     });
 
     it("写不进去：发通知“作品目录没有记住”，路径回到层里的实际值", async () => {
-        const {host, notices} = open({values: {[librarySetting.key]: `${HOME}/books`}});
+        const {host, notices, text} = open({values: {[librarySetting.key]: `${HOME}/books`}});
         host.user.failWrites("write-failed");
         await choose(`${HOME}/books/2026`);
         expect(host.user.values()).toEqual({[librarySetting.key]: `${HOME}/books`});
         expect(one("[data-works-library]").textContent).toBe(`${HOME}/books`);
         expect(notices).toHaveLength(1);
-        expect(notices[0]).toMatchObject({tone: "warning", title: "作品目录没有记住"});
-        expect(notices[0]?.message).toContain("作品目录没有写进设置：write-failed");
+        expect(notices[0]?.tone).toBe("warning");
+        // 通知交文字引用，视口显示时才翻：同一条通知切换语言后换成英文。
+        const shown = () => ({title: text.port.t(notices[0]?.title ?? ""), message: text.port.t(notices[0]?.message ?? "")});
+        expect(shown().title).toBe("作品目录没有记住");
+        expect(shown().message).toContain("作品目录没有写进设置：write-failed");
+        text.setLocale("en-US");
+        expect(shown().title).toBe("Library folder not saved");
+        expect(shown().message).toContain("The library folder was not written to settings: write-failed");
     });
 
     it("设置文件有错误：“更改…”停用", () => {

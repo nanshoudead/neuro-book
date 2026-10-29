@@ -2,8 +2,9 @@
  * 内置的输入框触发字符与命令。命令沿用旧输入框的那一套；视图只负责识别并发出 `command.run`，
  * 能不能执行、怎么执行由宿主决定。
  */
-import type {AgentTextKey} from "../messages";
 import type {AgentViewContribution, ComposerCommandEntry, ComposerTriggerEntry} from "../registry";
+import {agentRef} from "../text";
+import type {AgentTextKey} from "../text";
 
 const triggers: ComposerTriggerEntry[] = [
     {id: "reference", order: 10, char: "@"},
@@ -16,7 +17,7 @@ type CommandWithArgs = "mode" | "model" | "compact" | "rename";
 
 function command(order: number, name: CommandName, argsKey?: `command.${CommandWithArgs}Args`): ComposerCommandEntry {
     const description: AgentTextKey = `command.${name}`;
-    return {id: name, order, name, description: {key: description}, ...(argsKey === undefined ? {} : {argsHint: {key: argsKey}})};
+    return {id: name, order, name, description: agentRef(description), ...(argsKey === undefined ? {} : {argsHint: agentRef(argsKey)})};
 }
 
 const commands: ComposerCommandEntry[] = [

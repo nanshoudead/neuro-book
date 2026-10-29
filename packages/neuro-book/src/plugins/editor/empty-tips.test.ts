@@ -24,8 +24,13 @@ import {standaloneSettings} from "nbook/plugins/settings/testing/standalone";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
 
-import {emptyTips} from "./web/empty-tips";
+import {testTextPort} from "nbook/shared/testing/text-port";
 
+import {emptyTips} from "./web/empty-tips";
+import {editorCatalogs} from "./web/text";
+
+const zh = testTextPort("zh-CN", {"nbook.editor": editorCatalogs});
+const en = testTextPort("en-US", {"nbook.editor": editorCatalogs});
 const silent = {error: () => undefined};
 let tmp = "";
 const started: Application[] = [];
@@ -106,18 +111,18 @@ describe("空编辑组的提示（editor.md 输出 32）", () => {
     it("三行：命令面板写按键，新建文件与欢迎页写位置；不可用的那一行不出现；mac 的按键是一串符号；英文界面换文字", async () => {
         const canCreate = ref(true);
         const commands = await start(commandsOf(canCreate, true));
-        expect(emptyTips(commands, "zh-CN", "other")).toEqual([
+        expect(emptyTips(commands, zh, "other")).toEqual([
             {command: "nbook.quick-open.open-commands", label: "显示所有命令", keys: ["Ctrl", "Shift", "P"], hint: null},
             {command: "nbook.files.new-file", label: "新建文件", keys: null, hint: "资源管理器标题行的“新建文件”"},
             {command: "nbook.help.welcome", label: "打开欢迎页", keys: null, hint: "帮助 › 欢迎"},
         ]);
         canCreate.value = false;
-        expect(emptyTips(commands, "zh-CN", "other").map((tip) => tip.command)).toEqual(["nbook.quick-open.open-commands", "nbook.help.welcome"]);
-        expect(emptyTips(commands, "en-US", "mac")[0]).toEqual({command: "nbook.quick-open.open-commands", label: "Show All Commands", keys: ["⇧⌘P"], hint: null});
+        expect(emptyTips(commands, zh, "other").map((tip) => tip.command)).toEqual(["nbook.quick-open.open-commands", "nbook.help.welcome"]);
+        expect(emptyTips(commands, en, "mac")[0]).toEqual({command: "nbook.quick-open.open-commands", label: "Show All Commands", keys: ["⇧⌘P"], hint: null});
     });
 
     it("命令不存在时那一行不出现", async () => {
         const commands = await start(commandsOf(ref(true), false));
-        expect(emptyTips(commands, "zh-CN", "other").map((tip) => tip.command)).toEqual(["nbook.quick-open.open-commands", "nbook.files.new-file"]);
+        expect(emptyTips(commands, zh, "other").map((tip) => tip.command)).toEqual(["nbook.quick-open.open-commands", "nbook.files.new-file"]);
     });
 });

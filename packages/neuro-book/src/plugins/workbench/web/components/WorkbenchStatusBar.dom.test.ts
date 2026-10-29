@@ -3,11 +3,15 @@
 import {mount} from "@vue/test-utils";
 import {describe, expect, it} from "vitest";
 
+import {provideText} from "nbook/shared/testing/text-port";
+
+import {workbenchTestText} from "../../testing/text";
+
 import WorkbenchStatusBar from "./WorkbenchStatusBar.vue";
 
 describe("WorkbenchStatusBar", () => {
     it("没有项目时显示“未打开项目”；面板按钮按隐藏与否换文字、带焦点落点，点了发 toggle-panel；不可用时禁用", async () => {
-        const wrapper = mount(WorkbenchStatusBar, {props: {locale: "zh-CN", project: null, panelHidden: false}});
+        const wrapper = mount(WorkbenchStatusBar, {props: {project: null, panelHidden: false}, global: {provide: provideText(workbenchTestText("zh-CN"))}});
         expect(wrapper.get("[data-status-project]").text()).toBe("未打开项目");
         const toggle = wrapper.get("[data-shell-focus-target=\"panel-toggle\"]");
         expect(toggle.text()).toBe("隐藏面板");
@@ -21,10 +25,10 @@ describe("WorkbenchStatusBar", () => {
     });
 
     it("没保存上的优先于读不到；原因换成可读文字，不认识的码原样；重试与放弃带回记录名；读不到时没有按钮", async () => {
-        const wrapper = mount(WorkbenchStatusBar, {props: {locale: "zh-CN", project: null, panelHidden: false, problems: [
+        const wrapper = mount(WorkbenchStatusBar, {props: {project: null, panelHidden: false, problems: [
             {record: "side", kind: "unread", code: "corrupt"},
             {record: "customizations", kind: "unsaved", code: "unavailable"},
-        ]}});
+        ]}, global: {provide: provideText(workbenchTestText("zh-CN"))}});
         const problem = wrapper.get("[data-status-problem]");
         expect(problem.text()).toBe("布局未保存：存储暂时不可用");
         expect(problem.attributes("role")).toBe("status");
@@ -40,7 +44,7 @@ describe("WorkbenchStatusBar", () => {
     });
 
     it("英文界面", () => {
-        const wrapper = mount(WorkbenchStatusBar, {props: {locale: "en-US", project: null, panelHidden: true, problems: [{record: "side", kind: "unsaved", code: "conflict"}]}});
+        const wrapper = mount(WorkbenchStatusBar, {props: {project: null, panelHidden: true, problems: [{record: "side", kind: "unsaved", code: "conflict"}]}, global: {provide: provideText(workbenchTestText("en-US"))}});
         expect(wrapper.text()).toContain("No project open");
         expect(wrapper.text()).toContain("Layout not saved: conflicts with another window");
         expect(wrapper.text()).toContain("Show Panel");

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import {useUiText} from "../../text-port";
+
 export interface BreadcrumbItemData {
     label: string;
     href?: string;
@@ -14,13 +16,15 @@ const props = withDefaults(defineProps<{
     separatorIcon: "i-lucide-chevron-right",
 });
 
+const text = useUiText();
+
 const emit = defineEmits<{
     (e: "click", item: BreadcrumbItemData, event: MouseEvent): void;
 }>();
 </script>
 
 <template>
-    <nav aria-label="面包屑导航" class="flex items-center">
+    <nav :aria-label="text('breadcrumb.label')" class="flex items-center">
         <ol class="flex flex-wrap items-center gap-1.5 text-[length:var(--text-xs)] text-[var(--text-secondary)]">
             <template v-for="(item, index) in props.items" :key="index">
                 <li class="inline-flex items-center gap-1">

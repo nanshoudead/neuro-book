@@ -1,11 +1,11 @@
 ---
-标签: []
+标签: [state:inject]
 别名: ["状态栏", "Status Bar"]
 ---
 
 # WorkbenchStatusBar
 
-工作台底部 22px 的状态栏（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳一输出 11）：左边是当前项目名或“未打开项目”，以及布局记录的问题（读不到时正在用默认布局；修改没保存上时给出原因与重试、放弃）；右边是面板的显示与隐藏按钮。不显示假数据（Git、行列号、通知计数）。文字按 `locale` 取中英两份中的一份。
+工作台底部 22px 的状态栏（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳一输出 11）：左边是当前项目名或“未打开项目”，以及布局记录的问题（读不到时正在用默认布局；修改没保存上时给出原因与重试、放弃）；右边是面板的显示与隐藏按钮。不显示假数据（Git、行列号、通知计数）。文字经注入的翻译端口取。
 
 ## 布局
 
@@ -24,7 +24,6 @@ type StatusBarProblem = {
 };
 
 type Props = {
-    locale: DisplayLocale;
     /** 当前项目的显示名；没有绑定项目为 null。 */
     project: string | null;
     /** 面板是否隐藏：决定右边按钮是“显示面板”还是“隐藏面板”。 */
@@ -46,6 +45,10 @@ type Emits = {
 - 面板按钮带 `data-shell-focus-target="panel-toggle"`：外壳隐藏面板时把焦点交给它。
 - 问题提示带 `role="status"`，出现与变化时由读屏播报；整条状态栏不是 live region。
 - 没有 slots、expose；attrs 落在根 `<footer>` 上。
+
+## 隐藏通道理由
+
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，项目名占位、面板按钮、问题提示与重试、放弃等界面文字都在本插件的目录（命名空间 `nbook.workbench`，`../../locales/`）；语言随端口响应式切换，组件没有语言属性。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。
 
 ## 不支持
 

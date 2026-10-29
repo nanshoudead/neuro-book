@@ -3,8 +3,14 @@
 import {mount} from "@vue/test-utils";
 import {describe, expect, it} from "vitest";
 
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
+
 import type {ShelfItem} from "../../shared/shelf";
+import {projectsCatalogs} from "../text";
 import ShelfCards from "./ShelfCards.vue";
+
+/** 注入窗口同款的翻译端口（严格模式，缺键或缺参数直接抛错）。 */
+const global = {provide: provideText(testTextPort("zh-CN", {"nbook.projects": projectsCatalogs}))};
 
 const NOW = "2026-10-11T12:00:00.000Z";
 
@@ -16,7 +22,7 @@ function item(id: string, title: string): ShelfItem {
 }
 
 function mountCards(items: ShelfItem[], activeId: string | null = null) {
-    return mount(ShelfCards, {props: {locale: "zh-CN" as const, items, activeId, now: NOW, coverSrc: () => null, library: "/home/writer/Documents/NeuroBook"}, attachTo: document.body});
+    return mount(ShelfCards, {global, props: {items, activeId, now: NOW, coverSrc: () => null, library: "/home/writer/Documents/NeuroBook"}, attachTo: document.body});
 }
 
 describe("ShelfCards", () => {

@@ -13,7 +13,9 @@ import {fileURLToPath, pathToFileURL} from "node:url";
 
 import {createTestTmpRoot, resolveTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {BROWSER_SHARED_MODULES, manifestFormat} from "../src/plugin-platform-profile";
+import {createPluginInventory} from "../src/plugin-platform/backend/inventory";
+import {NO_INSTALLED_PLUGINS} from "../src/plugin-platform/backend/startup";
+import {BROWSER_SHARED_MODULES, manifestFormat, NEUROBOOK_PROFILE} from "../src/plugin-platform-profile";
 import {buildExample, EXAMPLES_ROOT, IN_REPO_BUILD} from "./build-examples";
 import {buildPlugin, PluginBuildError} from "./build";
 import {registeredFactory, runFactory} from "./testing/browser-artifact";
@@ -83,7 +85,7 @@ describe("构建示例 snippets", () => {
     it("清单由代码定义生成并通过校验；只有浏览器入口；样式包进 @layer components、带上分区与按钮的图标", async () => {
         const out = join(tmp, "snippets");
         const result = await buildExample("snippets", out);
-        expect(result.files).toEqual(["browser.js", "browser.js.map", "package.json", "style.css"]);
+        expect(result.files).toEqual(["browser.js", "browser.js.map", "locales/en-US.json", "locales/zh-CN.json", "package.json", "style.css"]);
         const manifest = JSON.parse(await readFile(join(out, "package.json"), "utf8")) as Record<string, unknown>;
         const read = manifestFormat.read(manifest);
         if (read.status !== "valid") throw new Error(JSON.stringify(read.problems));
@@ -387,5 +389,48 @@ export const s = {id: "acme.refined", entries: [defineEntry({id: "server", locat
         const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8")) as Record<string, unknown>;
         await writeFile(join(root, "package.json"), JSON.stringify({...manifest, nbook: {definitions: ["web/plugin.ts", 42]}}));
         expect(await failure(root)).toEqual(["必须是非空的模块路径"]);
+    }, 60_000);
+});
+
+describe("消息目录（locales/）", () => {
+    const ENTRY = {"web/plugin.ts": "export const p = {id: \"acme.ENTRY\", entries: [{id: \"browser\", location: \"browser\", activate: () => ({})}]};\n"};
+    /** 带一个浏览器入口与给定消息目录的作者项目；`l10n` 写进作者的 package.json。 */
+    async function catalogProject(name: string, l10n: unknown, files: Readonly<Record<string, string>>, extra: Record<string, unknown> = {}): Promise<string> {
+        const root = await authorProject(name, {"web/plugin.ts": ENTRY["web/plugin.ts"].replace("ENTRY", name), ...files});
+        await writeFile(join(root, "package.json"), JSON.stringify({publisher: "acme", name, version: "1.0.0", type: "module", ...(l10n === undefined ? {} : {l10n}), ...extra}));
+        return root;
+    }
+
+    it("目录原样复制进产物并列入文件；清单写 l10n（源语言在前），显示名与说明从源语言目录摘出；产物能照常安装", async () => {
+        const zh = `${JSON.stringify({manifest: {displayName: "问候", description: "打个招呼"}, greeting: {hello: "你好，{{name}}"}}, null, 2)}\n`;
+        const en = JSON.stringify({manifest: {displayName: "Greeter"}, greeting: {hello: "Hello, {{name}}"}});
+        const root = await catalogProject("greeter", {source: "zh-CN"}, {"locales/zh-CN.json": zh, "locales/en-US.json": en});
+        const result = await build(root);
+        expect(result.files).toEqual(["browser.js", "browser.js.map", "locales/en-US.json", "locales/zh-CN.json", "package.json"]);
+        expect(result.manifest).toMatchObject({l10n: {source: "zh-CN", locales: ["zh-CN", "en-US"]}, displayName: "问候", description: "打个招呼"});
+        expect(await readFile(join(root, "dist/locales/zh-CN.json"), "utf8")).toBe(zh);
+        const written = JSON.parse(await readFile(join(root, "dist/package.json"), "utf8")) as Record<string, unknown>;
+        expect(manifestFormat.read(written)).toMatchObject({status: "valid", manifest: {l10n: {source: "zh-CN", locales: ["zh-CN", "en-US"]}}});
+
+        const inventory = createPluginInventory({root: join(tmp, "greeter-state", "plugins"), profile: NEUROBOOK_PROFILE, builtin: [], startup: NO_INSTALLED_PLUGINS, record: () => undefined});
+        expect(await inventory.install(join(root, "dist"))).toMatchObject({ok: true});
+    }, 60_000);
+
+    it("缺源语言的目录、目录不是合法 JSON、叶子不是字符串：构建失败，写明文件与键路径", async () => {
+        const en = JSON.stringify({title: "Title"});
+        expect(await failure(await catalogProject("no-source", {source: "zh-CN"}, {"locales/en-US.json": en}))).toEqual(["缺少源语言 zh-CN 的目录 locales/zh-CN.json"]);
+        expect(await failure(await catalogProject("bad-json", {source: "en-US"}, {"locales/en-US.json": "{"}))).toEqual([expect.stringContaining("不是合法的 JSON")]);
+        expect(await failure(await catalogProject("leaf", {source: "en-US"}, {"locales/en-US.json": JSON.stringify({menu: {open: 1, close: ["x"]}})}))).toEqual([
+            "menu.open：值必须是字符串或嵌套的对象，这里是number",
+            "menu.close：值必须是字符串或嵌套的对象，这里是数组",
+        ]);
+    }, 60_000);
+
+    it("文件名不是规范写法的语言标签、有 locales/ 却没写 l10n、l10n 写了别的字段、显示名同时写在 package.json：构建失败", async () => {
+        const en = JSON.stringify({title: "Title"});
+        expect(await failure(await catalogProject("lower", {source: "en-US"}, {"locales/en-US.json": en, "locales/zh-cn.json": en}))).toEqual([expect.stringContaining("规范写法 zh-CN")]);
+        expect(await failure(await catalogProject("unsourced", undefined, {"locales/en-US.json": en}))).toEqual([expect.stringContaining("l10n.source")]);
+        expect(await failure(await catalogProject("listed", {source: "en-US", locales: ["en-US"]}, {"locales/en-US.json": en}))).toEqual([expect.stringContaining("语言列表由 locales/ 里的文件得出")]);
+        expect(await failure(await catalogProject("named", {source: "en-US"}, {"locales/en-US.json": en}, {displayName: "Named"}))).toEqual([expect.stringContaining("manifest.displayName，不写在 package.json")]);
     }, 60_000);
 });

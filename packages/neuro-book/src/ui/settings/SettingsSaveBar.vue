@@ -5,16 +5,15 @@
  * `save`、`discard` 交给页面。
  */
 import {Button} from "@notnotype/nb-ui/components";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed} from "vue";
 
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import {settingsUiText} from "./text";
+import type {SettingsUiKey} from "./text";
 
 defineOptions({name: "SettingsSaveBar"});
 
 const props = withDefaults(defineProps<{
-    /** 显示语言；页面从自己的上下文拿（Lab 与示例页面直接写）。 */
-    locale: DisplayLocale;
     /** 有没有未保存的改动：没有时两个按钮停用、不写文字。 */
     dirty: boolean;
     /** 正在保存：两个按钮停用，避免重复提交与保存途中放弃。 */
@@ -30,14 +29,10 @@ const emit = defineEmits<{
     (event: "discard"): void;
 }>();
 
-const TEXT = {
-    save: {"zh-CN": "保存", "en-US": "Save"},
-    discard: {"zh-CN": "放弃更改", "en-US": "Discard Changes"},
-    unsaved: {"zh-CN": "有未保存的更改", "en-US": "Unsaved changes"},
-} satisfies Record<string, LocalizedText>;
-
-const text = (template: LocalizedText): string => localize(formatText(template, {}), props.locale);
-const note = computed(() => (props.dirty ? (props.message ?? text(TEXT.unsaved)) : null));
+/** 三处固定文字在 `nbook.settings` 的目录里，经宿主注入的翻译端口翻译。 */
+const port = useText();
+const text = (key: SettingsUiKey): string => port.t(settingsUiText(key));
+const note = computed(() => (props.dirty ? (props.message ?? text("saveBar.unsaved")) : null));
 </script>
 
 <template>
@@ -47,8 +42,8 @@ const note = computed(() => (props.dirty ? (props.message ?? text(TEXT.unsaved))
             <span class="settings-save-bar__dot" aria-hidden="true"></span>
             <span>{{ note }}</span>
         </span>
-        <Button size="sm" variant="ghost" :disabled="busy || !dirty" data-settings-save-bar-discard @click="emit('discard')">{{ text(TEXT.discard) }}</Button>
-        <Button size="sm" :disabled="busy || !dirty || !canSave" data-settings-save-bar-save @click="emit('save')">{{ text(TEXT.save) }}</Button>
+        <Button size="sm" variant="ghost" :disabled="busy || !dirty" data-settings-save-bar-discard @click="emit('discard')">{{ text('saveBar.discard') }}</Button>
+        <Button size="sm" :disabled="busy || !dirty || !canSave" data-settings-save-bar-save @click="emit('save')">{{ text('saveBar.save') }}</Button>
     </footer>
 </template>
 

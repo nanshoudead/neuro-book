@@ -1,0 +1,30 @@
+{
+    "manifest": {
+        "description": "Snippets: a page section in the settings window for the fixed text you insert while writing"
+    },
+    "settings": {
+        "items": {
+            "title": "Snippets",
+            "description": "A book can keep its own list, which replaces yours entirely"
+        }
+    },
+    "settingsPages": {
+        "main": {
+            "title": "Snippets",
+            "description": "Fixed text you insert often"
+        }
+    },
+    "editor": {
+        "name": "Name",
+        "text": "Text",
+        "up": "Move Up",
+        "down": "Move Down",
+        "remove": "Delete",
+        "add": "Add Snippet",
+        "newName": "New Snippet",
+        "empty": "No snippets yet"
+    },
+    "page": {
+        "notSaved": "Not saved ({{code}}): {{detail}}"
+    }
+}

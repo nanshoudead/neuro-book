@@ -12,12 +12,15 @@ import type {Ref} from "@vue/reactivity";
 import {Type} from "typebox";
 
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import {defineRemoteService} from "@notnotype/nb-runtime/remote";
+import {textRef} from "@notnotype/nb-ui/text";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {settingsWorld} from "nbook/plugins/settings/testing/world";
 import type {SettingsWorld, WorldWindow} from "nbook/plugins/settings/testing/world";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
+import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import {COMMANDS_POINT, commandServiceKey, commandsRemoteContract} from "./contracts";
 import type {CommandDeclaration} from "./contracts";
@@ -165,11 +168,58 @@ describe("Spec workbench.commands 场景 14：两个窗口的状态不同", () =
     });
 });
 
+describe("Spec workbench.commands“跨实例列出与执行”：失败原因是文字引用", () => {
+    /** 窗口里的一条命令，失败原因是本插件目录里的文字引用（浏览器里的命令就这样写）。 */
+    const blocked: PluginDefinition = {
+        id: "example.blocked",
+        entries: [{
+            id: "browser",
+            location: "browser",
+            activationEvents: ["onStartup"],
+            contributions: [{capability: COMMANDS_POINT, id: "example.blocked.go", declaration: declaration()}],
+            activate: () => ({contributions: {[COMMANDS_POINT]: {"example.blocked.go": {run: () => ({ok: false, code: "unavailable", reason: textRef("reasons.blocked", {name: "甲"}, "example.blocked")})}}}}),
+        }],
+    };
+
+    it("服务端拿到的原因是窗口按此刻的语言翻好的字符串，窗口切换语言后随之换；窗口没有翻译引擎时是键名", async () => {
+        counter += 1;
+        const agent = caller("example.agent", "server");
+        const world = await settingsWorld(join(tmp, `case-${String(counter)}`), [agent.plugin]);
+        worlds.push(world);
+        const text = createHostTextEngine({locale: "zh-CN", strict: true});
+        text.register("example.blocked", {"zh-CN": {reasons: {blocked: "{{name}} 被挡住了"}}, "en-US": {reasons: {blocked: "{{name}} is blocked"}}}, "zh-CN");
+        await world.window("with-text", [statePlugin, commandsPlugin, blocked], {bound: false, text});
+        await world.window("without-text", [statePlugin, commandsPlugin, blocked], {bound: false});
+        const remote = agent.remote().use(commandsRemoteContract);
+
+        expect(await remote.at({client: "with-text"}).execute({id: "example.blocked.go"})).toEqual({ok: true, value: {ok: false, code: "unavailable", reason: "甲 被挡住了"}});
+        text.setLocale("en-US");
+        expect(await remote.at({client: "with-text"}).execute({id: "example.blocked.go"})).toEqual({ok: true, value: {ok: false, code: "unavailable", reason: "甲 is blocked"}});
+        expect(await remote.at({client: "without-text"}).execute({id: "example.blocked.go"})).toEqual({ok: true, value: {ok: false, code: "unavailable", reason: "reasons.blocked"}});
+    });
+});
+
 describe("Spec workbench.commands“跨实例调用失败”", () => {
     it("窗口不在为 target-gone；执行的帧发出后窗口断线为 unknown-outcome；浏览器实例调用为 denied", async () => {
         const {agent, peer} = await setup();
         expect(await agent.remote().use(commandsRemoteContract).at({client: "nobody"}).list({})).toMatchObject({ok: false, code: "target-gone"});
         expect(await agent.remote().use(commandsRemoteContract).at({client: "browser-b"}).execute({id: "example.tools.leave"})).toMatchObject({ok: false, code: "unknown-outcome"});
         expect(await peer.remote().use(commandsRemoteContract).at({client: "browser-a"}).list({})).toMatchObject({ok: false, code: "denied"});
+    });
+    it("合同版本 2：仍按版本 1 调用的一方得到 version-changed 与提供方的版本；版本 2 的列表带着声明原样的标题与分类", async () => {
+        const {agent} = await setup();
+        // 版本 1 的调用方：同一 id，`list` 的输出还是中英两份的标题、没有分类。
+        const v1 = defineRemoteService({
+            id: commandsRemoteContract.id,
+            version: 1,
+            provider: "client",
+            callers: ["server"],
+            methods: {list: {input: Type.Object({}, {additionalProperties: false}), output: Type.Array(Type.Unknown()), effect: "read"}},
+        });
+        expect(await agent.remote().use(v1).at({client: "browser-a"}).list({})).toMatchObject({ok: false, code: "version-changed"});
+
+        const listed = await agent.remote().use(commandsRemoteContract).at({client: "browser-a"}).list({});
+        if (!listed.ok) throw new Error(`列出失败：${listed.code}`);
+        expect(listed.value.find((command) => command.id === "example.tools.go")).toMatchObject({title: {"zh-CN": "动手", "en-US": "Go"}, category: null});
     });
 });

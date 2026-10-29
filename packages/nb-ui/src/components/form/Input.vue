@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {computed} from "vue";
+import {useUiText} from "../../text-port";
 import {useFieldContext} from "./field-context";
 
 export type InputType = "text" | "search" | "password" | "number";
@@ -39,7 +40,6 @@ const props = withDefaults(defineProps<{
     disabled: false,
     readonly: false,
     invalid: false,
-    clearLabel: "清空输入",
     required: false,
     autofocus: false,
     autocomplete: "",
@@ -54,6 +54,8 @@ const emit = defineEmits<{
 }>();
 
 const field = useFieldContext();
+const text = useUiText();
+const clearText = computed(() => props.clearLabel ?? text("input.clear"));
 const isInvalid = computed(() => props.invalid || field?.invalid.value === true);
 
 const isSmall = computed(() => props.size === "sm");
@@ -109,7 +111,7 @@ function handleClear(): void {
             v-if="props.clearable && props.modelValue && !props.disabled && !props.readonly"
             type="button"
             class="i-lucide-x h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] hover:text-[var(--text-main)] cursor-pointer flex items-center justify-center self-center transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)]"
-            :aria-label="props.clearLabel"
+            :aria-label="clearText"
             @click="handleClear"
         />
         <div v-if="$slots.suffix" class="inline-flex items-center self-center shrink-0 leading-none">

@@ -2,15 +2,15 @@
  * 场地里的工作台替身：只拥有视图与状态栏条目两个贡献点，把交来的实现收进表，场景直接读条目的 `text()`、视图的 `load()`。
  * 场地不装真正的工作台（`nbook.workbench`）：它要页面与布局，Bun 里起不来。
  *
- * 替身与真实工作台的合同对齐在两处：贡献点 id 与要求实现，用产品里同一份常量；声明的校验用产品里同一份函数
- * （`shared/views.ts`、`shared/items.ts`），所以替身接受的声明，真实工作台也接受。
+ * 替身与真实工作台的合同对齐：两个贡献点直接用产品里同一份定义（`shared/views.ts`、`shared/items.ts`），id、要求实现、
+ * id 前缀、没写 `title` 时补约定键（docs/specs/ui/i18n.md 的“约定键”）与声明校验都相同，所以替身接受的声明，真实工作台也接受。
  */
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {ContributionHandle, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {itemValidator, WORKBENCH_STATUSBAR_ITEMS_POINT} from "nbook/plugins/workbench/shared/items";
-import {validateViewContribution, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/views";
+import {statusbarItemsPoint, WORKBENCH_STATUSBAR_ITEMS_POINT} from "nbook/plugins/workbench/shared/items";
+import {viewsPoint, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/views";
 import type {ItemImplementation, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
 
 export interface WorkbenchStandIn {
@@ -32,10 +32,7 @@ export function workbenchStandIn(): WorkbenchStandIn {
     return {
         definition: {
             id: "nbook.workbench",
-            contributionPoints: [
-                {id: WORKBENCH_VIEWS_POINT, implementation: "required", validate: validateViewContribution},
-                {id: WORKBENCH_STATUSBAR_ITEMS_POINT, implementation: "required", validate: itemValidator(WORKBENCH_STATUSBAR_ITEMS_POINT)},
-            ],
+            contributionPoints: [viewsPoint, statusbarItemsPoint],
             entries: [defineEntry({
                 id: "browser",
                 location: "browser",

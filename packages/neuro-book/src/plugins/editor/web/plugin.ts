@@ -11,10 +11,12 @@ import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform, menuImplementations, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
+import {COMMANDS_POINT, commandServiceKey, completeMenuItemDeclaration, currentKeyPlatform, menuImplementations, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
 import {dialectTable, MARKDOWN_DIALECTS_POINT, markdownKey} from "nbook/plugins/markdown/shared/contracts";
 import type {DialectDeclaration, MarkdownService} from "nbook/plugins/markdown/shared/contracts";
+import {diagnosticText} from "nbook/shared/localized-text";
+import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {breadcrumbsSetting, codeSettings, enablePreviewSetting, wrapTabsSetting} from "../shared/settings";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
@@ -26,8 +28,9 @@ import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
-import {CODE_EDITOR, documentCoordinatorKey, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT, EDITOR_PAGES_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT, MARKDOWN_EDITOR, validateEditorContribution, validateEditorPageContribution, validateEditorTabContextItem, validateEditorTitleItem, validateLanguageContribution} from "../shared/contracts";
+import {CODE_EDITOR, completeEditorDeclaration, completeEditorPageDeclaration, documentCoordinatorKey, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT, EDITOR_PAGES_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT, MARKDOWN_EDITOR, validateEditorContribution, validateEditorPageContribution, validateEditorTabContextItem, validateEditorTitleItem, validateLanguageContribution} from "../shared/contracts";
 import type {EditorImplementation, EditorTabContextItemDeclaration, EditorTitleItemDeclaration} from "../shared/contracts";
+import {editorText} from "../shared/text";
 import {editorLanguagesKey, LanguageRegistry, monacoLanguageImplementation} from "./code/languages";
 import {codeEditorOptionsKey} from "./code/options";
 import type {CodeEditorOptions} from "./code/options";
@@ -69,13 +72,13 @@ const INTENTS = {"save": SAVE_COMMAND, "close": CLOSE_COMMAND, "split-right": SP
 export const editorBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
     contributionPoints: [
-        {id: EDITOR_PAGES_POINT, implementation: "required", validate: validateEditorPageContribution, idPrefix: "plugin"},
+        {id: EDITOR_PAGES_POINT, implementation: "required", complete: completeEditorPageDeclaration, validate: validateEditorPageContribution, idPrefix: "plugin"},
         // 编辑区标题的菜单项只有声明，同工作台的菜单位置交空实现（docs/specs/workbench/menus.md）。
-        {id: EDITOR_TITLE_POINT, implementation: "required", validate: validateEditorTitleItem, idPrefix: "plugin"},
+        {id: EDITOR_TITLE_POINT, implementation: "required", complete: completeMenuItemDeclaration, validate: validateEditorTitleItem, idPrefix: "plugin"},
         // 标签右键的菜单项（输出 57）：同上，只有声明。
-        {id: EDITOR_TAB_CONTEXT_POINT, implementation: "required", validate: validateEditorTabContextItem, idPrefix: "plugin"},
+        {id: EDITOR_TAB_CONTEXT_POINT, implementation: "required", complete: completeMenuItemDeclaration, validate: validateEditorTabContextItem, idPrefix: "plugin"},
         // 编辑器（docs/specs/workbench/editor.md 输出 36）：内置的两个也声明在这里。
-        {id: EDITOR_EDITORS_POINT, implementation: "required", validate: validateEditorContribution, idPrefix: "plugin"},
+        {id: EDITOR_EDITORS_POINT, implementation: "required", complete: completeEditorDeclaration, validate: validateEditorContribution, idPrefix: "plugin"},
         // 语言（输出 43）：源码编辑器（Monaco）自带的也声明在这里。
         {id: EDITOR_LANGUAGES_POINT, implementation: "required", validate: validateLanguageContribution},
     ],
@@ -83,7 +86,7 @@ export const editorBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: markdownKey}, {key: windowRescueKey, required: false}, {key: quickPickKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: markdownKey}, {key: windowRescueKey, required: false}, {key: quickPickKey, required: false}, {key: windowTextKey, required: false}],
         provides: [documentCoordinatorKey],
         receives: [EDITOR_PAGES_POINT, EDITOR_TITLE_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT],
         contributions: [
@@ -101,7 +104,7 @@ export const editorBrowserPlugin: PluginDefinition = {
             const storage = context.services.require(storageKey);
             const settings = context.services.require(settingsKey);
             const project = context.services.require(windowProjectKey).project;
-            const locale = computed(() => displayLocale(settings));
+            const text = await windowTextPort(context.services, () => displayLocale(settings));
             const codeOptions = computed((): CodeEditorOptions => ({
                 fontFamily: settings.get(codeSettings["code.fontFamily"]),
                 fontSize: settings.get(codeSettings["code.fontSize"]),
@@ -118,11 +121,11 @@ export const editorBrowserPlugin: PluginDefinition = {
             const builtins = builtinComponents(context.services.require(markdownKey));
             const editors = new EditorRegistry(context.declarations, builtins);
             const languages = new LanguageRegistry(context.declarations, (error, language) => {
-                diagnostics.record({level: "error", event: "editor.language", message: `语言 ${language} 的规则加载失败，按纯文本显示：${error instanceof Error ? error.message : String(error)}`, error, data: {language}, source: {plugin: descriptor.id}});
+                diagnostics.record({level: "error", event: "editor.language", message: `Rules for language ${language} failed to load; showing it as plain text: ${error instanceof Error ? error.message : String(error)}`, error, data: {language}, source: {plugin: descriptor.id}});
             });
             const session = createEditorSession({
                 editors: editors.catalog,
-                conflict: (address, ids) => diagnostics.record({level: "warn", event: "editor.editors.conflict", message: `${address} 有 ${String(ids.length)} 个默认编辑器同级命中，取 ${ids[0] ?? ""}`, data: {address, editors: ids}, source: {plugin: descriptor.id}}),
+                conflict: (address, ids) => diagnostics.record({level: "warn", event: "editor.editors.conflict", message: `${address} matches ${String(ids.length)} default editors at the same level; using ${ids[0] ?? ""}`, data: {address, editors: ids}, source: {plugin: descriptor.id}}),
                 files: context.services.require(filesKey),
                 clock: context.services.require(clockKey),
                 project,
@@ -132,7 +135,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                 report,
             });
             context.signal.addEventListener("abort", () => session.dispose(), {once: true});
-            const pages = new EditorPageRegistry(context.declarations, () => locale.value);
+            const pages = new EditorPageRegistry(context.declarations);
             // 页面组件收到的上下文：最近打开随记录变化（reactive 把 computed 拆成值）。
             const pageContext = reactive({recent: computed(() => session.recent?.state.recent.display.addresses ?? [])});
 
@@ -146,12 +149,12 @@ export const editorBrowserPlugin: PluginDefinition = {
                     if (area === null || done) return;
                     done = true;
                     if (project === null || !request.address.startsWith("project://")) {
-                        area.notify(`不能打开 ${request.address}：继续写作只能打开项目里的文件`);
-                        diagnostics.record({level: "warn", event: "editor.continue", message: `地址参数指向的不是项目里的资源：${request.address}`, source: {plugin: descriptor.id}});
+                        area.notify(editorText("notice.continueOutsideProject", {address: request.address}));
+                        diagnostics.record({level: "warn", event: "editor.continue", message: `The address parameter does not point to a project resource: ${request.address}`, source: {plugin: descriptor.id}});
                         return;
                     }
                     const opened = area.open(request.address, {mode: "permanent", ...(request.reveal === null ? {} : {reveal: request.reveal})});
-                    if (!opened.ok) diagnostics.record({level: "warn", event: "editor.continue", message: `按地址参数打开失败：${opened.reason}`, source: {plugin: descriptor.id}});
+                    if (!opened.ok) diagnostics.record({level: "warn", event: "editor.continue", message: `Opening the address parameter failed: ${diagnosticText(opened.reason)}`, source: {plugin: descriptor.id}});
                 }, {immediate: true});
                 if (done) stop();
                 else context.signal.addEventListener("abort", () => stop(), {once: true});
@@ -166,7 +169,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                         if (opened.has(id)) continue;
                         opened.add(id);
                         const result = session.area.value?.openPage(id);
-                        if (result !== undefined && !result.ok) diagnostics.record({level: "warn", event: "editor.page", message: `自动打开页面 ${id} 失败：${result.reason}`, source: {plugin: descriptor.id}});
+                        if (result !== undefined && !result.ok) diagnostics.record({level: "warn", event: "editor.page", message: `Opening page ${id} automatically failed: ${diagnosticText(result.reason)}`, source: {plugin: descriptor.id}});
                     }
                 }, {immediate: true});
                 context.signal.addEventListener("abort", () => stopFirst(), {once: true});
@@ -190,7 +193,7 @@ export const editorBrowserPlugin: PluginDefinition = {
 
             const execute = (command: string): void => {
                 void commands.execute(command, {}, {source: "user"}).then((result) => {
-                    if (!result.ok) diagnostics.record({level: "warn", event: "editor.command", message: `${command} 执行失败：${result.reason}`, source: {plugin: descriptor.id}});
+                    if (!result.ok) diagnostics.record({level: "warn", event: "editor.command", message: `${command} failed: ${diagnosticText(result.reason)}`, source: {plugin: descriptor.id}});
                 });
             };
             // 空编辑组的提示：命令增减不经响应式通知，记一个版本号在渲染时读，命令有增减就重算；可用性读公开状态，渲染时求值即可。
@@ -202,7 +205,7 @@ export const editorBrowserPlugin: PluginDefinition = {
             const platform = currentKeyPlatform();
             const tips = () => {
                 void commandsVersion.value;
-                return emptyTips(commands, locale.value, platform);
+                return emptyTips(commands, text, platform);
             };
             const titleItems = new MenuItemRegistry(context.declarations.list<EditorTitleItemDeclaration>(EDITOR_TITLE_POINT), context.signal);
             const tabMenuItems = new MenuItemRegistry(context.declarations.list<EditorTabContextItemDeclaration>(EDITOR_TAB_CONTEXT_POINT), context.signal);
@@ -214,13 +217,13 @@ export const editorBrowserPlugin: PluginDefinition = {
                 items: () => tabMenuItems.items(),
                 platform,
                 copy: (tab, relative) => copyTabPath(commandSources, tab, relative),
-                report: (action, reason) => diagnostics.record({level: "warn", event: "editor.tab-menu", message: `标签菜单的 ${action} 没有完成：${reason}`, data: {action}, source: {plugin: descriptor.id}}),
+                report: (action, reason) => diagnostics.record({level: "warn", event: "editor.tab-menu", message: `Tab menu action ${action} did not complete: ${reason}`, data: {action}, source: {plugin: descriptor.id}}),
             });
             // 命令增减不经响应式通知：菜单在渲染时读一次版本号（同标题动作）。
             const tabMenu = {
                 entries: (tabId: string) => {
                     void commandsVersion.value;
-                    return tabMenuModel.entries(tabId, locale.value);
+                    return tabMenuModel.entries(tabId, text);
                 },
                 identity: (tabId: string) => tabMenuModel.identity(tabId),
             };
@@ -228,7 +231,7 @@ export const editorBrowserPlugin: PluginDefinition = {
             // 命令增减不经响应式通知：标题动作在渲染与组的 computed 里求值时都读一次版本号。
             const titleActions = () => {
                 void commandsVersion.value;
-                const current = titles.current(locale.value);
+                const current = titles.current(text);
                 return current === null ? null : {...current, model: (maxButtons: number) => {
                     void commandsVersion.value;
                     return current.model(maxButtons);
@@ -244,7 +247,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                         setup: () => {
                             provideToChildren(editorLanguagesKey, languages);
                             provideToChildren(codeEditorOptionsKey, codeOptions);
-                            return () => (session.area.value === null ? null : h(EditorArea, {area: session.area.value, locale: locale.value, control, pages: pages.source(pageContext), emptyTips: tips(), titleActions: titleActions(), tabMenu, wrapTabs: settings.get(wrapTabsSetting), breadcrumbs: settings.get(breadcrumbsSetting), workTitle: project?.title ?? null, onTabMenu: (tabId: string, key: string) => {
+                            return () => (session.area.value === null ? null : h(EditorArea, {area: session.area.value, control, pages: pages.source(pageContext), emptyTips: tips(), titleActions: titleActions(), tabMenu, wrapTabs: settings.get(wrapTabsSetting), breadcrumbs: settings.get(breadcrumbsSetting), workTitle: project?.title ?? null, onTabMenu: (tabId: string, key: string) => {
                             session.area.value?.activeHandle.value?.flushPendingChange();
                             tabMenuModel.run(tabId, key);
                         }, onRunTip: execute, onTitleAction: (key: string) => {
@@ -269,7 +272,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                     [EDITOR_EDITORS_POINT]: {[MARKDOWN_EDITOR]: builtinImplementation(builtins, MARKDOWN_EDITOR), [CODE_EDITOR]: builtinImplementation(builtins, CODE_EDITOR)},
                     [EDITOR_LANGUAGES_POINT]: Object.fromEntries(MONACO_LANGUAGES.map((entry) => [entry.id, monacoLanguageImplementation(entry)])),
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
-                    [WORKBENCH_STATUSBAR_ITEMS_POINT]: editorStatusItems(session.area, locale, context.services.require(clockKey), languages, dialectTable(context.declarations.list<DialectDeclaration>(MARKDOWN_DIALECTS_POINT))),
+                    [WORKBENCH_STATUSBAR_ITEMS_POINT]: editorStatusItems(session.area, context.services.require(clockKey), languages, dialectTable(context.declarations.list<DialectDeclaration>(MARKDOWN_DIALECTS_POINT)), text),
                     [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(EDITOR_TITLEBAR_MENU_ITEMS),
                 },
             };

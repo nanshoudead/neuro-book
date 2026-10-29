@@ -23,7 +23,7 @@ import type {DeepReadonly, LayerInspection, SettingDefinition, SettingInspection
 
 import {settingsKey} from "./contracts";
 import {canonical, effectiveOf, supersedes, writeProblem} from "./layers";
-import type {DeclaredSetting, LayerEdit, LayerSnapshot, LayerTextPosition, LayerWriteResult} from "./layers";
+import type {AcceptedSetting, DeclaredSetting, LayerEdit, LayerSnapshot, LayerTextPosition, LayerWriteResult} from "./layers";
 
 export type LinkSubscribe =
     | {readonly ok: true; release(): void}
@@ -41,7 +41,7 @@ export interface LayerLink {
 export interface SettingsInstanceOptions {
     readonly layers: Readonly<Partial<Record<SettingLayer, LayerLink>>>;
     /** 已接受的声明；插件集合在实例的一生里不变（热插拔实现后改为随登记失效）。 */
-    readonly declarations: ReadonlyMap<string, DeclaredSetting>;
+    readonly declarations: ReadonlyMap<string, AcceptedSetting>;
     readonly clock: RuntimeClock;
     readonly firstSnapshotMs: number;
     /** 浏览器窗口的连接状态；没有时（服务端、项目实例）失败的层不重新订阅。 */
@@ -120,7 +120,7 @@ export function createSettingsInstance(options: SettingsInstanceOptions): Settin
             try {
                 registration.listener(changed);
             } catch (error) {
-                options.record("warn", "settings.listener.failed", "配置变化的监听出错", {keys: [...changed]}, error);
+                options.record("warn", "settings.listener.failed", "A settings change listener failed", {keys: [...changed]}, error);
             }
         }
     };
@@ -154,7 +154,7 @@ export function createSettingsInstance(options: SettingsInstanceOptions): Settin
     /** 层不可用时不再用它上一次的值：订阅已结束，之后的修改收不到，留着旧值会与别的实例分歧。 */
     const unavailable = (layer: SettingLayer, reason: string): void => {
         setState(layer, {status: "unavailable"});
-        options.record("warn", "settings.layer.unavailable", "配置层不可用，按默认值与其它层继续", {layer, reason});
+        options.record("warn", "settings.layer.unavailable", "Settings layer unavailable; continuing with defaults and the other layers", {layer, reason});
     };
 
     const connect = async (layer: SettingLayer, link: LayerLink): Promise<void> => {
@@ -184,7 +184,7 @@ export function createSettingsInstance(options: SettingsInstanceOptions): Settin
         }
         if (!result.ok) {
             connection.retry = result.retry;
-            unavailable(layer, `${result.code}：${result.detail}`);
+            unavailable(layer, `${result.code}: ${result.detail}`);
             firstDone(layer);
             return;
         }
@@ -197,7 +197,7 @@ export function createSettingsInstance(options: SettingsInstanceOptions): Settin
         connections.set(layer, connection);
         connection.cancelDeadline = options.clock.schedule(() => {
             if (connection.first) return;
-            unavailable(layer, `${String(options.firstSnapshotMs)} 毫秒内没有收到第一份快照`);
+            unavailable(layer, `No first snapshot within ${String(options.firstSnapshotMs)} ms`);
             firstDone(layer);
         }, options.firstSnapshotMs);
         void connect(layer, link);
@@ -237,6 +237,7 @@ export function createSettingsInstance(options: SettingsInstanceOptions): Settin
                     project: inspectLayer<T>("project", setting.key),
                 };
             },
+            declaration: (setting) => options.declarations.get(setting.key)?.declaration ?? null,
             onDidChange: (listener) => {
                 const registration: Registration = {listener};
                 listeners.add(registration);

@@ -31,7 +31,7 @@ async function setAutoInsert(value: boolean): Promise<void> {
 
 <template>
     <div class="sample-snippets">
-        <SettingsRow v-slot="row" :settings="settings" :setting="snippetsSettings.items" :layer="context.layer.value" locale="zh-CN" :project-title="context.projectTitle.value" wide>
+        <SettingsRow v-slot="row" :settings="settings" :setting="snippetsSettings.items" :layer="context.layer.value" :project-title="context.projectTitle.value" wide>
             <ul class="sample-snippets__list">
                 <li v-for="item in (row.value as ReadonlyArray<Snippet>)" :key="item.name" class="sample-snippets__item">
                     <span class="sample-snippets__name">{{ item.name }}</span>
@@ -40,7 +40,7 @@ async function setAutoInsert(value: boolean): Promise<void> {
             </ul>
             <Button size="sm" variant="secondary" icon-class="i-lucide-plus" :disabled="row.disabled" @click="add(row.value)">添加一条</Button>
         </SettingsRow>
-        <SettingsRow v-slot="row" :settings="settings" :setting="snippetsSettings.autoInsert" :layer="context.layer.value" locale="zh-CN" :project-title="context.projectTitle.value">
+        <SettingsRow v-slot="row" :settings="settings" :setting="snippetsSettings.autoInsert" :layer="context.layer.value" :project-title="context.projectTitle.value">
             <Switch :id="row.id" :model-value="row.value === true" :disabled="row.disabled" :aria-label="row.label" @update:model-value="setAutoInsert" />
         </SettingsRow>
     </div>

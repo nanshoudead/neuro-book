@@ -1,5 +1,5 @@
 ---
-标签: [state:local]
+标签: [state:local, state:inject]
 验证入口: PromptEditor
 别名: ["粘贴块", "Paste Block"]
 ---
@@ -28,3 +28,5 @@
 ## 数据
 
 节点属性见 `prompt-text.ts` 的 `PromptPasteBlockAttrs`；编辑器状态见 `prompt-editor-extensions.ts` 的 `PromptNodeContext`。没有 slot、emit 与 expose。
+
+`state:inject`：界面文字读 `PromptEditor` 提供的翻译端口（Tiptap 的 Vue 节点视图带着编辑器组件的 provide），与编辑器其它部分同一种语言（[README](../../README.md#界面文字)）。

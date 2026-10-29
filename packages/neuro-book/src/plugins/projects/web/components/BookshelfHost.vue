@@ -7,12 +7,11 @@ import {AlertDialog} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref} from "vue";
 
 import {OPEN_SETTINGS_COMMAND} from "nbook/plugins/settings/shared/contracts";
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
 import {projectCoverUrl} from "../../shared/cover";
 import {projectDisplayName} from "../../shared/shelf";
 import type {ShelfItem} from "../../shared/shelf";
+import {useProjectsText} from "../text";
 import type {LibraryInfo, ProjectInfoField, ShelfPage} from "../shelf-page";
 import BookshelfPage from "./BookshelfPage.vue";
 import PathPickerDialog from "./PathPickerDialog.vue";
@@ -24,19 +23,11 @@ defineOptions({name: "BookshelfHost"});
 
 const props = defineProps<{
     page: ShelfPage;
-    locale: DisplayLocale;
     /** 本页的设置窗口开着：书架右上角的齿轮画成按下。 */
     settingsOpen: boolean;
 }>();
 
-const TEXT = {
-    removeTitle: {"zh-CN": "从书架移除《{title}》？", "en-US": "Remove “{title}” from the shelf?"},
-    removeDescription: {"zh-CN": "只取消登记，不删除作品目录与其中的文件；以后可以再加入书架。", "en-US": "Only the registration is removed; the folder and its files stay. You can add it back later."},
-    remove: {"zh-CN": "移除", "en-US": "Remove"},
-    cancel: {"zh-CN": "取消", "en-US": "Cancel"},
-} satisfies Record<string, LocalizedText>;
-
-const text = (value: LocalizedText): string => localize(value, props.locale);
+const text = useProjectsText();
 
 const shelf = ref<InstanceType<typeof BookshelfPage> | null>(null);
 /** 最近一次取到的作品目录：空书架的卡上写它，新建窗口从它开始。 */
@@ -179,7 +170,6 @@ async function confirmRemove(): Promise<void> {
 <template>
     <BookshelfPage
         ref="shelf"
-        :locale="locale"
         :status="page.status.value"
         :error="page.error.value"
         :items="page.items.value"
@@ -205,7 +195,6 @@ async function confirmRemove(): Promise<void> {
     />
     <ProjectInfoDialog
         v-model:location="infoLocation"
-        :locale="locale"
         :open="info !== null"
         :mode="info?.mode ?? 'create'"
         :initial="infoInitial"
@@ -216,7 +205,6 @@ async function confirmRemove(): Promise<void> {
         @browse-location="browseLocation"
     />
     <PathPickerDialog
-        :locale="locale"
         :open="picker !== null"
         :mode="picker?.mode ?? 'project'"
         :source="pickerSource"
@@ -228,10 +216,10 @@ async function confirmRemove(): Promise<void> {
     />
     <AlertDialog
         :open="confirmOpen"
-        :title="text(formatText(TEXT.removeTitle, {title: removing === null ? '' : projectDisplayName(removing)}))"
-        :description="text(TEXT.removeDescription)"
-        :confirm-text="text(TEXT.remove)"
-        :cancel-text="text(TEXT.cancel)"
+        :title="text('bookshelfHost.removeTitle', {title: removing === null ? '' : projectDisplayName(removing)})"
+        :description="text('bookshelfHost.removeDescription')"
+        :confirm-text="text('bookshelfHost.remove')"
+        :cancel-text="text('bookshelfHost.cancel')"
         tone="danger"
         @confirm="confirmRemove"
         @cancel="confirmOpen = false"

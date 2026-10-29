@@ -1,0 +1,42 @@
+{
+    "manifest": {
+        "description": "专注计时：写作时的番茄钟，演示设置项、命令、侧栏视图、状态栏条目、服务端远程服务与私有存储"
+    },
+    "settingsSections": {
+        "main": {
+            "title": "专注计时",
+            "groups": {
+                "timer": {
+                    "title": "计时"
+                }
+            }
+        }
+    },
+    "settings": {
+        "minutes": {
+            "title": "专注时长（分钟）",
+            "description": "下一次开始时生效；进行中的那次不变"
+        }
+    },
+    "commands": {
+        "start": {
+            "title": "专注计时：开始"
+        },
+        "cancel": {
+            "title": "专注计时：放弃"
+        },
+        "toggle": {
+            "title": "专注计时：开始或放弃"
+        }
+    },
+    "views": {
+        "panel": {
+            "title": "专注计时"
+        }
+    },
+    "statusItems": {
+        "status": {
+            "title": "专注计时"
+        }
+    }
+}

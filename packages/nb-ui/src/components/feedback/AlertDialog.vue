@@ -10,7 +10,8 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "reka-ui";
-import {ref, useSlots, watch} from "vue";
+import {computed, ref, useSlots, watch} from "vue";
+import {useUiText} from "../../text-port";
 import {useModalLayer} from "../../composables/useModalLayer";
 import {useTeleportTarget} from "../../composables/useTeleportTarget";
 import Button from "../controls/Button.vue";
@@ -29,12 +30,13 @@ const props = withDefaults(defineProps<{
 }>(), {
     open: undefined,
     defaultOpen: false,
-    title: "确认操作",
     description: "",
-    confirmText: "确定",
-    cancelText: "取消",
     tone: "danger",
 });
+const text = useUiText();
+const titleText = computed(() => props.title ?? text("alertDialog.title"));
+const confirmLabel = computed(() => props.confirmText ?? text("alertDialog.confirm"));
+const cancelLabel = computed(() => props.cancelText ?? text("alertDialog.cancel"));
 // 居中类浮层：宿主可以把它收进更近的目标（例如 Lab 的画布），见 useTeleportTarget。
 const teleportTo = useTeleportTarget(() => undefined);
 
@@ -95,7 +97,7 @@ function onCloseAutoFocus(event: Event): void {
                 <div class="flex flex-col gap-2">
                     <AlertDialogTitle class="nb-ui-dialog-title">
                         <slot name="title">
-                            {{ props.title }}
+                            {{ titleText }}
                         </slot>
                     </AlertDialogTitle>
 
@@ -109,13 +111,13 @@ function onCloseAutoFocus(event: Event): void {
                 <div class="nb-ui-dialog-footer mt-6 justify-end">
                     <AlertDialogCancel as-child @click="emit('cancel')">
                         <Button variant="secondary">
-                            {{ props.cancelText }}
+                            {{ cancelLabel }}
                         </Button>
                     </AlertDialogCancel>
 
                     <AlertDialogAction as-child @click="emit('confirm')">
                         <Button :variant="props.tone === 'danger' ? 'danger' : 'primary'">
-                            {{ props.confirmText }}
+                            {{ confirmLabel }}
                         </Button>
                     </AlertDialogAction>
                 </div>

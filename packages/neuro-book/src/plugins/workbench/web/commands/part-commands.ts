@@ -6,10 +6,11 @@
 
 import {Type} from "typebox";
 
-import type {CommandDeclaration, CommandImplementation, CommandResult} from "nbook/plugins/commands/shared/contracts";
-import type {LocalizedText} from "nbook/shared/localized-text";
+import type {CommandImplementation, CommandResult, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
+import type {DisplayText} from "nbook/shared/localized-text";
 
 import type {QuickPick} from "../../shared/contracts";
+import {workbenchText} from "../../shared/text";
 import type {LayoutStore} from "../state/layout-store";
 import {workbenchState} from "../state/public-state";
 
@@ -20,8 +21,7 @@ export type ToggleablePart = (typeof TOGGLEABLE_PARTS)[number];
 
 export const PART_COMMAND_DECLARATIONS = {
     [SET_PART_HIDDEN_COMMAND]: {
-        title: {"zh-CN": "切换区域显隐", "en-US": "Toggle Area Visibility"},
-        category: {"zh-CN": "视图", "en-US": "View"},
+        category: workbenchText("categories.view"),
         description: "Hide or show the sidebar, the auxiliary bar or the activity bar; showing also restores a dragged-closed area. Without a part, the user picks one; without hidden, toggles.",
         args: Type.Object({
             part: Type.Optional(Type.Union(TOGGLEABLE_PARTS.map((part) => Type.Literal(part)))),
@@ -31,19 +31,19 @@ export const PART_COMMAND_DECLARATIONS = {
         expose: {agent: "never"},
         when: {requires: [workbenchState.key("layoutReady")]},
     },
-} as const satisfies Readonly<Record<string, CommandDeclaration>>;
+} as const satisfies Readonly<Record<string, WrittenCommandDeclaration>>;
 
-const PART_LABELS: Readonly<Record<ToggleablePart, LocalizedText>> = {
-    sidebar: {"zh-CN": "侧栏", "en-US": "Sidebar"},
-    auxiliarybar: {"zh-CN": "右栏", "en-US": "Auxiliary Bar"},
-    activitybar: {"zh-CN": "活动栏", "en-US": "Activity Bar"},
+const PART_LABELS: Readonly<Record<ToggleablePart, DisplayText>> = {
+    sidebar: workbenchText("partCommands.parts.sidebar"),
+    auxiliarybar: workbenchText("partCommands.parts.auxiliarybar"),
+    activitybar: workbenchText("partCommands.parts.activitybar"),
 };
 
 const TEXT = {
-    visible: {"zh-CN": "显示中", "en-US": "shown"},
-    hidden: {"zh-CN": "已隐藏", "en-US": "hidden"},
-    placeholder: {"zh-CN": "选中后立即切换", "en-US": "Toggles immediately"},
-    noLayout: "工作台布局没有打开（这个窗口没有显示外壳）",
+    visible: workbenchText("partCommands.visible"),
+    hidden: workbenchText("partCommands.hidden"),
+    placeholder: workbenchText("partCommands.placeholder"),
+    noLayout: workbenchText("layout.notOpen"),
 } as const;
 
 const DONE: CommandResult<null> = {ok: true, value: null};
@@ -58,7 +58,7 @@ export function partCommands(layout: () => LayoutStore | null, quickPick: QuickP
                 let part = given.part;
                 if (part === undefined) {
                     const picked = await quickPick.pick({
-                        title: PART_COMMAND_DECLARATIONS[SET_PART_HIDDEN_COMMAND].title,
+                        title: workbenchText("commands.nbook.view.set-part-hidden.title"),
                         placeholder: TEXT.placeholder,
                         items: TOGGLEABLE_PARTS.map((id) => ({id, label: PART_LABELS[id], detail: store.actions.partVisible(id) ? TEXT.visible : TEXT.hidden})),
                     });

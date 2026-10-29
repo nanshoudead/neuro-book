@@ -3,14 +3,20 @@
  */
 
 import {mount} from "@vue/test-utils";
+import {nextTick, ref} from "vue";
 import {describe, expect, it} from "vitest";
 
+import {createMinimalTranslator} from "@notnotype/nb-ui/text/minimal";
+import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
+import type {TextPort} from "@notnotype/nb-ui/text-port";
+
+import {NB_MARKDOWN_CATALOGS, NB_MARKDOWN_NAMESPACE} from "../locales";
 import {classifyScheme} from "../targets";
 import type {ChipEnv} from "./chip";
 import InlineChip from "./InlineChip.vue";
 
 type ChipProps = InstanceType<typeof InlineChip>["$props"];
-const chip = (props: Omit<ChipProps, "locale"> & {readonly locale?: ChipProps["locale"]}) => mount(InlineChip, {props: {locale: "zh-CN", ...props}});
+const chip = (props: ChipProps) => mount(InlineChip, {props});
 
 describe("InlineChip", () => {
     it("引用按宿主的目标分类取图标（方言 Spec 输出 27）：文件用宿主画的文件图标、色调按细分，附件、外部、其它各有图标", () => {
@@ -48,10 +54,14 @@ describe("InlineChip", () => {
         expect(failed.attributes("title")).toBe("图片 #1，上传失败：太大");
     });
 
-    it("界面语言换了，提示跟着换", async () => {
-        const wrapper = chip({kind: "skill", label: "reviewer"});
+    it("提示按注入的翻译端口取；端口换了语言，提示跟着换", async () => {
+        const translator = createMinimalTranslator({catalogs: {[NB_MARKDOWN_NAMESPACE]: NB_MARKDOWN_CATALOGS}, strict: true});
+        const locale = ref("zh-CN");
+        const port: TextPort = {locale, t: (text) => translator.translate(text, locale.value), variants: (text) => translator.variants(text)};
+        const wrapper = mount(InlineChip, {props: {kind: "skill", label: "reviewer"}, global: {provide: {[TEXT_PORT_KEY as symbol]: port}}});
         expect(wrapper.attributes("title")).toBe("技能：reviewer");
-        await wrapper.setProps({locale: "en-US"});
+        locale.value = "en-US";
+        await nextTick();
         expect(wrapper.attributes("title")).toBe("Skill: reviewer");
     });
 

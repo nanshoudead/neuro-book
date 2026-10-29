@@ -125,4 +125,20 @@ describe("浏览器引导接口", () => {
         expect(browserBootstrap([builtin], [{...installed, version: "1.0.1", manifest: {...raw, version: "1.0.1"}}], rpc).revision).not.toBe(body.revision);
         expect(browserBootstrap([builtin], [{...installed, digest: "fedcba9876543210"}], rpc).revision).not.toBe(body.revision);
     });
+
+    it("目录索引列出全部写了 l10n 的第三方插件，包括不在浏览器登记的；只有后端入口的插件的目录变化也改变修订号", () => {
+        const builtin: PluginDescriptor = {id: "nbook.a", version: "0.1.0", locations: ["browser"]};
+        const raw = {publisher: "example", name: "worker", version: "1.0.0", engines: {neurobook: ">=0.1.0"}, entries: {server: {location: "server", main: "server.js"}}, l10n: {source: "en-US", locales: ["en-US", "zh-CN"]}};
+        const worker = {id: "example.worker", version: "1.0.0", root: "/state/plugins/example.worker/1.0.0", digest: "0123456789abcdef", manifest: raw};
+        const plain = {id: "example.plain", version: "1.0.0", root: "/state/plugins/example.plain/1.0.0", digest: "1111111111111111", manifest: {publisher: "example", name: "plain", version: "1.0.0", engines: {neurobook: ">=0.1.0"}}};
+        const rpc = {port: 4100, path: "/"};
+        const body = browserBootstrap([builtin], [worker, plain], rpc);
+        expect(Value.Check(BrowserBootstrapSchema, body)).toBe(true);
+        expect(body.plugins).toEqual([{id: "nbook.a", version: "0.1.0"}]);
+        expect(body.catalogs).toEqual([{plugin: "example.worker", source: "en-US", locales: ["en-US", "zh-CN"], digest: "0123456789abcdef", prefix: "/api/runtime/plugins/example.worker/catalogs/0123456789abcdef/"}]);
+        expect(browserBootstrap([builtin], [plain, worker], rpc).revision).toBe(body.revision);
+        expect(browserBootstrap([builtin], [{...worker, digest: "fedcba9876543210"}, plain], rpc).revision).not.toBe(body.revision);
+        expect(browserBootstrap([builtin], [{...worker, manifest: {...raw, l10n: {source: "en-US", locales: ["en-US"]}}}, plain], rpc).revision).not.toBe(body.revision);
+        expect(browserBootstrap([builtin], [plain], rpc).revision).not.toBe(body.revision);
+    });
 });

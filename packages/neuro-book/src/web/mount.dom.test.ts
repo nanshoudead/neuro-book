@@ -24,7 +24,7 @@ import {createBrowserWindow} from "./host/window";
 import {mountWindowUi} from "./mount";
 import {browserPluginDefinitions, builtinBrowserPlugins} from "./plugins";
 
-const bootstrapOf = (plugins: ReadonlyArray<PluginDescriptor>) => ({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: {port: 1, path: "/"}, revision: "r", plugins: plugins.map(({id, version}) => ({id, version}))});
+const bootstrapOf = (plugins: ReadonlyArray<PluginDescriptor>) => ({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: {port: 1, path: "/"}, revision: "r", plugins: plugins.map(({id, version}) => ({id, version})), catalogs: []});
 
 /**
  * 服务端一侧：真实的内核路由，一个路由代表一个服务端进程（各有自己的 boot）。RPC 链路用内核的进程内链路（与
@@ -50,6 +50,10 @@ function connection(plugins: ReadonlyArray<PluginDescriptor>, failures = 0, serv
             server.current.accept(pair.right);
             links.push(pair.left);
             return pair.left;
+        },
+        // 引导的目录索引为空，窗口不会来取；取了说明索引变了，照服务端没有这份目录回答。
+        async catalog() {
+            throw new ConnectionError("没有这份消息目录", 404);
         },
     };
 }

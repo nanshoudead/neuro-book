@@ -56,7 +56,7 @@ import {agentConversationViewScenes} from "./view.scenes";
 
 type SubjectName = Parameters<typeof import("./host")["agentSubject"]>[0];
 
-/** 渲染层的公开组件，包上 Lab 的宿主（语言、Markdown 与编辑器）。 */
+/** 渲染层的公开组件，包上 Lab 的宿主（翻译端口、Markdown 与编辑器）。 */
 function agentSubject(name: SubjectName): () => Promise<{default: Component}> {
     return async () => (await import("./host")).agentSubject(name);
 }
@@ -66,16 +66,16 @@ export const nbAgentUiFixtures: LabFixture[] = [
         component: "AgentConversationView", scenes: agentConversationViewScenes,
         load: async () => (await import("./AgentConversationViewFixture.vue")).default,
     }),
-    // 会话列表挂在视图之外，不 inject，直接从公开入口取，不经 host.ts 的包装。
+    // 会话列表挂在视图之外，从公开入口取，不经 host.ts 的包装；只套一层按场景 `locale` 建的翻译端口（`agent-text.ts`）。
     defineSubjectFixture<typeof AgentSessionList>({
         component: "AgentSessionList", scenes: agentSessionListScenes, class: "h-[480px] w-[280px]",
-        subject: async () => ({default: (await import("@notnotype/nb-agent-ui/vue")).AgentSessionList}),
+        subject: async () => ({default: (await import("./agent-text")).withAgentSceneText((await import("@notnotype/nb-agent-ui/vue")).AgentSessionList)}),
         events: ["action"],
     }),
-    // 目录对话框也不 inject（语言走 prop），直接从公开入口取；它渲染到 body，根是传送门。
+    // 目录对话框同样从公开入口取、套一层场景的翻译端口；它渲染到 body，根是传送门。
     defineSubjectFixture<typeof AgentModelCatalog>({
         component: "AgentModelCatalog", scenes: agentModelCatalogScenes, rootless: true,
-        subject: async () => ({default: (await import("@notnotype/nb-agent-ui/vue")).AgentModelCatalog}),
+        subject: async () => ({default: (await import("./agent-text")).withAgentSceneText((await import("@notnotype/nb-agent-ui/vue")).AgentModelCatalog)}),
         events: ["update:open", "pick", "add-provider"],
         writeBack: {"update:open": {layer: "model", key: "open"}},
     }),

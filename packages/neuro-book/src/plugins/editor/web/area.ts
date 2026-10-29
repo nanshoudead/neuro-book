@@ -12,8 +12,10 @@ import type {ComputedRef, Ref, ShallowRef} from "@vue/reactivity";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
 import type {FilesResult, FilesService, Listing} from "nbook/plugins/files/shared/contracts";
+import type {DisplayText} from "nbook/shared/localized-text";
 
 import {CODE_EDITOR} from "../shared/contracts";
+import {editorText} from "../shared/text";
 import type {BytesEditorBinding, EditorBinding, EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../shared/contracts";
 import {createDocumentStore} from "./documents/store";
 import type {DocumentReference, DocumentStore, TextDocument} from "./documents/store";
@@ -59,13 +61,17 @@ export interface EditorAreaOptions {
     readonly enablePreview?: () => boolean;
 }
 
-export type ActionResult = {readonly ok: true} | {readonly ok: false; readonly reason: string};
+/**
+ * 动作的结果。`reason` 是文字值（多为 `nbook.editor` 目录里的文字引用），由显示它的一方（菜单、通知）经翻译端口按当前语言
+ * 翻译：编辑器区是纯 TS、测试直接创建，不收翻译器。
+ */
+export type ActionResult = {readonly ok: true} | {readonly ok: false; readonly reason: DisplayText};
 
 /** 批量关闭的结果（输出 51）：`closed` 是关掉的个数，停下时 `reason` 写明停在哪个文件、为什么。 */
-export type BatchCloseResult = {readonly ok: true; readonly closed: number} | {readonly ok: false; readonly closed: number; readonly reason: string};
+export type BatchCloseResult = {readonly ok: true; readonly closed: number} | {readonly ok: false; readonly closed: number; readonly reason: DisplayText};
 
 /** 打开成功时给出标签 id：继续写作的定位绑定到这个标签。 */
-export type OpenResult = {readonly ok: true; readonly tabId: string} | {readonly ok: false; readonly reason: string};
+export type OpenResult = {readonly ok: true; readonly tabId: string} | {readonly ok: false; readonly reason: DisplayText};
 
 export interface EditorArea {
     readonly documents: DocumentStore;
@@ -101,8 +107,8 @@ export interface EditorArea {
     focusBreadcrumbs(): ActionResult;
     readonly focused: ShallowRef<boolean>;
     readonly dialog: Readonly<ShallowRef<CloseDialog | null>>;
-    /** 组顶部的一行提示（例如换文档前有未裁决输入）；没有为 null。 */
-    readonly notice: Readonly<ShallowRef<string | null>>;
+    /** 组顶部的一行提示（例如换文档前有未裁决输入）；没有为 null。文字值，显示时经翻译端口翻译。 */
+    readonly notice: Readonly<ShallowRef<DisplayText | null>>;
     /** `reveal: "end"`：文档就绪、控件交出句柄后把光标放到末尾（输出 29）；在此之前切走即取消。 */
     /** `group`：编辑组 id，或 `"side"`（活动组右侧的组，没有就向右新建一个）；缺省活动组（docs/specs/workbench/editor.md 输出 35）。 */
     open(address: string, options: {readonly mode: "preview" | "permanent"; readonly editor?: string; readonly reveal?: "end"; readonly group?: string}): OpenResult;
@@ -149,7 +155,7 @@ export interface EditorArea {
     registerHandle(groupId: string, editor: string, handle: EditorControlHandle | null): void;
     dismissNotice(): void;
     /** 在组顶部显示一行提示（例如地址参数指向的不是项目里的资源）。 */
-    notify(text: string): void;
+    notify(text: DisplayText): void;
     /** 离开页面前：结算全部视图输入，有需要结算的文档时为真。 */
     needsLeaveConfirm(): boolean;
     /** 布局尺寸变了（拖动分隔条）：记下会话。 */
@@ -176,7 +182,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     const recent = new Map<string, string[]>();
     const handles = shallowRef(new Map<string, EditorControlHandle>());
     const dialog = shallowRef<CloseDialog | null>(null);
-    const notice = shallowRef<string | null>(null);
+    const notice = shallowRef<DisplayText | null>(null);
     const focused = shallowRef(false);
     let answerDialog: ((choice: CloseChoice) => void) | null = null;
     let nextToken = 0;
@@ -481,7 +487,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     }, (state) => {
         if (state === null) return;
         pendingReveal.value = null;
-        if (state.outcome === "failed" && state.reveal === "end") notice.value = `上次编辑的片段已不在原处：${state.address}`;
+        if (state.outcome === "failed" && state.reveal === "end") notice.value = editorText("notice.lastEditMissing", {address: state.address});
         if (state.outcome !== "ready") return;
         const leavesAtReady = leaves;
         options.clock.schedule(() => {
@@ -506,8 +512,12 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         if (current.document.blocked.value.has(current.binding.token)) return "unrepresentable";
         return null;
     };
-    /** `leave` 不让换时给调用方的理由。 */
-    const refusal = (groupId: string, who: "当前视图" | "目标组"): string => (holding(groupId) === "unrepresentable" ? `${who}有一块写不回 Markdown` : `${who}有未裁决的输入`);
+    /** `leave` 不让换时给调用方的理由：`who` 是不让换的那一组相对这次动作的位置。 */
+    const refusal = (groupId: string, who: "current" | "target"): DisplayText => {
+        const unrepresentable = holding(groupId) === "unrepresentable";
+        if (who === "current") return editorText(unrepresentable ? "refusal.currentUnrepresentable" : "refusal.currentUnresolved");
+        return editorText(unrepresentable ? "refusal.targetUnrepresentable" : "refusal.targetUnresolved");
+    };
 
     /** 换文档前结算活动视图的输入；它有未裁决输入或写不出时不换。 */
     const leave = (groupId: string): boolean => {
@@ -515,8 +525,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         if (current === undefined) return true;
         documents.settle(current.document);
         const held = holding(groupId);
-        if (held === "unresolved") notice.value = "有未裁决的输入：先在组顶部选择采用当前正文或保留本视图的内容";
-        if (held === "unrepresentable") notice.value = "这个视图有一块写不回 Markdown：先在组顶部定位并修改它，或采用当前正文";
+        if (held === "unresolved") notice.value = editorText("notice.unresolved");
+        if (held === "unrepresentable") notice.value = editorText("notice.unrepresentable");
         return held === null;
     };
 
@@ -528,14 +538,14 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
      */
     const changeEditor = (tab: FileTab, groupId: string, editor: string): ActionResult => {
         // 释放之后组模型还在：不再为它取新的文件引用（会开出没人释放的订阅）。
-        if (disposed) return {ok: false, reason: "编辑器已关闭"};
+        if (disposed) return {ok: false, reason: editorText("refusal.disposed")};
         const before = readsText(tab);
         const after = editor !== BINARY_TAB_EDITOR && catalog.declaration(editor)?.input === "text";
         const reference = references.get(tab.id);
         if (before && !after && reference !== undefined) {
             documents.settle(reference.document);
             const others = groups.groups.value.some((group) => group.tabs.some((other) => other.id !== tab.id && other.address === tab.address && editable(other)));
-            if (!others && needsSettle(reference.document)) return {ok: false, reason: "有未保存的修改：先保存或放弃修改，再换成按字节显示的编辑器"};
+            if (!others && needsSettle(reference.document)) return {ok: false, reason: editorText("refusal.unsavedBeforeBytes")};
         }
         const closed = groups.setEditor(tab.id, editor);
         if (closed !== null) {
@@ -625,9 +635,9 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     let batchRunning = false;
     const unpinned = (tab: EditorTab): boolean => !(tab.kind === "file" && tab.pinned === true);
     const closeBatch = async (tabId: string, pick: (group: {readonly id: string; readonly tabs: ReadonlyArray<EditorTab>}, index: number) => ReadonlyArray<EditorTab>, eligible: (tab: EditorTab) => boolean = unpinned): Promise<BatchCloseResult> => {
-        if (batchRunning) return {ok: false, closed: 0, reason: "正在关闭编辑器"};
+        if (batchRunning) return {ok: false, closed: 0, reason: editorText("refusal.batchRunning")};
         const found = groups.find(tabId);
-        if (found === null) return {ok: false, closed: 0, reason: "标签已关闭"};
+        if (found === null) return {ok: false, closed: 0, reason: editorText("refusal.tabClosed")};
         const groupId = found.group.id;
         const targets = pick(found.group, found.group.tabs.findIndex((tab) => tab.id === tabId)).filter(eligible).map((tab) => tab.id);
         batchRunning = true;
@@ -639,8 +649,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
                 if (where === null || where.group.id !== groupId || !eligible(where.tab)) continue;
                 const outcome = await closeOne(id);
                 if (outcome === "closed") closed += 1;
-                else if (outcome === "cancelled") return {ok: false, closed, reason: `关了 ${String(closed)} 个，在 ${where.tab.address} 处取消`};
-                else if (outcome === "failed") return {ok: false, closed, reason: `关了 ${String(closed)} 个，${where.tab.address} 保存失败`};
+                else if (outcome === "cancelled") return {ok: false, closed, reason: editorText("refusal.batchCancelled", {count: closed, address: where.tab.address})};
+                else if (outcome === "failed") return {ok: false, closed, reason: editorText("refusal.batchSaveFailed", {count: closed, address: where.tab.address})};
             }
             return {ok: true, closed};
         } finally {
@@ -668,29 +678,29 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         if (tab.kind === "file" && reference !== undefined) dropSlot(slotKey(sourceGroup, tab.editor, reference.document));
     };
     const moveTab = async (tabId: string, place: TabPlace): Promise<ActionResult> => {
-        if (disposed) return {ok: false, reason: "编辑器已关闭"};
+        if (disposed) return {ok: false, reason: editorText("refusal.disposed")};
         const found = groups.find(tabId);
-        if (found === null) return {ok: false, reason: "标签已关闭"};
+        if (found === null) return {ok: false, reason: editorText("refusal.tabClosed")};
         const target = groups.groups.value.find((group) => group.id === place.group);
-        if (target === undefined) return {ok: false, reason: "编辑组已关闭"};
+        if (target === undefined) return {ok: false, reason: editorText("refusal.groupClosed")};
         const moving = found.tab;
         const twin = target.id === found.group.id || moving.kind !== "file" ? undefined : target.tabs.find((tab) => tab.kind === "file" && tab.address === moving.address && tab.editor === moving.editor);
         if (twin !== undefined) {
             // 目标组已有同一标签：激活它，再按关闭的规则关掉被移动的这个（只问它自己的未裁决输入）。
-            if (target.active !== twin.id && !leave(target.id)) return {ok: false, reason: refusal(target.id, "目标组")};
+            if (target.active !== twin.id && !leave(target.id)) return {ok: false, reason: refusal(target.id, "target")};
             groups.activate(twin.id);
             const outcome = await closeOne(tabId);
-            if (outcome !== "closed" && outcome !== "gone") return {ok: false, reason: outcome === "failed" ? "保存失败" : "已取消"};
+            if (outcome !== "closed" && outcome !== "gone") return {ok: false, reason: editorText(outcome === "failed" ? "refusal.saveFailed" : "refusal.cancelled")};
             // 关掉之后再把留下的那个放到落点（位置与固定区）；它已经在那里时不动。
             if (groups.find(twin.id)?.group.id === target.id) groups.moveTab(twin.id, place);
             focusActive();
             return {ok: true};
         }
-        if (found.group.active === tabId && target.id !== found.group.id && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "当前视图")};
-        if (target.active !== tabId && !leave(target.id)) return {ok: false, reason: refusal(target.id, "目标组")};
+        if (found.group.active === tabId && target.id !== found.group.id && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "current")};
+        if (target.active !== tabId && !leave(target.id)) return {ok: false, reason: refusal(target.id, "target")};
         const reference = references.get(tabId);
         const moved = groups.moveTab(tabId, place);
-        if (moved === null) return {ok: false, reason: "位置没有变化"};
+        if (moved === null) return {ok: false, reason: editorText("refusal.samePlace")};
         afterMove(found.group.id, target.id, moving, reference);
         focusActive();
         return {ok: true};
@@ -716,13 +726,13 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     }, {immediate: true}));
 
     const open: EditorArea["open"] = (address, given) => {
-        if (disposed) return {ok: false, reason: "编辑器已关闭"};
+        if (disposed) return {ok: false, reason: editorText("refusal.disposed")};
         const request = given.mode === "preview" && !previewEnabled() ? {...given, mode: "permanent" as const} : given;
-        if (pageIdOf(address) !== null) return {ok: false, reason: "页面用 nbook.editor.open-page 打开"};
-        if (request.group !== undefined && request.group !== "side" && !groups.groups.value.some((candidate) => candidate.id === request.group)) return {ok: false, reason: "编辑组已关闭"};
+        if (pageIdOf(address) !== null) return {ok: false, reason: editorText("refusal.pageAddress")};
+        if (request.group !== undefined && request.group !== "side" && !groups.groups.value.some((candidate) => candidate.id === request.group)) return {ok: false, reason: editorText("refusal.groupClosed")};
         // 只结算活动标签要换掉的那一组（同 `activate`）：目标组；侧边还没有组时要新建，没有要结算的。
         const target = request.group === "side" ? groups.rightOf(groups.activeGroup.value) : (request.group ?? groups.activeGroup.value);
-        if (target !== null && !leave(target)) return {ok: false, reason: refusal(target, target === groups.activeGroup.value ? "当前视图" : "目标组")};
+        if (target !== null && !leave(target)) return {ok: false, reason: refusal(target, target === groups.activeGroup.value ? "current" : "target")};
         if (request.editor !== undefined) {
             const refusal = editorRefusal(catalog, request.editor, address);
             if (refusal !== null) return {ok: false, reason: refusal};
@@ -757,7 +767,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         openPreview: (side) => {
             const tab = groups.activeTab();
             const editor = previewEditor();
-            if (tab === null || editor === null) return {ok: false, reason: "活动标签的文件没有预览"};
+            if (tab === null || editor === null) return {ok: false, reason: editorText("refusal.noPreview")};
             // 经普通的打开：本组（或右侧的组）已有它的预览视图时激活它。
             return open(tab.address, {mode: "permanent", editor, ...(side ? {group: "side"} : {})});
         },
@@ -786,7 +796,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         breadcrumbFocus,
         focusBreadcrumbs: () => {
             const tab = groups.activeTab();
-            if (tab === null || tab.kind === "page") return {ok: false, reason: "活动的不是文件标签"};
+            if (tab === null || tab.kind === "page") return {ok: false, reason: editorText("refusal.notFileTab")};
             breadcrumbFocus.value = {group: groups.activeGroup.value, seq: (breadcrumbFocus.value?.seq ?? 0) + 1};
             return {ok: true};
         },
@@ -795,45 +805,45 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         notice,
         open,
         openPage: (id) => {
-            if (disposed) return {ok: false, reason: "编辑器已关闭"};
+            if (disposed) return {ok: false, reason: editorText("refusal.disposed")};
             const address = pageAddress(id);
             const existing = groups.groups.value.flatMap((group) => group.tabs).find((tab) => tab.address === address);
             if (existing !== undefined) {
                 const found = groups.find(existing.id);
-                if (found !== null && found.group.active !== existing.id && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "当前视图")};
+                if (found !== null && found.group.active !== existing.id && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "current")};
                 groups.activate(existing.id);
                 return {ok: true, tabId: existing.id};
             }
-            if (!leave(groups.activeGroup.value)) return {ok: false, reason: refusal(groups.activeGroup.value, "当前视图")};
+            if (!leave(groups.activeGroup.value)) return {ok: false, reason: refusal(groups.activeGroup.value, "current")};
             pendingReveal.value = null;
             const tab = groups.openPage(address);
             return {ok: true, tabId: tab.id};
         },
         activate: (tabId) => {
             const found = groups.find(tabId);
-            if (found === null) return {ok: false, reason: "标签已关闭"};
-            if (found.group.active !== tabId && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "当前视图")};
+            if (found === null) return {ok: false, reason: editorText("refusal.tabClosed")};
+            if (found.group.active !== tabId && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "current")};
             groups.activate(tabId);
             return {ok: true};
         },
         keep: (tabId) => groups.keep(tabId),
         setPinned: (tabId, pinned) => {
             const found = groups.find(tabId);
-            if (found === null) return {ok: false, reason: "标签已关闭"};
-            if (found.tab.kind === "page") return {ok: false, reason: "页面标签不能固定"};
+            if (found === null) return {ok: false, reason: editorText("refusal.tabClosed")};
+            if (found.tab.kind === "page") return {ok: false, reason: editorText("refusal.pagePin")};
             groups.setPinned(tabId, pinned);
             return {ok: true};
         },
         moveTab,
         moveToNewGroup: (tabId, groupId, edge) => {
-            if (disposed) return {ok: false, reason: "编辑器已关闭"};
+            if (disposed) return {ok: false, reason: editorText("refusal.disposed")};
             const found = groups.find(tabId);
-            if (found === null) return {ok: false, reason: "标签已关闭"};
-            if (!groups.groups.value.some((group) => group.id === groupId)) return {ok: false, reason: "编辑组已关闭"};
-            if (found.group.active === tabId && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "当前视图")};
+            if (found === null) return {ok: false, reason: editorText("refusal.tabClosed")};
+            if (!groups.groups.value.some((group) => group.id === groupId)) return {ok: false, reason: editorText("refusal.groupClosed")};
+            if (found.group.active === tabId && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "current")};
             const reference = references.get(tabId);
             const moved = groups.moveToNewGroup(tabId, groupId, edge);
-            if (moved === null) return {ok: false, reason: "不能再拆分"};
+            if (moved === null) return {ok: false, reason: editorText("refusal.cannotSplit")};
             afterMove(found.group.id, moved.group, found.tab, reference);
             focusActive();
             return {ok: true};
@@ -852,13 +862,13 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         split: (direction, tabId) => {
             const active = groups.activeTab();
             const tab = tabId === undefined ? active : groups.find(tabId)?.tab ?? null;
-            if (tab === null) return {ok: false, reason: tabId === undefined ? "没有活动标签" : "标签已关闭"};
-            if (tab.kind === "page") return {ok: false, reason: "页面只开一个，不能拆分"};
+            if (tab === null) return {ok: false, reason: editorText(tabId === undefined ? "refusal.noActiveTab" : "refusal.tabClosed")};
+            if (tab.kind === "page") return {ok: false, reason: editorText("refusal.pageSplit")};
             const hadFocus = focused.value;
             // 控件在光标停下 1 秒或失焦时才交出光标：先让它交出这一刻的，拆出的标签才带着它。
             if (tab === active) activeHandle.value?.rememberCursor?.();
             const created = groups.split(tab.id, direction);
-            if (created === null) return {ok: false, reason: "不能再拆分"};
+            if (created === null) return {ok: false, reason: editorText("refusal.cannotSplit")};
             // 焦点在编辑器区时交给新组（新组是活动组）。
             if (hadFocus) focusActive();
             return {ok: true};
@@ -866,28 +876,28 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         reopenWith: (editor) => {
             const group = groups.activeGroup.value;
             const tab = groups.activeTab();
-            if (tab === null) return {ok: false, reason: "没有活动标签"};
-            if (tab.kind === "page") return {ok: false, reason: "页面不是文件，不能换编辑器"};
+            if (tab === null) return {ok: false, reason: editorText("refusal.noActiveTab")};
+            if (tab.kind === "page") return {ok: false, reason: editorText("refusal.pageEditor")};
             const unusable = editorRefusal(catalog, editor, tab.address);
             if (unusable !== null) return {ok: false, reason: unusable};
-            if (!leave(group)) return {ok: false, reason: refusal(group, "当前视图")};
+            if (!leave(group)) return {ok: false, reason: refusal(group, "current")};
             // 换成的编辑器在本组已有这个文件的标签：切过去，当前这个关掉并释放。
             return changeEditor(tab, group, editor);
         },
         reopenWithDefault: () => {
             const tab = groups.activeTab();
-            if (tab === null || tab.kind === "page") return {ok: false, reason: "没有活动的文件标签"};
+            if (tab === null || tab.kind === "page") return {ok: false, reason: editorText("refusal.noActiveFileTab")};
             const resolution = resolveEditor(catalog, tab.address);
             const editor = resolution.kind === "binary" ? BINARY_TAB_EDITOR : resolution.editor === tab.editor ? CODE_EDITOR : resolution.editor;
             return changeEditor(tab, groups.activeGroup.value, editor);
         },
         save: async () => {
             const document = activeDocument.value;
-            if (document === null) return {ok: false, reason: "没有活动文档"};
+            if (document === null) return {ok: false, reason: editorText("refusal.noActiveDocument")};
             const result = await documents.save(document);
             if (result.ok) return {ok: true};
             // 写不出（输出 61）：保存不发出写入，说明原因。
-            return {ok: false, reason: result.code === "unrepresentable" ? "有视图写不回 Markdown，没有保存：先在组顶部定位并修改，或采用当前正文" : result.code};
+            return {ok: false, reason: result.code === "unrepresentable" ? editorText("refusal.saveUnrepresentable") : result.code};
         },
         saveAll: async () => {
             const results = await documents.coordinator.save(["project://", "user://"]);
@@ -896,13 +906,13 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         },
         revert: async () => {
             const document = activeDocument.value;
-            if (document === null) return {ok: false, reason: "没有活动文档"};
+            if (document === null) return {ok: false, reason: editorText("refusal.noActiveDocument")};
             await documents.revert(document);
             return {ok: true};
         },
         overwrite: async () => {
             const document = activeDocument.value;
-            if (document === null) return {ok: false, reason: "没有活动文档"};
+            if (document === null) return {ok: false, reason: editorText("refusal.noActiveDocument")};
             const result = await documents.overwrite(document);
             return result.ok ? {ok: true} : {ok: false, reason: result.code};
         },

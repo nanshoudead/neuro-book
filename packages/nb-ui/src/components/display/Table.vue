@@ -1,4 +1,7 @@
 <script setup lang="ts" generic="Row extends object">
+import {computed} from "vue";
+
+import {useUiText} from "../../text-port";
 import Spinner from "../display/Spinner.vue";
 import EmptyState from "../display/EmptyState.vue";
 
@@ -25,7 +28,6 @@ const props = withDefaults(defineProps<{
     density?: TableDensity;
 }>(), {
     loading: false,
-    emptyText: "暂无数据",
     hoverable: true,
     density: "default",
 });
@@ -40,6 +42,9 @@ defineSlots<{
 } & {
     [name: `cell-${string}`]: (props: {row: Row; value: unknown; index: number}) => any;
 }>();
+
+const text = useUiText();
+const emptyTitle = computed(() => props.emptyText ?? text("table.empty"));
 
 function rowKeyOf(row: Row, index: number): string {
     if (props.rowKey) {
@@ -88,7 +93,7 @@ function cellPaddingClass(): string {
                 <tr v-else-if="props.rows.length === 0">
                     <td :colspan="props.columns.length">
                         <slot name="empty">
-                            <EmptyState :title="props.emptyText" />
+                            <EmptyState :title="emptyTitle" />
                         </slot>
                     </td>
                 </tr>

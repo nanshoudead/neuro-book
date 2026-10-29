@@ -12,16 +12,19 @@ import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 import type {RemoteProvision} from "@notnotype/nb-runtime/remote";
 import type {ContributionDescriptor, ContributionHandle, ContributionReceiver, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
+import {isTextRef, resolveLocaleMap} from "@notnotype/nb-ui/text";
+import type {Text} from "@notnotype/nb-ui/text";
 
 import {publicStateKey} from "nbook/plugins/state/shared/contracts";
 import type {PublicStateDeclaration, PublicStateService} from "nbook/plugins/state/shared/contracts";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import {textOf} from "nbook/shared/localized-text";
+import type {DisplayLocale, TextResolver} from "nbook/shared/localized-text";
+import {windowTextKey} from "nbook/shared/window-text-key";
 
 import {descriptor} from "../plugin";
 import type {ContextKeySource} from "./context-keys";
-import {COMMANDS_POINT, commandServiceKey, commandsRemoteContract} from "./contracts";
+import {COMMANDS_POINT, commandServiceKey, commandsRemoteContract, completeCommandDeclaration} from "./contracts";
 import type {CommandDeclaration, CommandImplementation, CommandResult, CommandService, Release} from "./contracts";
 import {commandDeclarationProblems, createCommandRegistry, effectiveAgentExposure} from "./registry";
 import type {CommandRegistry} from "./registry";
@@ -36,9 +39,12 @@ const REASONS = {
     notTrue: {"zh-CN": "{key} 不为 true", "en-US": "{key} is not true"},
 } as const;
 
-/** 不满足的原因按求值时的显示语言给出（docs/specs/workbench/commands.md“可用性求值”）；已记下的诊断保留当时的文字。 */
+/**
+ * 不满足的原因按求值时的显示语言给出（docs/specs/workbench/commands.md“可用性求值”）；已记下的诊断保留当时的文字。服务端也
+ * 求值，没有翻译端口，所以原因写成语言映射、先按语言取一份再代入键名。
+ */
 function reasonOf(template: (typeof REASONS)[keyof typeof REASONS], key: string, locale: DisplayLocale): string {
-    return localize(formatText(template, {key}), locale);
+    return resolveLocaleMap(template, locale).replaceAll("{key}", key);
 }
 
 function keyProblem(key: string, declaration: PublicStateDeclaration | null, locale: DisplayLocale): string | null {
@@ -55,16 +61,25 @@ function validateCommandContribution(contribution: ContributionDescriptor): stri
     return problems.length === 0 ? null : problems.join("；");
 }
 
+/**
+ * 声明里的原因按此刻的语言取成字符串（docs/specs/state/public-state.md 输出 1）。文字引用只有窗口的翻译端口翻得了：
+ * 服务端与没有窗口引擎的场地不翻译它，返回 null，由调用方退回通用原因。
+ */
+function reasonText(reason: Text, locale: DisplayLocale, translate: TextResolver["t"] | null): string | null {
+    if (!isTextRef(reason)) return textOf(reason, locale);
+    return translate === null ? null : translate(reason);
+}
+
 /** 命令表的键来源：本实例的公开状态。未就绪按 false，原因取声明的 reason。 */
-function publicStateKeys(state: PublicStateService, locale: () => DisplayLocale): ContextKeySource {
+function publicStateKeys(state: PublicStateService, locale: () => DisplayLocale, translate: TextResolver["t"] | null): ContextKeySource {
     return {
         problem: (key) => keyProblem(key, state.declaration(key), locale()),
         evaluate: (key) => {
             const read = state.read(key);
             if (read.status === "ready" && read.value === true) return {matches: true};
             const declaration = state.declaration(key);
-            const reason = declaration?.type === "boolean" && declaration.reason !== undefined ? localize(declaration.reason, locale()) : reasonOf(REASONS.notTrue, key, locale());
-            return {matches: false, reason};
+            const declared = declaration?.type === "boolean" && declaration.reason !== undefined ? reasonText(declaration.reason, locale(), translate) : null;
+            return {matches: false, reason: declared ?? reasonOf(REASONS.notTrue, key, locale())};
         },
     };
 }
@@ -115,8 +130,11 @@ function receiverOf(registry: CommandRegistry, diagnostics: DiagnosticsService):
 /**
  * 窗口里的命令表交给服务端（`nbook.commands/remote`）：列出与执行都按本窗口此刻的公开状态；执行以调用方插件的
  * Agent 身份走同一条执行管线，`expose.agent` 为 `never` 的命令不列出、执行为 `not-exposed`。
+ *
+ * 不可用与失败的原因在这里按窗口此刻的语言翻成字符串（`reasonString`）：服务端不翻译文字引用，原因又是给 Agent 与人直接读的，
+ * 所以线上仍是字符串，远程合同不变。
  */
-function remoteCommands(registry: CommandRegistry): RemoteProvision<typeof commandsRemoteContract> {
+function remoteCommands(registry: CommandRegistry, reasonString: (reason: Text) => string): RemoteProvision<typeof commandsRemoteContract> {
     return provideRemote(commandsRemoteContract, (consumer) => ({
         methods: {
             list: async () => ({
@@ -129,16 +147,20 @@ function remoteCommands(registry: CommandRegistry): RemoteProvision<typeof comma
                         id: command.id,
                         source: command.source,
                         title: command.title,
+                        category: command.category ?? null,
                         description: command.description,
                         args: command.args,
                         effect: command.effect,
                         agent,
                         available: enabled.ok && enabled.value,
-                        reason: enabled.ok ? null : enabled.reason,
+                        reason: enabled.ok ? null : reasonString(enabled.reason),
                     }];
                 }),
             }),
-            execute: async ({id, args}) => ({ok: true, value: await registry.execute(id, args, {source: "agent", callerId: consumer.plugin ?? consumer.instanceId})}),
+            execute: async ({id, args}) => {
+                const result = await registry.execute(id, args, {source: "agent", callerId: consumer.plugin ?? consumer.instanceId});
+                return {ok: true, value: result.ok ? result : {ok: false, code: result.code, reason: reasonString(result.reason)}};
+            },
         },
     }));
 }
@@ -149,15 +171,23 @@ function commandsEntry(location: RuntimeLocation): PluginEntryDefinition {
     return defineEntry({
         id: location,
         location,
-        dependencies: [{key: diagnosticsKey}, {key: publicStateKey}, {key: settingsKey}],
+        // 窗口的翻译端口只用来翻公开状态原因里的文字引用；服务端没有它。
+        dependencies: [{key: diagnosticsKey}, {key: publicStateKey}, {key: settingsKey}, {key: windowTextKey, required: false}],
         provides: [commandServiceKey],
         receives: [COMMANDS_POINT],
         remoteProvides: browser ? [commandsRemoteContract] : [],
-        activate: (context) => {
+        activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
             const settings = context.services.require(settingsKey);
+            const windowText = await context.services.resolve(windowTextKey);
+            const translate = windowText.status === "resolved" ? (text: Text) => windowText.instance.port.t(text) : null;
+            // 没有翻译端口时文字引用落到键名，与窗口里缺键时的显示相同（docs/specs/ui/i18n.md 输出 4）。
+            const reasonString = (reason: Text): string => {
+                if (!isTextRef(reason)) return textOf(reason, displayLocale(settings));
+                return translate === null ? reason.key : translate(reason);
+            };
             const registry = createCommandRegistry({
-                contextKeys: publicStateKeys(context.services.require(publicStateKey), () => displayLocale(settings)),
+                contextKeys: publicStateKeys(context.services.require(publicStateKey), () => displayLocale(settings), translate),
                 report: (error) => {
                     diagnostics.record({level: "warn", event: "commands.registry", message: error.message, source: {plugin: descriptor.id}});
                 },
@@ -166,7 +196,7 @@ function commandsEntry(location: RuntimeLocation): PluginEntryDefinition {
                 services: [provideService(commandServiceKey, serviceOf(registry))],
                 receivers: {[COMMANDS_POINT]: receiverOf(registry, diagnostics)},
                 // 只有窗口把命令表交给服务端；按位置整段加上 remote，类型才能与按位置的 remoteProvides 对上。
-                ...(browser ? {remote: [remoteCommands(registry)]} : {}),
+                ...(browser ? {remote: [remoteCommands(registry, reasonString)]} : {}),
             };
         },
     });
@@ -174,6 +204,6 @@ function commandsEntry(location: RuntimeLocation): PluginEntryDefinition {
 
 export const commandsPlugin: PluginDefinition = {
     id: descriptor.id,
-    contributionPoints: [{id: COMMANDS_POINT, implementation: "required", validate: validateCommandContribution}],
+    contributionPoints: [{id: COMMANDS_POINT, implementation: "required", complete: completeCommandDeclaration, validate: validateCommandContribution}],
     entries: [commandsEntry("server"), commandsEntry("browser")],
 };

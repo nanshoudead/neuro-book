@@ -27,7 +27,7 @@ import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
 
 import {createBrowserBootstrapRoute} from "./browser-bootstrap";
 import type {ServerConfig} from "./config";
-import {createPluginFilesRoute} from "./plugin-files";
+import {createPluginCatalogsRoute, createPluginFilesRoute} from "./plugin-files";
 
 export interface ServerPluginContext {
     readonly config: ServerConfig;
@@ -77,7 +77,7 @@ export const serverHostPlugins: Readonly<Record<ServerHostPluginId, ServerHostPl
         port: context.config.port,
         onListening: context.onListening,
         allowOrigin: context.allowOrigin,
-        hostRoutes: [createBrowserBootstrapRoute(context.manifest, context.installed, context.rpc, context.projectTitle), createPluginFilesRoute(context.installed, (input) => context.store.record(input))],
+        hostRoutes: [createBrowserBootstrapRoute(context.manifest, context.installed, context.rpc, context.projectTitle), createPluginFilesRoute(context.installed, (input) => context.store.record(input)), createPluginCatalogsRoute(context.installed, (input) => context.store.record(input))],
         staticRoot: context.config.webRoot,
     }),
 };

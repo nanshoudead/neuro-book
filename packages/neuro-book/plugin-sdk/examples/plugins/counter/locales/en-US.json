@@ -1,0 +1,10 @@
+{
+    "manifest": {
+        "description": "Counter: one entry on the server and one per project, showing a remote service, plugin state, a public key and a command"
+    },
+    "commands": {
+        "reset": {
+            "title": "Counter: Reset"
+        }
+    }
+}

@@ -16,6 +16,8 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
+import {completeCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
+import type {CommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import {commandDeclarationProblems, createCommandRegistry} from "nbook/plugins/commands/shared/registry";
 import type {CommandRegistry} from "nbook/plugins/commands/shared/registry";
@@ -28,9 +30,11 @@ import type {LinkTap} from "nbook/plugins/files/testing/tap";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {storageWorld} from "nbook/plugins/storage/testing/world";
 import type {StorageWorld, WorldWindow} from "nbook/plugins/storage/testing/world";
+import {testTextPort} from "nbook/shared/testing/text-port";
 
 import {descriptor} from "./plugin";
 import {COLLAPSE_ALL_COMMAND, EXPLORER_COMMAND_DECLARATIONS, explorerCommands, REFRESH_FILES_COMMAND, RENAME_COMMAND, TOGGLE_MANIFESTS_COMMAND} from "./web/commands";
+import {explorerCatalogs} from "./web/text";
 import {EXPANDED_LIMIT, EXPLORER_RECORDS, explorerStoreFor, limitBranches} from "./web/preferences";
 import type {ExplorerStore} from "./web/preferences";
 import {createExplorerSession} from "./web/session";
@@ -113,11 +117,12 @@ function registry(session: ExplorerSession): CommandRegistry {
     const commands = createCommandRegistry({contextKeys: contextTable({}), report: (error) => {
         throw error;
     }});
-    const implementations = explorerCommands(session, () => "zh-CN");
+    const implementations = explorerCommands(session, testTextPort("zh-CN", {[descriptor.id]: explorerCatalogs}));
     for (const [id, declaration] of Object.entries(EXPLORER_COMMAND_DECLARATIONS)) {
         // `when` 读产品的公开状态，这里的本地命令表没有那些键：只登记声明的其余部分。
         const {when: _when, ...rest} = declaration;
-        const registered = commands.register({id, source: descriptor.id, declaration: rest, run: (args) => (implementations[id] as {run: (args: unknown) => never}).run(args)});
+        // 补全与产品登记同一条路径（标题补成约定键）；补全返回 unknown，声明形状由下面的 `commandDeclarationProblems` 与登记校验兜底。
+        const registered = commands.register({id, source: descriptor.id, declaration: completeCommandDeclaration({plugin: descriptor.id, id, declaration: rest}) as CommandDeclaration, run: (args) => (implementations[id] as {run: (args: unknown) => never}).run(args)});
         if (!registered.ok) throw new Error(registered.reason);
     }
     return commands;
@@ -144,7 +149,8 @@ describe("Spec workbench.commands 命令目录（资源管理器）：声明", (
     it("声明通过命令系统的校验；when 只引用资源管理器声明的公开键", () => {
         const declared = new Set((Object.keys(explorerState.declarations) as Array<keyof typeof explorerState.declarations>).map((name) => explorerState.key(name)));
         for (const [id, declaration] of Object.entries(EXPLORER_COMMAND_DECLARATIONS)) {
-            expect(commandDeclarationProblems(id, descriptor.id, declaration), id).toEqual([]);
+            // 校验的是登记时补全过的声明（标题补成约定键），与产品里贡献点的 `complete` 同一条路径。
+            expect(commandDeclarationProblems(id, descriptor.id, completeCommandDeclaration({plugin: descriptor.id, id, declaration})), id).toEqual([]);
             for (const key of declaration.when?.requires ?? []) expect(declared.has(key), key).toBe(true);
         }
     });

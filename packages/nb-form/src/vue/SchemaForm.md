@@ -57,8 +57,11 @@ type SchemaFormProps = {
     layout?: FormLayout;
     /** 受控的根值；表单从不修改它，提交时发出新值。 */
     modelValue?: unknown;
-    /** 显示语言：内建文字与 `FormText` 按它取，没有时取 en-US。必填。 */
-    locale: string;
+    /**
+     * 显示语言，只在宿主没有注入翻译端口时起作用：表单按它建缺省端口，内建文字与 `FormText` 按它取；缺省 zh-CN。
+     * 注入了端口时语言以端口为准（Spec 输出 24）。
+     */
+    locale?: string;
     /** 缺省 "edit"。 */
     mode?: "edit" | "view";
     /** 向下传给每个字段；缺省 false。 */
@@ -129,6 +132,6 @@ type SchemaFormExpose = {
 ## 隐藏通道理由
 
 - `state:local`：草稿、字段是否碰过、汇总是否展开、列表项的身份与分页、左列表右详情的选中项、分组与展示态的折叠在组件内，卸载即丢。
-- `state:inject`：表单把值、问题与选项的上下文交给其中的字段，字段的外壳再给 nb-ui 控件提供 `Field` 的上下文；都只在这棵组件树里，不读外部的注入。
+- `state:inject`：表单把值、问题与选项的上下文交给其中的字段，字段的外壳再给 nb-ui 控件提供 `Field` 的上下文；这些只在这棵组件树里。对外只读一项注入：宿主的翻译端口（nb-ui 的 `TEXT_PORT_KEY`），表单的文字与目录里的键要按宿主的语言与目录翻译，属性逐层传不到嵌套的 nb-ui 控件；没有注入时表单按 `locale` 自己建端口并提供给子树（Spec 输出 24）。
 - `env:clipboard`：展示态的“复制”写系统剪贴板；写不了时按钮写“复制失败”，文字仍可选中复制。
 - `env:portal`：下拉与可搜索下拉的列表由 nb-ui 传送到 `body`，见它们的文档。

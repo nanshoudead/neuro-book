@@ -1,0 +1,265 @@
+{
+    "settings": {
+        "library": {
+            "title": "作品目录",
+            "description": "新建作品时默认放在这里"
+        }
+    },
+    "commands": {
+        "nbook": {
+            "project": {
+                "open": {
+                    "title": "打开项目",
+                    "category": "项目"
+                }
+            },
+            "help": {
+                "welcome": {
+                    "title": "欢迎",
+                    "category": "帮助"
+                }
+            }
+        }
+    },
+    "home": {
+        "bookshelf": {
+            "title": "书架"
+        }
+    },
+    "editorPages": {
+        "welcome": {
+            "title": "欢迎"
+        }
+    },
+    "settingsPages": {
+        "nbook": {
+            "works": {
+                "title": "作品"
+            }
+        }
+    },
+    "open": {
+        "title": "打开项目",
+        "placeholder": "选择项目，或输入项目目录的路径",
+        "empty": "还没有登记的项目：输入目录路径来登记",
+        "running": "{{path}} · 运行中",
+        "registerAndOpen": "登记并打开 {{path}}",
+        "listFailed": "列不出已登记的项目：{{code}}",
+        "unknownOutcome": "登记结果未知，再试一次即可：{{cause}}",
+        "notCompleted": "登记没有完成：{{code}}",
+        "retryTitle": {
+            "invalid-path": "打开项目：登记失败（路径无效或不存在）",
+            "not-directory": "打开项目：登记失败（不是目录）",
+            "not-accessible": "打开项目：登记失败（目录不可读写）",
+            "inside-state-root": "打开项目：登记失败（目录在应用的状态目录里）",
+            "identity-invalid": "打开项目：登记失败（目录里的项目身份文件无法读取）",
+            "identity-conflict": "打开项目：登记失败（与已登记的另一个项目冲突）",
+            "registry-invalid": "打开项目：登记失败（项目登记表无法读取）",
+            "write-failed": "打开项目：登记失败（写入失败）",
+            "unknown": "打开项目：登记失败（{{reason}}）"
+        }
+    },
+    "registerFailures": {
+        "invalid-path": "路径无效或不存在",
+        "not-directory": "不是目录",
+        "not-accessible": "目录不可读写",
+        "inside-state-root": "目录在应用的状态目录里",
+        "identity-invalid": "目录里的项目身份文件无法读取",
+        "identity-conflict": "与已登记的另一个项目冲突",
+        "registry-invalid": "项目登记表无法读取",
+        "write-failed": "写入失败"
+    },
+    "shelf": {
+        "shelfFailed": "书架没取到：{{reason}}",
+        "refreshFailedTitle": "书架没有更新",
+        "refreshFailed": "取不到作品列表：{{reason}}。显示的是上次的数据。",
+        "retry": "重试",
+        "libraryUnavailable": "取不到作品目录：{{reason}}",
+        "browseFailed": "列不出目录：{{reason}}",
+        "registerFailed": "没有加入书架：{{reason}}",
+        "coverFailed": "封面没有保存：{{reason}}",
+        "coverRemoveFailed": "封面没有移除：{{reason}}",
+        "commandFailed": "没有执行：{{reason}}",
+        "popupBlockedTitle": "新标签页被拦截",
+        "libraryNotSavedTitle": "作品目录没有记住",
+        "popupBlocked": "浏览器拦截了新标签页，请允许本站打开弹出窗口",
+        "libraryNotSaved": "作品已建成，但作品目录没有写进设置：{{reason}}",
+        "libraryChangeNotSaved": "作品目录没有写进设置：{{reason}}",
+        "createInvalid": "{{field}}不合规：{{reason}}",
+        "createInvalidParent": "作品目录不可用：{{reason}}",
+        "createExists": "同名目录已存在（{{path}}）：改个书名，或用“打开已有作品”",
+        "createWriteFailed": "写不进作品目录：{{reason}}",
+        "createRegisterFailed": "目录已建好（{{path}}），但登记失败：{{reason}}。可以用“打开已有作品”接着完成",
+        "createUnknown": "新建的结果未知，书架已重新读取；没看到它就再试一次",
+        "updateFailed": "没有保存：{{reason}}",
+        "updateUnknown": "保存的结果未知，书架已重新读取；显示的还是旧值就再试一次",
+        "removeRunning": "这部作品正在打开，或在关闭后的宽限期里；关闭它的全部窗口、等几分钟后再移除",
+        "removeFailed": "没有移出书架：{{reason}}",
+        "fields": {
+            "title": "书名",
+            "description": "简介",
+            "color": "主题色",
+            "cover": "封面"
+        }
+    },
+    "errors": {
+        "unknown-project": "作品已不在书架上",
+        "read-only": "作品的身份文件只读",
+        "identity-invalid": "作品的身份文件无法读取",
+        "identity-conflict": "作品目录里的身份与登记不一致"
+    },
+    "remoteErrors": {
+        "version-changed": "页面与服务端的版本不一致，请刷新页面",
+        "unavailable": "服务端暂时不可用"
+    },
+    "format": {
+        "words_other": "{{count, number}} 字",
+        "wordsTenThousand": "{{amount}} 万字",
+        "files_other": "{{count, number}} 篇",
+        "books_other": "{{count, number}} 部作品",
+        "today": "今天 {{amount}} 字",
+        "todayAt": "今天 {{time}}",
+        "yesterdayAt": "昨天 {{time}}"
+    },
+    "welcome": {
+        "chapterName": "新章节",
+        "createFailed": "新建章节失败：{{reason}}",
+        "openFailed": "建好了 {{name}}，但打不开：{{reason}}"
+    },
+    "bookCard": {
+        "more": "更多操作",
+        "openNewWindow": "在新窗口打开",
+        "edit": "编辑信息",
+        "remove": "从书架移除",
+        "running": "已打开",
+        "none": "尚未统计",
+        "noDescription": "还没有简介",
+        "stale": "统计于{{when}}",
+        "counting": "正在统计"
+    },
+    "bookshelfHost": {
+        "removeTitle": "从书架移除《{{title}}》？",
+        "removeDescription": "只取消登记，不删除作品目录与其中的文件；以后可以再加入书架。",
+        "remove": "移除",
+        "cancel": "取消"
+    },
+    "bookshelfPage": {
+        "brand": "书房",
+        "settings": "设置",
+        "profile": "个人资料尚未开放",
+        "shelf": "书架",
+        "count_other": "{{count}} 部",
+        "view": "视图",
+        "cards": "卡片",
+        "list": "列表",
+        "sort": "排序",
+        "recent": "最近编辑",
+        "title": "书名",
+        "words": "字数",
+        "create": "新建作品",
+        "addExisting": "打开已有作品…",
+        "retry": "重试",
+        "loading": "正在读取书架…"
+    },
+    "pathPicker": {
+        "projectTitle": "打开已有作品",
+        "projectHint": "作品文件夹里有 .nbook 目录；选别的文件夹也可以，会作为新作品登记。",
+        "directoryTitle": "选择作品目录",
+        "directoryHint": "新建的作品都放在这个目录下；不存在的目录会在新建时建出来。",
+        "typePath": "输入路径",
+        "pathPlaceholder": "目录路径，回车进入；认 ~",
+        "registered": "已在书架上",
+        "project": "作品",
+        "projectTitled": "作品 · {{title}}",
+        "empty": "这里没有子目录",
+        "up": "上一级",
+        "selectedProject": "已选 {{name}} · {{title}}",
+        "selected": "已选 {{name}}",
+        "current": "用这个目录：{{path}}",
+        "none": "选一个文件夹",
+        "cancel": "取消",
+        "add": "加入书架",
+        "choose": "选定",
+        "info": "说明"
+    },
+    "projectInfo": {
+        "createTitle": "新建作品",
+        "editTitle": "编辑作品信息",
+        "title": "书名",
+        "description": "简介",
+        "descriptionPlaceholder": "一两句话，显示在卡片与列表里",
+        "color": "主题色",
+        "colorHint": "没有封面时用它排一张封面；有封面时用于列表里的小标记。",
+        "auto": "自动",
+        "custom": "自定义",
+        "location": "保存位置",
+        "locationHint": "作品是一个文件夹，建在这个目录下，文件夹名由书名生成；目录不存在会一并创建。",
+        "browse": "浏览…",
+        "uploadCover": "上传封面…",
+        "replaceCover": "换封面…",
+        "removeCover": "移除封面",
+        "coverHint": "PNG、JPEG 或 WebP，至多 5 MB；没有封面时用书名和主题色排一张，以后随时能换。",
+        "coverTooLarge": "封面至多 5 MB",
+        "coverType": "只收 PNG、JPEG 或 WebP",
+        "create": "新建",
+        "save": "保存",
+        "cancel": "取消",
+        "coverInfo": "封面说明",
+        "colorInfo": "主题色说明",
+        "locationInfo": "保存位置说明"
+    },
+    "shelfCards": {
+        "label": "书架",
+        "create": "新建作品",
+        "createText": "起一个书名，NeuroBook 会在作品目录里为它建一个文件夹。",
+        "createWhere": "放在 {{library}}",
+        "open": "打开已有作品",
+        "openText": "把已经写了一些的作品文件夹（例如从别的电脑同步来的）加到书架上。",
+        "openWhere": "选一个文件夹"
+    },
+    "shelfDesk": {
+        "label": "案头",
+        "todayLabel": "今天写了字",
+        "totalLabel": "共写了字",
+        "total": "共 {{words}}",
+        "continueBook": "继续写作《{{title}}》",
+        "recent": "最近写到",
+        "noRecord": "打开一部作品写几个字，这里会记下你写到哪了。",
+        "emptyTitle": "书架还是空的",
+        "emptyLead": "在 NeuroBook 里，一部作品就是你电脑上的一个文件夹：章节、设定都是里面的 Markdown 文件，随时可以备份、同步，或者用别的编辑器打开。"
+    },
+    "shelfList": {
+        "label": "作品列表",
+        "create": "新建作品",
+        "more": "更多操作",
+        "openNewWindow": "在新窗口打开",
+        "edit": "编辑信息",
+        "remove": "从书架移除",
+        "running": "已打开",
+        "none": "尚未统计",
+        "stale": "统计于{{when}}",
+        "counting": "正在统计"
+    },
+    "welcomePage": {
+        "noProject": "没有打开作品",
+        "noDescription": "还没有简介",
+        "none": "尚未统计",
+        "stale": "统计于{{when}}",
+        "start": "开始",
+        "newChapter": "新建章节",
+        "open": "打开{{name}}",
+        "shelf": "回到书架",
+        "recent": "最近打开",
+        "noRecent": "还没有打开过文件",
+        "intro": "入门",
+        "tipFiles": "章节就是作品目录里的 Markdown 文件，在左边的资源管理器里新建、改名、拖动。",
+        "tipCommands": "打开命令面板，所有操作都能在这里搜到。",
+        "tipCommandsPlain": "命令面板里能搜到所有操作。",
+        "tipLayout": "右上角的三个开关打开侧栏、底部面板与右侧栏，插件的视图会出现在那里。"
+    },
+    "worksSettings": {
+        "change": "更改…",
+        "defaultMark": "（缺省）",
+        "defaultUnknown": "取不到缺省目录"
+    }
+}

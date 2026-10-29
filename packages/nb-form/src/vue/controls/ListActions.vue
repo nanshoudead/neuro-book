@@ -3,9 +3,7 @@
  * 列表项的上移、下移、删除（docs/specs/ui/forms.md 输出 19）。图标按钮，读屏名称带上项的标题；按钮带
  * `data-nb-list-action`，增删排序后的焦点按它找“同类控件”。到了边界的按钮停用。
  */
-import {computed} from "vue";
-
-import {messagesFor} from "../messages";
+import {useFormText} from "../text";
 
 const props = defineProps<{
     index: number;
@@ -13,11 +11,10 @@ const props = defineProps<{
     title: string;
     disabled: boolean;
     canRemove: boolean;
-    locale: string;
 }>();
 const emit = defineEmits<{(event: "move", delta: -1 | 1): void; (event: "remove"): void}>();
 
-const messages = computed(() => messagesFor(props.locale));
+const text = useFormText();
 </script>
 
 <template>
@@ -26,8 +23,8 @@ const messages = computed(() => messagesFor(props.locale));
             type="button"
             class="nb-form-actions__button"
             data-nb-list-action="up"
-            :aria-label="`${messages.moveUp}：${props.title}`"
-            :title="messages.moveUp"
+            :aria-label="text.t('format.labelled', {label: text.t('moveUp'), text: props.title})"
+            :title="text.t('moveUp')"
             :disabled="props.disabled || props.index === 0"
             @click="emit('move', -1)"
         >
@@ -37,8 +34,8 @@ const messages = computed(() => messagesFor(props.locale));
             type="button"
             class="nb-form-actions__button"
             data-nb-list-action="down"
-            :aria-label="`${messages.moveDown}：${props.title}`"
-            :title="messages.moveDown"
+            :aria-label="text.t('format.labelled', {label: text.t('moveDown'), text: props.title})"
+            :title="text.t('moveDown')"
             :disabled="props.disabled || props.index >= props.count - 1"
             @click="emit('move', 1)"
         >
@@ -48,8 +45,8 @@ const messages = computed(() => messagesFor(props.locale));
             type="button"
             class="nb-form-actions__button"
             data-nb-list-action="remove"
-            :aria-label="`${messages.remove}：${props.title}`"
-            :title="messages.remove"
+            :aria-label="text.t('format.labelled', {label: text.t('remove'), text: props.title})"
+            :title="text.t('remove')"
             :disabled="props.disabled || !props.canRemove"
             @click="emit('remove')"
         >

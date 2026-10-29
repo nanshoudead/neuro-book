@@ -5,9 +5,7 @@ import type {Component, PropType} from "vue";
 
 import {Button, OverlayScrollbar, Spinner} from "@notnotype/nb-ui/components";
 
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
-
+import {useWorkbenchText} from "../text";
 import type {ViewContext} from "../contracts";
 import type {ViewDelivery} from "../views/registry";
 
@@ -17,7 +15,6 @@ defineOptions({name: "WorkbenchViewFrame"});
 
 const props = withDefaults(defineProps<{
     viewId: string;
-    locale: DisplayLocale;
     layout: "scroll" | "fill";
     delivery: ViewDelivery;
     status: ViewFrameStatus;
@@ -35,19 +32,7 @@ const emit = defineEmits<{
     (event: "render-error", generation: number, message: string): void;
 }>();
 
-const TEXT = {
-    declared: {"zh-CN": "正在等待视图所属的插件启动", "en-US": "Waiting for the view's plugin to start"},
-    blocked: {"zh-CN": "视图所属的插件无法启动：{reason}", "en-US": "The view's plugin cannot start: {reason}"},
-    failed: {"zh-CN": "视图所属的插件启动失败：{reason}", "en-US": "The view's plugin failed to start: {reason}"},
-    stopped: {"zh-CN": "视图所属的插件已停止（{reason}）", "en-US": "The view's plugin stopped ({reason})"},
-    loading: {"zh-CN": "正在加载视图", "en-US": "Loading the view"},
-    loadFailed: {"zh-CN": "视图加载失败：{reason}", "en-US": "The view failed to load: {reason}"},
-    renderFailed: {"zh-CN": "视图出错：{reason}", "en-US": "The view crashed: {reason}"},
-    retry: {"zh-CN": "重试", "en-US": "Retry"},
-    reload: {"zh-CN": "重新加载", "en-US": "Reload"},
-} satisfies Record<string, LocalizedText>;
-
-const text = (template: LocalizedText, reason = ""): string => localize(formatText(template, {reason}), props.locale);
+const text = useWorkbenchText();
 
 const state = computed(() => (props.delivery.kind === "available" ? props.status : props.delivery.kind));
 
@@ -93,24 +78,24 @@ const scroller = ref<HTMLElement | null>(null);
             </ErrorBoundary>
         </template>
         <div v-else class="workbench-view-frame__notice" role="status">
-            <template v-if="delivery.kind === 'declared'">{{ text(TEXT.declared) }}</template>
-            <template v-else-if="delivery.kind === 'entry-blocked'">{{ text(TEXT.blocked, delivery.reason) }}</template>
+            <template v-if="delivery.kind === 'declared'">{{ text('viewFrame.declared') }}</template>
+            <template v-else-if="delivery.kind === 'entry-blocked'">{{ text('viewFrame.blocked', {reason: delivery.reason}) }}</template>
             <template v-else-if="delivery.kind === 'entry-failed'">
-                <span>{{ text(TEXT.failed, delivery.reason) }}</span>
-                <Button size="sm" :disabled="busy" data-view-retry-entry @click="emit('retry-entry')">{{ text(TEXT.retry) }}</Button>
+                <span>{{ text('viewFrame.failed', {reason: delivery.reason}) }}</span>
+                <Button size="sm" :disabled="busy" data-view-retry-entry @click="emit('retry-entry')">{{ text('common.retry') }}</Button>
             </template>
-            <template v-else-if="delivery.kind === 'entry-stopped'">{{ text(TEXT.stopped, delivery.reason) }}</template>
+            <template v-else-if="delivery.kind === 'entry-stopped'">{{ text('viewFrame.stopped', {reason: delivery.reason}) }}</template>
             <template v-else-if="status === 'load-failed'">
-                <span>{{ text(TEXT.loadFailed, error ?? "") }}</span>
-                <Button size="sm" :disabled="busy" data-view-reload @click="emit('reload')">{{ text(TEXT.reload) }}</Button>
+                <span>{{ text('viewFrame.loadFailed', {reason: error ?? ''}) }}</span>
+                <Button size="sm" :disabled="busy" data-view-reload @click="emit('reload')">{{ text('viewFrame.reload') }}</Button>
             </template>
             <template v-else-if="status === 'render-failed'">
-                <span>{{ text(TEXT.renderFailed, error ?? "") }}</span>
-                <Button size="sm" :disabled="busy" data-view-retry-render @click="emit('retry-render')">{{ text(TEXT.retry) }}</Button>
+                <span>{{ text('viewFrame.renderFailed', {reason: error ?? ''}) }}</span>
+                <Button size="sm" :disabled="busy" data-view-retry-render @click="emit('retry-render')">{{ text('common.retry') }}</Button>
             </template>
             <template v-else>
                 <Spinner size="sm" />
-                <span>{{ text(TEXT.loading) }}</span>
+                <span>{{ text('viewFrame.loading') }}</span>
             </template>
         </div>
     </div>

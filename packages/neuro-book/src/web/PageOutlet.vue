@@ -7,11 +7,15 @@
 import {computed, onUnmounted, shallowRef} from "vue";
 import {RouterView} from "vue-router";
 
+import {useText} from "@notnotype/nb-ui/text-port";
+
 import FailurePage from "./FailurePage.vue";
 import type {BrowserWindow, WindowState} from "./host/window";
+import {hostText} from "./host-text";
 
 const props = defineProps<{browserWindow: BrowserWindow}>();
 const emit = defineEmits<{reload: []}>();
+const {t} = useText();
 
 const state = shallowRef<WindowState>(props.browserWindow.state);
 onUnmounted(props.browserWindow.onChange((next) => {
@@ -27,7 +31,7 @@ const pending = computed(() => (state.value.status === "ready" ? null : state.va
         <RouterView v-slot="{Component}">
             <component :is="Component" data-window-state="ready" :data-window-instance="ready.instanceId" :data-rpc-state="ready.connection" />
         </RouterView>
-        <p v-if="ready.connection === 'offline'" class="nb-offline-banner" role="status">与服务端的连接已断开，正在重新连接…</p>
+        <p v-if="ready.connection === 'offline'" class="nb-offline-banner" role="status">{{ t(hostText('offline.banner')) }}</p>
     </template>
     <FailurePage v-else-if="pending" :state="pending" @reload="emit('reload')" />
 </template>

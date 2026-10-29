@@ -16,8 +16,10 @@ import {checkDescription} from "@notnotype/nb-form";
 import type {ContributionDeclaration} from "@notnotype/nb-runtime/plugins";
 import {encodeJsonValue} from "@notnotype/nb-runtime/remote";
 
-import {LocalizedTextSchema} from "nbook/shared/localized-text";
-import type {LocalizedText} from "nbook/shared/localized-text";
+import type {Text} from "@notnotype/nb-ui/text";
+
+import {conventionCompleter} from "nbook/shared/convention-keys";
+import {TextSchema} from "nbook/shared/text";
 
 export type {DeepReadonly};
 
@@ -39,9 +41,12 @@ export type SettingLiteral = string | number | boolean;
 /** 字面量联合的一个选项在界面上的名字。 */
 export interface SettingChoiceDeclaration<T = SettingLiteral> {
     readonly value: T;
-    readonly title: LocalizedText;
-    readonly description?: LocalizedText;
+    readonly title: Text;
+    readonly description?: Text;
 }
+
+/** 作者写下的选项：`title` 可以省略，登记时补约定键 `settings.<名>.choices.<String(值)>.title`。 */
+export type WrittenSettingChoice<T = SettingLiteral> = Omit<SettingChoiceDeclaration<T>, "title"> & {readonly title?: Text};
 
 /**
  * 动态选项：选项由浏览器入口贡献的选项提供者（贡献点 `settings.choices`）在运行时给出，值是字符串。提供者 id 的写法
@@ -58,8 +63,8 @@ export interface SettingChoiceSource {
 export interface SettingUiHints {
     /** 例如 `multiline`、`radio`、`json`；要与 schema 的种类相配（同 `ui.forms` 输出 2）。 */
     readonly widget?: string;
-    readonly placeholder?: LocalizedText;
-    readonly unit?: LocalizedText;
+    readonly placeholder?: Text;
+    readonly unit?: Text;
     readonly rows?: number;
     readonly searchable?: boolean;
     /** 对象列表里当作每项标题的字段名。 */
@@ -68,19 +73,19 @@ export interface SettingUiHints {
 
 const SettingUiHintsSchema = Type.Object({
     widget: Type.Optional(Type.String({minLength: 1})),
-    placeholder: Type.Optional(LocalizedTextSchema),
-    unit: Type.Optional(LocalizedTextSchema),
+    placeholder: Type.Optional(TextSchema),
+    unit: Type.Optional(TextSchema),
     rows: Type.Optional(Type.Integer({minimum: 1, maximum: 50})),
     searchable: Type.Optional(Type.Boolean()),
     itemLabel: Type.Optional(Type.String({minLength: 1})),
 }, {additionalProperties: false});
 
-/** 贡献点上的一条声明。 */
+/** 贡献点上已接受的一条声明：登记时已补全，`title` 总有值（docs/specs/settings/settings-window.md 的“约定键”）。 */
 export interface SettingDeclaration {
     readonly schema: TSchema;
     readonly default: unknown;
-    readonly title: LocalizedText;
-    readonly description?: LocalizedText;
+    readonly title: Text;
+    readonly description?: Text;
     /** 允许写这个键的层，非空。 */
     readonly layers: ReadonlyArray<SettingLayer>;
     /** 设置窗口里所在的分区（贡献点 `settings.sections` 的 id）；分区存不存在不在登记时核对。 */
@@ -97,13 +102,20 @@ export interface SettingDeclaration {
     readonly secret?: boolean;
 }
 
+/** 作者写下的声明（`defineSetting` 的结果）：标题可以省略，由贡献点在登记时补全成 `SettingDeclaration`。 */
+export type WrittenSettingDeclaration = Omit<SettingDeclaration, "title" | "choices"> & {
+    readonly title?: Text;
+    readonly choices?: ReadonlyArray<WrittenSettingChoice> | SettingChoiceSource;
+};
+
 declare const settingValue: unique symbol;
 
 /** `defineSetting` 的结果：键、声明、给描述用的贡献，以及只在类型上存在的值类型。 */
 export interface SettingDefinition<T> {
     readonly key: string;
-    readonly declaration: SettingDeclaration;
-    readonly contribution: ContributionDeclaration<SettingDeclaration>;
+    /** 写下的样子；要读补全后的标题，用配置插件经登记交出的声明（设置窗口的 `WindowSetting`）。 */
+    readonly declaration: WrittenSettingDeclaration;
+    readonly contribution: ContributionDeclaration<WrittenSettingDeclaration>;
     readonly [settingValue]?: T;
 }
 
@@ -113,13 +125,14 @@ export interface SettingOptions<Schema extends TSchema> {
     readonly name: string;
     readonly schema: Schema;
     readonly default: Static<Schema>;
-    readonly title: LocalizedText;
-    readonly description?: LocalizedText;
+    /** 省略时登记处补成约定键 `settings.<名>.title`。 */
+    readonly title?: Text;
+    readonly description?: Text;
     readonly layers?: ReadonlyArray<SettingLayer>;
     readonly section?: string;
     readonly group?: string;
     readonly order?: number;
-    readonly choices?: ReadonlyArray<SettingChoiceDeclaration<Static<Schema>>> | SettingChoiceSource;
+    readonly choices?: ReadonlyArray<WrittenSettingChoice<Static<Schema>>> | SettingChoiceSource;
     readonly ui?: SettingUiHints;
     /** 缺省 `now`。 */
     readonly applies?: SettingApplies;
@@ -132,7 +145,7 @@ export type SettingItemOptions<Schema extends TSchema> = Omit<SettingOptions<Sch
 export interface SettingsBundle<Schemas extends Readonly<Record<string, TSchema>>> {
     readonly settings: {readonly [Name in keyof Schemas]: SettingDefinition<Static<Schemas[Name]>>};
     /** 交给插件描述的 `contributions`，按声明的顺序。 */
-    readonly contributions: ReadonlyArray<ContributionDeclaration<SettingDeclaration>>;
+    readonly contributions: ReadonlyArray<ContributionDeclaration<WrittenSettingDeclaration>>;
 }
 
 /** 以点分段的小驼峰：`appearance`、`editor.fontSize`。 */
@@ -168,10 +181,10 @@ export function isSettingsOrder(value: unknown): value is number {
 /** 在模块加载时校验定义，不合规则抛 TypeError；返回冻结对象。 */
 export function defineSetting<Schema extends TSchema>(options: SettingOptions<Schema>): SettingDefinition<Static<Schema>> {
     const key = `${options.plugin}/${options.name}`;
-    const raw: SettingDeclaration = {
+    const raw: WrittenSettingDeclaration = {
         schema: options.schema,
         default: options.default,
-        title: options.title,
+        ...(options.title === undefined ? {} : {title: options.title}),
         ...(options.description === undefined ? {} : {description: options.description}),
         layers: [...(options.layers ?? SETTING_LAYERS)],
         ...(options.section === undefined ? {} : {section: options.section}),
@@ -181,10 +194,11 @@ export function defineSetting<Schema extends TSchema>(options: SettingOptions<Sc
         ...(options.ui === undefined ? {} : {ui: options.ui}),
         applies: options.applies ?? "now",
     };
-    // 先校验再冻结：默认值不是 JSON 时复制它本身就会抛出别的错误。
-    const problem = settingDeclarationProblem(options.plugin, key, raw);
+    // 先校验再冻结：默认值不是 JSON 时复制它本身就会抛出别的错误。按登记时补全后的样子校验，所以省略的标题不算错；
+    // 存下的仍是写下的样子，补全只在登记时做一次（贡献点的 `complete`）。
+    const problem = settingDeclarationProblem(options.plugin, key, completeSettingDeclaration({plugin: options.plugin, id: key, declaration: raw}));
     if (problem !== null) throw new TypeError(problem);
-    const declaration: SettingDeclaration = Object.freeze({
+    const declaration: WrittenSettingDeclaration = Object.freeze({
         ...raw,
         default: freezeJson(raw.default),
         layers: Object.freeze(raw.layers),
@@ -213,6 +227,21 @@ export function defineSettings<Schemas extends Readonly<Record<string, TSchema>>
 }
 
 /**
+ * `settings.properties` 的补全：给文字引用补命名空间；没写 `title` 时补约定键 `settings.<名>.title`，字面量选项没写
+ * `title` 时补 `settings.<名>.choices.<String(值)>.title`（settings-window.md 的“约定键”）。键是 `<插件>/<名>`，本地 id 取名。
+ */
+export const completeSettingDeclaration = conventionCompleter({
+    name: "settings",
+    fields: ["title"],
+    lists: {choices: {segment: (choice) => (isSettingLiteral(choice.value) ? String(choice.value) : null), fields: ["title"]}},
+    localId: (plugin, key) => (key.startsWith(`${plugin}/`) ? key.slice(plugin.length + 1) : key),
+});
+
+function isSettingLiteral(value: unknown): value is SettingLiteral {
+    return typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value));
+}
+
+/**
  * 贡献点的校验（configuration.md 输出 1）：纯函数，只看这一条。`defineSetting` 在加载时先跑一遍，作者尽早看到错；
  * 不经 `defineSetting` 写出的声明（以后的清单 JSON）在登记时由贡献点再跑。同键的两条由内核的去重拒绝。
  */
@@ -234,8 +263,8 @@ export function settingDeclarationProblem(plugin: string, key: string, declarati
     if (!Array.isArray(layers) || layers.length === 0 || layers.some((layer) => !(SETTING_LAYERS as ReadonlyArray<unknown>).includes(layer)) || new Set(layers).size !== layers.length) {
         return `配置项 ${key} 的 layers 必须是 user、project 的非空子集`;
     }
-    if (!Value.Check(LocalizedTextSchema, fields.title)) return `配置项 ${key} 的 title 必须是中英两份文本`;
-    if (fields.description !== undefined && !Value.Check(LocalizedTextSchema, fields.description)) return `配置项 ${key} 的 description 必须是中英两份文本`;
+    if (!Value.Check(TextSchema, fields.title)) return `配置项 ${key} 的 title 必须是文字（字符串、语言映射或文字引用）`;
+    if (fields.description !== undefined && !Value.Check(TextSchema, fields.description)) return `配置项 ${key} 的 description 必须是文字（字符串、语言映射或文字引用）`;
     if (fields.section !== undefined && !isSettingsSectionId(fields.section)) return `配置项 ${key} 的 section 必须是分区 id：点分的小写段，至多 ${String(SETTINGS_SECTION_ID_MAX_LENGTH)} 个字符`;
     if (fields.group !== undefined && fields.section === undefined) return `配置项 ${key} 写了 group 却没有 section：小组只在分区里有意义`;
     if (fields.group !== undefined && !isSettingsGroupId(fields.group)) return `配置项 ${key} 的 group 必须是小组 id：一个小写段，至多 ${String(SETTINGS_GROUP_ID_MAX_LENGTH)} 个字符`;
@@ -292,8 +321,8 @@ function choicesProblem(schema: TSchema, choices: unknown): string | null {
         const fields = choice as Record<string, unknown>;
         const extra = Object.keys(fields).filter((field) => !CHOICE_FIELDS.has(field));
         if (extra.length > 0) return `有未知字段：${extra.join("、")}`;
-        if (!Value.Check(LocalizedTextSchema, fields.title)) return "的 title 必须是中英两份文本";
-        if (fields.description !== undefined && !Value.Check(LocalizedTextSchema, fields.description)) return "的 description 必须是中英两份文本";
+        if (!Value.Check(TextSchema, fields.title)) return "的 title 必须是文字（字符串、语言映射或文字引用）";
+        if (fields.description !== undefined && !Value.Check(TextSchema, fields.description)) return "的 description 必须是文字（字符串、语言映射或文字引用）";
         if (!literals.includes(fields.value as SettingLiteral)) return `里的 ${JSON.stringify(fields.value)} 不是 schema 的字面量`;
         if (seen.includes(fields.value as SettingLiteral)) return `里的 ${JSON.stringify(fields.value)} 出现了不止一次`;
         seen.push(fields.value as SettingLiteral);
@@ -308,7 +337,7 @@ function choicesProblem(schema: TSchema, choices: unknown): string | null {
  * 记一份“哪种值能用哪个控件”。动态选项 `{from}` 对应 `x-form.options`：有它时文字的下拉才成立，写多行反而不生效。
  */
 function uiProblem(schema: TSchema, ui: unknown, choices: unknown): string | null {
-    if (!Value.Check(SettingUiHintsSchema, ui)) return "的形状不对：只能有 widget、placeholder、unit、rows、searchable、itemLabel，文字要中英两份";
+    if (!Value.Check(SettingUiHintsSchema, ui)) return "的形状不对：只能有 widget、placeholder、unit、rows、searchable、itemLabel，文字要是字符串、语言映射或文字引用";
     const from = typeof choices === "object" && choices !== null && !Array.isArray(choices) ? (choices as Partial<SettingChoiceSource>).from : undefined;
     const check = checkDescription({...schema, "x-form": {...(ui as SettingUiHints), ...(from === undefined ? {} : {options: from})}});
     const mismatch = check.problems.find((problem) => problem.code === "widget-mismatch" || problem.code === "item-label-unknown");
@@ -394,6 +423,11 @@ export interface SettingsService {
     get<T>(setting: SettingDefinition<T>): DeepReadonly<T>;
     /** 有效值、来源层、默认值与各层的情况；层状态变化时同样重新求值。 */
     inspect<T>(setting: SettingDefinition<T>): SettingInspection<T>;
+    /**
+     * 本实例接受的这一项的声明：登记时补全过，标题总有值；本实例没有接受这一项时为 null。画设置行时从这里取标题与选项名：
+     * 插件自己拿着的定义是写下的样子，省略的标题不在里面（settings-window.md 的“约定键”）。
+     */
+    declaration(setting: SettingDefinition<unknown>): SettingDeclaration | null;
     /** 本实例里有效值变化的键；同一次层更新只调用一次。返回取消函数。 */
     onDidChange(listener: (keys: ReadonlySet<string>) => void): () => void;
     /**

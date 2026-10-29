@@ -7,11 +7,11 @@ import type {ContributionDeclaration} from "@notnotype/nb-runtime/plugins";
 import type {Static, TSchema} from "typebox";
 
 import {SETTINGS_SECTIONS_POINT} from "nbook/plugins/settings/shared/sections";
-import type {SettingsSectionCategory, SettingsSectionDeclaration} from "nbook/plugins/settings/shared/sections";
+import type {SettingsSectionCategory, WrittenSettingsSectionDeclaration} from "nbook/plugins/settings/shared/sections";
 import {defineSetting} from "nbook/shared/settings";
 import type {SettingDefinition, SettingOptions} from "nbook/shared/settings";
 
-import {contributionId, localizedText, recordDescribed} from "./plugin";
+import {contributionId, recordDescribed} from "./plugin";
 import type {PluginBuilder, Problem, ShortNameRule, Text} from "./plugin";
 
 /** 设置项名在编辑器里就核对的部分：小驼峰（点分段），不写连字符、下划线与空格，不以大写开头。完整规则在加载时核对。 */
@@ -22,29 +22,32 @@ type SettingNameRule<Name extends string> = Name extends `${string}${"-" | "_" |
 /** list 分区助手：设置项的 `section` 收它，`group` 只能是它的组 id。 */
 export interface SectionHelper<Id extends string = string, Group extends string = string> {
     readonly id: Id;
-    readonly contribution: ContributionDeclaration<SettingsSectionDeclaration> & {readonly capability: typeof SETTINGS_SECTIONS_POINT; readonly id: Id};
+    readonly contribution: ContributionDeclaration<WrittenSettingsSectionDeclaration> & {readonly capability: typeof SETTINGS_SECTIONS_POINT; readonly id: Id};
     /** 只在类型上：分区的组 id。 */
     readonly groups?: Group;
 }
 
-/** list 分区：设置窗口左栏的一项，窗口按设置项的 schema 画控件；`category` 缺省 `plugins`。写进 `plugin.descriptor([…])`。 */
+/**
+ * list 分区：设置窗口左栏的一项，窗口按设置项的 schema 画控件；`category` 缺省 `plugins`。写进 `plugin.descriptor([…])`。
+ * `title` 与小组的 `title` 省略时宿主登记时补成约定键（docs/specs/settings/settings-window.md 的“约定键”）。
+ */
 export function section<const Id extends string, const Name extends string, const Group extends string = never>(plugin: PluginBuilder<Id>, options: {
     readonly name: Name;
-    readonly title: Text;
+    readonly title?: Text;
     readonly description?: Text;
     readonly icon: string;
     readonly category?: SettingsSectionCategory;
     readonly order?: number;
-    readonly groups?: ReadonlyArray<{readonly id: Group; readonly title: Text}>;
+    readonly groups?: ReadonlyArray<{readonly id: Group; readonly title?: Text}>;
 } & ShortNameRule<Name>): SectionHelper<`${Id}.${Name}`, Group> {
     const id = contributionId(plugin.id, options.name, "设置分区");
-    const declaration: SettingsSectionDeclaration = {
-        title: localizedText(options.title),
-        ...(options.description === undefined ? {} : {description: localizedText(options.description)}),
+    const declaration: WrittenSettingsSectionDeclaration = {
+        ...(options.title === undefined ? {} : {title: options.title}),
+        ...(options.description === undefined ? {} : {description: options.description}),
         icon: options.icon,
         category: options.category ?? "plugins",
         ...(options.order === undefined ? {} : {order: options.order}),
-        ...(options.groups === undefined ? {} : {groups: options.groups.map((group) => ({id: group.id, title: localizedText(group.title)}))}),
+        ...(options.groups === undefined ? {} : {groups: options.groups.map((group) => ({id: group.id, ...(group.title === undefined ? {} : {title: group.title})}))}),
     };
     const contribution = {capability: SETTINGS_SECTIONS_POINT, id, declaration} as const;
     recordDescribed(plugin, "设置分区", contribution);
@@ -53,11 +56,12 @@ export function section<const Id extends string, const Name extends string, cons
 
 /**
  * 设置项；键是 `<插件 id>/<name>`。`section` 收分区助手（`group` 只能是它的组），引用别的插件的分区时写分区 id。写进
- * `plugin.descriptor([…])`。
+ * `plugin.descriptor([…])`。`title` 省略时宿主登记时补成约定键 `settings.<name>.title`（docs/specs/settings/settings-window.md
+ * 的“约定键”）。
  */
 export function setting<const Id extends string, const Name extends string, Schema extends TSchema, const Section extends SectionHelper | string = never>(plugin: PluginBuilder<Id>, options: Omit<SettingOptions<Schema>, "plugin" | "name" | "title" | "description" | "section" | "group"> & {
     readonly name: Name;
-    readonly title: Text;
+    readonly title?: Text;
     readonly description?: Text;
     readonly section?: Section;
     readonly group?: Section extends SectionHelper<string, infer Group> ? Group : string;
@@ -66,8 +70,8 @@ export function setting<const Id extends string, const Name extends string, Sche
     const definition = defineSetting({
         ...rest,
         plugin: plugin.id,
-        title: localizedText(title),
-        ...(description === undefined ? {} : {description: localizedText(description)}),
+        ...(title === undefined ? {} : {title}),
+        ...(description === undefined ? {} : {description}),
         ...(owner === undefined ? {} : {section: typeof owner === "string" ? owner : (owner as SectionHelper).id}),
         ...(group === undefined ? {} : {group}),
     } as SettingOptions<TSchema>);

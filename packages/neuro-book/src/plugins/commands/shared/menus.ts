@@ -11,8 +11,9 @@ import {Value} from "typebox/value";
 
 import type {ContributionDescriptor, ContributionHandle, ContributionReceiver} from "@notnotype/nb-runtime/plugins";
 
-import {localize, LocalizedTextSchema} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import {conventionCompleter} from "nbook/shared/convention-keys";
+import {TextSchema} from "nbook/shared/text";
+import type {DisplayText, LocalizedText, TextResolver} from "nbook/shared/localized-text";
 
 import {formatKeybinding} from "./keybinding";
 import type {KeyPlatform} from "./keybinding";
@@ -23,7 +24,7 @@ export interface MenuItemDeclaration {
     readonly command: string;
     readonly section: string;
     readonly order?: number;
-    readonly label?: LocalizedText;
+    readonly label?: DisplayText;
     readonly toggled?: string;
     readonly when?: {readonly requires: ReadonlyArray<string>};
     readonly args?: Readonly<Record<string, unknown>>;
@@ -40,7 +41,7 @@ const BASE = {
     command: Key,
     section: Type.String({pattern: "\\S", maxLength: 64}),
     order: Type.Optional(Rank),
-    label: Type.Optional(LocalizedTextSchema),
+    label: Type.Optional(TextSchema),
     toggled: Type.Optional(Key),
     when: Type.Optional(Type.Object({requires: Type.Array(Key)}, {additionalProperties: false})),
     args: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
@@ -73,6 +74,9 @@ export function menuLocation(point: string, extra: TProperties, options: {readon
 }
 
 const ITEM_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u;
+
+/** 菜单位置的补全：菜单项的 `label` 没有约定键（没写时显示命令的标题），只给文字引用补命名空间。 */
+export const completeMenuItemDeclaration = conventionCompleter(null);
 
 /**
  * 这个位置的登记校验（menus.md 的规则表）：只看这一条声明本身。id 规则与工作台的条目贡献点相同；同 id 的两条由内核一起
@@ -164,7 +168,7 @@ export interface MenuFacts {
     readonly isEnabled: (id: string) => CommandResult<boolean>;
     /** 布尔公开键已就绪且为真。 */
     readonly isOn: (key: string) => boolean;
-    readonly locale: DisplayLocale;
+    readonly text: TextResolver;
     readonly platform: KeyPlatform;
     /** 这个位置此刻没有当前文件（或位置根本没有当前文件）为 null。 */
     readonly current: MenuCurrentFiles | null;
@@ -215,9 +219,9 @@ export function arrangeMenu(items: ReadonlyArray<{readonly id: string; readonly 
             command: command.id,
             args: declaration.args ?? {},
             context: declaration.context ?? null,
-            label: localize(declaration.label ?? command.title, facts.locale),
+            label: facts.text.t(declaration.label ?? command.title),
             enabled: enabled.ok && enabled.value,
-            reason: enabled.ok ? null : enabled.reason,
+            reason: enabled.ok ? null : facts.text.t(enabled.reason),
             shortcut: command.keybinding === undefined ? null : formatKeybinding(command.keybinding, facts.platform),
             checked: declaration.toggled === undefined ? null : facts.isOn(declaration.toggled),
             icon: declaration.icon ?? null,

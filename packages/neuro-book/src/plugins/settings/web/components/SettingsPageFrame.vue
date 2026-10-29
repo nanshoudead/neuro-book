@@ -1,12 +1,12 @@
 <script setup lang="ts">
 /** page 分区的可见形态（同名 .md）：交付状态、加载、两种失败与错误边界；加载与代际由窗口模型决定。 */
 import {Button, Spinner} from "@notnotype/nb-ui/components";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, defineComponent, onErrorCaptured} from "vue";
 import type {Component, PropType} from "vue";
 
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
-
+import {settingsText} from "../../shared/text";
+import type {SettingsTextKey} from "../../shared/text";
 import type {SettingsPageContext} from "../contracts";
 import type {SettingsPageDelivery} from "../sections";
 import type {SettingsPageStatus} from "../settings-window";
@@ -14,7 +14,6 @@ import type {SettingsPageStatus} from "../settings-window";
 defineOptions({name: "SettingsPageFrame"});
 
 const props = withDefaults(defineProps<{
-    locale: DisplayLocale;
     delivery: SettingsPageDelivery;
     status: SettingsPageStatus;
     error: string | null;
@@ -31,20 +30,9 @@ const emit = defineEmits<{
     (event: "render-error", generation: number, message: string): void;
 }>();
 
-const TEXT = {
-    declared: {"zh-CN": "正在等待这个分区所属的插件启动", "en-US": "Waiting for this section's plugin to start"},
-    blocked: {"zh-CN": "这个分区所属的插件无法启动：{reason}", "en-US": "This section's plugin cannot start: {reason}"},
-    failed: {"zh-CN": "这个分区所属的插件启动失败：{reason}", "en-US": "This section's plugin failed to start: {reason}"},
-    stopped: {"zh-CN": "这个分区所属的插件已停止（{reason}）", "en-US": "This section's plugin stopped ({reason})"},
-    notActivatable: {"zh-CN": "插件没有声明打开分区时激活：{reason}", "en-US": "The plugin does not activate when this section opens: {reason}"},
-    loading: {"zh-CN": "正在加载这个分区", "en-US": "Loading this section"},
-    loadFailed: {"zh-CN": "这个分区加载失败：{reason}", "en-US": "This section failed to load: {reason}"},
-    renderFailed: {"zh-CN": "这个分区出错：{reason}", "en-US": "This section crashed: {reason}"},
-    retry: {"zh-CN": "重试", "en-US": "Retry"},
-    reload: {"zh-CN": "重新加载", "en-US": "Reload"},
-} satisfies Record<string, LocalizedText>;
-
-const text = (template: LocalizedText, reason = ""): string => localize(formatText(template, {reason}), props.locale);
+/** 加载与失败的说明在 `nbook.settings` 的目录里，经宿主注入的翻译端口翻译；`reason` 是失败那一刻的原因（服务端或插件给的原文）。 */
+const port = useText();
+const text = (key: SettingsTextKey, reason = ""): string => port.t(settingsText(key, {reason}));
 
 const state = computed(() => (props.delivery.kind === "available" ? props.status : props.delivery.kind));
 const loading = computed(() => props.delivery.kind === "declared" || (props.delivery.kind === "available" && (props.status === "waiting" || props.status === "loading")));
@@ -75,23 +63,23 @@ function reportRenderError(generation: number, message: string): void {
         </ErrorBoundary>
         <div v-else-if="loading" class="settings-page-frame__notice" role="status" aria-live="polite" aria-busy="true">
             <Spinner size="sm" />
-            <span>{{ text(delivery.kind === "declared" ? TEXT.declared : TEXT.loading) }}</span>
+            <span>{{ text(delivery.kind === 'declared' ? 'pageFrame.declared' : 'pageFrame.loading') }}</span>
         </div>
         <div v-else-if="failed" class="settings-page-frame__notice" role="alert">
-            <template v-if="delivery.kind === 'entry-blocked'">{{ text(TEXT.blocked, delivery.reason) }}</template>
+            <template v-if="delivery.kind === 'entry-blocked'">{{ text('pageFrame.blocked', delivery.reason) }}</template>
             <template v-else-if="delivery.kind === 'entry-failed'">
-                <span>{{ text(TEXT.failed, delivery.reason) }}</span>
-                <Button size="sm" variant="secondary" :disabled="busy" data-settings-page-retry-entry @click="emit('retry-entry')">{{ text(TEXT.retry) }}</Button>
+                <span>{{ text('pageFrame.failed', delivery.reason) }}</span>
+                <Button size="sm" variant="secondary" :disabled="busy" data-settings-page-retry-entry @click="emit('retry-entry')">{{ text('pageFrame.retry') }}</Button>
             </template>
-            <template v-else-if="delivery.kind === 'entry-stopped'">{{ text(TEXT.stopped, delivery.reason) }}</template>
-            <template v-else-if="delivery.kind === 'entry-not-activatable'">{{ text(TEXT.notActivatable, delivery.reason) }}</template>
+            <template v-else-if="delivery.kind === 'entry-stopped'">{{ text('pageFrame.stopped', delivery.reason) }}</template>
+            <template v-else-if="delivery.kind === 'entry-not-activatable'">{{ text('pageFrame.notActivatable', delivery.reason) }}</template>
             <template v-else-if="status === 'load-failed'">
-                <span>{{ text(TEXT.loadFailed, error ?? "") }}</span>
-                <Button size="sm" variant="secondary" :disabled="busy" data-settings-page-reload @click="emit('reload')">{{ text(TEXT.reload) }}</Button>
+                <span>{{ text('pageFrame.loadFailed', error ?? "") }}</span>
+                <Button size="sm" variant="secondary" :disabled="busy" data-settings-page-reload @click="emit('reload')">{{ text('pageFrame.reload') }}</Button>
             </template>
             <template v-else>
-                <span>{{ text(TEXT.renderFailed, error ?? "") }}</span>
-                <Button size="sm" variant="secondary" :disabled="busy" data-settings-page-retry-render @click="emit('retry-render')">{{ text(TEXT.retry) }}</Button>
+                <span>{{ text('pageFrame.renderFailed', error ?? "") }}</span>
+                <Button size="sm" variant="secondary" :disabled="busy" data-settings-page-retry-render @click="emit('retry-render')">{{ text('pageFrame.retry') }}</Button>
             </template>
         </div>
     </div>

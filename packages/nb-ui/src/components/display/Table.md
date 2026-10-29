@@ -1,5 +1,5 @@
 ---
-标签: []
+标签: [state:inject]
 ---
 
 # Table
@@ -36,7 +36,7 @@ interface TableProps<Row extends object> {
     rowKey?: keyof Row & string;
     /** 是否显示加载行；可选，默认 false */
     loading?: boolean;
-    /** 默认空态标题；可选，默认 "暂无数据"，有 empty 插槽时不显示 */
+    /** 默认空态标题；可选，缺省按界面语言取（中文 "暂无数据"），有 empty 插槽时不显示 */
     emptyText?: string;
     /** 是否启用行悬停高亮；可选，默认 true */
     hoverable?: boolean;
@@ -62,3 +62,7 @@ interface TableSlots<Row extends object> {
 ## 不支持
 
 不内置排序、选择、分页、行展开、列筛选或编辑；需要这些行为时由消费方组合。单元格默认值按 Vue 文本插值呈现，复杂内容应使用对应的 `cell-<key>` 插槽。
+
+## 隐藏通道理由
+
+`state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取空态的缺省标题，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `emptyText` 时以属性为准，不读端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。

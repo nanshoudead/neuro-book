@@ -1,5 +1,5 @@
 ---
-标签: [state:local]
+标签: [state:local, state:inject]
 别名: ["资源管理器的行", "Explorer Row"]
 ---
 
@@ -19,7 +19,6 @@
 type Props = {
     /** 行数据：`web/tree/rows.ts` 的投影结果。 */
     row: Row;
-    locale: DisplayLocale;
     /** DOM id：树用它作 `aria-activedescendant` 的目标。 */
     domId: string;
     selected: boolean;
@@ -61,6 +60,7 @@ type Emits = {
 ## 隐藏通道理由
 
 - `state:local`：内联输入框的元素引用，只用来在输入行挂上或资源行换成改名输入时把焦点放进去、选中扩展名之前的部分；不保存业务状态。
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，根的名字、状态图标的说明与输入框的可访问名称等文字都在本插件的目录（命名空间 `nbook.explorer`，`../../locales/`）；语言随端口切换，不重新挂载，组件没有语言属性。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。
 
 ## 不支持
 

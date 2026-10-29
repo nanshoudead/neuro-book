@@ -14,7 +14,9 @@ import {Value} from "typebox/value";
 
 import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";
 
-import {LocalizedTextSchema} from "nbook/shared/localized-text";
+import {conventionCompleter} from "nbook/shared/convention-keys";
+import type {Written} from "nbook/shared/convention-keys";
+import {TextSchema} from "nbook/shared/text";
 import {isSettingsGroupId, isSettingsSectionId, SETTINGS_ORDER_LIMIT, SETTINGS_SECTION_ID_MAX_LENGTH} from "nbook/shared/settings";
 
 export const SETTINGS_SECTIONS_POINT = "settings.sections";
@@ -49,8 +51,8 @@ export const SETTINGS_PAGE_KEYWORDS_LIMIT = 20;
 
 /** 两种分区共有的字段：左栏怎样列出它。 */
 const heading = {
-    title: LocalizedTextSchema,
-    description: Type.Optional(LocalizedTextSchema),
+    title: TextSchema,
+    description: Type.Optional(TextSchema),
     icon: Type.String({pattern: "\\S"}),
     category: Type.Union([Type.Literal("app"), Type.Literal("ai"), Type.Literal("plugins")]),
     order: Type.Optional(Type.Number({minimum: -SETTINGS_ORDER_LIMIT, maximum: SETTINGS_ORDER_LIMIT})),
@@ -58,7 +60,7 @@ const heading = {
 
 export const SettingsSectionDeclarationSchema = Type.Object({
     ...heading,
-    groups: Type.Optional(Type.Array(Type.Object({id: Type.String(), title: LocalizedTextSchema}, {additionalProperties: false}))),
+    groups: Type.Optional(Type.Array(Type.Object({id: Type.String(), title: TextSchema}, {additionalProperties: false}))),
 }, {additionalProperties: false});
 
 export const SettingsPageDeclarationSchema = Type.Object({
@@ -66,7 +68,7 @@ export const SettingsPageDeclarationSchema = Type.Object({
     layout: Type.Optional(Type.Union([Type.Literal("column"), Type.Literal("fill")])),
     layers: Type.Optional(Type.Array(Layer, {minItems: 1})),
     /** 设置内搜索时除标题与说明外还比对的词（settings-window.md 输出 21）。 */
-    keywords: Type.Optional(Type.Array(LocalizedTextSchema, {maxItems: SETTINGS_PAGE_KEYWORDS_LIMIT})),
+    keywords: Type.Optional(Type.Array(TextSchema, {maxItems: SETTINGS_PAGE_KEYWORDS_LIMIT})),
 }, {additionalProperties: false});
 
 /** 选项提供者的声明没有字段：选项都由实现给出。 */
@@ -76,20 +78,39 @@ export const SettingsChoicesDeclarationSchema = Type.Object({}, {additionalPrope
 export type SettingsSectionDeclaration = Static<typeof SettingsSectionDeclarationSchema>;
 /** page 分区的声明（`settings.pages`）。 */
 export type SettingsPageDeclaration = Static<typeof SettingsPageDeclarationSchema>;
+/** 作者写下的 list 分区声明：`title` 与小组的 `title` 可以省略，登记时补成约定键。 */
+export type WrittenSettingsSectionDeclaration = Written<Omit<SettingsSectionDeclaration, "groups">, "title"> & {
+    readonly groups?: ReadonlyArray<Written<NonNullable<SettingsSectionDeclaration["groups"]>[number], "title">>;
+};
+/** 作者写下的 page 分区声明：`title` 可以省略，登记时补成约定键。 */
+export type WrittenSettingsPageDeclaration = Written<SettingsPageDeclaration, "title">;
 /** 选项提供者的声明（`settings.choices`）。 */
 export type SettingsChoicesDeclaration = Static<typeof SettingsChoicesDeclarationSchema>;
 
+/**
+ * list 分区的补全：没写 `title` 时补约定键 `settingsSections.<本地 id>.title`，小组没写 `title` 时补
+ * `settingsSections.<本地 id>.groups.<小组 id>.title`（settings-window.md 的“约定键”）。
+ */
+export const completeSectionDeclaration = conventionCompleter({
+    name: "settingsSections",
+    fields: ["title"],
+    lists: {groups: {segment: (group) => (typeof group.id === "string" ? group.id : null), fields: ["title"]}},
+});
+
+/** page 分区的补全：没写 `title` 时补约定键 `settingsPages.<本地 id>.title`。 */
+export const completePageDeclaration = conventionCompleter({name: "settingsPages", fields: ["title"]});
+
 /** id 的形状；前缀由内核按贡献点的 `idPrefix` 核对（同视图）。 */
-function idProblem(descriptor: ContributionDescriptor, noun = "分区"): string | null {
+function idProblem(descriptor: ContributionDescriptor, noun = "Section"): string | null {
     const id = descriptor.id;
-    if (!isSettingsSectionId(id)) return `${noun} id 必须是点分的小写段、至多 ${String(SETTINGS_SECTION_ID_MAX_LENGTH)} 个字符：${id}`;
+    if (!isSettingsSectionId(id)) return `${noun} id must be dot-separated lowercase segments of at most ${String(SETTINGS_SECTION_ID_MAX_LENGTH)} characters: ${id}`;
     return null;
 }
 
-function shapeProblem(schema: TSchema, descriptor: ContributionDescriptor, noun = "分区"): string | null {
+function shapeProblem(schema: TSchema, descriptor: ContributionDescriptor, noun = "Section"): string | null {
     if (Value.Check(schema, descriptor.declaration)) return null;
     const first = [...Value.Errors(schema, descriptor.declaration)][0];
-    return `${noun} ${descriptor.id} 的声明不合格：${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}：${first.message}`}`;
+    return `${noun} ${descriptor.id} has an invalid declaration: ${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}: ${first.message}`}`;
 }
 
 /** `settings.sections` 的登记校验：只看这一条声明本身；配置项指向的分区与小组存不存在不在这里核对。 */
@@ -98,23 +119,23 @@ export function validateSectionContribution(descriptor: ContributionDescriptor):
     if (problem !== null) return problem;
     const ids = ((descriptor.declaration as SettingsSectionDeclaration).groups ?? []).map((group) => group.id);
     const malformed = ids.find((group) => !isSettingsGroupId(group));
-    if (malformed !== undefined) return `分区 ${descriptor.id} 的小组 id 必须是一个小写段：${malformed}`;
-    if (new Set(ids).size !== ids.length) return `分区 ${descriptor.id} 的小组 id 有重复`;
+    if (malformed !== undefined) return `Section ${descriptor.id} has a group id that is not a single lowercase segment: ${malformed}`;
+    if (new Set(ids).size !== ids.length) return `Section ${descriptor.id} has duplicate group ids`;
     return null;
 }
 
 /** `settings.pages` 的登记校验：只接受浏览器入口的贡献。 */
 export function validatePageContribution(descriptor: ContributionDescriptor): string | null {
-    if (descriptor.location !== "browser") return `${SETTINGS_PAGES_POINT} 只接受浏览器入口的贡献`;
+    if (descriptor.location !== "browser") return `${SETTINGS_PAGES_POINT} only accepts contributions from browser entries`;
     const problem = idProblem(descriptor) ?? shapeProblem(SettingsPageDeclarationSchema, descriptor);
     if (problem !== null) return problem;
     const layers = (descriptor.declaration as SettingsPageDeclaration).layers;
-    if (layers !== undefined && new Set(layers).size !== layers.length) return `分区 ${descriptor.id} 的 layers 有重复`;
+    if (layers !== undefined && new Set(layers).size !== layers.length) return `Section ${descriptor.id} has duplicate layers`;
     return null;
 }
 
 /** `settings.choices` 的登记校验：只接受浏览器入口的贡献，id 规则同分区（声明里 `choices: {from}` 写的就是它）。 */
 export function validateChoiceContribution(descriptor: ContributionDescriptor): string | null {
-    if (descriptor.location !== "browser") return `${SETTINGS_CHOICES_POINT} 只接受浏览器入口的贡献`;
-    return idProblem(descriptor, "选项提供者") ?? shapeProblem(SettingsChoicesDeclarationSchema, descriptor, "选项提供者");
+    if (descriptor.location !== "browser") return `${SETTINGS_CHOICES_POINT} only accepts contributions from browser entries`;
+    return idProblem(descriptor, "Choice provider") ?? shapeProblem(SettingsChoicesDeclarationSchema, descriptor, "Choice provider");
 }

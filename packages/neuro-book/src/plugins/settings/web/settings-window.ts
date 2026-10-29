@@ -19,17 +19,19 @@ import type {ComputedRef, Ref} from "@vue/reactivity";
 import type {Component} from "vue";
 
 import type {FormOptionSources} from "@notnotype/nb-form/vue";
+import type {TextParams} from "@notnotype/nb-ui/text";
 
 import type {CommandResult} from "nbook/plugins/commands/shared/contracts";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
-import {formatText, localize, textOf} from "nbook/shared/localized-text";
-import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/localized-text";
+import type {DisplayLocale, DisplayText, TextResolver} from "nbook/shared/localized-text";
 import {settingsFailureText} from "nbook/ui/settings/setting-text";
 import type {SettingDefinition, SettingLayer, SettingsFailure, SettingsService, SettingUpdateOptions, SettingWriteResult} from "nbook/shared/settings";
 
 import {SETTINGS_SECTION_CATEGORIES} from "../shared/contracts";
 import type {SettingsSectionCategory} from "../shared/contracts";
 import type {LayerTextPosition} from "../shared/layers";
+import {settingsText} from "../shared/text";
+import type {SettingsTextKey} from "../shared/text";
 import type {LayerFile} from "../shared/remote-link";
 import type {SettingsPageContext} from "./contracts";
 import type {SettingsPageDelivery, SettingsSectionEntry} from "./sections";
@@ -65,6 +67,8 @@ export interface SettingsWindowOptions {
     /** 绑定作品的书名；没有绑定为 null。 */
     readonly projectTitle: string | null;
     readonly locale: Readonly<Ref<DisplayLocale>>;
+    /** 声明里的文字（分区标题、配置项标题与说明）经它解析；`TextRef` 查窗口的目录。 */
+    readonly text: TextResolver;
     readonly size: SettingsWindowSizeStore;
     /** 工作台的通知（写入失败、结果未知）。 */
     readonly notify: (input: NotificationInput) => void;
@@ -173,6 +177,8 @@ export interface SettingsWindow {
     /** 绑定了作品（有“本作品”标签）；在入口这一代里不变。 */
     readonly bound: Readonly<Ref<boolean>>;
     readonly locale: Readonly<Ref<DisplayLocale>>;
+    /** 声明里的文字（分区标题、配置项标题与说明）经它解析；`TextRef` 查窗口的目录。 */
+    readonly text: TextResolver;
     /** 绑定作品的书名；没有绑定为 null。 */
     readonly projectTitle: Readonly<Ref<string | null>>;
     readonly open: Readonly<Ref<boolean>>;
@@ -238,30 +244,13 @@ export interface SettingsWindow {
     dispose(): void;
 }
 
-const TEXT = {
-    otherTitle: {"zh-CN": "插件设置", "en-US": "Plugin Settings"},
-    otherDescription: {"zh-CN": "未提供独立分区的插件设置", "en-US": "Settings from plugins that have no section of their own"},
-    userOnlySection: {"zh-CN": "这个分区的设置仅可在用户设置中修改", "en-US": "Settings in this section can only be changed in your settings"},
-    projectOnlySection: {"zh-CN": "这个分区的设置仅可在本作品中设置", "en-US": "Settings in this section can only be set for a book"},
-    emptySection: {"zh-CN": "这个分区还没有设置项", "en-US": "This section has no settings yet"},
-    unknownSection: {"zh-CN": "设置里没有分区 {section}", "en-US": "There is no settings section {section}"},
-    noProject: {"zh-CN": "这个窗口没有打开作品，没有本作品的设置", "en-US": "No book is open in this window, so there are no book settings"},
-    notSavedTitle: {"zh-CN": "设置没有保存", "en-US": "Setting not saved"},
-    unknownTitle: {"zh-CN": "设置可能没有保存", "en-US": "Setting may not be saved"},
-    notSaved: {"zh-CN": "{title}：{reason}", "en-US": "{title}: {reason}"},
-    searchTitle: {"zh-CN": "搜索结果", "en-US": "Search Results"},
-    fileTitle: {"zh-CN": "设置文件", "en-US": "Settings File"},
-    fileDescription: {"zh-CN": "直接编辑这一层的设置文件（JSON，可以写注释）", "en-US": "Edit this layer's settings file directly (JSON with comments)"},
-    fileKeyword: {"zh-CN": "settings.json", "en-US": "settings.json"},
-} satisfies Record<string, LocalizedText>;
-
 /** 搜索结果视图的 id：不是分区，与“其它”一样只有一段，分区贡献写不出来。 */
 export const SEARCH_VIEW_ID = "search";
 
 interface CatalogSection {
     readonly id: string;
-    readonly title: LocalizedText;
-    readonly description: LocalizedText | null;
+    readonly title: DisplayText;
+    readonly description: DisplayText | null;
     readonly icon: string;
     readonly category: SettingsSectionCategory;
     readonly order: number;
@@ -271,7 +260,7 @@ interface CatalogSection {
     readonly layers: ReadonlyArray<SettingLayer>;
     readonly groups: ReadonlyArray<{readonly id: string | null; readonly title: DisplayText | null; readonly settings: ReadonlyArray<WindowSetting>}>;
     /** page 分区：声明的搜索词与指向它、由页面画的配置项（都只用于搜索）。 */
-    readonly keywords: ReadonlyArray<LocalizedText>;
+    readonly keywords: ReadonlyArray<DisplayText>;
     readonly pageSettings: ReadonlyArray<WindowSetting>;
 }
 
@@ -305,7 +294,7 @@ function buildCatalog(source: SettingsWindowSource, report: (message: string) =>
         const {key, declaration} = setting.definition;
         const section = declaration.section === undefined ? undefined : declared.get(declaration.section);
         if (section === undefined) {
-            if (declaration.section !== undefined) report(`配置项 ${key} 指向不存在的分区 ${declaration.section}，归入“其它”`);
+            if (declaration.section !== undefined) report(`Setting ${key} points to section ${declaration.section}, which does not exist; it goes under "Other"`);
             other.set(setting.plugin, [...(other.get(setting.plugin) ?? []), setting]);
             continue;
         }
@@ -317,7 +306,7 @@ function buildCatalog(source: SettingsWindowSource, report: (message: string) =>
         const groups = listed.get(declaration.section!) ?? new Map<string | null, WindowSetting[]>();
         listed.set(declaration.section!, groups);
         const known = declaration.group !== undefined && (section.declaration.groups ?? []).some((group) => group.id === declaration.group);
-        if (declaration.group !== undefined && !known) report(`配置项 ${key} 指向分区 ${declaration.section!} 没有声明的小组 ${declaration.group}，排在分区最前`);
+        if (declaration.group !== undefined && !known) report(`Setting ${key} points to group ${declaration.group}, which section ${declaration.section!} does not declare; it goes first in the section`);
         place(groups, known ? declaration.group! : null, setting);
     }
 
@@ -350,8 +339,8 @@ function buildCatalog(source: SettingsWindowSource, report: (message: string) =>
     const ordered = SETTINGS_SECTION_CATEGORIES.flatMap((category) => sections.filter((section) => section.category === category).sort((left, right) => left.order - right.order || byCodeUnit(left.id, right.id)));
     const file: CatalogSection = {
         id: FILE_SECTION_ID,
-        title: TEXT.fileTitle,
-        description: TEXT.fileDescription,
+        title: settingsText("model.fileTitle"),
+        description: settingsText("model.fileDescription"),
         icon: "i-lucide-file-json",
         category: "plugins",
         order: 0,
@@ -359,14 +348,14 @@ function buildCatalog(source: SettingsWindowSource, report: (message: string) =>
         layout: "column",
         layers: LAYERS,
         groups: [],
-        keywords: [TEXT.fileKeyword],
+        keywords: [settingsText("model.fileKeyword")],
         pageSettings: [],
     };
     if (other.size === 0) return [...ordered, file];
     return [...ordered, {
         id: OTHER_SECTION_ID,
-        title: TEXT.otherTitle,
-        description: TEXT.otherDescription,
+        title: settingsText("model.otherTitle"),
+        description: settingsText("model.otherDescription"),
         icon: "i-lucide-ellipsis",
         category: "plugins",
         order: 0,
@@ -380,16 +369,16 @@ function buildCatalog(source: SettingsWindowSource, report: (message: string) =>
 }
 
 /** 一项配置在搜索里比对的文字：标题、说明、键与固定选项名，两种语言都在（输出 21）。 */
-function settingText(setting: WindowSetting): string {
+function settingText(setting: WindowSetting, resolver: TextResolver): string {
     const {key, declaration} = setting.definition;
-    const texts: Array<LocalizedText | undefined> = [declaration.title, declaration.description];
+    const texts: Array<DisplayText | undefined> = [declaration.title, declaration.description];
     const choices = declaration.choices;
     if (Array.isArray(choices)) texts.push(...choices.map((choice) => choice.title));
-    return [key, ...texts.flatMap((text) => (text === undefined ? [] : Object.values(text)))].join("\n").toLocaleLowerCase();
+    return [key, ...texts.flatMap((text) => (text === undefined ? [] : resolver.variants(text)))].join("\n").toLocaleLowerCase();
 }
 
-function localizedText(texts: ReadonlyArray<LocalizedText | null>): string {
-    return texts.flatMap((text) => (text === null ? [] : Object.values(text))).join("\n").toLocaleLowerCase();
+function localizedText(texts: ReadonlyArray<DisplayText | null>, resolver: TextResolver): string {
+    return texts.flatMap((text) => (text === null ? [] : resolver.variants(text))).join("\n").toLocaleLowerCase();
 }
 
 /** 按空白分词、不分大小写，每个词都要出现。 */
@@ -406,7 +395,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
         catalog();
         return built?.byId.get(id);
     };
-    const text = (template: LocalizedText, params: Readonly<Record<string, string | number>> = {}): string => localize(formatText(template, params), options.locale.value);
+    const text = (key: SettingsTextKey, params?: TextParams): string => options.text.t(settingsText(key, params));
 
     const open = ref(false);
     const focusRequest = ref(0);
@@ -420,19 +409,19 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
 
     /** 分区在这个标签下不可用的原因（输出 8）；可用为 null。 */
     const unavailableIn = (entry: CatalogSection, tab: SettingLayer): string | null => {
-        const reason = tab === "project" ? TEXT.userOnlySection : TEXT.projectOnlySection;
+        const reason = tab === "project" ? "model.userOnlySection" : "model.projectOnlySection";
         if (entry.kind === "page") return entry.layers.includes(tab) ? null : text(reason);
         if (entry.kind === "file") return null;
         const all = entry.groups.flatMap((group) => group.settings);
-        if (all.length === 0) return text(TEXT.emptySection);
+        if (all.length === 0) return text("model.emptySection");
         return all.some((setting) => setting.definition.declaration.layers.includes(tab)) ? null : text(reason);
     };
 
     const view = (entry: CatalogSection, tab: SettingLayer): SettingsSectionView => {
         const heading = {
             id: entry.id,
-            title: localize(entry.title, options.locale.value),
-            description: entry.description === null ? null : localize(entry.description, options.locale.value),
+            title: options.text.t(entry.title),
+            description: entry.description === null ? null : options.text.t(entry.description),
             unavailable: unavailableIn(entry, tab),
         };
         if (entry.kind === "page") return {...heading, kind: "page", layout: entry.layout};
@@ -445,9 +434,9 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
             ...heading,
             kind: "list",
             groups: entry.groups
-                .map((group) => ({id: group.id, title: group.title === null ? null : textOf(group.title, options.locale.value), settings: group.settings.filter(allowed)}))
+                .map((group) => ({id: group.id, title: group.title === null ? null : options.text.t(group.title), settings: group.settings.filter(allowed)}))
                 .filter((group) => group.settings.length > 0),
-            excluded: entry.groups.flatMap((group) => group.settings.filter((setting) => !allowed(setting))).map((setting) => localize(setting.definition.declaration.title, options.locale.value)),
+            excluded: entry.groups.flatMap((group) => group.settings.filter((setting) => !allowed(setting))).map((setting) => options.text.t(setting.definition.declaration.title)),
         };
     };
 
@@ -457,18 +446,18 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     const writes = shallowReactive(new Map<string, {readonly token: number; readonly value: unknown}>());
     const pendingKey = (tab: SettingLayer, key: string): string => `${tab}\n${key}`;
 
+    // 通知交文字引用，视口显示时才翻（docs/specs/workbench/notifications.md 输出 9），切换语言后已显示的通知随之换文字；代入的
+    // 设置项标题与失败原因只能是字符串，是发通知时按当前语言翻好的片段。
     const notifyFailure = (setting: WindowSetting, code: SettingsFailure, detail: string): void => {
-        const title = localize(setting.definition.declaration.title, options.locale.value);
-        if (code === "unknown-outcome") {
-            options.notify({tone: "warning", title: text(TEXT.unknownTitle), message: text(TEXT.notSaved, {title, reason: settingsFailureText(code, detail, options.locale.value)})});
-            return;
-        }
-        options.notify({tone: "warning", title: text(TEXT.notSavedTitle), message: text(TEXT.notSaved, {title, reason: settingsFailureText(code, detail, options.locale.value)})});
+        const title = options.text.t(setting.definition.declaration.title);
+        const message = settingsText("model.notSaved", {title, reason: settingsFailureText(code, detail, options.text)});
+        options.notify({tone: "warning", title: settingsText(code === "unknown-outcome" ? "model.unknownTitle" : "model.notSavedTitle"), message});
     };
 
     const editing: SettingsService = {
         get: (setting) => options.settings.get(setting),
         inspect: (setting) => options.settings.inspect(setting),
+        declaration: (setting) => options.settings.declaration(setting),
         onDidChange: (listener) => options.settings.onDidChange(listener),
         // `SettingsRow` 总给出层；没给时写当前标签那一层，与通用控件一致。
         update: <T>(setting: SettingDefinition<T>, value: T | undefined, update: SettingUpdateOptions = {}): Promise<SettingWriteResult> => {
@@ -611,7 +600,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     const nav = computed(() => SETTINGS_SECTION_CATEGORIES
         .map((category) => ({
             category,
-            items: catalog().filter((entry) => entry.category === category).map((entry) => ({id: entry.id, title: localize(entry.title, options.locale.value), icon: entry.icon, unavailable: unavailableIn(entry, layer.value)})),
+            items: catalog().filter((entry) => entry.category === category).map((entry) => ({id: entry.id, title: options.text.t(entry.title), icon: entry.icon, unavailable: unavailableIn(entry, layer.value)})),
         }))
         .filter((group) => group.items.length > 0));
     /** 搜索结果（输出 21）：只列当前标签这一层允许的项与可用的 page 分区。 */
@@ -620,24 +609,24 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
         const groups: SettingsListGroup[] = [];
         const pageHits: SettingsPageHit[] = [];
         for (const entry of catalog()) {
-            const title = localize(entry.title, options.locale.value);
+            const title = options.text.t(entry.title);
             if (entry.kind === "page" || entry.kind === "file") {
                 if (!entry.layers.includes(tab)) continue;
-                const own = localizedText([entry.title, entry.description, ...entry.keywords]);
-                if (matches(own, words.value) || entry.pageSettings.some((setting) => matches(settingText(setting), words.value))) {
-                    pageHits.push({id: entry.id, title, description: entry.description === null ? null : localize(entry.description, options.locale.value)});
+                const own = localizedText([entry.title, entry.description, ...entry.keywords], options.text);
+                if (matches(own, words.value) || entry.pageSettings.some((setting) => matches(settingText(setting, options.text), words.value))) {
+                    pageHits.push({id: entry.id, title, description: entry.description === null ? null : options.text.t(entry.description)});
                 }
                 continue;
             }
             for (const group of entry.groups) {
-                const hits = group.settings.filter((setting) => allowed(setting) && matches(settingText(setting), words.value));
+                const hits = group.settings.filter((setting) => allowed(setting) && matches(settingText(setting, options.text), words.value));
                 if (hits.length === 0) continue;
-                const groupTitle = group.title === null ? null : textOf(group.title, options.locale.value);
+                const groupTitle = group.title === null ? null : options.text.t(group.title);
                 // 同一个分区的几个小组各是一组，id 要区分开（键与 `data-settings-group`）。
                 groups.push({id: `${entry.id}#${group.id ?? ""}`, title: groupTitle ?? title, parent: groupTitle === null ? null : title, settings: hits});
             }
         }
-        const heading = {id: SEARCH_VIEW_ID, title: text(TEXT.searchTitle), description: null, unavailable: null};
+        const heading = {id: SEARCH_VIEW_ID, title: text("model.searchTitle"), description: null, unavailable: null};
         return {...heading, kind: "search", query: query.value, words: words.value, list: {...heading, kind: "list", groups, excluded: []}, pages: pageHits};
     };
     const current = computed(() => {
@@ -707,6 +696,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     return {
         bound: readonly(ref(options.bound)),
         locale: options.locale,
+        text: options.text,
         projectTitle,
         open: readonly(open),
         focusRequest: readonly(focusRequest),
@@ -724,8 +714,8 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
         editing,
         options: () => source.options(),
         openWindow: (args) => {
-            if (args.section !== undefined && sectionOf(args.section) === undefined) return {ok: false, code: "invalid-args", reason: text(TEXT.unknownSection, {section: args.section})};
-            if (args.layer === "project" && !options.bound) return {ok: false, code: "unavailable", reason: text(TEXT.noProject)};
+            if (args.section !== undefined && sectionOf(args.section) === undefined) return {ok: false, code: "invalid-args", reason: text("model.unknownSection", {section: args.section})};
+            if (args.layer === "project" && !options.bound) return {ok: false, code: "unavailable", reason: text("model.noProject")};
             const target: SettingsLeaveTarget = {kind: "open", ...(args.section === undefined ? {} : {section: args.section}), ...(args.layer === undefined ? {} : {layer: args.layer})};
             if (open.value) {
                 const moves = (args.section !== undefined && (args.section !== section.value || query.value !== "")) || (args.layer !== undefined && args.layer !== layer.value);
@@ -823,7 +813,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
             instance.busy = true;
             try {
                 const result = await source.retry(id);
-                if (result.status === "failed") options.report(`重试 page 分区 ${id} 所属的入口没有成功：${result.reason}`);
+                if (result.status === "failed") options.report(`Retrying the entry of page section ${id} did not succeed: ${result.reason}`);
             } finally {
                 instance.busy = false;
             }

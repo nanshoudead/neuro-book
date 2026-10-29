@@ -9,11 +9,10 @@
  * 是层里原来的值，输入框回到实际值，不留下没存进去的字。
  */
 import {Button, Input, Textarea, IconButton, Tooltip} from "@notnotype/nb-plugin-sdk/components";
+import {usePluginText} from "@notnotype/nb-plugin-sdk/text/browser";
 import {ref, watch} from "vue";
 
-import {localize} from "@notnotype/nb-plugin-sdk";
-import type {DisplayLocale, LocalizedText} from "@notnotype/nb-plugin-sdk";
-
+import {plugin} from "../shared/contracts";
 import type {Snippet} from "../shared/contracts";
 import {addSnippet, changeSnippet, moveSnippet, removeSnippet} from "./snippets";
 
@@ -21,23 +20,17 @@ const props = defineProps<{
     items: ReadonlyArray<Snippet>;
     /** 这一层不能保存（文件无效、连不上）：全部停用。 */
     disabled: boolean;
-    locale: DisplayLocale;
     /** 写入改好的整份列表，返回是否写成了。 */
     save: (items: ReadonlyArray<Snippet>) => Promise<boolean>;
 }>();
 
-const TEXT = {
-    name: {"zh-CN": "名字", "en-US": "Name"},
-    text: {"zh-CN": "正文", "en-US": "Text"},
-    up: {"zh-CN": "上移", "en-US": "Move Up"},
-    down: {"zh-CN": "下移", "en-US": "Move Down"},
-    remove: {"zh-CN": "删除", "en-US": "Delete"},
-    add: {"zh-CN": "添加片段", "en-US": "Add Snippet"},
-    newName: {"zh-CN": "新片段", "en-US": "New Snippet"},
-    empty: {"zh-CN": "还没有片段", "en-US": "No snippets yet"},
-} satisfies Record<string, LocalizedText>;
-
-const text = (template: LocalizedText): string => localize(template, props.locale);
+/**
+ * 界面文字取自本插件的消息目录（`../locales/`）。`usePluginText` 读宿主在窗口根上注入的翻译端口，绑定本插件的命名空间：
+ * `text("editor.add")` 返回当前界面语言的字符串，键按源语言目录核对（docs/specs/ui/i18n.md 的“目录与键”）。在模板里调用，
+ * 界面语言切换时组件跟着重画，所以不需要像以前那样从页面传一个 `locale` 属性下来。只在 `setup` 里调用：端口经 Vue 的
+ * 注入取得。
+ */
+const text = usePluginText<typeof import("../locales/zh-CN.json")>(plugin.id);
 
 /** 输入框里的草稿；`items` 变了（写入结算、切换标签、文件被外部改了）就整份换掉。 */
 const drafts = ref<Snippet[]>(props.items.map((item) => ({...item})));
@@ -72,28 +65,28 @@ function commitField(index: number, field: keyof Snippet): void {
 
 <template>
     <div class="snippets-editor" data-snippets-editor>
-        <p v-if="items.length === 0" class="snippets-editor__empty">{{ text(TEXT.empty) }}</p>
+        <p v-if="items.length === 0" class="snippets-editor__empty">{{ text('editor.empty') }}</p>
         <!-- 片段没有 id、名字可以重名，只能按位置作 key。 -->
         <div v-for="(item, index) in drafts" :key="index" class="snippets-editor__item" :data-snippet="index">
             <div class="snippets-editor__name" @focusout="commitField(index, 'name')">
-                <Input v-model="item.name" :disabled="disabled" :aria-label="text(TEXT.name)" :maxlength="40" size="sm" />
+                <Input v-model="item.name" :disabled="disabled" :aria-label="text('editor.name')" :maxlength="40" size="sm" />
             </div>
             <div class="snippets-editor__text" @focusout="commitField(index, 'text')">
-                <Textarea v-model="item.text" :disabled="disabled" :aria-label="text(TEXT.text)" :rows="2" :maxlength="2000" />
+                <Textarea v-model="item.text" :disabled="disabled" :aria-label="text('editor.text')" :rows="2" :maxlength="2000" />
             </div>
             <div class="snippets-editor__actions">
-                <Tooltip :text="text(TEXT.up)">
-                    <IconButton size="sm" icon-class="i-lucide-arrow-up" :aria-label="text(TEXT.up)" :disabled="disabled || index === 0" @click="commit((list) => moveSnippet(list, index, -1))" />
+                <Tooltip :text="text('editor.up')">
+                    <IconButton size="sm" icon-class="i-lucide-arrow-up" :aria-label="text('editor.up')" :disabled="disabled || index === 0" @click="commit((list) => moveSnippet(list, index, -1))" />
                 </Tooltip>
-                <Tooltip :text="text(TEXT.down)">
-                    <IconButton size="sm" icon-class="i-lucide-arrow-down" :aria-label="text(TEXT.down)" :disabled="disabled || index === items.length - 1" @click="commit((list) => moveSnippet(list, index, 1))" />
+                <Tooltip :text="text('editor.down')">
+                    <IconButton size="sm" icon-class="i-lucide-arrow-down" :aria-label="text('editor.down')" :disabled="disabled || index === items.length - 1" @click="commit((list) => moveSnippet(list, index, 1))" />
                 </Tooltip>
-                <Tooltip :text="text(TEXT.remove)">
-                    <IconButton size="sm" icon-class="i-lucide-trash-2" :aria-label="text(TEXT.remove)" :disabled="disabled" @click="commit((list) => removeSnippet(list, index))" />
+                <Tooltip :text="text('editor.remove')">
+                    <IconButton size="sm" icon-class="i-lucide-trash-2" :aria-label="text('editor.remove')" :disabled="disabled" @click="commit((list) => removeSnippet(list, index))" />
                 </Tooltip>
             </div>
         </div>
-        <Button class="snippets-editor__add" size="sm" variant="secondary" icon-class="i-lucide-plus" :disabled="disabled" @click="commit((list) => addSnippet(list, text(TEXT.newName)))">{{ text(TEXT.add) }}</Button>
+        <Button class="snippets-editor__add" size="sm" variant="secondary" icon-class="i-lucide-plus" :disabled="disabled" @click="commit((list) => addSnippet(list, text('editor.newName')))">{{ text('editor.add') }}</Button>
     </div>
 </template>
 

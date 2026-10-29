@@ -1,0 +1,300 @@
+{
+    "settings": {
+        "theme": {
+            "title": "Theme",
+            "description": "Shape, typography and colors of the interface",
+            "choices": {
+                "nbook": {
+                    "title": "NeuroBook"
+                },
+                "macos": {
+                    "title": "macOS"
+                }
+            }
+        },
+        "appearance": {
+            "title": "Appearance",
+            "choices": {
+                "light": {
+                    "title": "Light"
+                },
+                "dark": {
+                    "title": "Dark"
+                },
+                "system": {
+                    "title": "System"
+                }
+            }
+        }
+    },
+    "titlebar": {
+        "groups": {
+            "file": "File",
+            "edit": "Edit",
+            "view": "View",
+            "help": "Help"
+        },
+        "label": "Title bar",
+        "menuButton": "Menu",
+        "search": "Search commands",
+        "searchWithShortcut": "Search commands ({{shortcut}})",
+        "openProject": "Open Project…",
+        "projectButton": "Project: {{name}}",
+        "toggle": {
+            "sidebar": "Toggle Sidebar",
+            "panel": "Toggle Panel",
+            "auxiliarybar": "Toggle Secondary Side Bar"
+        },
+        "menuItems": {
+            "sidebar": "Sidebar",
+            "auxiliarybar": "Secondary Side Bar",
+            "activitybar": "Activity Bar",
+            "panel": "Panel"
+        },
+        "nativeEditing": "The focused input handles undo itself"
+    },
+    "categories": {
+        "view": "View",
+        "help": "Help",
+        "settings": "Settings"
+    },
+    "commands": {
+        "nbook": {
+            "quick-open": {
+                "open-commands": {
+                    "title": "Command Palette"
+                }
+            },
+            "app": {
+                "reload": {
+                    "title": "Reload"
+                }
+            },
+            "help": {
+                "documentation": {
+                    "title": "Documentation"
+                }
+            },
+            "view": {
+                "set-panel-position": {
+                    "title": "Panel Position"
+                },
+                "set-panel-alignment": {
+                    "title": "Panel Alignment"
+                },
+                "set-panel-hidden": {
+                    "title": "Hide or Show Panel"
+                },
+                "set-panel-collapsed": {
+                    "title": "Collapse to Title Bar"
+                },
+                "toggle-panel-maximized": {
+                    "title": "Maximize or Restore Panel"
+                },
+                "set-part-hidden": {
+                    "title": "Toggle Area Visibility"
+                },
+                "open": {
+                    "title": "Open View"
+                },
+                "move-view": {
+                    "title": "Move View"
+                }
+            },
+            "settings": {
+                "switch-theme": {
+                    "title": "Change Theme"
+                },
+                "switch-appearance": {
+                    "title": "Change Appearance"
+                }
+            }
+        }
+    },
+    "appCommands": {
+        "blocked": "The browser blocked the new tab; allow pop-ups for this site and try again"
+    },
+    "layout": {
+        "notOpen": "The workbench layout is not open (this window does not show the shell)"
+    },
+    "palette": {
+        "title": "Command Palette",
+        "placeholder": "Type a command, or : to go to a line",
+        "empty": "No matching commands",
+        "pickEmpty": "No matching items",
+        "linePrompt": "Type a line number (1–{{max}})",
+        "goToLine": "Go to line {{line}}",
+        "lineInvalid": "Invalid line number: {{text}}",
+        "lineOutOfRange": "Line {{line}} is out of range ({{total}} lines)",
+        "noEditor": "No active editor",
+        "editorGone": "The original editor was closed or switched",
+        "lineUnsupported": "The active editor does not support line navigation",
+        "editorNotReady": "The editor is not ready yet",
+        "commandFailed": "{{title}} did not complete",
+        "unavailable": "This page has no command palette"
+    },
+    "panelCommands": {
+        "positions": {
+            "bottom": "Bottom",
+            "top": "Top",
+            "left": "Left",
+            "right": "Right"
+        },
+        "alignments": {
+            "center": "Center (under the editor)",
+            "left": "Left (with the sidebar)",
+            "right": "Right (with the secondary side bar)",
+            "justify": "Justify (both sidebars)"
+        },
+        "current": "current",
+        "placeholder": "Takes effect immediately"
+    },
+    "partCommands": {
+        "parts": {
+            "sidebar": "Sidebar",
+            "auxiliarybar": "Secondary Side Bar",
+            "activitybar": "Activity Bar"
+        },
+        "visible": "shown",
+        "hidden": "hidden",
+        "placeholder": "Toggles immediately"
+    },
+    "themeCommands": {
+        "appearances": {
+            "light": "Light",
+            "dark": "Dark",
+            "system": "Follow System"
+        }
+    },
+    "viewCommands": {
+        "parts": {
+            "sidebar": "Sidebar",
+            "auxiliarybar": "Secondary Side Bar",
+            "panel": "Panel"
+        },
+        "pickView": "Pick a view to move",
+        "pickOpen": "Pick a view to open",
+        "noOpenable": "No view to open",
+        "unknownView": "No such view (no accepted declaration): {{viewId}}",
+        "unplaced": "The view is not in the layout: {{viewId}}",
+        "pickTarget": "Move to",
+        "noViews": "No view can be moved",
+        "partial": "Give nothing, or give viewId, sourceContainerId and one of targetContainerId and newContainerIn",
+        "stale": "The view is no longer in the container it was in when the move started, so it was not moved",
+        "newContainer": {
+            "sidebar": "New Container in Sidebar",
+            "auxiliarybar": "New Container in Secondary Side Bar",
+            "panel": "New Container in Panel"
+        }
+    },
+    "views": {
+        "resetLocation": "Reset Location",
+        "collapse": "Collapse View",
+        "expand": "Expand View"
+    },
+    "common": {
+        "more": "More",
+        "retry": "Retry"
+    },
+    "shell": {
+        "welcome": {
+            "noProject": "The workbench is ready. No project is open.",
+            "withProject": "The workbench is ready. Current project: {{name}}"
+        },
+        "panel": "Panel",
+        "empty": {
+            "part": "Drag a view here to show it",
+            "container": "All views in this container are hidden"
+        },
+        "activityBar": "Activity Bar",
+        "moveTo": "Move to",
+        "drag": {
+            "label": "Drag {{title}}",
+            "hint": "Press Space to pick up and drag"
+        },
+        "drop": {
+            "moveView": "Move here",
+            "detachView": "New container",
+            "moveContainer": "Move container",
+            "mergeContainer_one": "Merge {{count}} view",
+            "mergeContainer_other": "Merge {{count}} views",
+            "reveal": "Show in {{part}}",
+            "before": "Place before “{{title}}”",
+            "after": "Place after “{{title}}”"
+        },
+        "moreActions": "More Actions"
+    },
+    "viewFrame": {
+        "declared": "Waiting for the view's plugin to start",
+        "blocked": "The view's plugin cannot start: {{reason}}",
+        "failed": "The view's plugin failed to start: {{reason}}",
+        "stopped": "The view's plugin stopped ({{reason}})",
+        "loading": "Loading the view",
+        "loadFailed": "The view failed to load: {{reason}}",
+        "renderFailed": "The view crashed: {{reason}}",
+        "reload": "Reload"
+    },
+    "viewActions": {
+        "instanceLoading": "The view has not loaded yet"
+    },
+    "statusBar": {
+        "label": "Status bar",
+        "noProject": "No project open",
+        "showPanel": "Show Panel",
+        "hidePanel": "Hide Panel",
+        "unsaved": "Layout not saved: {{reason}}",
+        "unread": "Layout not loaded; using the default ({{reason}})",
+        "discard": "Discard",
+        "reasons": {
+            "unavailable": "storage is unavailable",
+            "conflict": "conflicts with another window",
+            "unknown-outcome": "unknown whether it was saved",
+            "io-error": "read or write error",
+            "corrupt": "the record is corrupt",
+            "unsupported-version": "unsupported record version",
+            "provider-stopped": "storage has stopped"
+        }
+    },
+    "editorArea": {
+        "loading": "Loading the editor…",
+        "failed": "The editor failed to load: {{reason}}"
+    },
+    "items": {
+        "broken": "This item failed: {{message}}",
+        "titled": "{{title}}: {{text}}"
+    },
+    "activityItems": {
+        "profile": {
+            "title": "Profile is not available yet"
+        }
+    },
+    "state": {
+        "layoutReady": {
+            "reason": "The layout is still loading"
+        },
+        "nonCompact": {
+            "reason": "The window is too narrow (compact layout)"
+        },
+        "panelHorizontal": {
+            "reason": "The panel is not at the bottom or top"
+        },
+        "panelMaximizable": {
+            "reason": "The panel must be shown, on a side, or centered at the bottom or top"
+        },
+        "panelVisible": {
+            "reason": "The panel is hidden or dragged closed"
+        },
+        "sidebarVisible": {
+            "reason": "The sidebar is hidden or dragged closed"
+        },
+        "auxiliaryBarVisible": {
+            "reason": "The secondary side bar is hidden or dragged closed"
+        },
+        "activityBarVisible": {
+            "reason": "The activity bar is hidden"
+        },
+        "panelMaximized": {
+            "reason": "The panel is not maximized"
+        }
+    }
+}

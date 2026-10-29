@@ -13,20 +13,22 @@ import type {ComputedRef, Ref, ShallowRef} from "vue";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
+import type {Text, TextParams} from "@notnotype/nb-ui/text";
+import type {TextPort} from "@notnotype/nb-ui/text-port";
 
 import type {NotificationHandle, Notifications} from "nbook/plugins/workbench/shared/contracts";
 import type {WindowNavigation} from "nbook/shared/host";
-import {localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/localized-text";
 import type {SettingsService} from "nbook/shared/settings";
 
 import {librarySetting, projectsRemoteContract} from "../shared/contracts";
 import {projectDirectoryName} from "../shared/directory-name";
 import {projectUrl} from "../shared/project-url";
 import type {ShelfItem} from "../shared/shelf";
+import {projectsText} from "../shared/text";
+import type {ProjectsTextKey} from "../shared/text";
 import {browseDirectory} from "./browse";
 import type {BrowseOutcome} from "./browse";
-import {failureReason, fieldName, projectsText, registerFailureReason, shelfText} from "./messages";
+import {failureReason, fieldName, registerFailureReason} from "./failure-text";
 import {sortShelf} from "./shelf-format";
 import type {ShelfSort} from "./shelf-format";
 import type {ShelfView} from "./shelf-preferences";
@@ -74,7 +76,8 @@ export interface ShelfPreferencesPort {
 export interface ShelfPageHost {
     readonly remote: RemoteClient<typeof projectsRemoteContract>;
     readonly clock: RuntimeClock;
-    readonly locale: () => DisplayLocale;
+    /** 失败原因与排序按它的当前语言给出。 */
+    readonly text: TextPort;
     /** 视图与排序的偏好（产品里接 `shelfPreferencesStore`）。 */
     readonly preferences: ShelfPreferencesPort;
     readonly settings: SettingsService;
@@ -155,8 +158,8 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
     const items = shallowRef<ReadonlyArray<ShelfItem>>([]);
     const now = ref(new Date(host.clock.now()).toISOString());
     const activeId = ref<string | null>(null);
-    const text = (value: LocalizedText | DisplayText): string => (typeof value === "string" ? value : localize(value, host.locale()));
-    const reason = (code: string, detail?: unknown): string => text(failureReason(code, detail));
+    const t = (key: ProjectsTextKey, params?: TextParams): string => host.text.t(projectsText(key, params));
+    const reason = (code: string, detail?: unknown): string => failureReason(host.text, code, detail);
 
     /** 移出后要选中的那一部：移出前算好，刷新回来时用。 */
     let nextActive: string | null = null;
@@ -172,7 +175,9 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
 
     const byId = (id: string): ShelfItem | null => items.value.find((item) => item.id === id) ?? null;
 
-    const warn = (title: LocalizedText, message: string): void => void host.notifications.notify({tone: "warning", title: text(title), message});
+    // 通知交文字引用，视口显示时才翻（docs/specs/workbench/notifications.md 输出 9）：切换语言后已显示的通知随之换文字。代入的原因
+    // 这类参数只收字符串，仍是发通知时按当前语言翻好的片段。
+    const warn = (title: Text, message: Text): void => void host.notifications.notify({tone: "warning", title, message});
 
     function schedule(): void {
         cancelTimer?.();
@@ -201,14 +206,14 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
             refreshNotice?.dismiss();
             refreshNotice = host.notifications.notify({
                 tone: "warning",
-                title: text(shelfText("refreshFailedTitle")),
-                message: text(shelfText("refreshFailed", {reason: reason(result.code, result.detail)})),
-                action: {label: text(shelfText("retry")), run: () => void refresh(true)},
+                title: projectsText("shelf.refreshFailedTitle"),
+                message: projectsText("shelf.refreshFailed", {reason: reason(result.code, result.detail)}),
+                action: {label: projectsText("shelf.retry"), run: () => void refresh(true)},
             });
             return;
         }
         status.value = "error";
-        error.value = text(shelfText("shelfFailed", {reason: reason(result.code, result.detail)}));
+        error.value = t("shelf.shelfFailed", {reason: reason(result.code, result.detail)});
     }
 
     function start(): Promise<void> {
@@ -249,7 +254,7 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
 
     /** 相邻的一部：按当前排序取下一部，没有时上一部。 */
     function neighbourOf(id: string): string | null {
-        const sorted = sortShelf(items.value, sort.value, host.locale());
+        const sorted = sortShelf(items.value, sort.value, host.text.locale.value);
         const index = sorted.findIndex((item) => item.id === id);
         if (index === -1) return null;
         return (sorted[index + 1] ?? sorted[index - 1])?.id ?? null;
@@ -287,17 +292,17 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
         openInNewWindow: (id) => {
             const item = byId(id);
             if (item === null) return;
-            if (host.navigation.openExternal(projectUrl(item.name)) === "blocked") warn(shelfText("popupBlockedTitle"), text(shelfText("popupBlocked")));
+            if (host.navigation.openExternal(projectUrl(item.name)) === "blocked") warn(projectsText("shelf.popupBlockedTitle"), projectsText("shelf.popupBlocked"));
         },
         continueWriting: (id) => navigateTo(id, (item) => (item.stats.last === null ? projectUrl(item.name) : continueUrl(item.name, item.stats.last.address))),
         library: async () => {
             const result = await host.remote.library({});
             if (result.ok) return result.value;
             host.report("projects.library-failed", `取作品目录失败：${result.code}`);
-            host.notifications.notify({tone: "error", message: text(shelfText("libraryUnavailable", {reason: transport(result.code, result.detail)}))});
+            host.notifications.notify({tone: "error", message: projectsText("shelf.libraryUnavailable", {reason: transport(result.code, result.detail)})});
             return null;
         },
-        browse: (path) => browseDirectory(host.remote, path, host.locale()),
+        browse: (path) => browseDirectory(host.remote, path, host.text),
         create: async (values, parent) => {
             const result = await host.remote.create({title: values.title, ...(values.description === "" ? {} : {description: values.description}), parent});
             if (result.ok) {
@@ -306,7 +311,7 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
                 // 主题色不在 create 的输入里：建好后再写一次作品信息。
                 if (values.color !== null) {
                     const colored = await host.remote.update({id: result.value.id, color: values.color});
-                    if (!colored.ok) warn(shelfText("fieldColor"), text(shelfText("updateFailed", {reason: reason(colored.code, colored.detail)})));
+                    if (!colored.ok) warn(projectsText("shelf.fields.color"), projectsText("shelf.updateFailed", {reason: reason(colored.code, colored.detail)}));
                 }
                 await refresh(true);
                 return {ok: true, id: result.value.id};
@@ -315,16 +320,16 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
             switch (result.code) {
                 case "invalid-metadata": {
                     const field = detail?.field === "description" ? "description" : "title";
-                    return {ok: false, field, message: text(shelfText("createInvalid", {field: text(fieldName(detail?.field ?? "")), reason: detail?.detail ?? ""}))};
+                    return {ok: false, field, message: t("shelf.createInvalid", {field: fieldName(host.text, detail?.field ?? ""), reason: detail?.detail ?? ""})};
                 }
                 case "invalid-parent":
-                    return {ok: false, field: "location", message: text(shelfText("createInvalidParent", {reason: `${text(registerFailureReason(detail?.reason ?? ""))}（${detail?.detail ?? ""}）`}))};
+                    return {ok: false, field: "location", message: t("shelf.createInvalidParent", {reason: `${registerFailureReason(host.text, detail?.reason ?? "")}（${detail?.detail ?? ""}）`})};
                 case "exists":
-                    return {ok: false, field: "title", message: text(shelfText("createExists", {path: detail?.path ?? ""}))};
+                    return {ok: false, field: "title", message: t("shelf.createExists", {path: detail?.path ?? ""})};
                 case "write-failed":
-                    return {ok: false, field: "location", message: text(shelfText("createWriteFailed", {reason: detail?.detail ?? ""}))};
+                    return {ok: false, field: "location", message: t("shelf.createWriteFailed", {reason: detail?.detail ?? ""})};
                 case "register-failed":
-                    return {ok: false, field: null, message: notified("error", shelfText("createRegisterFailed", {path: detail?.path ?? "", reason: text(registerFailureReason(detail?.reason ?? ""))}))};
+                    return {ok: false, field: null, message: notified("error", "shelf.createRegisterFailed", {path: detail?.path ?? "", reason: registerFailureReason(host.text, detail?.reason ?? "")})};
                 case "unknown-outcome": {
                     // 新建是写操作，结果未知时不盲目重试：重新取书架，本次要建的目录（父目录加由书名生成的目录名）在上面才算成功；
                     // 书名不唯一，别的目录下的同名作品不算。父目录经服务端规范化成别的写法（符号链接）时对不上，只提示结果未知。
@@ -335,10 +340,10 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
                         activeId.value = created.id;
                         return {ok: true, id: created.id};
                     }
-                    return {ok: false, field: null, message: notified("warning", shelfText("createUnknown"))};
+                    return {ok: false, field: null, message: notified("warning", "shelf.createUnknown")};
                 }
                 default:
-                    return {ok: false, field: null, message: notified("error", shelfText("updateFailed", {reason: transport(result.code, result.detail)}))};
+                    return {ok: false, field: null, message: notified("error", "shelf.updateFailed", {reason: transport(result.code, result.detail)})};
             }
         },
         update: async (id, values) => {
@@ -349,16 +354,16 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
             }
             if (result.code === "invalid-metadata") {
                 const detail = result.detail as {readonly field: string; readonly detail: string};
-                return {ok: false, field: detail.field === "description" ? "description" : "title", message: text(shelfText("createInvalid", {field: text(fieldName(detail.field)), reason: detail.detail}))};
+                return {ok: false, field: detail.field === "description" ? "description" : "title", message: t("shelf.createInvalid", {field: fieldName(host.text, detail.field), reason: detail.detail})};
             }
             if (result.code === "unknown-outcome") {
                 // 修改是写操作，结果未知时重新取书架：服务端上这部作品已经是提交的值就是保存了。
                 await refresh(true);
                 const current = byId(id);
                 if (current !== null && current.title === values.title && (current.description ?? "") === values.description && current.color === values.color) return {ok: true, id};
-                return {ok: false, field: null, message: notified("warning", shelfText("updateUnknown"))};
+                return {ok: false, field: null, message: notified("warning", "shelf.updateUnknown")};
             }
-            return {ok: false, field: null, message: notified("error", shelfText("updateFailed", {reason: reason(result.code, result.detail)}))};
+            return {ok: false, field: null, message: notified("error", "shelf.updateFailed", {reason: reason(result.code, result.detail)})};
         },
         setCover: async (id, change) => {
             if (change.kind === "keep") return true;
@@ -368,14 +373,14 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
                 return true;
             }
             host.report("projects.cover-failed", `封面${change.kind === "set" ? "上传" : "移除"}失败：${result.code}：${result.detail}`);
-            notified("error", shelfText(change.kind === "set" ? "coverFailed" : "coverRemoveFailed", {reason: result.detail === "" ? result.code : result.detail}));
+            notified("error", change.kind === "set" ? "shelf.coverFailed" : "shelf.coverRemoveFailed", {reason: result.detail === "" ? result.code : result.detail});
             return false;
         },
         rememberLibrary: async (path) => {
             const written = await host.settings.update(librarySetting, path);
             if (written.ok) return true;
             host.report("projects.library-not-saved", `作品目录没有写进设置：${written.code}：${written.detail}`);
-            warn(shelfText("libraryNotSavedTitle"), text(shelfText("libraryNotSaved", {reason: `${written.code}：${written.detail}`})));
+            warn(projectsText("shelf.libraryNotSavedTitle"), projectsText("shelf.libraryNotSaved", {reason: `${written.code}：${written.detail}`}));
             return false;
         },
         addExisting: async (path) => {
@@ -395,12 +400,12 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
                     activeId.value = found.id;
                     return {ok: true};
                 }
-                return {ok: false, message: text(projectsText("notCompleted", {code: registered.code}))};
+                return {ok: false, message: t("open.notCompleted", {code: registered.code})};
             }
-            if (registered.code !== "register-failed") return {ok: false, message: text(projectsText("notCompleted", {code: registered.code}))};
+            if (registered.code !== "register-failed") return {ok: false, message: t("open.notCompleted", {code: registered.code})};
             const failure = registered.detail as {readonly reason: string; readonly detail: string};
             host.report("projects.register-failed", `登记失败：${failure.reason}：${failure.detail}`);
-            return {ok: false, message: text(shelfText("registerFailed", {reason: text(registerFailureReason(failure.reason))}))};
+            return {ok: false, message: t("shelf.registerFailed", {reason: registerFailureReason(host.text, failure.reason)})};
         },
         remove: async (id) => {
             const neighbour = neighbourOf(id);
@@ -410,18 +415,18 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
                 await refresh(true);
                 return {ok: true};
             }
-            if (result.code === "project-running") return {ok: false, message: text(shelfText("removeRunning"))};
+            if (result.code === "project-running") return {ok: false, message: t("shelf.removeRunning")};
             if (result.code === "unknown-outcome") {
                 // 移出是写操作，结果未知时重新取书架：它不在了就是移出了，一样选中相邻的那一部。
                 nextActive = neighbour;
                 await refresh(true);
-                return byId(id) === null ? {ok: true} : {ok: false, message: text(shelfText("removeFailed", {reason: reason(result.code)}))};
+                return byId(id) === null ? {ok: true} : {ok: false, message: t("shelf.removeFailed", {reason: reason(result.code)})};
             }
-            return {ok: false, message: text(shelfText("removeFailed", {reason: reason(result.code, result.detail)}))};
+            return {ok: false, message: t("shelf.removeFailed", {reason: reason(result.code, result.detail)})};
         },
         runCommand: async (id) => {
             const result = await host.commands.execute(id);
-            if (!result.ok) notified("error", shelfText("commandFailed", {reason: result.reason}));
+            if (!result.ok) notified("error", "shelf.commandFailed", {reason: result.reason});
         },
         dispose: () => {
             disposed = true;
@@ -433,10 +438,9 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
         },
     };
 
-    /** 发一条通知并把正文交回（给调用方当失败原因）。 */
-    function notified(tone: "error" | "warning", message: LocalizedText): string {
-        const body = text(message);
-        host.notifications.notify({tone, message: body});
-        return body;
+    /** 发一条通知并把正文交回（给调用方当失败原因）：通知交引用，随语言换文字；交回的是此刻翻好的字符串，给窗口的字段显示。 */
+    function notified(tone: "error" | "warning", key: ProjectsTextKey, params?: TextParams): string {
+        host.notifications.notify({tone, message: projectsText(key, params)});
+        return t(key, params);
     }
 }

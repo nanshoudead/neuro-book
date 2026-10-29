@@ -110,3 +110,5 @@ type InputSlots = {
 ## 隐藏通道理由
 
 `state:inject`：组件可选读取 `Field` 提供的字段语义上下文，复用容器生成的 id、required、错误关联和 invalid 状态，使标签、文案与原生 input 保持同一份可访问性关系。没有 Field 时返回 null，所有显式 props 仍可独立工作；组件不读取共享 store。
+
+`state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取清空按钮的缺省可访问名称，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `clearLabel` 时以属性为准，不读端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。

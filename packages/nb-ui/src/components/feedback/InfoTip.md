@@ -1,5 +1,5 @@
 ---
-标签: [env:portal, env:timer]
+标签: [state:inject, env:portal, env:timer]
 ---
 
 # InfoTip
@@ -24,7 +24,7 @@ type InfoTipPlacement = "top" | "bottom" | "left" | "right";
 interface InfoTipProps {
     /** 说明文字；必填 */
     text: string;
-    /** 按钮的可访问名称；默认 "说明" */
+    /** 按钮的可访问名称；缺省按界面语言取（中文 "说明"） */
     label?: string;
     /** 提示首选显示方向；默认 "top" */
     placement?: InfoTipPlacement;
@@ -36,3 +36,7 @@ interface InfoTipProps {
 ## 不支持
 
 不显示富文本或可交互内容（提示是不可交互的浮层），不做“点击切换常驻”的弹出说明；需要可点的说明用 `Popover`。
+
+## 隐藏通道理由
+
+`state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取按钮的缺省可访问名称，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `label` 时以属性为准，不读端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。

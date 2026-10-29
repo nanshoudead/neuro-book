@@ -19,6 +19,8 @@ import * as sdkSettings from "nbook/sdk/settings";
 import * as sdkSettingsBrowser from "nbook/sdk/settings-browser";
 import * as sdkState from "nbook/sdk/state";
 import * as sdkStorage from "nbook/sdk/storage";
+import * as sdkText from "nbook/sdk/text";
+import * as sdkTextBrowser from "nbook/sdk/text-browser";
 import * as sdkWorkbench from "nbook/sdk/workbench";
 import type {BrowserSharedModule} from "nbook/plugin-platform-profile";
 
@@ -30,6 +32,8 @@ export function hostModules(): Readonly<Record<BrowserSharedModule, unknown>> {
         "typebox/value": typeboxValue,
         "typebox/compile": typeboxCompile,
         "@notnotype/nb-plugin-sdk": sdk,
+        "@notnotype/nb-plugin-sdk/text": sdkText,
+        "@notnotype/nb-plugin-sdk/text/browser": sdkTextBrowser,
         "@notnotype/nb-plugin-sdk/state": sdkState,
         "@notnotype/nb-plugin-sdk/storage": sdkStorage,
         "@notnotype/nb-plugin-sdk/settings": sdkSettings,

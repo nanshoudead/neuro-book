@@ -24,6 +24,8 @@ import {
 import type {Color, HSBColor} from "reka-ui";
 import {computed, ref, watch} from "vue";
 
+import {useUiText} from "../../text-port";
+
 const props = withDefaults(defineProps<{
     /** 当前颜色（任意 CSS 颜色字符串；读不懂或为空时按缺省蓝色显示） */
     modelValue: string;
@@ -35,6 +37,8 @@ const props = withDefaults(defineProps<{
     disabled: false,
     readonly: false,
 });
+
+const text = useUiText();
 
 const emit = defineEmits<{
     (event: "update:modelValue", value: string): void;
@@ -129,7 +133,7 @@ const areaBackground = computed(() => `linear-gradient(to top, black, transparen
             <ColorFieldRoot :model-value="hex" :disabled="props.disabled" :readonly="props.readonly" class="min-w-0 flex-1" @update:color="set">
                 <ColorFieldInput
                     class="nb-ui-control nb-ui-control-h-sm w-full rounded-[var(--radius-control)] border bg-[var(--control-surface)] px-2 font-mono text-xs text-[var(--text-main)] outline-none"
-                    aria-label="颜色值"
+                    :aria-label="text('colorPicker.value')"
                     data-color-panel-input
                 />
             </ColorFieldRoot>
@@ -142,7 +146,7 @@ const areaBackground = computed(() => `linear-gradient(to top, black, transparen
             selection-behavior="replace"
             :disabled="locked"
             class="grid grid-cols-6 gap-1.5 border-t border-[var(--divider)] pt-3 outline-none"
-            aria-label="预设颜色"
+            :aria-label="text('colorPicker.presets')"
         >
             <ColorSwatchPickerItem
                 v-for="value in props.swatches"

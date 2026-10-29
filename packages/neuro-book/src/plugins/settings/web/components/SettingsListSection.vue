@@ -9,18 +9,17 @@
  */
 import {toPointer} from "@notnotype/nb-form";
 import type {FormIssue} from "@notnotype/nb-form";
-import {describeIssues, SchemaField} from "@notnotype/nb-form/vue";
+import {describeIssues, SchemaField, useFormText} from "@notnotype/nb-form/vue";
 import type {DraftState, FieldState} from "@notnotype/nb-form/vue";
 import {reactive, watch} from "vue";
 
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {LocalizedText} from "nbook/shared/localized-text";
 import HighlightedText from "nbook/ui/settings/HighlightedText.vue";
 import {settingsRowState} from "nbook/ui/settings/row-state";
 import type {SettingsRowReason} from "nbook/ui/settings/row-state";
 import SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 
 import {settingErrors, settingForm} from "../setting-form";
+import {useSettingsText} from "../text";
 import type {SettingsSectionView, SettingsWindow} from "../settings-window";
 import type {WindowSetting} from "../window-source";
 
@@ -33,15 +32,13 @@ const props = withDefaults(defineProps<{
     highlight?: ReadonlyArray<string>;
 }>(), {highlight: () => []});
 
-const TEXT = {
-    excludedUser: {"zh-CN": "{titles}仅可在用户设置中修改", "en-US": "{titles}: can only be changed in user settings"},
-    excludedProject: {"zh-CN": "{titles}仅可在本作品中设置", "en-US": "{titles}: can only be set for a book"},
-    notSaved: {"zh-CN": "未保存：{reason}", "en-US": "Not saved: {reason}"},
-} satisfies Record<string, LocalizedText>;
+const text = useSettingsText();
+/** 表单的文字（字段名、问题的写法）经同一个注入的端口取，宿主登记了 nb-form 的目录。 */
+const formText = useFormText();
 
 const locale = props.window.locale;
 
-const formOf = (setting: WindowSetting) => settingForm(setting.definition.declaration);
+const formOf = (setting: WindowSetting) => settingForm(setting.definition.declaration, locale.value, props.window.text);
 
 /**
  * 结构字段还不合格的值：留在行里、不写。`base` 是留下时层里的值（JSON 文本）：层里的值变了（恢复默认、别处改了）就
@@ -105,7 +102,7 @@ function notSavedReason(setting: WindowSetting, actual: unknown): string | null 
     const kept = heldOf(setting, actual);
     const value = kept?.value ?? actual;
     const issues = kept?.errors ?? [...unparseable.values()].filter((entry) => entry.key === setting.definition.key).flatMap((entry) => entry.issues);
-    const [first] = describeIssues(setting.definition.declaration.schema, value, issues, locale.value, formOf(setting).hints);
+    const [first] = describeIssues(setting.definition.declaration.schema, value, issues, formText, formOf(setting).hints);
     return first ?? null;
 }
 
@@ -118,15 +115,14 @@ function reasonsOf(setting: WindowSetting): ReadonlyArray<SettingsRowReason> {
     const reasons: SettingsRowReason[] = [];
     const state = fieldStates.get(setting.definition.key);
     const unsaved = notSavedReason(setting, actualValue(setting));
-    if (unsaved !== null) reasons.push({tone: "error", text: localize(formatText(TEXT.notSaved, {reason: unsaved}), locale.value), announced: state?.error === unsaved});
+    if (unsaved !== null) reasons.push({tone: "error", text: text("list.notSaved", {reason: unsaved}), announced: state?.error === unsaved});
     for (const warning of state?.warnings ?? []) reasons.push({tone: "warning", text: warning, announced: true});
     if (state?.status != null) reasons.push({tone: "muted", text: state.status, announced: true});
     return reasons;
 }
 
 function excludedText(titles: ReadonlyArray<string>): string {
-    const separator = locale.value === "zh-CN" ? "、" : ", ";
-    return localize(formatText(props.window.layer.value === "project" ? TEXT.excludedUser : TEXT.excludedProject, {titles: titles.join(separator)}), locale.value);
+    return text(props.window.layer.value === "project" ? "list.excludedUser" : "list.excludedProject", {titles: titles.join(text("list.separator"))});
 }
 </script>
 
@@ -145,7 +141,6 @@ function excludedText(titles: ReadonlyArray<string>): string {
                 :settings="window.editing"
                 :setting="setting.definition"
                 :layer="window.layer.value"
-                :locale="locale"
                 :project-title="window.projectTitle.value"
                 :wide="formOf(setting).wide"
                 :reasons="reasonsOf(setting)"
@@ -159,7 +154,6 @@ function excludedText(titles: ReadonlyArray<string>): string {
                         :hints="formOf(setting).hints"
                         :options="window.options()"
                         :model-value="shown(setting, row.value)"
-                        :locale="locale"
                         :disabled="row.disabled"
                         :labelledby="row.labelId"
                         :describedby="row.describedby"

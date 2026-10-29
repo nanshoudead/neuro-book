@@ -1,0 +1,42 @@
+{
+    "manifest": {
+        "description": "Focus timer: a pomodoro for writing, showing a setting, commands, a side view, a status bar item, a server remote service and private storage"
+    },
+    "settingsSections": {
+        "main": {
+            "title": "Focus timer",
+            "groups": {
+                "timer": {
+                    "title": "Timer"
+                }
+            }
+        }
+    },
+    "settings": {
+        "minutes": {
+            "title": "Focus length (minutes)",
+            "description": "Applies from the next start; a running session keeps its length"
+        }
+    },
+    "commands": {
+        "start": {
+            "title": "Focus timer: Start"
+        },
+        "cancel": {
+            "title": "Focus timer: Give up"
+        },
+        "toggle": {
+            "title": "Focus timer: Start or give up"
+        }
+    },
+    "views": {
+        "panel": {
+            "title": "Focus timer"
+        }
+    },
+    "statusItems": {
+        "status": {
+            "title": "Focus timer"
+        }
+    }
+}

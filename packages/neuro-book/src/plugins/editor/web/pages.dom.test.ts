@@ -12,12 +12,18 @@ import type {Application} from "@notnotype/nb-runtime/application";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {EDITOR_PAGES_POINT, validateEditorPageContribution} from "../shared/contracts";
+import {editorText} from "../shared/text";
 import {EditorPageRegistry} from "./pages";
 import type {EditorPageImplementation} from "./pages";
+import {editorCatalogs} from "./text";
 
 import {createApplication} from "nbook/application";
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
 const PAGE_ID = "test.pages.sample";
+
+/** 编辑组注入的窗口端口；断言里的界面文字经它从目录取。 */
+const port = testTextPort("zh-CN", {"nbook.editor": editorCatalogs});
 
 const started: Application[] = [];
 
@@ -43,7 +49,7 @@ async function start(load: () => Promise<Component>): Promise<EditorPageRegistry
             activationEvents: ["onStartup"],
             receives: [EDITOR_PAGES_POINT],
             activate: (context) => {
-                holder.registry = new EditorPageRegistry(context.declarations, () => "zh-CN");
+                holder.registry = new EditorPageRegistry(context.declarations);
                 return {receivers: {[EDITOR_PAGES_POINT]: holder.registry.receiver()}};
             },
         }],
@@ -84,7 +90,7 @@ function mountPage(registry: EditorPageRegistry) {
     const component = source.component(PAGE_ID);
     if (component === null) throw new Error("页面没有交付");
     const wrapper = mount(defineComponent({setup: () => () => h(component, {context: source.context})}), {
-        global: {config: {errorHandler: (error) => errors.push(error)}},
+        global: {config: {errorHandler: (error) => errors.push(error)}, provide: provideText(port)},
     });
     return {wrapper, errors};
 }
@@ -96,7 +102,7 @@ describe("页面标签的内容", () => {
         await flushPromises();
         const loading = wrapper.get("[aria-busy=\"true\"]");
         expect(loading.attributes("role")).toBe("status");
-        expect(loading.text()).toBe("正在加载页面…");
+        expect(loading.text()).toBe(port.t(editorText("page.loading")));
         expect(loading.attributes("context")).toBeUndefined();
 
         page.resolve(Page);
@@ -112,7 +118,7 @@ describe("页面标签的内容", () => {
         page.reject(new Error("chunk 404"));
         await flushPromises();
         expect(wrapper.find("[aria-busy]").exists()).toBe(false);
-        expect(wrapper.get("[role=\"alert\"]").text()).toBe("页面加载失败：chunk 404");
+        expect(wrapper.get("[role=\"alert\"]").text()).toBe(port.t(editorText("page.failed", {reason: "chunk 404"})));
         expect(errors).toEqual([new Error("chunk 404")]);
     });
 });

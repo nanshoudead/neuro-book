@@ -10,6 +10,7 @@ import {resolveForm} from "../model";
 import type {FormIssue, FormMeta} from "../validate";
 import NodeField from "./NodeField.vue";
 import {createFormScope, provideFormScope} from "./scope";
+import {provideFormText} from "./text";
 import {withHints} from "./with-hints";
 import type {CommitMode, DraftState, FieldState, FormMode, FormOptionSources} from "./scope";
 import type {FormWidget} from "./widgets";
@@ -19,7 +20,8 @@ const props = withDefaults(defineProps<{
     /** 盖过 schema 里 `x-form` 的同名提示。 */
     hints?: FormHints;
     modelValue?: unknown;
-    locale: string;
+    /** 没有宿主注入翻译端口时表单文字的语言（缺省 zh-CN）；有注入时以端口为准，这一项不起作用（`./text.ts`）。 */
+    locale?: string;
     /** 控件的 id；`bare` 时调用方的 `<label for>` 指向它。 */
     id?: string;
     bare?: boolean;
@@ -42,6 +44,7 @@ const props = withDefaults(defineProps<{
 }>(), {
     hints: undefined,
     modelValue: undefined,
+    locale: undefined,
     id: undefined,
     bare: false,
     labelledby: undefined,
@@ -67,6 +70,7 @@ const emit = defineEmits<{
 }>();
 
 const model = computed(() => resolveForm(withHints(props.schema, props.hints)));
+const text = provideFormText(() => props.locale);
 const scope = createFormScope({
     model: () => model.value,
     value: () => props.modelValue,
@@ -77,7 +81,7 @@ const scope = createFormScope({
     disabled: () => props.disabled,
     commit: () => props.commit,
     revision: () => props.revision,
-    locale: () => props.locale,
+    locale: () => text.locale.value,
     issues: () => props.issues,
     meta: () => props.meta,
     options: () => props.options,

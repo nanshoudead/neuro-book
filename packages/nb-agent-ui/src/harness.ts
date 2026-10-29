@@ -19,8 +19,8 @@
  * 不抛异常，不中断回放。
  */
 
-import {agentText} from "./messages";
-import type {AgentLocale, AssistantMessageView, ContentBlockView, JsonValue, MessageView, RunView, ToolCallView, UsageView} from "./types";
+import {agentRef} from "./text";
+import type {AssistantMessageView, ContentBlockView, JsonValue, MessageView, RunView, ToolCallView, UsageView} from "./types";
 
 export type TranscriptProblem = {
     /** 出问题的输入：日志条目的 `seq`，或事件的 `type`。 */
@@ -42,11 +42,6 @@ export type HarnessTranscript = {
      */
     run(): RunView;
     problems(): readonly TranscriptProblem[];
-};
-
-export type HarnessTranscriptOptions = {
-    /** 运行错误的说明用哪种语言；默认中文。 */
-    locale?: AgentLocale;
 };
 
 type JsonRecord = {readonly [key: string]: unknown};
@@ -120,8 +115,8 @@ export function logSeqOf(message: {readonly id: string}): number | null {
     return match === null ? null : Number(match[1]);
 }
 
-export function createHarnessTranscript(options: HarnessTranscriptOptions = {}): HarnessTranscript {
-    const locale = options.locale ?? "zh-CN";
+/** 运行错误的说明与压缩条目的名称是本包目录的引用，由视图按当前语言翻译。 */
+export function createHarnessTranscript(): HarnessTranscript {
     const logged: MessageView[] = [];
     const problems: TranscriptProblem[] = [];
     let lastSeq = 0;
@@ -282,7 +277,7 @@ export function createHarnessTranscript(options: HarnessTranscriptOptions = {}):
         const error = isRecord(entry.error) ? entry.error : {};
         const kind = stringField(error, "kind") ?? "local";
         const key = kind in ERROR_KEYS ? ERROR_KEYS[kind as keyof typeof ERROR_KEYS] : ERROR_KEYS.local;
-        logged.push({kind: "error", id: `h${String(seq)}`, timestamp, message: agentText(locale, key), retryable: RETRYABLE_ERRORS.has(kind)});
+        logged.push({kind: "error", id: `h${String(seq)}`, timestamp, message: agentRef(key), retryable: RETRYABLE_ERRORS.has(kind)});
     }
 
     return {
@@ -312,7 +307,7 @@ export function createHarnessTranscript(options: HarnessTranscriptOptions = {}):
                     applyRunEnd(entry, seq, timestamp);
                     return;
                 case "compaction":
-                    logged.push({kind: "system", id: `h${String(seq)}`, timestamp, source: "compaction", label: agentText(locale, "harness.compaction"), text: stringField(entry, "summary") ?? ""});
+                    logged.push({kind: "system", id: `h${String(seq)}`, timestamp, source: "compaction", label: agentRef("harness.compaction"), text: stringField(entry, "summary") ?? ""});
                     return;
                 // 会话快照与元数据不显示；只存文字的旧条目 harness 已不再写。
                 case "session_snapshot":

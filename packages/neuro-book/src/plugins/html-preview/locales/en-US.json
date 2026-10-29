@@ -1,0 +1,34 @@
+{
+    "editors": {
+        "html": {
+            "title": "HTML Preview"
+        }
+    },
+    "categories": {
+        "preview": "HTML Preview"
+    },
+    "commands": {
+        "nbook": {
+            "editor": {
+                "toggle-preview-network": {
+                    "title": "Preview: Allow Network Access"
+                }
+            }
+        }
+    },
+    "state": {
+        "active": {
+            "reason": "The active editor is not an HTML preview"
+        }
+    },
+    "titleItems": {
+        "network": "Allow Network Access"
+    },
+    "failures": {
+        "notProject": "Only files in the work can be previewed.",
+        "no-project": "No work is open in this window, so the preview cannot read files.",
+        "closed": "The work is closed, so the preview cannot read its files.",
+        "unreachable": "Cannot reach the server, so the preview cannot be opened."
+    },
+    "retry": "Retry"
+}

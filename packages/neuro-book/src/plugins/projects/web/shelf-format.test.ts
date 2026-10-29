@@ -2,9 +2,15 @@
 
 import {describe, expect, it} from "bun:test";
 
+import {testTextPort} from "nbook/shared/testing/text-port";
+
 import {projectDisplayName} from "../shared/shelf";
 import type {ShelfItem, ShelfStats} from "../shared/shelf";
 import {autoBookColor, BOOK_PALETTE, bookColorStyle, bookPaletteIndex, continueTarget, formatToday, formatWhen, formatWords, lightColor, recentPieces, shelfTotals, sortShelf} from "./shelf-format";
+import {projectsCatalogs} from "./text";
+
+/** 按给定语言的翻译端口（与窗口同一个引擎，严格模式）。 */
+const port = (locale: string) => testTextPort(locale, {"nbook.projects": projectsCatalogs});
 
 function item(id: string, title: string | null, stats: Partial<ShelfStats> = {}): ShelfItem {
     return {
@@ -25,32 +31,32 @@ describe("显示名", () => {
 
 describe("字数", () => {
     it("中文一万以下写全数，一万以上写万字并留一位小数；英文以一千为界", () => {
-        expect(formatWords(8240, "zh-CN")).toBe("8,240 字");
-        expect(formatWords(10_000, "zh-CN")).toBe("1 万字");
-        expect(formatWords(286_400, "zh-CN")).toBe("28.6 万字");
-        expect(formatWords(840, "en-US")).toBe("840 words");
-        expect(formatWords(21_500, "en-US")).toBe("21.5k words");
+        expect(formatWords(8240, port("zh-CN"))).toBe("8,240 字");
+        expect(formatWords(10_000, port("zh-CN"))).toBe("1 万字");
+        expect(formatWords(286_400, port("zh-CN"))).toBe("28.6 万字");
+        expect(formatWords(840, port("en-US"))).toBe("840 words");
+        expect(formatWords(21_500, port("en-US"))).toBe("21.5k words");
     });
 
     it("今天净增为负时带负号，不写成 0", () => {
-        expect(formatToday(1240, "zh-CN")).toBe("今天 1,240 字");
-        expect(formatToday(-320, "zh-CN")).toBe("今天 −320 字");
-        expect(formatToday(0, "en-US")).toBe("0 today");
+        expect(formatToday(1240, port("zh-CN"))).toBe("今天 1,240 字");
+        expect(formatToday(-320, port("zh-CN"))).toBe("今天 −320 字");
+        expect(formatToday(0, port("en-US"))).toBe("0 today");
     });
 });
 
 describe("时间", () => {
     const now = "2026-10-10T16:30:00";
     it("今天与昨天带时分，今年只写月日，更早带年份", () => {
-        expect(formatWhen("2026-10-10T09:05:00", now, "zh-CN")).toBe("今天 09:05");
-        expect(formatWhen("2026-10-09T21:40:00", now, "zh-CN")).toBe("昨天 21:40");
-        expect(formatWhen("2026-09-21T10:00:00", now, "zh-CN")).toBe("9月21日");
-        expect(formatWhen("2025-12-30T23:30:00", now, "zh-CN")).toBe("2025年12月30日");
-        expect(formatWhen("2026-10-09T21:40:00", now, "en-US")).toBe("Yesterday 21:40");
+        expect(formatWhen("2026-10-10T09:05:00", now, port("zh-CN"))).toBe("今天 09:05");
+        expect(formatWhen("2026-10-09T21:40:00", now, port("zh-CN"))).toBe("昨天 21:40");
+        expect(formatWhen("2026-09-21T10:00:00", now, port("zh-CN"))).toBe("9月21日");
+        expect(formatWhen("2025-12-30T23:30:00", now, port("zh-CN"))).toBe("2025年12月30日");
+        expect(formatWhen("2026-10-09T21:40:00", now, port("en-US"))).toBe("Yesterday 21:40");
     });
 
     it("跨月的“昨天”按日历算", () => {
-        expect(formatWhen("2026-09-30T23:00:00", "2026-10-01T08:00:00", "zh-CN")).toBe("昨天 23:00");
+        expect(formatWhen("2026-09-30T23:00:00", "2026-10-01T08:00:00", port("zh-CN"))).toBe("昨天 23:00");
     });
 });
 

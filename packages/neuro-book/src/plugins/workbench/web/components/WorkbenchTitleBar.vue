@@ -5,11 +5,11 @@ import type {DropdownMenuItemData, MenubarItemData, MenubarMenuData} from "@notn
 import {useElementSize} from "@vueuse/core";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
-import {localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 import NeuroBookLockup from "nbook/ui/brand/NeuroBookLockup.vue";
 import NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
 
+import {useWorkbenchText} from "../text";
+import type {WorkbenchTextKey} from "../../shared/text";
 import type {StripEntry} from "../items/registry";
 import {withNativeEditing} from "../titlebar/menu-model";
 import type {MenuEntry, MenuGroup} from "../titlebar/menu-model";
@@ -23,7 +23,6 @@ type LayoutButton = {readonly pressed: boolean; readonly disabled: boolean};
 defineOptions({name: "WorkbenchTitleBar"});
 
 const props = defineProps<{
-    locale: DisplayLocale;
     project: string | null;
     menus: MenuGroup[];
     searchShortcut: string | null;
@@ -39,17 +38,8 @@ const emit = defineEmits<{
     (event: "run-item", itemId: string): void;
 }>();
 
-const TEXT = {
-    label: {"zh-CN": "标题栏", "en-US": "Title bar"},
-    menu: {"zh-CN": "菜单", "en-US": "Menu"},
-    search: {"zh-CN": "搜索命令", "en-US": "Search commands"},
-    openProject: {"zh-CN": "打开项目…", "en-US": "Open Project…"},
-    project: {"zh-CN": "项目", "en-US": "Project"},
-    sidebar: {"zh-CN": "切换侧栏", "en-US": "Toggle Sidebar"},
-    panel: {"zh-CN": "切换面板", "en-US": "Toggle Panel"},
-    auxiliarybar: {"zh-CN": "切换右栏", "en-US": "Toggle Auxiliary Bar"},
-    nativeEditing: {"zh-CN": "焦点在输入框里时由它自己撤销", "en-US": "The focused input handles undo itself"},
-} satisfies Record<string, LocalizedText>;
+/** 布局按钮的名字（目录里 `titlebar.toggle` 下的键）。 */
+const TOGGLE_KEYS: Readonly<Record<Part, WorkbenchTextKey>> = {sidebar: "titlebar.toggle.sidebar", panel: "titlebar.toggle.panel", auxiliarybar: "titlebar.toggle.auxiliarybar"};
 
 /**
  * 判定让位时搜索要留的宽度（外壳四输出 30）：两侧先让，搜索留着这么宽；全部收完以后搜索才继续收窄，网格保证它最窄
@@ -63,7 +53,7 @@ const PARTS: ReadonlyArray<Part> = ["sidebar", "panel", "auxiliarybar"];
 const OPEN_PROJECT = "open-project";
 const GROUP_PREFIX = "group:";
 
-const text = (value: LocalizedText): string => localize(value, props.locale);
+const text = useWorkbenchText();
 
 const root = ref<HTMLElement | null>(null);
 const measureEl = ref<HTMLElement | null>(null);
@@ -123,7 +113,7 @@ const showProjectName = computed(() => level.value < 5);
 
 /** 菜单打开前焦点在原生输入框里：撤销、重做不代替它（外壳四输出 29）。 */
 const nativeEditing = ref(false);
-const menus = computed(() => (nativeEditing.value ? withNativeEditing(props.menus, text(TEXT.nativeEditing)) : props.menus));
+const menus = computed(() => (nativeEditing.value ? withNativeEditing(props.menus, text("titlebar.nativeEditing")) : props.menus));
 const entries = computed(() => new Map(menus.value.flatMap((group) => group.sections.flat().map((entry) => [entry.id, entry] as const))));
 
 function itemOf(entry: MenuEntry): MenubarItemData {
@@ -166,7 +156,7 @@ const compactItems = computed<DropdownMenuItemData[]>(() => menus.value.map((gro
     children: sectioned(group.sections, dropdownItemOf, (index) => ({label: "", value: `${group.id}-sep-${String(index)}`, separator: true})),
 })));
 
-const projectItems = computed<DropdownMenuItemData[]>(() => [{label: text(TEXT.openProject), value: OPEN_PROJECT}]);
+const projectItems = computed<DropdownMenuItemData[]>(() => [{label: text("titlebar.openProject"), value: OPEN_PROJECT}]);
 
 function select(value: string): void {
     if (value === OPEN_PROJECT) {
@@ -307,25 +297,25 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <header ref="root" class="workbench-titlebar" :aria-label="text(TEXT.label)" data-workbench-titlebar :data-titlebar-level="level" :data-titlebar-native-editing="nativeEditing ? '' : undefined" @keydown="onRootKeydown">
+    <header ref="root" class="workbench-titlebar" :aria-label="text('titlebar.label')" data-workbench-titlebar :data-titlebar-level="level" :data-titlebar-native-editing="nativeEditing ? '' : undefined" @keydown="onRootKeydown">
         <div class="workbench-titlebar__start">
             <NeuroBookLockup v-if="showLockup" class="workbench-titlebar__brand" />
             <NeuroBookMark v-else class="workbench-titlebar__mark" />
             <DropdownMenu v-if="project !== null" :items="projectItems" align="start" @select="select">
-                <Button variant="ghost" size="sm" class="workbench-titlebar__button workbench-titlebar__project" :title="project" :aria-label="`${text(TEXT.project)}：${project}`" data-titlebar-project>
+                <Button variant="ghost" size="sm" class="workbench-titlebar__button workbench-titlebar__project" :title="project" :aria-label="text('titlebar.projectButton', {name: project})" data-titlebar-project>
                     <span class="i-lucide-book-open workbench-titlebar__project-icon h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
                     <span v-if="showProjectName" class="workbench-titlebar__project-name">{{ project }}</span>
                     <span class="i-lucide-chevron-down h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
                 </Button>
             </DropdownMenu>
-            <Button v-else variant="ghost" size="sm" class="workbench-titlebar__button" :title="text(TEXT.openProject)" :aria-label="text(TEXT.openProject)" data-titlebar-project @click="emit('open-project')">
+            <Button v-else variant="ghost" size="sm" class="workbench-titlebar__button" :title="text('titlebar.openProject')" :aria-label="text('titlebar.openProject')" data-titlebar-project @click="emit('open-project')">
                 <span class="i-lucide-book-open workbench-titlebar__project-icon h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
-                <span v-if="showProjectName">{{ text(TEXT.openProject) }}</span>
+                <span v-if="showProjectName">{{ text('titlebar.openProject') }}</span>
             </Button>
             <span class="workbench-titlebar__divider" aria-hidden="true"></span>
             <Menubar v-if="showMenubar" v-model="menubarOpen" :menus="menubar" size="sm" variant="flat" data-titlebar-menu-entry @select="(item) => select(item.value)" />
             <DropdownMenu v-else :items="compactItems" align="start" @select="select" @update:open="(open: boolean) => { dropdownOpen = open; }">
-                <IconButton size="sm" icon-class="i-lucide-menu" :aria-label="text(TEXT.menu)" :title="text(TEXT.menu)" class="workbench-titlebar__button" data-titlebar-menu-entry />
+                <IconButton size="sm" icon-class="i-lucide-menu" :aria-label="text('titlebar.menuButton')" :title="text('titlebar.menuButton')" class="workbench-titlebar__button" data-titlebar-menu-entry />
             </DropdownMenu>
         </div>
 
@@ -334,12 +324,12 @@ onBeforeUnmount(() => {
                 variant="secondary"
                 size="sm"
                 class="workbench-titlebar__search"
-                :aria-label="searchShortcut === null ? text(TEXT.search) : `${text(TEXT.search)}（${searchShortcut}）`"
+                :aria-label="searchShortcut === null ? text('titlebar.search') : text('titlebar.searchWithShortcut', {shortcut: searchShortcut})"
                 data-titlebar-search
                 @click="emit('search')"
             >
                 <span class="i-lucide-search h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
-                <span class="workbench-titlebar__search-label">{{ text(TEXT.search) }}</span>
+                <span class="workbench-titlebar__search-label">{{ text('titlebar.search') }}</span>
                 <kbd v-if="showShortcut && searchShortcut !== null" class="workbench-titlebar__kbd">{{ searchShortcut }}</kbd>
             </Button>
         </div>
@@ -351,8 +341,8 @@ onBeforeUnmount(() => {
                     :key="part"
                     size="sm"
                     :icon-class="PART_ICONS[part]"
-                    :aria-label="text(TEXT[part])"
-                    :title="text(TEXT[part])"
+                    :aria-label="text(TOGGLE_KEYS[part])"
+                    :title="text(TOGGLE_KEYS[part])"
                     :aria-pressed="layout[part].pressed"
                     :disabled="layout[part].disabled"
                     :class="{'workbench-titlebar__layout--pressed': layout[part].pressed}"
@@ -360,7 +350,7 @@ onBeforeUnmount(() => {
                     @click="emit('toggle-part', part)"
                 />
             </template>
-            <WorkbenchItemStrip v-if="items.length > 0" class="workbench-titlebar__items" :locale="locale" :entries="items" :item-height="28" align="end" @run="(id) => emit('run-item', id)" />
+            <WorkbenchItemStrip v-if="items.length > 0" class="workbench-titlebar__items" :entries="items" :item-height="28" align="end" @run="(id) => emit('run-item', id)" />
         </div>
 
         <!--
@@ -372,7 +362,7 @@ onBeforeUnmount(() => {
             <NeuroBookMark class="workbench-titlebar__measure-mark" data-measure="mark" />
             <Button variant="ghost" size="sm" class="workbench-titlebar__button workbench-titlebar__project" data-measure="project">
                 <span class="i-lucide-book-open h-3.5 w-3.5 shrink-0"></span>
-                <span class="workbench-titlebar__measure-name">{{ project ?? text(TEXT.openProject) }}</span>
+                <span class="workbench-titlebar__measure-name">{{ project ?? text('titlebar.openProject') }}</span>
                 <span v-if="project !== null" class="i-lucide-chevron-down h-3.5 w-3.5 shrink-0"></span>
             </Button>
             <Button variant="ghost" size="sm" class="workbench-titlebar__button" data-measure="project-icon">

@@ -1,5 +1,5 @@
 ---
-标签: []
+标签: [state:inject]
 别名: ["设置通用列表", "Settings List Section"]
 验证入口: SettingsWindow
 ---
@@ -37,3 +37,7 @@ type Props = {
 ```
 
 没有 emits、slots、expose；attrs 落在根上。根带 `data-settings-list`（分区 id），每组带 `data-settings-group`（小组 id，分区最前的一组为空；搜索结果里是“分区 id#小组 id”），末尾的说明带 `data-settings-excluded`。
+
+## 隐藏通道理由
+
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，固定文字在 `nbook.settings` 的目录里（`plugins/settings/locales/`；`list.*` 键）；语言随端口切换，不重新挂载，组件没有语言属性。字段（`SchemaField`）与“未保存”的原因（`describeIssues`，经 `useFormText()`）用同一个端口取表单的文字，宿主同样登记了 nb-form 的目录。设置窗口里的页面与 SDK 交给第三方插件的设置页都在宿主窗口里，宿主总会登记这份目录。没有宿主注入时得到 nb-ui 的缺省端口，那里没有这份目录，只显示键名，所以测试与 Lab 场景要注入登记了它的宿主引擎端口。

@@ -35,13 +35,17 @@ async function start(definitions: Parameters<typeof createApplication>[1]["plugi
 }
 
 describe("definePlugin", () => {
-    it("贡献 id 是插件 id 加短名；文字写一个字符串时两种语言相同；分区的 category 缺省 plugins", () => {
-        const main = section(plugin, {name: "main", title: "你好", icon: "i-lucide-hand", groups: [{id: "basic", title: {"zh-CN": "基本", "en-US": "Basic"}}]});
+    it("贡献 id 是插件 id 加短名；文字原样写进声明，省略的标题不补；分区的 category 缺省 plugins", () => {
+        const main = section(plugin, {name: "main", title: "你好", icon: "i-lucide-hand", groups: [{id: "basic", title: {"zh-CN": "基本", "en-US": "Basic"}}, {id: "more"}]});
         expect(main.id).toBe("acme.hello.main");
-        expect(main.contribution.declaration).toEqual({title: {"zh-CN": "你好", "en-US": "你好"}, icon: "i-lucide-hand", category: "plugins", groups: [{id: "basic", title: {"zh-CN": "基本", "en-US": "Basic"}}]});
+        // 约定键由宿主登记时补（docs/specs/settings/settings-window.md 的“约定键”），助手写下的声明里没有。
+        expect(main.contribution.declaration).toEqual({title: "你好", icon: "i-lucide-hand", category: "plugins", groups: [{id: "basic", title: {"zh-CN": "基本", "en-US": "Basic"}}, {id: "more"}]});
         const greeting = setting(plugin, {name: "greeting", schema: Type.String(), default: "hi", title: "问候语", section: main, group: "basic"});
         expect(greeting.key).toBe("acme.hello/greeting");
-        expect(greeting.declaration).toMatchObject({title: {"zh-CN": "问候语", "en-US": "问候语"}, section: "acme.hello.main", group: "basic"});
+        expect(greeting.declaration).toMatchObject({title: "问候语", section: "acme.hello.main", group: "basic"});
+        const quiet = setting(plugin, {name: "quiet", schema: Type.Boolean(), default: false});
+        expect("title" in quiet.declaration).toBe(false);
+        expect("title" in command(plugin, {name: "untitled", description: "x", effect: "read"}).contribution.declaration).toBe(false);
         expect(plugin.descriptor([main, greeting])).toEqual({id: "acme.hello", version: "1.0.0", locations: ["server"], contributions: [main.contribution, greeting.contribution]});
     });
 

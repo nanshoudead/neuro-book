@@ -65,14 +65,19 @@ import type ViewportCanvas from "../components/ViewportCanvas.vue";
 import type {LabInputOf, LabJsonPropOf, LabSlotOf, LabSubjectProps} from "../lab-subject";
 
 import {EXPLORER_ROWS, manyRows, UNBOUND_ROWS} from "./explorer-rows";
+import {withExplorerText} from "./explorer-scene/explorer-text";
+import {withProjectsText} from "./projects-scene/projects-text";
+import {withSettingsText} from "./settings-scene/settings-text";
+import {withWorkbenchText} from "./workbench-scene/workbench-text";
 import {withNbookMarkdownHost} from "./markdown-host";
+import {withMarkdownSceneText} from "./markdown-text";
 import {nbAgentUiFixtures} from "./nb-agent-ui";
 import {nbFormFixtures} from "./nb-form";
 import {nbUiFixtures} from "./nb-ui";
 import {PROMPT_LAB_THUMBNAILS, promptAttachmentStripScenes, promptEditorScenes, promptPasteFrameScenes, promptTextViewScenes} from "./prompt-scene/scenes";
 import {SHELF_COVER_SRC, SHELF_ITEMS, SHELF_ITEM_REVISING, SHELF_NOW} from "./shelf-fixture-data";
 import {rowDemoSettings, SETTINGS_WINDOW_SCENES, snippetsSettings} from "./settings-scene/scene-settings";
-import {defineSubjectFixture} from "./subject-fixture";
+import {createSubjectFixture, defineSubjectFixture} from "./subject-fixture";
 
 /** MarkdownDisplay 场景用的回复：每种内置方言各一段，加引用小块、外部链接与图片。 */
 const DISPLAY_REPLY = [
@@ -331,7 +336,7 @@ export const labFixtures: LabFixture[] = [
                 scene("views-merged", "视图：大纲并进资源管理器（multiple）", {}),
             ];
         })(),
-        load: async () => (await import("./WorkbenchShellLayoutFixture.vue")).default,
+        load: async () => withWorkbenchText((await import("./WorkbenchShellLayoutFixture.vue")).default),
     }),
     defineSubjectFixture<typeof WorkbenchPanelSurface>({
         component: "WorkbenchPanelSurface",
@@ -355,23 +360,20 @@ export const labFixtures: LabFixture[] = [
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchPanelSurface.vue"),
     }),
-    defineSubjectFixture<typeof WorkbenchStatusBar>({
+    defineLabFixture<typeof WorkbenchStatusBar>({
         component: "WorkbenchStatusBar",
-        events: ["toggle-panel", "retry", "discard"],
-        class: "w-full",
         scenes: [
-            {id: "no-project", label: "未打开项目", input: {props: {locale: "zh-CN", project: null, panelHidden: false, panelToggleDisabled: false, problems: []}}},
-            {id: "project", label: "项目名", input: {props: {locale: "zh-CN", project: "长篇小说《雾港》第二部", panelHidden: false, panelToggleDisabled: false, problems: []}}},
-            {id: "unsaved", label: "布局未保存", input: {props: {locale: "zh-CN", project: "雾港", panelHidden: false, panelToggleDisabled: false, problems: [{record: "customizations", kind: "unsaved", code: "unavailable"}]}}},
-            {id: "unread", label: "布局未读取", input: {props: {locale: "zh-CN", project: "雾港", panelHidden: false, panelToggleDisabled: false, problems: [{record: "side", kind: "unread", code: "corrupt"}]}}},
-            {id: "hidden", label: "面板已隐藏、按钮不可用", input: {props: {locale: "en-US", project: null, panelHidden: true, panelToggleDisabled: true, problems: []}}},
+            {id: "no-project", label: "未打开项目", input: {props: {project: null, panelHidden: false, panelToggleDisabled: false, problems: []}}},
+            {id: "project", label: "项目名", input: {props: {project: "长篇小说《雾港》第二部", panelHidden: false, panelToggleDisabled: false, problems: []}}},
+            {id: "unsaved", label: "布局未保存", input: {props: {project: "雾港", panelHidden: false, panelToggleDisabled: false, problems: [{record: "customizations", kind: "unsaved", code: "unavailable"}]}}},
+            {id: "unread", label: "布局未读取", input: {props: {project: "雾港", panelHidden: false, panelToggleDisabled: false, problems: [{record: "side", kind: "unread", code: "corrupt"}]}}},
+            {id: "hidden", label: "面板已隐藏、按钮不可用", input: {props: {project: null, panelHidden: true, panelToggleDisabled: true, problems: []}}},
         ],
-        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchStatusBar.vue"),
+        // 场景 `hidden` 一直是英文界面，id 被引用，所以点名。
+        load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchStatusBar>((await import("nbook/plugins/workbench/web/components/WorkbenchStatusBar.vue")).default, {events: ["toggle-panel", "retry", "discard"], class: "w-full"}), ["hidden"]),
     }),
-    defineSubjectFixture<typeof WorkbenchTitleBar>({
+    defineLabFixture<typeof WorkbenchTitleBar>({
         component: "WorkbenchTitleBar",
-        events: ["run", "search", "toggle-part", "open-project", "run-item"],
-        class: "w-full",
         scenes: (() => {
             const entry = (command: string, label: string, extra: {args?: Record<string, unknown>; reason?: string; shortcut?: string; checked?: boolean} = {}) => ({
                 id: extra.args === undefined ? command : `${command} ${JSON.stringify(extra.args)}`, command, args: extra.args ?? {}, label,
@@ -385,20 +387,19 @@ export const labFixtures: LabFixture[] = [
                 {id: "help", label: "帮助", sections: [[entry("nbook.help.documentation", "文档")]]},
             ];
             const layout = {sidebar: {pressed: true, disabled: false}, panel: {pressed: true, disabled: false}, auxiliarybar: {pressed: false, disabled: false}};
-            const base = {locale: "zh-CN" as const, menus, searchShortcut: "Ctrl+Shift+P", layout, items: []};
+            const base = {menus, searchShortcut: "Ctrl+Shift+P", layout, items: []};
             return [
                 {id: "project", label: "打开了项目", input: {props: {...base, project: "长篇小说《雾港》第二部"}}},
                 {id: "no-project", label: "没有项目", input: {props: {...base, project: null}}},
                 {id: "items", label: "带条目", input: {props: {...base, project: "雾港", items: [{id: "test.items.sync", text: "已同步", title: "同步状态", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null}]}}},
-                {id: "long", label: "长英文项目名、英文界面与条目（窄宽度验收 35）", input: {props: {...base, locale: "en-US" as const, project: "The Lighthouse Keeper's Chronicle, Volume Two", items: [{id: "test.items.sync", text: "Synced", title: "Sync status", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null}]}}},
+                {id: "long", label: "长英文项目名、英文界面与条目（窄宽度验收 35）", input: {props: {...base, project: "The Lighthouse Keeper's Chronicle, Volume Two", items: [{id: "test.items.sync", text: "Synced", title: "Sync status", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null}]}}},
             ];
         })(),
-        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchTitleBar.vue"),
+        // 场景 `long` 一直是英文界面，id 被 e2e 引用，所以点名。
+        load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchTitleBar>((await import("nbook/plugins/workbench/web/components/WorkbenchTitleBar.vue")).default, {events: ["run", "search", "toggle-part", "open-project", "run-item"], class: "w-full"}), ["long"]),
     }),
-    defineSubjectFixture<typeof WorkbenchItemStrip>({
+    defineLabFixture<typeof WorkbenchItemStrip>({
         component: "WorkbenchItemStrip",
-        events: ["run"],
-        class: "w-full",
         scenes: (() => {
             const entry = (id: string, text: string, extra: {title?: string; order?: number; priority?: number; command?: boolean; state?: "normal" | "warning" | "error"; disabledReason?: string; tooltip?: string} = {}) => ({
                 id, text, title: extra.title ?? text, alignment: "right" as const, order: extra.order ?? 0, priority: extra.priority ?? 0,
@@ -411,21 +412,19 @@ export const labFixtures: LabFixture[] = [
                 entry("nbook.editor.cursor", "第 18 行，第 4 列", {title: "光标位置", order: 30, priority: 10}),
             ];
             return [
-                {id: "editor", label: "编辑器的三个条目", input: {props: {locale: "zh-CN", entries: editor, itemHeight: 20, align: "end"}}},
-                {id: "states", label: "出错、禁用与长文字", input: {props: {locale: "zh-CN", itemHeight: 20, align: "end", entries: [
+                {id: "editor", label: "编辑器的三个条目", input: {props: {entries: editor, itemHeight: 20, align: "end"}}},
+                {id: "states", label: "出错、禁用与长文字", input: {props: {itemHeight: 20, align: "end", entries: [
                     entry("test.items.failed", "保存失败 1 个", {order: 1, priority: 5, command: true, state: "error", tooltip: "第一章.md：磁盘已满"}),
                     entry("test.items.disabled", "全部保存", {order: 2, priority: 5, command: true, disabledReason: "没有需要保存的文档"}),
                     entry("test.items.long", "一段相当长的条目文字，用来看看三百二十像素的上限与省略号在状态栏里是什么样子", {order: 3, priority: 1}),
                 ]}}},
-                {id: "many", label: "放不下时收进“更多”", input: {props: {locale: "zh-CN", itemHeight: 20, align: "end", entries: Array.from({length: 14}, (_, index) => entry(`test.items.n${String(index)}`, `条目 ${String(index + 1)} · 一些文字`, {order: index, priority: index % 4, command: index % 3 === 0}))}}},
+                {id: "many", label: "放不下时收进“更多”", input: {props: {itemHeight: 20, align: "end", entries: Array.from({length: 14}, (_, index) => entry(`test.items.n${String(index)}`, `条目 ${String(index + 1)} · 一些文字`, {order: index, priority: index % 4, command: index % 3 === 0}))}}},
             ];
         })(),
-        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchItemStrip.vue"),
+        load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchItemStrip>((await import("nbook/plugins/workbench/web/components/WorkbenchItemStrip.vue")).default, {events: ["run"], class: "w-full"})),
     }),
-    defineSubjectFixture<typeof WorkbenchActivityBar>({
+    defineLabFixture<typeof WorkbenchActivityBar>({
         component: "WorkbenchActivityBar",
-        events: ["select", "run-item"],
-        class: "h-full w-[48px]",
         scenes: (() => {
             const containers = [
                 {id: "view:nbook.files", label: "资源管理器", icon: "i-lucide-files"},
@@ -437,15 +436,15 @@ export const labFixtures: LabFixture[] = [
             const profile = {id: "nbook.workbench.profile", title: "个人资料尚未开放", icon: "i-lucide-user-round", command: null, pressed: null, disabledReason: null};
             const gear = (pressed: boolean, disabledReason: string | null = null) => ({id: "nbook.settings", title: "设置", icon: "i-lucide-settings", command: {id: "nbook.settings.open", args: {}}, pressed, disabledReason});
             return [
-                {id: "default", label: "三个容器、Sidebar 可见", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true, dragHint: "按空格拿起并拖动", items: [profile, gear(false)]}}},
-                {id: "settings-open", label: "设置窗口开着：齿轮按下", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true, dragHint: "按空格拿起并拖动", items: [profile, gear(true)]}}},
-                {id: "item-disabled", label: "底段条目的命令不可用", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true, dragHint: "按空格拿起并拖动", items: [profile, gear(false, "命令 nbook.settings.open 不存在")]}}},
-                {id: "sidebar-hidden", label: "Sidebar 隐藏：没有选中标记", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: false, dragHint: "按空格拿起并拖动", items: [profile, gear(false)]}}},
-                {id: "empty", label: "没有容器、没有底段条目", input: {props: {label: "活动栏", containers: [], selected: null, sidebarVisible: true, dragHint: "按空格拿起并拖动"}}},
-                {id: "many", label: "放不下时卡片内滚动", input: {props: {label: "活动栏", containers: many, selected: "view:test.v3", sidebarVisible: true, dragHint: "按空格拿起并拖动", items: [profile, gear(false)]}}},
+                {id: "default", label: "三个容器、Sidebar 可见", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true, items: [profile, gear(false)]}}},
+                {id: "settings-open", label: "设置窗口开着：齿轮按下", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true, items: [profile, gear(true)]}}},
+                {id: "item-disabled", label: "底段条目的命令不可用", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: true, items: [profile, gear(false, "命令 nbook.settings.open 不存在")]}}},
+                {id: "sidebar-hidden", label: "Sidebar 隐藏：没有选中标记", input: {props: {label: "活动栏", containers, selected: "view:nbook.files", sidebarVisible: false, items: [profile, gear(false)]}}},
+                {id: "empty", label: "没有容器、没有底段条目", input: {props: {label: "活动栏", containers: [], selected: null, sidebarVisible: true}}},
+                {id: "many", label: "放不下时卡片内滚动", input: {props: {label: "活动栏", containers: many, selected: "view:test.v3", sidebarVisible: true, items: [profile, gear(false)]}}},
             ];
         })(),
-        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue"),
+        load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchActivityBar>((await import("nbook/plugins/workbench/web/components/WorkbenchActivityBar.vue")).default, {events: ["select", "run-item"], class: "h-full w-[48px]"})),
     }),
     defineSubjectFixture<typeof WorkbenchMoveViewMenu>({
         component: "WorkbenchMoveViewMenu",
@@ -516,7 +515,7 @@ export const labFixtures: LabFixture[] = [
                 mode: views.length === 0 ? ("empty" as const) : views.length === 1 ? ("single" as const) : ("multiple" as const), members: views.map((view) => view.id), views, showContainerTitle: part === "sidebar" && views.length === 1,
             });
             const scene = (id: string, label: string, part: "sidebar" | "panel", views: ReturnType<typeof slot>[]) => ({
-                id, label, input: {props: {container: container(part, views), contextKey: `lab:${id}`, disabled: false, collapseLabel: "收起视图", expandLabel: "展开视图", dragLabel: "拖动 {title}", locale: "zh-CN" as const}},
+                id, label, input: {props: {container: container(part, views), contextKey: `lab:${id}`, disabled: false}},
             });
             return [
                 scene("vertical", "侧栏纵向三个视图", "sidebar", [slot("test.a", "资源管理器"), slot("test.b", "大纲", {size: 160}), slot("test.c", "时间线")]),
@@ -525,14 +524,12 @@ export const labFixtures: LabFixture[] = [
                 scene("single", "single：一个视图、没有标题行", "sidebar", [slot("test.a", "资源管理器")]),
             ];
         })(),
-        load: async () => (await import("./WorkbenchViewContainerHostFixture.vue")).default,
+        load: async () => withWorkbenchText((await import("./WorkbenchViewContainerHostFixture.vue")).default),
     }),
-    defineSubjectFixture<typeof WorkbenchViewFrame>({
+    defineLabFixture<typeof WorkbenchViewFrame>({
         component: "WorkbenchViewFrame",
-        events: ["retry-entry", "reload", "retry-render", "render-error"],
-        class: "h-full w-full",
         scenes: (() => {
-            const base = {viewId: "test.files", locale: "zh-CN" as const, layout: "scroll" as const, error: null, component: null, context: null, generation: 1, busy: false};
+            const base = {viewId: "test.files", layout: "scroll" as const, error: null, component: null, context: null, generation: 1, busy: false};
             return [
                 {id: "declared", label: "等待入口启动", input: {props: {...base, delivery: {kind: "declared" as const}, status: "waiting" as const}}},
                 {id: "blocked", label: "入口受阻", input: {props: {...base, delivery: {kind: "entry-blocked" as const, reason: "missing-dependency：nbook/storage"}, status: "waiting" as const}}},
@@ -543,7 +540,7 @@ export const labFixtures: LabFixture[] = [
                 {id: "render-failed", label: "渲染出错（重试）", input: {props: {...base, delivery: {kind: "available" as const}, status: "render-failed" as const, error: "Cannot read properties of undefined"}}},
             ];
         })(),
-        subject: () => import("nbook/plugins/workbench/web/components/WorkbenchViewFrame.vue"),
+        load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchViewFrame>((await import("nbook/plugins/workbench/web/components/WorkbenchViewFrame.vue")).default, {events: ["retry-entry", "reload", "retry-render", "render-error"], class: "h-full w-full"})),
     }),
     defineLabFixture<typeof WorkbenchViewSection>({
         component: "WorkbenchViewSection", slots: ["default", "actions"],
@@ -560,12 +557,10 @@ export const labFixtures: LabFixture[] = [
         })(),
         load: async () => (await import("./WorkbenchViewSectionFixture.vue")).default,
     }),
-    defineSubjectFixture<typeof ExplorerRow>({
+    defineLabFixture<typeof ExplorerRow>({
         component: "ExplorerRow",
-        events: ["press", "activate", "context", "retry"],
-        class: "w-full",
         scenes: (() => {
-            const scene = (id: string, label: string, index: number, extra: {selected?: boolean; active?: boolean; edit?: {name: string; error: string | null; busy: boolean}; hideMarkdownExtension?: boolean} = {}) => ({id, label, input: {props: {row: EXPLORER_ROWS[index] as (typeof EXPLORER_ROWS)[number], locale: "zh-CN" as const, domId: `lab-row-${id}`, selected: extra.selected ?? false, active: extra.active ?? false, height: 26, edit: extra.edit ?? null, hideMarkdownExtension: extra.hideMarkdownExtension ?? false}}});
+            const scene = (id: string, label: string, index: number, extra: {selected?: boolean; active?: boolean; edit?: {name: string; error: string | null; busy: boolean}; hideMarkdownExtension?: boolean} = {}) => ({id, label, input: {props: {row: EXPLORER_ROWS[index] as (typeof EXPLORER_ROWS)[number], domId: `lab-row-${id}`, selected: extra.selected ?? false, active: extra.active ?? false, height: 26, edit: extra.edit ?? null, hideMarkdownExtension: extra.hideMarkdownExtension ?? false}}});
             return [
                 scene("node", "内容节点：展示名与真实名字", 3),
                 scene("selected", "选中并有焦点框", 3, {selected: true, active: true}),
@@ -583,43 +578,44 @@ export const labFixtures: LabFixture[] = [
                 scene("rename", "改名：名字冲突的提示", 3, {selected: true, edit: {name: "alice", error: "已存在同名项", busy: false}}),
             ];
         })(),
-        subject: () => import("nbook/plugins/explorer/web/components/ExplorerRow.vue"),
+        load: async () => withExplorerText(createSubjectFixture<typeof ExplorerRow>((await import("nbook/plugins/explorer/web/components/ExplorerRow.vue")).default, {events: ["press", "activate", "context", "retry"], class: "w-full"})),
     }),
-    defineSubjectFixture<typeof ExplorerTree>({
+    defineLabFixture<typeof ExplorerTree>({
         component: "ExplorerTree",
-        events: ["row-press", "row-activate", "row-context", "retry", "focus-change"],
-        class: "h-full w-full",
         scenes: [
-            {id: "kinds", label: "三类文件夹与行上的状态", input: {props: {rows: EXPLORER_ROWS, selected: ["project://lore.content/bob"], focus: "project://lore.content/bob", locale: "zh-CN", label: "文件"}}},
-            {id: "guides", label: "缩进参考线一直显示、焦点那一层加深", input: {props: {rows: EXPLORER_ROWS, selected: ["project://lore.content/carol"], focus: "project://lore.content/carol", locale: "zh-CN", label: "文件", indentGuides: "always"}}},
-            {id: "many", label: "五百行：虚拟滚动与长名字", input: {props: {rows: manyRows(500), selected: [], focus: null, locale: "zh-CN", label: "文件"}}},
-            {id: "english", label: "英文界面", input: {props: {rows: EXPLORER_ROWS, selected: [], focus: null, locale: "en-US", label: "Files"}}},
+            {id: "kinds", label: "三类文件夹与行上的状态", input: {props: {rows: EXPLORER_ROWS, selected: ["project://lore.content/bob"], focus: "project://lore.content/bob", label: "文件"}}},
+            {id: "guides", label: "缩进参考线一直显示、焦点那一层加深", input: {props: {rows: EXPLORER_ROWS, selected: ["project://lore.content/carol"], focus: "project://lore.content/carol", label: "文件", indentGuides: "always"}}},
+            {id: "many", label: "五百行：虚拟滚动与长名字", input: {props: {rows: manyRows(500), selected: [], focus: null, label: "文件"}}},
+            {id: "english", label: "英文界面", input: {props: {rows: EXPLORER_ROWS, selected: [], focus: null, label: "Files"}}},
         ],
-        runtimeProps: async () => ({handleKey: () => "none" as const}),
-        subject: () => import("nbook/plugins/explorer/web/components/ExplorerTree.vue"),
+        load: async () => withExplorerText(createSubjectFixture<typeof ExplorerTree>((await import("nbook/plugins/explorer/web/components/ExplorerTree.vue")).default, {
+            events: ["row-press", "row-activate", "row-context", "retry", "focus-change"],
+            class: "h-full w-full",
+            runtimeProps: {handleKey: () => "none" as const},
+        })),
     }),
     defineLabFixture<typeof InlineChip>({
         component: "InlineChip",
         scenes: [
-            {id: "reference", label: "引用作品里的文件", input: {props: {kind: "reference", locale: "zh-CN", label: "林雪", target: "/设定/林雪.md"}}},
-            {id: "reference-image", label: "引用一张图片", input: {props: {kind: "reference", locale: "zh-CN", label: "地图", target: "/资料/地图.png"}}},
-            {id: "attachment", label: "引用会话附件", input: {props: {kind: "reference", locale: "zh-CN", label: "截图", target: "local://截图.png"}}},
-            {id: "external", label: "外部链接", input: {props: {kind: "reference", locale: "zh-CN", label: "官网", target: "https://example.com"}}},
-            {id: "other", label: "旧应用的领域地址", input: {props: {kind: "reference", locale: "zh-CN", label: "第一章", target: "chapter://c1"}}},
-            {id: "long", label: "过长的名称截断", input: {props: {kind: "reference", locale: "zh-CN", label: "一个非常非常非常非常非常非常长的设定文件名字", target: "/设定/很长.md"}}},
-            {id: "skill", label: "技能", input: {props: {kind: "skill", locale: "zh-CN", label: "reviewer"}}},
-            {id: "selection", label: "选区", input: {props: {kind: "selection", locale: "zh-CN", label: "第一章.md#L3-L8"}}},
-            {id: "command", label: "命令", input: {props: {kind: "command", locale: "zh-CN", label: "plan"}}},
-            {id: "image", label: "图片 #1", input: {props: {kind: "image", locale: "zh-CN", number: 1}}},
-            {id: "uploading", label: "文件上传中", input: {props: {kind: "file", locale: "zh-CN", label: "笔记.txt", number: 2, state: "uploading"}}},
-            {id: "failed", label: "上传失败", input: {props: {kind: "image", locale: "zh-CN", number: 3, state: "failed", error: "文件太大"}}},
-            {id: "paste", label: "粘贴位置", input: {props: {kind: "paste", locale: "zh-CN", number: 4}}},
-            {id: "highlighted", label: "联动高亮", input: {props: {kind: "image", locale: "zh-CN", number: 1, highlighted: true}}},
-            {id: "selected", label: "在选区里", input: {props: {kind: "reference", locale: "zh-CN", label: "林雪", target: "/设定/林雪.md", selected: true}}},
-            {id: "interactive", label: "可聚焦（静态显示里）", input: {props: {kind: "reference", locale: "zh-CN", label: "林雪", target: "/设定/林雪.md", interactive: true}}},
-            {id: "english", label: "英文界面", input: {props: {kind: "file", locale: "en-US", label: "notes.txt", number: 2, state: "uploading"}}},
+            {id: "reference", label: "引用作品里的文件", input: {props: {kind: "reference", label: "林雪", target: "/设定/林雪.md"}}},
+            {id: "reference-image", label: "引用一张图片", input: {props: {kind: "reference", label: "地图", target: "/资料/地图.png"}}},
+            {id: "attachment", label: "引用会话附件", input: {props: {kind: "reference", label: "截图", target: "local://截图.png"}}},
+            {id: "external", label: "外部链接", input: {props: {kind: "reference", label: "官网", target: "https://example.com"}}},
+            {id: "other", label: "旧应用的领域地址", input: {props: {kind: "reference", label: "第一章", target: "chapter://c1"}}},
+            {id: "long", label: "过长的名称截断", input: {props: {kind: "reference", label: "一个非常非常非常非常非常非常长的设定文件名字", target: "/设定/很长.md"}}},
+            {id: "skill", label: "技能", input: {props: {kind: "skill", label: "reviewer"}}},
+            {id: "selection", label: "选区", input: {props: {kind: "selection", label: "第一章.md#L3-L8"}}},
+            {id: "command", label: "命令", input: {props: {kind: "command", label: "plan"}}},
+            {id: "image", label: "图片 #1", input: {props: {kind: "image", number: 1}}},
+            {id: "uploading", label: "文件上传中", input: {props: {kind: "file", label: "笔记.txt", number: 2, state: "uploading"}}},
+            {id: "failed", label: "上传失败", input: {props: {kind: "image", number: 3, state: "failed", error: "文件太大"}}},
+            {id: "paste", label: "粘贴位置", input: {props: {kind: "paste", number: 4}}},
+            {id: "highlighted", label: "联动高亮", input: {props: {kind: "image", number: 1, highlighted: true}}},
+            {id: "selected", label: "在选区里", input: {props: {kind: "reference", label: "林雪", target: "/设定/林雪.md", selected: true}}},
+            {id: "interactive", label: "可聚焦（静态显示里）", input: {props: {kind: "reference", label: "林雪", target: "/设定/林雪.md", interactive: true}}},
+            {id: "english", label: "英文界面", input: {props: {kind: "file", label: "notes.txt", number: 2, state: "uploading"}}},
         ],
-        load: async () => (await import("./InlineChipFixture.vue")).default,
+        load: async () => withMarkdownSceneText((await import("./InlineChipFixture.vue")).default),
     }),
     defineLabFixture<typeof MarkdownDisplay>({
         component: "MarkdownDisplay",
@@ -630,46 +626,50 @@ export const labFixtures: LabFixture[] = [
             {id: "plain", label: "只有普通 Markdown", input: {props: {text: "## 小结\n\n- 第一章节奏**偏快**\n- 第二章的*伏笔*可以提前，~~旧的开头~~删掉\n\n#### 细节\n\n---\n\n```ts\nconst answer = 42;\n```\n\n| 章 | 字数 |\n|---|---|\n| 一 | 3200 |", locale: "zh-CN"}}},
             {id: "empty", label: "空文本", input: {props: {text: "", locale: "zh-CN"}}},
         ],
-        load: async () => (await import("./MarkdownDisplayFixture.vue")).default,
+        load: async () => withMarkdownSceneText((await import("./MarkdownDisplayFixture.vue")).default),
     }),
     defineLabFixture<typeof PromptEditor>({
         component: "PromptEditor",
         scenes: promptEditorScenes,
-        load: async () => (await import("./prompt-scene/PromptEditorFixture.vue")).default,
+        load: async () => withMarkdownSceneText((await import("./prompt-scene/PromptEditorFixture.vue")).default),
     }),
-    defineSubjectFixture<typeof PromptTextView>({
+    // 这三个零件经场景端口取文字（`markdown-text.ts`），所以不用 defineSubjectFixture，自己包一层（同 ExplorerTree）。
+    defineLabFixture<typeof PromptTextView>({
         component: "PromptTextView",
         scenes: promptTextViewScenes,
-        subject: async () => withNbookMarkdownHost((await import("@notnotype/nb-markdown/prompt")).PromptTextView),
-        events: ["token-activate"],
-        class: "w-full p-4 text-[13px] leading-[1.6] text-[var(--text-main)]",
-        runtimeProps: () => Promise.resolve({resolveThumbnail: (target: string) => PROMPT_LAB_THUMBNAILS[target] ?? null}),
+        load: async () => withMarkdownSceneText(createSubjectFixture<typeof PromptTextView>(withNbookMarkdownHost((await import("@notnotype/nb-markdown/prompt")).PromptTextView).default, {
+            events: ["token-activate"],
+            class: "w-full p-4 text-[13px] leading-[1.6] text-[var(--text-main)]",
+            runtimeProps: {resolveThumbnail: (target: string) => PROMPT_LAB_THUMBNAILS[target] ?? null},
+        })),
     }),
-    defineSubjectFixture<typeof PromptAttachmentStrip>({
+    defineLabFixture<typeof PromptAttachmentStrip>({
         component: "PromptAttachmentStrip",
         scenes: promptAttachmentStripScenes,
-        subject: async () => ({default: (await import("@notnotype/nb-markdown/prompt")).PromptAttachmentStrip}),
-        events: ["activate", "remove", "retry", "hover"],
-        writeBack: {hover: {layer: "props", key: "highlighted"}},
-        class: "w-full",
+        load: async () => withMarkdownSceneText(createSubjectFixture<typeof PromptAttachmentStrip>((await import("@notnotype/nb-markdown/prompt")).PromptAttachmentStrip, {
+            events: ["activate", "remove", "retry", "hover"],
+            writeBack: {hover: {layer: "props", key: "highlighted"}},
+            class: "w-full",
+        })),
     }),
-    defineSubjectFixture<typeof PromptPasteFrame>({
+    defineLabFixture<typeof PromptPasteFrame>({
         component: "PromptPasteFrame",
         scenes: promptPasteFrameScenes,
-        subject: async () => ({default: (await import("@notnotype/nb-markdown/prompt")).PromptPasteFrame}),
-        events: ["hover"],
-        class: "w-full",
+        load: async () => withMarkdownSceneText(createSubjectFixture<typeof PromptPasteFrame>((await import("@notnotype/nb-markdown/prompt")).PromptPasteFrame, {
+            events: ["hover"],
+            class: "w-full",
+        })),
     }),
     defineLabFixture<typeof MarkdownImage>({
         component: "MarkdownImage",
         scenes: [
-            {id: "shown", label: "显示", input: {props: {src: "images/封面.png", alt: "封面", title: "第一卷封面", locale: "zh-CN"}}},
-            {id: "loading", label: "读取中", input: {props: {src: "lab://loading", alt: "封面", locale: "zh-CN"}}},
-            {id: "outside", label: "不在作品里", input: {props: {src: "lab://outside", alt: "外面的图", locale: "zh-CN"}}},
-            {id: "broken", label: "读不出", input: {props: {src: "lab://broken", alt: "坏图", locale: "zh-CN"}}},
-            {id: "no-alt", label: "没有说明", input: {props: {src: "lab://outside", locale: "zh-CN"}}},
+            {id: "shown", label: "显示", input: {props: {src: "images/封面.png", alt: "封面", title: "第一卷封面"}}},
+            {id: "loading", label: "读取中", input: {props: {src: "lab://loading", alt: "封面"}}},
+            {id: "outside", label: "不在作品里", input: {props: {src: "lab://outside", alt: "外面的图"}}},
+            {id: "broken", label: "读不出", input: {props: {src: "lab://broken", alt: "坏图"}}},
+            {id: "no-alt", label: "没有说明", input: {props: {src: "lab://outside"}}},
         ],
-        load: async () => (await import("./MarkdownImageFixture.vue")).default,
+        load: async () => withMarkdownSceneText((await import("./MarkdownImageFixture.vue")).default),
     }),
     defineLabFixture<typeof FileIcon>({
         component: "FileIcon",
@@ -680,21 +680,19 @@ export const labFixtures: LabFixture[] = [
         ],
         load: async () => (await import("./FileIconFixture.vue")).default,
     }),
-    defineSubjectFixture<typeof ExplorerFeedback>({
+    defineLabFixture<typeof ExplorerFeedback>({
         component: "ExplorerFeedback",
-        events: ["dismiss"],
-        class: "w-full",
         scenes: [
-            {id: "editor-missing", label: "编辑器尚未接入", input: {props: {locale: "zh-CN", notice: {kind: "editor-missing", address: "project://lore.content/bob/index.md"}}}},
-            {id: "open-failed", label: "打开失败、长路径", input: {props: {locale: "zh-CN", notice: {kind: "open-failed", address: "project://一个非常深的目录/再深一层/还有一层/第一百二十三章 一个相当长的章节标题.md", reason: "not-text：文件含 NUL，不是文本"}}}},
-            {id: "none", label: "没有提示", input: {props: {locale: "zh-CN", notice: null}}},
+            {id: "editor-missing", label: "编辑器尚未接入", input: {props: {notice: {kind: "editor-missing", address: "project://lore.content/bob/index.md"}}}},
+            {id: "open-failed", label: "打开失败、长路径", input: {props: {notice: {kind: "open-failed", address: "project://一个非常深的目录/再深一层/还有一层/第一百二十三章 一个相当长的章节标题.md", reason: "not-text：文件含 NUL，不是文本"}}}},
+            {id: "none", label: "没有提示", input: {props: {notice: null}}},
         ],
-        subject: () => import("nbook/plugins/explorer/web/components/ExplorerFeedback.vue"),
+        load: async () => withExplorerText(createSubjectFixture<typeof ExplorerFeedback>((await import("nbook/plugins/explorer/web/components/ExplorerFeedback.vue")).default, {events: ["dismiss"], class: "w-full"})),
     }),
     defineLabFixture<typeof FilesExplorerView>({
         component: "FilesExplorerView",
         scenes: (() => {
-            const base = {locale: "zh-CN" as const, rows: EXPLORER_ROWS, selected: [], focus: null, ready: true, notice: null, problem: null};
+            const base = {rows: EXPLORER_ROWS, selected: [], focus: null, ready: true, notice: null, problem: null};
             return [
                 // 集成场景：真实的视图宿主、控制器与命令，文件换成内存适配器；输入只是占位，场景不读它。
                 {id: "live", label: "内存数据：真实控制器与命令", input: {props: base}},
@@ -726,14 +724,14 @@ export const labFixtures: LabFixture[] = [
     }),
     defineLabFixture<typeof EditorArea>({
         component: "EditorArea",
-        // 集成场景：真实的编辑器区控制器、文档模型与控件，文件换成内存适配器；输入只给界面语言。
+        // 集成场景：真实的编辑器区控制器、文档模型与控件，文件换成内存适配器；界面语言由场景 id 决定（`english` 用英文），输入只给多行标签。
         scenes: [
-            {id: "live", label: "内存数据：两个标签", input: {props: {locale: "zh-CN"}}},
-            {id: "split", label: "向右拆分的两组", input: {props: {locale: "zh-CN"}}},
-            {id: "english", label: "英文界面", input: {props: {locale: "en-US"}}},
-            {id: "empty", label: "没有标签：标志与提示", input: {props: {locale: "zh-CN"}}},
-            {id: "dialect", label: "Markdown 方言、提示块与原样内容", input: {props: {locale: "zh-CN"}}},
-            {id: "unrepresentable", label: "写不出：组顶部的提示", input: {props: {locale: "zh-CN"}}},
+            {id: "live", label: "内存数据：两个标签", input: {props: {wrapTabs: true}}},
+            {id: "split", label: "向右拆分的两组", input: {props: {wrapTabs: true}}},
+            {id: "english", label: "英文界面", input: {props: {wrapTabs: true}}},
+            {id: "empty", label: "没有标签：标志与提示", input: {props: {wrapTabs: true}}},
+            {id: "dialect", label: "Markdown 方言、提示块与原样内容", input: {props: {wrapTabs: true}}},
+            {id: "unrepresentable", label: "写不出：组顶部的提示", input: {props: {wrapTabs: true}}},
         ],
         load: async () => (await import("./editor-scene/EditorAreaFixture.vue")).default,
     }),
@@ -753,13 +751,14 @@ export const labFixtures: LabFixture[] = [
     }),
     defineLabFixture<typeof HtmlPreview>({
         component: "HtmlPreview",
-        // 文本绑定、令牌服务与时钟由夹具给出（这里登记的 binding、host 只占位）；可调的是界面语言。
+        // 文本绑定、令牌服务与时钟由夹具给出（这里登记的 binding、host 只占位）；界面语言由场景 id 决定（`-english` 结尾用英文）。
         scenes: (() => {
             const base = {binding: null, host: {state: null, dispose: null}, readonly: true, visible: true, label: "index.html"};
             return [
-                {id: "page", label: "预览一张带脚本的页面", input: {props: {...base, locale: "zh-CN" as const}}},
-                {id: "user", label: "不是作品里的文件", input: {props: {...base, locale: "zh-CN" as const}}},
-                {id: "denied", label: "令牌申请失败：说明与重试", input: {props: {...base, locale: "en-US" as const}}},
+                {id: "page", label: "预览一张带脚本的页面", input: {props: base}},
+                {id: "user", label: "不是作品里的文件", input: {props: base}},
+                {id: "denied", label: "令牌申请失败：说明与重试", input: {props: base}},
+                {id: "denied-english", label: "令牌申请失败：英文界面", input: {props: base}},
             ];
         })(),
         load: async () => (await import("./html-preview-scene/HtmlPreviewFixture.vue")).default,
@@ -869,15 +868,12 @@ export const labFixtures: LabFixture[] = [
 /** 书架页（docs/specs/workbench/bookshelf.md）：静态稿给开发者看，也是页面接上真实数据之后的回归场景。 */
 function shelfFixtures(): LabFixture[] {
     const [first, second, third, , long] = SHELF_ITEMS as [typeof SHELF_ITEMS[number], ...typeof SHELF_ITEMS];
-    const page = {locale: "zh-CN" as const, status: "ready" as const, items: SHELF_ITEMS, now: SHELF_NOW, library: "/home/writer/Documents/NeuroBook"};
+    const page = {status: "ready" as const, items: SHELF_ITEMS, now: SHELF_NOW, library: "/home/writer/Documents/NeuroBook"};
     // 封面图由夹具给：Lab 没有服务端的封面路由，第一部作品用一张内联的 SVG，其余排版封面。
     const covers = async () => ({coverSrc: (item: ShelfItem) => (item.id === first.id ? SHELF_COVER_SRC : null)});
     return [
-        defineSubjectFixture<typeof BookshelfPage>({
+        defineLabFixture<typeof BookshelfPage>({
             component: "BookshelfPage",
-            events: ["continue", "open", "open-new-window", "edit", "remove", "create", "add-existing", "retry", "open-settings"],
-            class: "h-full w-full",
-            runtimeProps: covers,
             scenes: [
                 {id: "cards", label: "卡片视图，选中一部", input: {props: page, model: {view: "cards", sort: "recent", activeId: first.id}}},
                 {id: "list", label: "列表视图", input: {props: page, model: {view: "list", sort: "words", activeId: null}}},
@@ -886,69 +882,60 @@ function shelfFixtures(): LabFixture[] {
                 {id: "empty", label: "空书架", input: {props: {...page, items: []}, model: {view: "cards", sort: "recent", activeId: null}}},
                 {id: "loading", label: "加载中", input: {props: {...page, status: "loading", items: []}, model: {view: "cards", sort: "recent", activeId: null}}},
                 {id: "error", label: "取数失败", input: {props: {...page, status: "error", error: "书架没取到：服务端暂时不可用", items: []}, model: {view: "cards", sort: "recent", activeId: null}}},
-                {id: "english", label: "英文界面", input: {props: {...page, locale: "en-US"}, model: {view: "cards", sort: "recent", activeId: third.id}}},
+                {id: "english", label: "英文界面", input: {props: {...page}, model: {view: "cards", sort: "recent", activeId: third.id}}},
                 {id: "settings-open", label: "设置窗口开着：齿轮按下", input: {props: {...page, settingsOpen: true}, model: {view: "cards", sort: "recent", activeId: first.id}}},
             ],
-            subject: () => import("nbook/plugins/projects/web/components/BookshelfPage.vue"),
+            load: async () => withProjectsText(createSubjectFixture<typeof BookshelfPage>((await import("nbook/plugins/projects/web/components/BookshelfPage.vue")).default, {events: ["continue", "open", "open-new-window", "edit", "remove", "create", "add-existing", "retry", "open-settings"], class: "h-full w-full", runtimeProps: await covers()})),
         }),
-        defineSubjectFixture<typeof ShelfDesk>({
+        defineLabFixture<typeof ShelfDesk>({
             component: "ShelfDesk",
-            events: ["continue"],
-            class: "w-full",
             scenes: [
-                {id: "writing", label: "今天写了字", input: {props: {locale: "zh-CN", items: SHELF_ITEMS, now: SHELF_NOW}}},
-                {id: "no-today", label: "今天没写", input: {props: {locale: "zh-CN", items: [second, third], now: SHELF_NOW}}},
-                {id: "revising", label: "今天净删", input: {props: {locale: "zh-CN", items: [SHELF_ITEM_REVISING], now: SHELF_NOW}}},
-                {id: "no-record", label: "没有写作记录", input: {props: {locale: "zh-CN", items: [SHELF_ITEMS[3]!], now: SHELF_NOW}}},
-                {id: "empty", label: "空书架的问候", input: {props: {locale: "zh-CN", items: [], now: SHELF_NOW}}},
-                {id: "english", label: "英文界面", input: {props: {locale: "en-US", items: SHELF_ITEMS, now: SHELF_NOW}}},
+                {id: "writing", label: "今天写了字", input: {props: {items: SHELF_ITEMS, now: SHELF_NOW}}},
+                {id: "no-today", label: "今天没写", input: {props: {items: [second, third], now: SHELF_NOW}}},
+                {id: "revising", label: "今天净删", input: {props: {items: [SHELF_ITEM_REVISING], now: SHELF_NOW}}},
+                {id: "no-record", label: "没有写作记录", input: {props: {items: [SHELF_ITEMS[3]!], now: SHELF_NOW}}},
+                {id: "empty", label: "空书架的问候", input: {props: {items: [], now: SHELF_NOW}}},
+                {id: "english", label: "英文界面", input: {props: {items: SHELF_ITEMS, now: SHELF_NOW}}},
             ],
-            subject: () => import("nbook/plugins/projects/web/components/ShelfDesk.vue"),
+            load: async () => withProjectsText(createSubjectFixture<typeof ShelfDesk>((await import("nbook/plugins/projects/web/components/ShelfDesk.vue")).default, {events: ["continue"], class: "w-full"})),
         }),
-        defineSubjectFixture<typeof ShelfCards>({
+        defineLabFixture<typeof ShelfCards>({
             component: "ShelfCards",
-            events: ["open", "open-new-window", "edit", "remove", "create", "add-existing"],
-            class: "w-full",
-            runtimeProps: covers,
             scenes: [
-                {id: "grid", label: "几部作品", input: {props: {locale: "zh-CN", items: SHELF_ITEMS, now: SHELF_NOW, library: "/home/writer/Documents/NeuroBook"}, model: {activeId: first.id}}},
-                {id: "many", label: "很多部", input: {props: {locale: "zh-CN", items: [...SHELF_ITEMS, ...SHELF_ITEMS].map((item, index) => ({...item, id: `${item.id}-${String(index)}`})), now: SHELF_NOW, library: "/home/writer/Documents/NeuroBook"}, model: {activeId: null}}},
-                {id: "empty", label: "空书架的两张卡", input: {props: {locale: "zh-CN", items: [], now: SHELF_NOW, library: "/home/writer/Documents/NeuroBook"}, model: {activeId: null}}},
+                {id: "grid", label: "几部作品", input: {props: {items: SHELF_ITEMS, now: SHELF_NOW, library: "/home/writer/Documents/NeuroBook"}, model: {activeId: first.id}}},
+                {id: "many", label: "很多部", input: {props: {items: [...SHELF_ITEMS, ...SHELF_ITEMS].map((item, index) => ({...item, id: `${item.id}-${String(index)}`})), now: SHELF_NOW, library: "/home/writer/Documents/NeuroBook"}, model: {activeId: null}}},
+                {id: "empty", label: "空书架的两张卡", input: {props: {items: [], now: SHELF_NOW, library: "/home/writer/Documents/NeuroBook"}, model: {activeId: null}}},
             ],
-            subject: () => import("nbook/plugins/projects/web/components/ShelfCards.vue"),
+            load: async () => withProjectsText(createSubjectFixture<typeof ShelfCards>((await import("nbook/plugins/projects/web/components/ShelfCards.vue")).default, {events: ["open", "open-new-window", "edit", "remove", "create", "add-existing"], class: "w-full", runtimeProps: await covers()})),
         }),
-        defineSubjectFixture<typeof BookCard>({
+        defineLabFixture<typeof BookCard>({
             component: "BookCard",
-            events: ["pick", "open", "open-new-window", "edit", "remove"],
-            class: "w-full max-w-[360px]",
             scenes: [
-                {id: "cover", label: "有封面、正在打开", input: {props: {locale: "zh-CN", item: first, now: SHELF_NOW, coverSrc: SHELF_COVER_SRC, active: true}}},
-                {id: "typeset", label: "排版封面", input: {props: {locale: "zh-CN", item: second, now: SHELF_NOW, coverSrc: null, active: false}}},
-                {id: "none", label: "尚未统计、没有简介", input: {props: {locale: "zh-CN", item: SHELF_ITEMS[3]!, now: SHELF_NOW, coverSrc: null, active: false}}},
-                {id: "long", label: "长书名", input: {props: {locale: "zh-CN", item: long, now: SHELF_NOW, coverSrc: null, active: false}}},
+                {id: "cover", label: "有封面、正在打开", input: {props: {item: first, now: SHELF_NOW, coverSrc: SHELF_COVER_SRC, active: true}}},
+                {id: "typeset", label: "排版封面", input: {props: {item: second, now: SHELF_NOW, coverSrc: null, active: false}}},
+                {id: "none", label: "尚未统计、没有简介", input: {props: {item: SHELF_ITEMS[3]!, now: SHELF_NOW, coverSrc: null, active: false}}},
+                {id: "long", label: "长书名", input: {props: {item: long, now: SHELF_NOW, coverSrc: null, active: false}}},
             ],
-            subject: () => import("nbook/plugins/projects/web/components/BookCard.vue"),
+            load: async () => withProjectsText(createSubjectFixture<typeof BookCard>((await import("nbook/plugins/projects/web/components/BookCard.vue")).default, {events: ["pick", "open", "open-new-window", "edit", "remove"], class: "w-full max-w-[360px]"})),
         }),
-        defineSubjectFixture<typeof WelcomePage>({
+        defineLabFixture<typeof WelcomePage>({
             component: "WelcomePage",
-            events: ["new-chapter", "open", "reveal", "shelf"],
-            class: "w-full",
             scenes: (() => {
                 const quick = [
                     {address: "project://大纲.md", name: "大纲.md", kind: "file" as const},
                     {address: "project://设定", name: "设定", kind: "folder" as const},
                 ];
                 const recent = ["project://正文/第一卷/第一章 灯塔.md", "project://设定/人物.md", "project://大纲.md"];
-                const page = {locale: "zh-CN" as const, title: first.title ?? first.name, description: first.description, stats: first.stats, now: SHELF_NOW, quick, recent, shortcut: "Ctrl+Shift+P"};
+                const page = {title: first.title ?? first.name, description: first.description, stats: first.stats, now: SHELF_NOW, quick, recent, shortcut: "Ctrl+Shift+P"};
                 return [
                     {id: "book", label: "写过一阵的作品", input: {props: page}},
                     {id: "new", label: "新作品：没有简介、尚未统计、没有最近打开", input: {props: {...page, title: "新的一本", description: null, stats: SHELF_ITEMS[3]!.stats, quick: [], recent: []}}},
                     {id: "problem", label: "新建章节失败", input: {props: {...page, problem: "新建章节失败：permission-denied"}}},
                     {id: "unbound", label: "没有打开作品", input: {props: {...page, title: null}}},
-                    {id: "english", label: "英文界面", input: {props: {...page, locale: "en-US" as const}}},
+                    {id: "english", label: "英文界面", input: {props: {...page}}},
                 ];
             })(),
-            subject: () => import("nbook/plugins/projects/web/components/WelcomePage.vue"),
+            load: async () => withProjectsText(createSubjectFixture<typeof WelcomePage>((await import("nbook/plugins/projects/web/components/WelcomePage.vue")).default, {events: ["new-chapter", "open", "reveal", "shelf"], class: "w-full"})),
         }),
         defineSubjectFixture<typeof BookCover>({
             component: "BookCover",
@@ -962,30 +949,25 @@ function shelfFixtures(): LabFixture[] {
             ],
             subject: () => import("nbook/plugins/projects/web/components/BookCover.vue"),
         }),
-        defineSubjectFixture<typeof ShelfList>({
+        defineLabFixture<typeof ShelfList>({
             component: "ShelfList",
-            events: ["open", "open-new-window", "edit", "remove", "create"],
-            class: "w-full",
-            runtimeProps: covers,
             scenes: [
-                {id: "books", label: "几部作品", input: {props: {locale: "zh-CN", items: SHELF_ITEMS, now: SHELF_NOW}}},
-                {id: "english", label: "英文界面", input: {props: {locale: "en-US", items: SHELF_ITEMS, now: SHELF_NOW}}},
+                {id: "books", label: "几部作品", input: {props: {items: SHELF_ITEMS, now: SHELF_NOW}}},
+                {id: "english", label: "英文界面", input: {props: {items: SHELF_ITEMS, now: SHELF_NOW}}},
             ],
-            subject: () => import("nbook/plugins/projects/web/components/ShelfList.vue"),
+            load: async () => withProjectsText(createSubjectFixture<typeof ShelfList>((await import("nbook/plugins/projects/web/components/ShelfList.vue")).default, {events: ["open", "open-new-window", "edit", "remove", "create"], class: "w-full", runtimeProps: await covers()})),
         }),
-        defineSubjectFixture<typeof ProjectInfoDialog>({
+        defineLabFixture<typeof ProjectInfoDialog>({
             component: "ProjectInfoDialog",
-            events: ["submit", "cancel", "browse-location"],
-            class: "",
             scenes: [
-                {id: "create", label: "新建作品", input: {props: {locale: "zh-CN", open: true, mode: "create"}, model: {location: "/home/writer/Documents/NeuroBook"}}},
-                {id: "create-filled", label: "新建作品（填了书名、自定义色）", input: {props: {locale: "zh-CN", open: true, mode: "create", initial: {title: "雪线以北", description: "一个守灯人等一封永远不会来的信。", color: "#d4a017", coverSrc: null}}, model: {location: "/home/writer/Documents/NeuroBook"}}},
-                {id: "edit", label: "编辑信息（有封面）", input: {props: {locale: "zh-CN", open: true, mode: "edit", initial: {id: first.id, title: first.title ?? first.name, description: first.description ?? "", color: "#2f63a8", coverSrc: SHELF_COVER_SRC}}, model: {location: ""}}},
-                {id: "rejected", label: "服务端拒绝了位置", input: {props: {locale: "zh-CN", open: true, mode: "create", initial: {title: "长夜行", description: "", color: "#2f63a8", coverSrc: null}, fieldErrors: {location: "作品目录不可用：目录不可读写（/mnt/usb/books）"}}, model: {location: "/mnt/usb/books"}}},
-                {id: "busy", label: "提交中", input: {props: {locale: "zh-CN", open: true, mode: "edit", initial: {title: "北方以北", description: "", color: null, coverSrc: null}, busy: true}, model: {location: ""}}},
-                {id: "english", label: "英文界面", input: {props: {locale: "en-US", open: true, mode: "create"}, model: {location: "/Users/writer/Documents/NeuroBook"}}},
+                {id: "create", label: "新建作品", input: {props: {open: true, mode: "create"}, model: {location: "/home/writer/Documents/NeuroBook"}}},
+                {id: "create-filled", label: "新建作品（填了书名、自定义色）", input: {props: {open: true, mode: "create", initial: {title: "雪线以北", description: "一个守灯人等一封永远不会来的信。", color: "#d4a017", coverSrc: null}}, model: {location: "/home/writer/Documents/NeuroBook"}}},
+                {id: "edit", label: "编辑信息（有封面）", input: {props: {open: true, mode: "edit", initial: {id: first.id, title: first.title ?? first.name, description: first.description ?? "", color: "#2f63a8", coverSrc: SHELF_COVER_SRC}}, model: {location: ""}}},
+                {id: "rejected", label: "服务端拒绝了位置", input: {props: {open: true, mode: "create", initial: {title: "长夜行", description: "", color: "#2f63a8", coverSrc: null}, fieldErrors: {location: "作品目录不可用：目录不可读写（/mnt/usb/books）"}}, model: {location: "/mnt/usb/books"}}},
+                {id: "busy", label: "提交中", input: {props: {open: true, mode: "edit", initial: {title: "北方以北", description: "", color: null, coverSrc: null}, busy: true}, model: {location: ""}}},
+                {id: "english", label: "英文界面", input: {props: {open: true, mode: "create"}, model: {location: "/Users/writer/Documents/NeuroBook"}}},
             ],
-            subject: () => import("nbook/plugins/projects/web/components/ProjectInfoDialog.vue"),
+            load: async () => withProjectsText(createSubjectFixture<typeof ProjectInfoDialog>((await import("nbook/plugins/projects/web/components/ProjectInfoDialog.vue")).default, {events: ["submit", "cancel", "browse-location"], class: ""})),
         }),
         defineSubjectFixture<typeof FileBrowser>({
             component: "FileBrowser",
@@ -1009,31 +991,28 @@ function shelfFixtures(): LabFixture[] {
             ],
             subject: () => import("nbook/plugins/projects/web/components/FileBrowser.vue"),
         }),
-        defineSubjectFixture<typeof PathPickerDialog>({
+        defineLabFixture<typeof PathPickerDialog>({
             component: "PathPickerDialog",
-            events: ["pick", "cancel"],
-            class: "",
-            runtimeProps: async () => ({source: (await import("./path-picker-source")).labPathPickerSource}),
             scenes: [
-                {id: "project", label: "打开已有作品", input: {props: {locale: "zh-CN", open: true, mode: "project"}}},
-                {id: "directory", label: "选择作品目录", input: {props: {locale: "zh-CN", open: true, mode: "directory", initialPath: "/home/writer/Documents"}}},
-                {id: "rejected", label: "登记失败", input: {props: {locale: "zh-CN", open: true, mode: "project", error: "没有加入书架：目录里的项目身份文件无法读取"}}},
-                {id: "english", label: "英文界面", input: {props: {locale: "en-US", open: true, mode: "project"}}},
+                {id: "project", label: "打开已有作品", input: {props: {open: true, mode: "project"}}},
+                {id: "directory", label: "选择作品目录", input: {props: {open: true, mode: "directory", initialPath: "/home/writer/Documents"}}},
+                {id: "rejected", label: "登记失败", input: {props: {open: true, mode: "project", error: "没有加入书架：目录里的项目身份文件无法读取"}}},
+                {id: "english", label: "英文界面", input: {props: {open: true, mode: "project"}}},
             ],
-            subject: () => import("nbook/plugins/projects/web/components/PathPickerDialog.vue"),
+            load: async () => withProjectsText(createSubjectFixture<typeof PathPickerDialog>((await import("nbook/plugins/projects/web/components/PathPickerDialog.vue")).default, {events: ["pick", "cancel"], class: "", runtimeProps: {source: (await import("./path-picker-source")).labPathPickerSource}})),
         }),
         defineLabFixture<typeof WorksSettingsPage>({
             component: "WorksSettingsPage",
             scenes: [
-                {id: "unset", label: "还没设（显示缺省目录）", input: {props: {locale: "zh-CN", layer: "user"}}},
-                {id: "default-unknown", label: "还没设、取不到缺省目录", input: {props: {locale: "zh-CN", layer: "user"}}},
-                {id: "set", label: "设了（已修改）", input: {props: {locale: "zh-CN", layer: "user"}}},
-                {id: "long", label: "很长的路径", input: {props: {locale: "zh-CN", layer: "user"}}},
-                {id: "write-failed", label: "写不进去", input: {props: {locale: "zh-CN", layer: "user"}}},
-                {id: "invalid", label: "设置文件有错误（停用）", input: {props: {locale: "zh-CN", layer: "user"}}},
-                {id: "english", label: "英文界面", input: {props: {locale: "en-US", layer: "user"}}},
+                {id: "unset", label: "还没设（显示缺省目录）", input: {props: {layer: "user"}}},
+                {id: "default-unknown", label: "还没设、取不到缺省目录", input: {props: {layer: "user"}}},
+                {id: "set", label: "设了（已修改）", input: {props: {layer: "user"}}},
+                {id: "long", label: "很长的路径", input: {props: {layer: "user"}}},
+                {id: "write-failed", label: "写不进去", input: {props: {layer: "user"}}},
+                {id: "invalid", label: "设置文件有错误（停用）", input: {props: {layer: "user"}}},
+                {id: "english", label: "英文界面", input: {props: {layer: "user"}}},
             ],
-            load: async () => (await import("./WorksSettingsPageFixture.vue")).default,
+            load: async () => withProjectsText((await import("./WorksSettingsPageFixture.vue")).default),
         }),
         defineLabFixture<typeof PluginsPage>({
             component: "PluginsPage",
@@ -1065,7 +1044,7 @@ function shelfFixtures(): LabFixture[] {
  * （`settings-scene/`）：产品里同一个窗口模型与配置实例，配置层换成内存里的拥有者。
  */
 function settingsFixtures(): LabFixture[] {
-    const row = (setting: typeof appearanceSetting | typeof themeSetting | typeof localeSetting | typeof snippetsSettings.items | typeof rowDemoSettings.workers | typeof rowDemoSettings.library | typeof rowDemoSettings.mode, layer: "user" | "project", wide = false) => ({setting, layer, locale: "zh-CN" as const, projectTitle: "雾港", wide});
+    const row = (setting: typeof appearanceSetting | typeof themeSetting | typeof localeSetting | typeof snippetsSettings.items | typeof rowDemoSettings.workers | typeof rowDemoSettings.library | typeof rowDemoSettings.mode, layer: "user" | "project", wide = false) => ({setting, layer, projectTitle: "雾港", wide});
     /** 状态原因：出错、警告、淡色各一条，看图标取最重的色调、提示逐条列出。 */
     const reasons = [
         {tone: "error" as const, text: "未保存：取值范围为 1–8"},
@@ -1108,17 +1087,16 @@ function settingsFixtures(): LabFixture[] {
             ],
             load: async () => (await import("./SettingsPageActionsFixture.vue")).default,
         }),
-        defineSubjectFixture<typeof SettingsSaveBar>({
+        defineLabFixture<typeof SettingsSaveBar>({
             component: "SettingsSaveBar",
-            class: "w-full",
             scenes: [
-                {id: "clean", label: "没有改动：两个按钮停用，不写字", input: {props: {locale: "zh-CN", dirty: false, busy: false}}},
-                {id: "dirty", label: "有改动：缺省文字，按钮可用", input: {props: {locale: "zh-CN", dirty: true, busy: false}}},
-                {id: "busy", label: "保存中：按钮停用", input: {props: {locale: "zh-CN", dirty: true, busy: true}}},
-                {id: "message", label: "自定义文字", input: {props: {locale: "zh-CN", dirty: true, busy: false, message: "还没保存：“接口地址”还没有填写"}}},
-                {id: "english", label: "英文界面", input: {props: {locale: "en-US", dirty: true, busy: false}}},
+                {id: "clean", label: "没有改动：两个按钮停用，不写字", input: {props: {dirty: false, busy: false}}},
+                {id: "dirty", label: "有改动：缺省文字，按钮可用", input: {props: {dirty: true, busy: false}}},
+                {id: "busy", label: "保存中：按钮停用", input: {props: {dirty: true, busy: true}}},
+                {id: "message", label: "自定义文字", input: {props: {dirty: true, busy: false, message: "还没保存：“接口地址”还没有填写"}}},
+                {id: "english", label: "英文界面", input: {props: {dirty: true, busy: false}}},
             ],
-            subject: () => import("nbook/ui/settings/SettingsSaveBar.vue"),
+            load: async () => withSettingsText(createSubjectFixture<typeof SettingsSaveBar>((await import("nbook/ui/settings/SettingsSaveBar.vue")).default, {class: "w-full"})),
         }),
         defineSubjectFixture<typeof HighlightedText>({
             component: "HighlightedText",

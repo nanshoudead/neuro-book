@@ -28,14 +28,25 @@ let built: BuiltSdk;
 /** 作者项目里装好的 SDK 包（从 tarball 解开的）。 */
 let installed = "";
 
-/** 作者的插件源码：两端的入口、设置项、page 分区与宿主能力都从 SDK 取；服务端与浏览器的入口分模块写（服务端产物不能带浏览器的 SDK）。 */
+/**
+ * 作者的插件源码：两端的入口、设置项、page 分区、宿主能力与界面文字都从 SDK 取；服务端与浏览器的入口分模块写（服务端产物
+ * 不能带浏览器的 SDK）。
+ */
 const AUTHOR_SOURCES: Readonly<Record<string, string>> = {
     "src/shared.ts": `import {definePlugin} from "@notnotype/nb-plugin-sdk";
 import {section, setting} from "@notnotype/nb-plugin-sdk/settings";
 import type {SettingsSectionDeclaration} from "@notnotype/nb-plugin-sdk/settings";
+import {pluginText} from "@notnotype/nb-plugin-sdk/text";
+import type {Text} from "@notnotype/nb-plugin-sdk/text";
 import {Type} from "typebox";
 
 export const plugin = definePlugin({id: "acme.hello", version: "1.0.0", locations: ["server", "browser"]});
+// 文字引用：键按目录的类型核对，复数形归到不带后缀的键。服务端入口也引用本模块，\`/text\` 两端都能用。
+export interface Catalog {greeting: {hello: string; files_one: string; files_other: string}}
+export const text = pluginText<Catalog>(plugin.id);
+export const files: Text = text("greeting.files", {count: 2});
+// @ts-expect-error 目录里没有这个键。
+export const typo = text("greeting.helo");
 // list 分区与设置项：顶层声明，写进插件描述。
 export const list = section(plugin, {name: "list", title: "你好", icon: "i-lucide-smile", groups: [{id: "basic", title: {"zh-CN": "基本", "en-US": "Basic"}}]});
 export const greeting = setting(plugin, {name: "greeting", schema: Type.String(), default: "hi", title: "问候", layers: ["user"], applies: "now", section: list, group: "basic"});
@@ -89,13 +100,17 @@ export const browser = plugin.definition([plugin.entry({
 `,
     "src/HelloView.vue": `<script setup lang="ts">
 import {Button} from "@notnotype/nb-plugin-sdk/components";
+import {usePluginText} from "@notnotype/nb-plugin-sdk/text/browser";
 import type {ViewContext} from "@notnotype/nb-plugin-sdk/workbench";
 
+import type {Catalog} from "./shared";
+
 const props = defineProps<{context: ViewContext; greeting: string}>();
+const text = usePluginText<Catalog>("acme.hello");
 </script>
 
 <template>
-    <div class="hello"><Button variant="primary">{{ props.greeting }}</Button><span>{{ props.context.id }}</span></div>
+    <div class="hello"><Button variant="primary">{{ props.greeting }}</Button><span>{{ props.context.id }}</span><span>{{ text("greeting.hello") }}</span></div>
 </template>
 
 <style scoped>
@@ -322,6 +337,9 @@ export const noProvides = plugin.entry({location: "server", activate: async () =
             "@notnotype/nb-plugin-sdk/components",
             "@notnotype/nb-plugin-sdk/settings",
             "@notnotype/nb-plugin-sdk/settings/browser",
+            // 文字的两个入口也由宿主共享：插件取到的翻译端口是窗口注入的那一个。
+            "@notnotype/nb-plugin-sdk/text",
+            "@notnotype/nb-plugin-sdk/text/browser",
             "@notnotype/nb-plugin-sdk/workbench",
             // 共享模块里的 shared.ts 写设置项的 schema。
             "typebox",
@@ -332,7 +350,9 @@ export const noProvides = plugin.entry({location: "server", activate: async () =
 
 /** 每个子路径的声明文件导出的名字（类型与值），组件子路径另行对照源码。 */
 const DECLARED: Readonly<Record<string, ReadonlyArray<string>>> = {
-    "index": ["ActivationContext", "AuthorActivationContext", "AuthorEntry", "AuthorEntryOutput", "BoundImplementation", "ContributionDeclaration", "ContributionDescriptor", "ContributionHandle", "ContributionHelper", "ContributionPointDefinition", "ContributionReceiver", "DiagnosticsService", "DisplayLocale", "EventSource", "LocalizedText", "PluginBuilder", "PluginDefinition", "PluginDescriptor", "PluginEntryDefinition", "RemoteContract", "RemoteOutcome", "RemoteResult", "RemoteResultFor", "RemoteSink", "RemoteSubscribeOptions", "RemoteSubscription", "RuntimeClock", "ServiceKey", "StateRoot", "Text", "defineEntry", "definePlugin", "defineRemoteService", "defineServiceKey", "diagnosticsKey", "eventSource", "fail", "formatText", "hostClockKey", "hostStateRootKey", "localize", "ok", "orThrow", "provideRemote", "provideService", "provideServicePerConsumer", "remoteService"],
+    "index": ["ActivationContext", "AuthorActivationContext", "AuthorEntry", "AuthorEntryOutput", "BoundImplementation", "ContributionDeclaration", "ContributionDescriptor", "ContributionHandle", "ContributionHelper", "ContributionPointDefinition", "ContributionReceiver", "DiagnosticsService", "EventSource", "PluginBuilder", "PluginDefinition", "PluginDescriptor", "PluginEntryDefinition", "RemoteContract", "RemoteOutcome", "RemoteResult", "RemoteResultFor", "RemoteSink", "RemoteSubscribeOptions", "RemoteSubscription", "RuntimeClock", "ServiceKey", "StateRoot", "defineEntry", "definePlugin", "defineRemoteService", "defineServiceKey", "diagnosticsKey", "eventSource", "fail", "hostClockKey", "hostStateRootKey", "ok", "orThrow", "provideRemote", "provideService", "provideServicePerConsumer", "remoteService"],
+    "text": ["CatalogKey", "LocaleMap", "Text", "TextParams", "TextRef", "pluginText"],
+    "text/browser": ["BoundText", "TextPort", "usePluginText", "useText"],
     "state": ["definePublicState", "defineStore"],
     "storage": ["RecordDefinition", "RecordHandle", "RecordSnapshot", "Revision", "StorageFailure", "StorageService", "UpdateResult", "WriteResult", "defineRecord", "storageKey"],
     "settings": ["SETTINGS_CHOICES_POINT", "SETTINGS_PAGES_POINT", "SETTINGS_SECTIONS_POINT", "SectionHelper", "SettingDefinition", "SettingLayer", "SettingWriteResult", "SettingsChoicesDeclaration", "SettingsFailure", "SettingsPageDeclaration", "SettingsSectionCategory", "SettingsSectionDeclaration", "SettingsService", "defineSetting", "displayLocale", "section", "setting", "settingsChoicesEvent", "settingsKey"],

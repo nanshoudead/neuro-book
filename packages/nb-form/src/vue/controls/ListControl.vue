@@ -12,7 +12,7 @@ import {computed, useId, useTemplateRef} from "vue";
 
 import {itemNode} from "../../model";
 import {useList} from "../list";
-import {messagesFor} from "../messages";
+import {useFormText} from "../text";
 import NodeField from "../NodeField.vue";
 import {itemTitle} from "../order";
 import {issuesUnder, useFormScope} from "../scope";
@@ -27,13 +27,12 @@ const scope = useFormScope();
 const field = useFieldContext();
 const prefix = `nb-form-list-${useId()}`;
 const root = useTemplateRef<HTMLElement>("root");
-const messages = computed(() => messagesFor(props.locale));
+const text = useFormText();
 const isObjectList = computed(() => props.node.kind === "object-list");
 const editable = computed(() => scope.editable(props.node) && !props.disabled);
 const list = useList({
     node: () => props.node,
     value: () => props.modelValue,
-    locale: () => props.locale,
     scope,
     editable: () => editable.value,
     emit: (next) => emit("update:modelValue", next),
@@ -41,7 +40,7 @@ const list = useList({
     blank: () => (isObjectList.value ? {} : ""),
 });
 const showActions = computed(() => scope.mode.value === "edit" && !props.readonly);
-const title = (value: unknown, index: number) => itemTitle(props.node, value, index, props.locale);
+const title = (value: unknown, index: number) => itemTitle(props.node, value, index, text);
 const foldedIssues = computed(() => issuesUnder(scope.shownIssues.value, props.node.path));
 const foldedHasError = computed(() => foldedIssues.value.some((issue) => issue.severity === "error"));
 </script>
@@ -58,11 +57,11 @@ const foldedHasError = computed(() => foldedIssues.value.some((issue) => issue.s
         :aria-describedby="field?.ariaDescribedby.value"
         :aria-invalid="props.invalid || undefined"
     >
-        <p v-if="list.items.value.length === 0" class="nb-form-list__empty">{{ messages.noItems }}</p>
+        <p v-if="list.items.value.length === 0" class="nb-form-list__empty">{{ text.t('noItems') }}</p>
         <div v-else-if="list.folded.value" class="nb-form-list__folded">
-            <span>{{ messages.items(list.items.value.length) }}</span>
-            <span v-if="foldedIssues.length > 0" class="nb-form-list__issues" :class="{'nb-form-list__issues--error': foldedHasError}">{{ messages.containsIssues(foldedIssues.length) }}</span>
-            <button type="button" class="nb-form-list__link" :aria-expanded="false" @click="list.expanded.value = true">{{ messages.expand }}</button>
+            <span>{{ text.t('items', {count: list.items.value.length}) }}</span>
+            <span v-if="foldedIssues.length > 0" class="nb-form-list__issues" :class="{'nb-form-list__issues--error': foldedHasError}">{{ text.t('containsIssues', {count: foldedIssues.length}) }}</span>
+            <button type="button" class="nb-form-list__link" :aria-expanded="false" @click="list.expanded.value = true">{{ text.t('expand') }}</button>
         </div>
         <ol v-else class="nb-form-list__items" :class="{'nb-form-list__items--cards': isObjectList}">
             <li
@@ -75,7 +74,7 @@ const foldedHasError = computed(() => foldedIssues.value.some((issue) => issue.s
                 <template v-if="isObjectList">
                     <div class="nb-form-list__head">
                         <span :id="`${prefix}-${entry.id}`" class="nb-form-list__title">{{ title(entry.value, entry.index) }}</span>
-                        <span v-if="list.duplicates.value.has(entry.index)" class="nb-form-list__duplicate">{{ messages.duplicate }}</span>
+                        <span v-if="list.duplicates.value.has(entry.index)" class="nb-form-list__duplicate">{{ text.t('duplicate') }}</span>
                         <ListActions
                             v-if="showActions"
                             :index="entry.index"
@@ -83,7 +82,6 @@ const foldedHasError = computed(() => foldedIssues.value.some((issue) => issue.s
                             :title="title(entry.value, entry.index)"
                             :disabled="!editable"
                             :can-remove="list.canRemove.value"
-                            :locale="props.locale"
                             @move="(delta) => list.move(entry.index, delta)"
                             @remove="list.remove(entry.index)"
                         />
@@ -98,7 +96,7 @@ const foldedHasError = computed(() => foldedIssues.value.some((issue) => issue.s
                         <div class="nb-form-list__value" data-nb-list-body>
                             <NodeField :id="`${prefix}-${entry.id}-input`" :node="itemNode(props.node, entry.index)!" bare />
                         </div>
-                        <span v-if="list.duplicates.value.has(entry.index)" class="nb-form-list__duplicate">{{ messages.duplicate }}</span>
+                        <span v-if="list.duplicates.value.has(entry.index)" class="nb-form-list__duplicate">{{ text.t('duplicate') }}</span>
                         <ListActions
                             v-if="showActions"
                             :index="entry.index"
@@ -106,7 +104,6 @@ const foldedHasError = computed(() => foldedIssues.value.some((issue) => issue.s
                             :title="title(entry.value, entry.index)"
                             :disabled="!editable"
                             :can-remove="list.canRemove.value"
-                            :locale="props.locale"
                             @move="(delta) => list.move(entry.index, delta)"
                             @remove="list.remove(entry.index)"
                         />
@@ -115,12 +112,12 @@ const foldedHasError = computed(() => foldedIssues.value.some((issue) => issue.s
             </li>
         </ol>
         <div v-if="list.expanded.value && list.pageCount.value > 1" class="nb-form-list__pager">
-            <button type="button" class="nb-form-list__link" :disabled="list.page.value === 0" @click="list.page.value -= 1">{{ messages.previousPage }}</button>
-            <span>{{ messages.page(list.page.value + 1, list.pageCount.value) }}</span>
-            <button type="button" class="nb-form-list__link" :disabled="list.page.value >= list.pageCount.value - 1" @click="list.page.value += 1">{{ messages.nextPage }}</button>
+            <button type="button" class="nb-form-list__link" :disabled="list.page.value === 0" @click="list.page.value -= 1">{{ text.t('previousPage') }}</button>
+            <span>{{ text.t('page', {current: list.page.value + 1, total: list.pageCount.value}) }}</span>
+            <button type="button" class="nb-form-list__link" :disabled="list.page.value >= list.pageCount.value - 1" @click="list.page.value += 1">{{ text.t('nextPage') }}</button>
         </div>
         <div v-if="showActions">
-            <Button size="sm" variant="secondary" data-nb-list-add :disabled="!list.canAdd.value" @click="list.add()">{{ messages.add }}</Button>
+            <Button size="sm" variant="secondary" data-nb-list-add :disabled="!list.canAdd.value" @click="list.add()">{{ text.t('add') }}</Button>
         </div>
         <span class="nb-form-sr-only" aria-live="polite"><span :key="list.announcement.value.sequence">{{ list.announcement.value.text }}</span></span>
     </div>

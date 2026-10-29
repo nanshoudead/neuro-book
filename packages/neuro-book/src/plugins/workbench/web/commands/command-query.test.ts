@@ -4,6 +4,7 @@ import {Type} from "typebox";
 import type {CommandMetadata} from "nbook/plugins/commands/shared/contracts";
 
 import {matchCommandText, parseCommandQuery, parseLineNumber, searchCommands, searchPickItems} from "./command-query";
+import {textIn} from "nbook/shared/testing/text";
 
 function command(id: string, zh: string, overrides: Partial<CommandMetadata> = {}): CommandMetadata {
     return {id, source: "nbook.test", title: {"zh-CN": zh, "en-US": zh}, description: `run ${id}`, args: Type.Object({}, {additionalProperties: false}), effect: "read", ...overrides};
@@ -67,7 +68,7 @@ describe("searchCommands", () => {
     ];
 
     it("命中项带上显示语言的标题与分类、英文描述、默认键位与标亮片段", () => {
-        const items = searchCommands(commands, "撤", [], "zh-CN");
+        const items = searchCommands(commands, "撤", [], textIn("zh-CN"));
         expect(items).toEqual([{
             id: "nbook.edit.undo",
             label: "撤销",
@@ -76,38 +77,38 @@ describe("searchCommands", () => {
             shortcut: "Mod+Z",
             labelMatches: [[0, 1]],
         }]);
-        expect(searchCommands(commands, "undo", [], "en-US")[0]).toMatchObject({label: "撤销", category: "Edit"});
+        expect(searchCommands(commands, "undo", [], textIn("en-US"))[0]).toMatchObject({label: "撤销", category: "Edit"});
     });
 
     it("别的界面语言下的标题也能命中，不渲染片段（语言切换后旧输入仍命中）", () => {
         const theme = command("nbook.workbench.switch-theme", "切换主题", {title: {"zh-CN": "切换主题", "en-US": "Change Theme"}});
-        expect(searchCommands([theme], "切换主题", [], "en-US")).toMatchObject([{id: "nbook.workbench.switch-theme", label: "Change Theme", labelMatches: undefined}]);
+        expect(searchCommands([theme], "切换主题", [], textIn("en-US"))).toMatchObject([{id: "nbook.workbench.switch-theme", label: "Change Theme", labelMatches: undefined}]);
     });
 
     it("按 id 命中也算候选，但不渲染标亮片段", () => {
-        const items = searchCommands(commands, "open-line", [], "zh-CN");
+        const items = searchCommands(commands, "open-line", [], textIn("zh-CN"));
         expect(items.map((item) => item.id)).toEqual(["nbook.quick-open.open-line"]);
         expect(items[0]?.labelMatches).toBeUndefined();
     });
 
     it("匹配分为主、MRU 为次、同分按 id；空查询只按 MRU 与 id", () => {
-        expect(searchCommands(commands, "edit", ["nbook.edit.undo"], "zh-CN").map((item) => item.id)).toEqual([
+        expect(searchCommands(commands, "edit", ["nbook.edit.undo"], textIn("zh-CN")).map((item) => item.id)).toEqual([
             "nbook.app.edit-everything",
             "nbook.edit.undo",
             "nbook.edit.redo",
         ]);
-        expect(searchCommands(commands, "edit", ["nbook.edit.redo"], "zh-CN").map((item) => item.id)).toEqual([
+        expect(searchCommands(commands, "edit", ["nbook.edit.redo"], textIn("zh-CN")).map((item) => item.id)).toEqual([
             "nbook.app.edit-everything",
             "nbook.edit.redo",
             "nbook.edit.undo",
         ]);
-        expect(searchCommands(commands, "", ["nbook.edit.redo"], "zh-CN").map((item) => item.id)).toEqual([
+        expect(searchCommands(commands, "", ["nbook.edit.redo"], textIn("zh-CN")).map((item) => item.id)).toEqual([
             "nbook.edit.redo",
             "nbook.app.edit-everything",
             "nbook.edit.undo",
             "nbook.quick-open.open-line",
         ]);
-        expect(searchCommands(commands, "并不存在的命令", [], "zh-CN")).toEqual([]);
+        expect(searchCommands(commands, "并不存在的命令", [], textIn("zh-CN"))).toEqual([]);
     });
 });
 

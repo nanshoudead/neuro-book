@@ -11,8 +11,9 @@ import type {Component, PropType} from "vue";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
+import {windowLocale, windowTextKey} from "nbook/shared/window-text";
 import {displayLocale, SETTINGS_PAGES_POINT, settingsKey, settingsPageEvent} from "nbook/plugins/settings/shared/contracts";
-import type {SettingsPageDeclaration} from "nbook/plugins/settings/shared/contracts";
+import type {WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
 import type {SettingsPageContext, SettingsPageImplementation} from "nbook/plugins/settings/web/contracts";
 import {windowPluginsKey} from "nbook/shared/host";
 import type {WindowPlugins} from "nbook/shared/host";
@@ -21,13 +22,14 @@ import type {DisplayLocale} from "nbook/shared/localized-text";
 import {descriptor} from "../plugin";
 import {pluginsRegistryContract} from "../shared/contracts";
 import type {PluginsRegistry} from "../shared/contracts";
+import {pluginsText} from "./text";
 
 /** 设置分区 id：内置插件以 `nbook.` 开头，点分小写段。 */
 export const PLUGINS_SECTION = "nbook.plugins.installed";
 
-const SECTION: SettingsPageDeclaration = {
-    title: {"zh-CN": "插件", "en-US": "Plugins"},
-    description: {"zh-CN": "安装与管理第三方插件", "en-US": "Install and manage third-party plugins"},
+/** 标题省略，登记时补成约定键 `settingsPages.installed.title`；说明是可选字段，不补键，要自己写引用。 */
+const SECTION: WrittenSettingsPageDeclaration = {
+    description: pluginsText("settingsPages.installed.description"),
     icon: "i-lucide-puzzle",
     category: "plugins",
     layout: "column",
@@ -42,13 +44,13 @@ export const pluginsBrowserPlugin: PluginDefinition = {
         // 打开设置窗口的“插件”分区时才激活（settings-window.md 输出 4）。
         activationEvents: [settingsPageEvent(PLUGINS_SECTION)],
         // 本窗口的插件问题（入口失败、受阻、被拒的贡献）经宿主能力 `window.plugins` 查；拿不到时插件页只显示服务端的。
-        dependencies: [{key: settingsKey}, {key: windowPluginsKey, required: false}],
+        dependencies: [{key: settingsKey}, {key: windowPluginsKey, required: false}, {key: windowTextKey, required: false}],
         contributions: [{capability: SETTINGS_PAGES_POINT, id: PLUGINS_SECTION, declaration: SECTION}],
         activate: async (context) => {
             const settings = context.services.require(settingsKey);
             const windowPlugins = await context.services.resolve(windowPluginsKey);
             const registry = context.remote.use(pluginsRegistryContract);
-            const locale = computed(() => displayLocale(settings));
+            const locale = await windowLocale(context.services, () => displayLocale(settings));
             const page: SettingsPageImplementation = {
                 load: async () => withRegistry((await import("./components/PluginsPage.vue")).default, registry, locale, windowPlugins.status === "resolved" ? windowPlugins.instance : null),
             };

@@ -37,4 +37,4 @@ type AgentMarkdownEmits = {
 };
 ```
 
-没有插槽和 expose。未声明的 attribute、`class` 与 `style` 落到根节点。语言与渲染组件经 `provideAgentView` 注入。
+没有插槽和 expose。未声明的 attribute、`class` 与 `style` 落到根节点。翻译端口与渲染组件经 `provideAgentView` 注入。

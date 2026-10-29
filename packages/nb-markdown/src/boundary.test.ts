@@ -23,8 +23,9 @@ const DEV_ONLY = Object.keys(PACKAGE_JSON.devDependencies ?? {}).map(exactly);
 const coreFiles = readdirSync(SOURCE_ROOT, {withFileTypes: true}).filter((entry) => entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")).map((entry) => join(SOURCE_ROOT, entry.name));
 
 describe("包的导入", () => {
-    it("纯 TS 入口只引 entities 与 src 根上的文件，编辑内核只许 import type", () => {
-        const core: ImportRule = {packages: [/^entities$/u], typeOnly: [/^@tiptap\//u, /^marked$/u], within: SOURCE_ROOT};
+    it("纯 TS 入口只引 entities、nb-ui 的纯数据层与 src 根上的文件，编辑内核只许 import type", () => {
+        // `@notnotype/nb-ui/text` 是文字值的纯数据层（docs/specs/ui/i18n.md），没有外部依赖、不引 Vue 与 DOM。
+        const core: ImportRule = {packages: [/^entities$/u, /^@notnotype\/nb-ui\/text$/u], typeOnly: [/^@tiptap\//u, /^marked$/u], within: SOURCE_ROOT};
         expect(scanImports(coreFiles, core)).toEqual([]);
         // 相对导入解析后要正好是 src 根上的文件：`./host`、`./language` 这类目录入口与 `./chip/chip` 都算子目录。
         const intoSubdirectories = coreFiles.flatMap((file) => [...readFileSync(file, "utf8").matchAll(/(?:from|import)\s*"(\.[^"]*)"/gu)]

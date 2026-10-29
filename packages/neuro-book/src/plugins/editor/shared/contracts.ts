@@ -18,8 +18,9 @@ import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import {MENU_BUTTON, MENU_EXTENSIONS, menuItemValidator, menuLocation} from "nbook/plugins/commands/shared/contracts";
 import type {MenuItemDeclaration} from "nbook/plugins/commands/shared/contracts";
-import {LocalizedTextSchema} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import {conventionCompleter} from "nbook/shared/convention-keys";
+import {TextSchema} from "nbook/shared/text";
+import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/localized-text";
 
 /** 需要结算的文档此刻的状态：dirty、在保存、有未裁决输入、有视图写不出（输出 61）、磁盘冲突。 */
 export type SettleState = "dirty" | "saving" | "unresolved" | "unrepresentable" | "conflict";
@@ -91,22 +92,25 @@ export const OPEN_PAGE_COMMAND = "nbook.editor.open-page";
  * 会话记录）时自动打开。实现（`load()`）与页面组件收到的上下文在 `web/pages.ts`。
  */
 export const EditorPageDeclarationSchema = Type.Object({
-    title: LocalizedTextSchema,
+    title: TextSchema,
     icon: Type.String({pattern: "\\S"}),
     openOnFirstVisit: Type.Optional(Type.Boolean()),
 }, {additionalProperties: false});
 
 export type EditorPageDeclaration = Static<typeof EditorPageDeclarationSchema>;
 
+/** `editor.pages` 的补全：没写 `title` 时补约定键 `editorPages.<本地 id>.title`（docs/specs/workbench/editor.md 的“约定键”）。 */
+export const completeEditorPageDeclaration = conventionCompleter({name: "editorPages", fields: ["title"]});
+
 const PAGE_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u;
 
 /** 页面 id 的前缀由内核按贡献点的 `idPrefix` 核对（同视图），这里只看形状与声明。 */
 export function validateEditorPageContribution(descriptor: ContributionDescriptor): string | null {
-    if (descriptor.location !== "browser") return `${EDITOR_PAGES_POINT} 只接受浏览器入口的贡献`;
-    if (!PAGE_ID.test(descriptor.id)) return `页面 id 必须是点分的小写段：${descriptor.id}`;
+    if (descriptor.location !== "browser") return `${EDITOR_PAGES_POINT} only accepts contributions from browser entries`;
+    if (!PAGE_ID.test(descriptor.id)) return `Page id must be dot-separated lowercase segments: ${descriptor.id}`;
     if (!Value.Check(EditorPageDeclarationSchema, descriptor.declaration)) {
         const first = [...Value.Errors(EditorPageDeclarationSchema, descriptor.declaration)][0];
-        return `页面 ${descriptor.id} 的声明不合格：${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}：${first.message}`}`;
+        return `Page ${descriptor.id} has an invalid declaration: ${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}: ${first.message}`}`;
     }
     return null;
 }
@@ -124,7 +128,7 @@ export const CODE_EDITOR = "nbook.editor.code";
 const EXTENSION = Type.String({pattern: "^[a-z0-9]+(?:\\.[a-z0-9]+)*$"});
 
 export const EditorDeclarationSchema = Type.Object({
-    title: LocalizedTextSchema,
+    title: TextSchema,
     selector: Type.Optional(Type.Object({
         /** 不带点的小写后缀，可以多段（`d.ts`）。 */
         extensions: Type.Optional(Type.Array(EXTENSION, {minItems: 1})),
@@ -142,15 +146,18 @@ export const EditorDeclarationSchema = Type.Object({
 
 export type EditorDeclaration = Static<typeof EditorDeclarationSchema>;
 
+/** `editor.editors` 的补全：没写 `title` 时补约定键 `editors.<本地 id>.title`。 */
+export const completeEditorDeclaration = conventionCompleter({name: "editors", fields: ["title"]});
+
 export function validateEditorContribution(descriptor: ContributionDescriptor): string | null {
-    if (descriptor.location !== "browser") return `${EDITOR_EDITORS_POINT} 只接受浏览器入口的贡献`;
-    if (!PAGE_ID.test(descriptor.id)) return `编辑器 id 必须是点分的小写段：${descriptor.id}`;
+    if (descriptor.location !== "browser") return `${EDITOR_EDITORS_POINT} only accepts contributions from browser entries`;
+    if (!PAGE_ID.test(descriptor.id)) return `Editor id must be dot-separated lowercase segments: ${descriptor.id}`;
     if (!Value.Check(EditorDeclarationSchema, descriptor.declaration)) {
         const first = [...Value.Errors(EditorDeclarationSchema, descriptor.declaration)][0];
-        return `编辑器 ${descriptor.id} 的声明不合格：${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}：${first.message}`}`;
+        return `Editor ${descriptor.id} has an invalid declaration: ${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}: ${first.message}`}`;
     }
     const declaration = descriptor.declaration as EditorDeclaration;
-    if (declaration.input === "bytes" && declaration.selector === undefined) return `编辑器 ${descriptor.id} 按字节显示，必须声明它认领哪些文件（selector）`;
+    if (declaration.input === "bytes" && declaration.selector === undefined) return `Editor ${descriptor.id} takes bytes and must declare which files it claims (selector)`;
     return null;
 }
 
@@ -187,19 +194,19 @@ export const LanguageDeclarationSchema = Type.Object({
 export type LanguageDeclaration = Static<typeof LanguageDeclarationSchema>;
 
 export function validateLanguageContribution(descriptor: ContributionDescriptor): string | null {
-    if (descriptor.location !== "browser") return `${EDITOR_LANGUAGES_POINT} 只接受浏览器入口的贡献`;
-    if (!LANGUAGE_ID.test(descriptor.id)) return `语言 id 只能用小写字母、数字与 . _ -，以字母开头，至多 64 个字符：${descriptor.id}`;
-    if (SOURCE_EDITOR_LANGUAGE_IDS.includes(descriptor.id)) return `语言 ${descriptor.id} 由源码编辑器自带，不接受贡献`;
+    if (descriptor.location !== "browser") return `${EDITOR_LANGUAGES_POINT} only accepts contributions from browser entries`;
+    if (!LANGUAGE_ID.test(descriptor.id)) return `Language id must start with a letter, use only lowercase letters, digits, ".", "_" and "-", and be at most 64 characters: ${descriptor.id}`;
+    if (SOURCE_EDITOR_LANGUAGE_IDS.includes(descriptor.id)) return `Language ${descriptor.id} is built into the source editor and cannot be contributed`;
     if (!Value.Check(LanguageDeclarationSchema, descriptor.declaration)) {
         const first = [...Value.Errors(LanguageDeclarationSchema, descriptor.declaration)][0];
-        return `语言 ${descriptor.id} 的声明不合格：${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}：${first.message}`}`;
+        return `Language ${descriptor.id} has an invalid declaration: ${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}: ${first.message}`}`;
     }
     const firstLine = (descriptor.declaration as LanguageDeclaration).firstLine;
     if (firstLine !== undefined) {
         try {
             new RegExp(firstLine);
         } catch {
-            return `语言 ${descriptor.id} 的 firstLine 不是合法的正则：${firstLine}`;
+            return `Language ${descriptor.id} has a firstLine that is not a valid regular expression: ${firstLine}`;
         }
     }
     return null;
@@ -297,7 +304,8 @@ export interface EditorControlHandle {
     readonly position?: Readonly<Ref<{readonly line: number; readonly column: number} | null>>;
     navigation?: {
         getLineCount(): number | null;
-        revealLine(line: number): {ok: true; value: {line: number}} | {ok: false; reason: string};
+        /** 失败的 `reason` 是文字值（控件给文字引用即可，不必收翻译器），由显示命令结果的一方翻译。 */
+        revealLine(line: number): {ok: true; value: {line: number}} | {ok: false; reason: DisplayText};
     };
     /** 把光标放到文档末尾并聚焦（继续写作，输出 29）。 */
     revealEnd?(): void;

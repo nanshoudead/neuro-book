@@ -39,14 +39,14 @@ owners:
 清单有两种载体，字段与规则相同：
 
 - 第三方插件安装时，清单是插件目录中的 `package.json`；
-- 内置插件的清单是代码中的插件描述与各运行位置的入口定义，不另存 `package.json`。代码定义里 `requires`、`remoteProvides`、`remoteDelegates` 写服务键与合同对象，`package.json` 写 id；两者按 id 对应。代码定义里的函数（入口的激活函数、贡献点的校验函数）是运行期钩子，不属于清单；除此之外，每个内置插件的代码定义都必须能表达为 `package.json` 形式，并通过同一套校验，转回代码定义后相同。第三方插件的清单由 SDK 构建预设从代码定义生成，与内置插件用同一个转换；生成之后立刻按读清单的规则读一遍，结果要么是读得回来的清单，要么是问题列表，`description` 与 `license` 取自作者的 `package.json`，随生成写入；第三方插件的贡献点只能用 `schema` 与 `idPrefix` 表达声明的规则，不能写校验函数：登记时没有插件代码可调，写了也不会在宿主里运行。同一个贡献点在几个运行位置的定义里出现时，各份的 `implementation`、`schema` 与 `idPrefix` 必须一致。贡献点与激活事件前缀属于插件：清单把它们写在插件一级，第三方插件在它有入口的每个运行位置都定义它们；内置插件的代码定义可以只在部分运行位置定义（例如只在项目实例里需要方言贡献点、没有入口），比较时按插件汇总。
+- 内置插件的清单是代码中的插件描述与各运行位置的入口定义，不另存 `package.json`。代码定义里 `requires`、`remoteProvides`、`remoteDelegates` 写服务键与合同对象，`package.json` 写 id；两者按 id 对应。代码定义里的函数（入口的激活函数、贡献点的补全与校验函数）是运行期钩子，不属于清单；除此之外，每个内置插件的代码定义都必须能表达为 `package.json` 形式，并通过同一套校验，转回代码定义后相同。第三方插件的清单由 SDK 构建预设从代码定义生成，与内置插件用同一个转换；生成之后立刻按读清单的规则读一遍，结果要么是读得回来的清单，要么是问题列表，`description` 与 `license` 取自作者的 `package.json`，随生成写入；第三方插件的贡献点只能用 `schema` 与 `idPrefix` 表达声明的规则，不能写补全与校验函数（声明按写下的原样交给接收者）：登记时没有插件代码可调，写了也不会在宿主里运行。同一个贡献点在几个运行位置的定义里出现时，各份的 `implementation`、`schema` 与 `idPrefix` 必须一致。贡献点与激活事件前缀属于插件：清单把它们写在插件一级，第三方插件在它有入口的每个运行位置都定义它们；内置插件的代码定义可以只在部分运行位置定义（例如只在项目实例里需要方言贡献点、没有入口），比较时按插件汇总。
 
 下表按 `package.json` 的字段写。与本能力有关的字段：
 
 | 字段 | 含义与约束 |
 |---|---|
 | `name`、`publisher`、`version` | 组成插件 id `publisher.name`。`publisher` 与 `name` 各为一段：以小写字母开头，只含小写字母、数字与连字符（视图、状态栏条目、菜单这些带插件 id 前缀的 id 每段都要字母开头）（不接受 npm 的 `@scope/` 写法）；内置插件的 `publisher` 为 `nbook`。`version` 为 semver，内置插件的 `version` 等于产品版本 |
-| `displayName`、`description` | 可选，给人看的名字与一句话说明，插件页显示（[`runtime.plugin-install`](plugin-install.md) 输出 10）；不参与校验与登记；读取时去掉首尾空白，只有空白的按没写处理；构建预设从作者的 `package.json` 取 |
+| `displayName`、`description` | 可选，给人看的名字与一句话说明，插件页显示（[`runtime.plugin-install`](plugin-install.md) 输出 10）；不参与校验与登记；读取时去掉首尾空白，只有空白的按没写处理；构建预设从源语言目录的 `manifest.displayName`、`manifest.description` 取（输出 12），插件没有消息目录时从作者的 `package.json` 取 |
 | `engines.neurobook` | 兼容的 NeuroBook 版本范围，由 [`runtime.plugin-install`](plugin-install.md) 检查 |
 | `entries` | 入口 id 到入口声明的映射；可以为空（只含声明式贡献的插件）。入口 id 只含字母、数字、连字符与下划线，以字母或数字开头：它也是默认的代码文件名 |
 | `entries.<id>.location` | 运行位置 |
@@ -64,6 +64,7 @@ owners:
 | `activationEventPrefixes` | 本插件拥有的激活事件前缀，例如 `nbook.commands` 的 `onCommand`；只有拥有者能触发以它开头的事件 |
 | `pluginVersions` | 所依赖第三方插件的版本范围；只约束版本，是否必需由各入口的 `requires` 决定（输出 3 的 `version-mismatch` 与其后的可选依赖规则） |
 | `style` | 可选，浏览器要加载的样式表，相对插件目录，规则同入口的 `main`；窗口登记插件时就加载（[`runtime.plugin-code-loading`](plugin-code-loading.md) 的插件样式） |
+| `l10n` | 可选，插件的消息目录（[`ui.i18n`](../ui/i18n.md)）：`{source, locales}`。`locales` 是非空、不重复的语言标签列表，每种语言对应插件目录里的 `locales/<语言>.json`；`source` 是源语言，必须在 `locales` 里。标签必须是规范写法（`Intl.getCanonicalLocales` 的结果，例如 `zh-CN` 而不是 `zh-cn`）。不收别的字段。目录文件的内容由安装检查（输出 12、[`runtime.plugin-install`](plugin-install.md) 的 `catalog-invalid`），不属于清单校验 |
 | `contracts` | 入口引用的远程服务合同：合同 id 到合同的 JSON 形式（`id`、`version`、`provider`、`callers`、`methods`、`events`，与代码里的合同同一结构）。本插件提供的合同与它代理的别的第三方插件的合同都写在这里；`nbook.` 开头的内置合同由宿主提供，不写 |
 
 `contracts` 与 `contributionPoints[].schema` 里的 schema 只能是纯 JSON Schema：`type` 是 JSON Schema 的类型、`format` 是标准 format、正则合法，`$ref` 只指向同一份 schema 里的位置或 `$id`（宿主不装载外部引用），不能用 TypeBox 的 `Refine`、`Codec` 或插件自己注册的 format。按关键字的语义检查：`properties` 这类映射的值才是 schema，`const`、`enum`、`default`、`examples` 里的是数据，属性名叫 `type`、`format` 不受限制。这些写法进不了 JSON：宿主按清单校验时会悄悄变宽，同一个插件内置与外置时结果不同。构建预设遇到它们构建失败；清单里出现不合法的 schema 时清单无效。
@@ -95,12 +96,13 @@ owners:
 8. **关闭顺序严格为依赖逆序。** 依赖者先关闭，提供者后关闭。
 9. **登记顺序没有语义。** 全部清单登记后再计算依赖图；诊断按插件 id 排序输出，同一输入得到同一结果。
 10. **贡献校验按单条贡献进行。** 贡献点由拥有者在 `contributionPoints` 中定义，校验所需的 schema 与“是否需要实现”都来自拥有者，所以校验只在拥有者已登记时进行：
-    - 拥有者已登记：先核对 `idPrefix`、再按其 `schema` 校验，再交拥有者的校验函数（内置插件才有）；不合格的贡献（包括需要实现却写在顶层 `contributes`、不需要实现却写在入口下）只这一条被拒绝，原因可查询，插件的其它部分照常；
+    - 拥有者已登记：先核对 `idPrefix`、再交拥有者的补全函数（内置插件才有，[`runtime.plugins`](plugins.md) 的 `complete`）、再按其 `schema` 校验，再交拥有者的校验函数（内置插件才有）；不合格的贡献（包括需要实现却写在顶层 `contributes`、不需要实现却写在入口下）只这一条被拒绝，原因可查询，插件的其它部分照常；
     - 拥有者未安装或已禁用：贡献处于“待校验”，不显示、不报错；拥有者登记后再校验，合格的生效，不合格的被拒绝。拥有者已登记但其接收贡献的入口受阻时，贡献照常校验，是否显示由拥有者决定；
     - 没有任何已登记插件定义该贡献点：贡献处于“待校验”，并在插件详情中标注“未知贡献点”，便于发现拼写错误。
 
     贡献只经贡献点协作，不构成依赖、不触发受阻。
 11. **顶层声明式贡献在每个运行实例都登记。** 顶层 `contributes` 不需要实现，不随入口装配：插件在任何运行位置有没有入口，它的顶层贡献都进入每个运行实例的目录（服务端、项目实例、每个窗口），例如只有浏览器入口的插件声明的设置项，服务端也能据此校验用户的设置文件（[`settings.configuration`](../settings/configuration.md)）。因此浏览器从服务端取得的插件集合也包含只有顶层贡献、没有浏览器入口的插件。
+12. **消息目录的规则。** 清单 `l10n.locales` 列出的每种语言各有一份目录文件 `locales/<语言>.json`，命名空间是插件 id。一份目录合格，当且仅当：是合法 JSON；根是对象；每个值是字符串或同样合格的嵌套对象；键不含 `:`；字符串不含 `$t(`。SDK 构建、安装与窗口（取到目录之后）按同一份规则检查（[`runtime.plugin-install`](plugin-install.md) 的 `catalog-invalid`、[`runtime.browser-host`](browser-host.md) 输出 2）。构建预设的作者合同：作者的 `package.json` 写 `l10n.source`，目录放在 `locales/`，语言列表由这些文件得出（源语言在前）；`locales/` 里只能有文件名是规范语言标签的 `.json` 文件；有目录时显示名与说明只写在源语言目录的 `manifest.displayName`、`manifest.description`，构建预设把它们写进生成的清单，`package.json` 里再写一份时构建失败。缺源语言目录、目录不合格、写了 `locales/` 却没写 `l10n.source` 时构建失败，逐条写出文件与键路径。内置插件的目录不经清单，随前端构建（[`runtime.browser-host`](browser-host.md) 输出 2）。
 
 ## 状态与转换
 
@@ -128,7 +130,7 @@ owners:
 
 ## 失败与恢复
 
-- **清单无效时整个插件不登记。** 包括：缺少必需字段或类型错误；id 格式错误；第三方 id 以 `nbook.` 开头；`main` 不存在、是绝对路径或越出插件目录；入口 id 重复或不是合法的文件名段；`provides` 中的服务 id 不以本插件 id 为前缀、重复，或占用保留名 `channel`；`remoteProvides` 中的合同 id 不以本插件 id 为前缀或重复；插件在 `activationEventPrefixes` 中声明 `onRemote`；`pluginVersions` 列出内置插件；`engines.neurobook` 或 `pluginVersions` 的值不是 npm 的版本范围写法；入口的 `receives` 列出本插件没有定义的贡献点；入口引用的非内置合同不在 `contracts` 里，`contracts` 的键与合同 `id` 不一致或写了 `nbook.` 开头的合同，合同结构不合法（缺字段、方法入参不是 `additionalProperties: false` 的对象、业务失败码与路由层失败码重名）；`contracts` 或 `contributionPoints[].schema` 里的 schema 不是纯 JSON Schema。原因可在插件管理中查询，其它插件不受影响。单条贡献不合格只拒绝该条（见上文第 10 条）。
+- **清单无效时整个插件不登记。** 包括：缺少必需字段或类型错误；`l10n` 的语言标签不合法、不是规范写法、重复，或源语言不在 `locales` 里；id 格式错误；第三方 id 以 `nbook.` 开头；`main` 不存在、是绝对路径或越出插件目录；入口 id 重复或不是合法的文件名段；`provides` 中的服务 id 不以本插件 id 为前缀、重复，或占用保留名 `channel`；`remoteProvides` 中的合同 id 不以本插件 id 为前缀或重复；插件在 `activationEventPrefixes` 中声明 `onRemote`；`pluginVersions` 列出内置插件；`engines.neurobook` 或 `pluginVersions` 的值不是 npm 的版本范围写法；入口的 `receives` 列出本插件没有定义的贡献点；入口引用的非内置合同不在 `contracts` 里，`contracts` 的键与合同 `id` 不一致或写了 `nbook.` 开头的合同，合同结构不合法（缺字段、方法入参不是 `additionalProperties: false` 的对象、业务失败码与路由层失败码重名）；`contracts` 或 `contributionPoints[].schema` 里的 schema 不是纯 JSON Schema。原因可在插件管理中查询，其它插件不受影响。单条贡献不合格只拒绝该条（见上文第 10 条）。
 - **两个插件声明同一服务 id** 不可能发生（服务 id 带插件前缀）；同一插件 id 出现多份清单时全部不登记，并报告每份的来源，与输入顺序无关。
 - **启动必需按运行位置判定。** 启动必需内置插件的服务端入口受阻、失败或其清单无效时，服务端启动失败，由 [`runtime.server-host`](server-host.md) 有序退出；它的浏览器入口（例如 `nbook.workbench`）在某个窗口中失败时，只有该窗口显示启动失败页（[`runtime.browser-host`](browser-host.md)），不影响服务端与其它窗口。
 - 前缀没有任何已登记插件声明的激活事件被忽略并在插件详情中标注“未知激活事件”，与未知贡献点相同，便于发现拼写错误；声明前缀的插件之后登记时，事件照常生效。两个插件声明同一前缀时两者的声明都不生效并记入诊断，与输入顺序无关；其它运行位置的入口在本实例为 `foreign-location`；本实例中依赖它所提供服务的入口按第 3 条以 `location-mismatch` 受阻。
@@ -164,8 +166,10 @@ owners:
 16. **拥有者定义的激活事件。** Given 插件 A 在 `activationEventPrefixes` 中声明 `onFoo`，插件 B 的入口声明 `onFoo:x`；When A 请内核触发 `onFoo:x`；Then B 的该入口激活，A 得到它的激活结果；B 之外未声明 `onFoo:x` 的入口不激活。插件 C 请内核触发 `onFoo:x` 被拒绝（不是前缀的拥有者）。入口声明 `onBar:y` 而没有插件声明前缀 `onBar` 时，该入口标注“未知激活事件”，插件其它部分照常。
 17. **两个位置提供同一服务。** Given 插件的服务端入口与浏览器入口都提供 `example.a/clock`；Then 两端各自登记成功，每个实例只解析到本位置入口的实例；同一位置的两个入口提供同一 id 时整个插件不登记。
 
-Smoke：以合同测试覆盖场景 1–17 的推导结果；在真实服务端与 Chromium 上用一个示例插件（两端入口，其中浏览器入口依赖一个可关闭的内置服务）核对场景 1、2、5 的可见结果。
+18. **消息目录的构建。** Given 作者写了 `l10n.source: zh-CN` 与 `locales/zh-CN.json`、`locales/en-US.json`，源语言目录里有 `manifest.displayName`；When 构建；Then 产物带两份目录，清单的 `l10n` 是 `{source: "zh-CN", locales: ["zh-CN", "en-US"]}`，显示名取自目录，产物能照常安装。缺 `locales/zh-CN.json`、目录不是合法 JSON、叶子不是字符串时构建失败，问题写出文件与键路径。
+
+Smoke：以合同测试覆盖场景 1–18 的推导结果；在真实服务端与 Chromium 上用一个示例插件（两端入口，其中浏览器入口依赖一个可关闭的内置服务）核对场景 1、2、5 的可见结果。
 
 ## 证据
 
-- 批准依据：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P1、P2、P3、P11（2026-09-30 `accepted`；“插件、入口、服务”三层同日由开发者确认）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 2 条；开放的运行位置与远程提供项依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md)（2026-10-07 `accepted`）；服务 id 按字符串识别依据 [ADR 0025](../../adr/0025-service-keys-by-id.md)，不同位置的入口可以提供同一 id 依据取代它的 [ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)；公开状态的键作为入口下的 `state.public` 贡献由开发者 2026-10-08 在 [t56 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md) 中确认；删去清单字段 `delegates`（本地委托）由开发者 2026-10-08 在 [t60 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md) 中确认；清单的两种载体、id 段规则、内置插件版本等于产品版本、任何插件都可以声明 `remoteDelegates`，由开发者 2026-10-17 在 [w00027 t01 实施计划](../../../.agents/works/w00027-plugin-platform/tasks/t01-requirements/plan.md) 中确认（后者见 [ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)）；调研见 [VS Code 依赖调研](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-vscode/REPORT.md)、[DeepSeek Harness 依赖调研](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-dsh/REPORT.md)。
+- 批准依据：清单 `l10n`、目录规则与名称从目录摘出依据[《界面文字的消息目录》](../../proposals/i18n-message-catalogs.md)（2026-10-27 接受）；[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P1、P2、P3、P11（2026-09-30 `accepted`；“插件、入口、服务”三层同日由开发者确认）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 2 条；开放的运行位置与远程提供项依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md)（2026-10-07 `accepted`）；服务 id 按字符串识别依据 [ADR 0025](../../adr/0025-service-keys-by-id.md)，不同位置的入口可以提供同一 id 依据取代它的 [ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)；公开状态的键作为入口下的 `state.public` 贡献由开发者 2026-10-08 在 [t56 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md) 中确认；删去清单字段 `delegates`（本地委托）由开发者 2026-10-08 在 [t60 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md) 中确认；清单的两种载体、id 段规则、内置插件版本等于产品版本、任何插件都可以声明 `remoteDelegates`，由开发者 2026-10-17 在 [w00027 t01 实施计划](../../../.agents/works/w00027-plugin-platform/tasks/t01-requirements/plan.md) 中确认（后者见 [ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)）；调研见 [VS Code 依赖调研](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-vscode/REPORT.md)、[DeepSeek Harness 依赖调研](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-dsh/REPORT.md)。

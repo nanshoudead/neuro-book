@@ -1,5 +1,5 @@
 ---
-标签: []
+标签: [state:inject]
 别名: ["代码块", "Code Block"]
 ---
 
@@ -38,3 +38,7 @@ type CodeBlockProps = {
 
 - 纯展示，没有内部状态。
 - 空行显示一个空格占住行高。
+
+## 隐藏通道理由
+
+`state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取空态与截断说明的缺省文案，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `emptyText`、`truncatedText` 时以属性为准，不读端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。

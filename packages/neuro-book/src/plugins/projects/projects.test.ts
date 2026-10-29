@@ -46,7 +46,7 @@ import {GRACE_MS, killSpawnedProjects, leaseOf, projectHarness, revoked} from "n
 import type {ProjectHarness, ProjectHarnessPaths} from "nbook/server/testing/projects";
 import {windowNavigationKey} from "nbook/shared/host";
 import {textOf} from "nbook/shared/localized-text";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import type {DisplayLocale, TextResolver} from "nbook/shared/localized-text";
 import {windowProjectKey} from "nbook/shared/projects";
 import {browserHostPlugins, browserPluginDefinitions} from "nbook/web/plugins";
 
@@ -58,6 +58,8 @@ import {PROJECT_STATS_RECORD} from "./shared/stats-record";
 import {openProject} from "./web/open-project";
 import type {OpenProjectHost} from "./web/open-project";
 import {projectsBrowserPlugin} from "./web/plugin";
+import {projectsCatalogs} from "./web/text";
+import {textIn} from "nbook/shared/testing/text";
 
 const silentConsole = {error: () => undefined};
 
@@ -132,7 +134,7 @@ async function commandWindow(h: ProjectHarness, host: PaletteHost, navigations: 
                 {id: "window.navigation", key: windowNavigationKey, create: () => ({navigateDocument: (href: string) => navigations.push(href), reloadDocument: () => undefined, openExternal: () => "opened" as const, currentUrl: () => "http://localhost/", replaceUrl: () => undefined})},
                 {id: "test.quick-pick", key: quickPickKey, create: (): QuickPick => ({pick: (request) => host.openPick(request)})},
                 // 书架页把失败通知交给工作台的通知服务；这里没有工作台插件，用真实的通知队列顶替。
-                {id: "test.notifications", key: notificationsKey, create: () => createNotifications((message) => store.record({level: "warn", event: "workbench.notifications", message}))},
+                {id: "test.notifications", key: notificationsKey, create: () => createNotifications((message) => store.record({level: "warn", event: "workbench.notifications", message}), projectsTextIn("zh-CN"))},
                 ...settings.capabilities,
             ],
             plugins: [browserHostPlugins["runtime.diagnostics"]!({store, console: silentConsole}), statePlugin, storageBrowserPlugin, ...settings.plugins, commandsPlugin, projectsBrowserPlugin, commandReader((service) => {
@@ -220,15 +222,20 @@ describe("Spec projects 输出 10：nbook.projects/projects", () => {
     });
 });
 
+/** 用 `nbook.projects` 的目录把声明与界面文字解析成某种语言的字符串（窗口里这是翻译端口的事）。 */
+const projectsTextIn = (locale: DisplayLocale): TextResolver => textIn(locale, {"nbook.projects": projectsCatalogs.catalogs});
+
 describe("Spec projects 场景 11：打开项目", () => {
     /** 面板与命令失败原因的显示语言；用例里切换它来验证文字在显示时才按语言取。 */
     const locale = ref<DisplayLocale>("zh-CN");
+    /** 跟着 `locale` 变的解析器：每次解析时才读语言，与窗口的端口一样。 */
+    const liveText: TextResolver = {t: (text) => projectsTextIn(locale.value).t(text), variants: (text) => projectsTextIn(locale.value).variants(text)};
     /** 真实的命令面板宿主作为选择服务；`opened` 等它进入选择模式（流程里先要经远程服务读登记表），返回这次的请求。 */
     async function picker(): Promise<{readonly host: PaletteHost; readonly opened: (match?: (title: string) => boolean) => Promise<NonNullable<PaletteHost["pick"]["value"]>>}> {
-        const host = createPaletteHost({locale, commands: createCommandRegistry({contextKeys: contextTable({}), report: (error) => {
+        const host = createPaletteHost({commands: createCommandRegistry({contextKeys: contextTable({}), report: (error) => {
             throw error;
         }})});
-        return {host, opened: (match = () => true) => waitUntil("进入选择模式", () => (host.pick.value !== null && match(textOf(host.pick.value.title, locale.value)) ? host.pick.value : null))};
+        return {host, opened: (match = () => true) => waitUntil("进入选择模式", () => (host.pick.value !== null && match(projectsTextIn(locale.value).t(host.pick.value.title)) ? host.pick.value : null))};
     }
 
     /** 像面板那样提交：选中、关闭，再报告关闭完成。 */
@@ -263,7 +270,7 @@ describe("Spec projects 场景 11：打开项目", () => {
             remote: projects,
             quickPick: {pick: (request) => host.openPick(request)},
             navigateDocument: (url) => navigations.push(url),
-            locale: () => locale.value,
+            text: liveText,
             recordFailure: (reason, detail) => failures.push({reason, detail}),
         });
 
@@ -271,10 +278,10 @@ describe("Spec projects 场景 11：打开项目", () => {
         await opened();
         submit(host, {kind: "text", text: join(tmp, "dirs", "nowhere")});
         const retry = await opened((title) => title.includes("登记失败"));
-        expect(textOf(retry.title, "zh-CN")).toBe("打开项目：登记失败（路径无效或不存在）");
+        expect(projectsTextIn("zh-CN").t(retry.title)).toBe("打开项目：登记失败（路径无效或不存在）");
         // 选择开着时换成英文：同一个请求按新语言显示，标题里没有服务端给的中文说明。
         locale.value = "en-US";
-        expect(textOf(retry.title, locale.value)).toBe("Open Project: registration failed (the path is invalid or does not exist)");
+        expect(projectsTextIn(locale.value).t(retry.title)).toBe("Open Project: registration failed (the path is invalid or does not exist)");
         locale.value = "zh-CN";
         expect(failures).toEqual([{reason: "invalid-path", detail: expect.stringContaining("nowhere")}]);
         submit(host, {kind: "text", text: fresh});
@@ -315,10 +322,15 @@ describe("Spec projects 输出 10：命令登记", () => {
             },
         );
         expect(await app.startup).toMatchObject({status: "available", failures: []});
-        expect(commands!.get("nbook.project.open")).toMatchObject({ok: true, value: {source: "nbook.projects", title: {"zh-CN": "打开项目"}}});
+        // 标题省略，登记时补成约定键；显示时经目录取，所以断言解析后的文字。
+        const open = commands!.get("nbook.project.open");
+        expect(open).toMatchObject({ok: true, value: {source: "nbook.projects"}});
+        expect(open.ok && projectsTextIn("zh-CN").t(open.value.title)).toBe("打开项目");
         expect(commands!.isEnabled("nbook.project.open")).toEqual({ok: true, value: true});
         // “帮助 > 欢迎”（bookshelf.md 的“欢迎页”）：命令在命令表里，人类可见。
-        expect(commands!.get("nbook.help.welcome")).toMatchObject({ok: true, value: {source: "nbook.projects", title: {"zh-CN": "欢迎"}}});
+        const welcome = commands!.get("nbook.help.welcome");
+        expect(welcome).toMatchObject({ok: true, value: {source: "nbook.projects"}});
+        expect(welcome.ok && projectsTextIn("zh-CN").t(welcome.value.title)).toBe("欢迎");
         await app.stop();
     });
 });

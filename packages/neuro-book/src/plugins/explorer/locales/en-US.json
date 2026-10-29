@@ -1,0 +1,351 @@
+{
+    "commands": {
+        "category": "Files",
+        "nbook": {
+            "files": {
+                "new-file": {
+                    "title": "New File"
+                },
+                "new-folder": {
+                    "title": "New Folder"
+                },
+                "collapse-all": {
+                    "title": "Collapse All"
+                },
+                "toggle-manifests": {
+                    "title": "Show Manifest Files"
+                },
+                "rename": {
+                    "title": "Rename"
+                },
+                "delete": {
+                    "title": "Delete"
+                },
+                "create-content": {
+                    "title": "Create Content"
+                },
+                "convert": {
+                    "title": "Convert Folder"
+                },
+                "set-display": {
+                    "title": "Edit Display Name and Icon"
+                },
+                "include": {
+                    "title": "Add to Manifest"
+                },
+                "drop-entry": {
+                    "title": "Remove from Manifest"
+                },
+                "move-up": {
+                    "title": "Move Up"
+                },
+                "move-down": {
+                    "title": "Move Down"
+                },
+                "copy": {
+                    "title": "Copy"
+                },
+                "cut": {
+                    "title": "Cut"
+                },
+                "paste": {
+                    "title": "Paste"
+                },
+                "clear-cut": {
+                    "title": "Clear Cut"
+                },
+                "retry-list": {
+                    "title": "Retry"
+                },
+                "open": {
+                    "title": "Open"
+                },
+                "open-to-side": {
+                    "title": "Open to the Side"
+                },
+                "copy-path": {
+                    "title": "Copy Path"
+                },
+                "copy-relative-path": {
+                    "title": "Copy Relative Path"
+                },
+                "reveal": {
+                    "title": "Reveal in Explorer"
+                }
+            },
+            "view": {
+                "refresh-files": {
+                    "title": "Refresh"
+                }
+            }
+        }
+    },
+    "views": {
+        "nbook": {
+            "explorer": {
+                "title": "Explorer",
+                "actions": {
+                    "nbook": {
+                        "files": {
+                            "new-file": {
+                                "title": "New File"
+                            },
+                            "new-folder": {
+                                "title": "New Folder"
+                            },
+                            "collapse-all": {
+                                "title": "Collapse All"
+                            },
+                            "toggle-manifests": {
+                                "title": "Show Manifest Files"
+                            }
+                        },
+                        "view": {
+                            "refresh-files": {
+                                "title": "Refresh"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "settingsSections": {
+        "nbook": {
+            "explorer": {
+                "title": "Explorer",
+                "description": "How the file tree looks",
+                "groups": {
+                    "tree": {
+                        "title": "File Tree"
+                    }
+                }
+            }
+        }
+    },
+    "settings": {
+        "indentGuides": {
+            "title": "Indent Guides",
+            "description": "A line per level; the focused level is darker",
+            "choices": {
+                "none": {
+                    "title": "None"
+                },
+                "hover": {
+                    "title": "On Hover"
+                },
+                "always": {
+                    "title": "Always"
+                }
+            }
+        },
+        "hideMarkdownExtension": {
+            "title": "Hide Markdown Extension",
+            "description": "Renaming still shows the full name"
+        }
+    },
+    "state": {
+        "ready": {
+            "reason": "The explorer is not open yet"
+        },
+        "canCreate": {
+            "reason": "No place to create in"
+        },
+        "hasSelection": {
+            "reason": "Nothing is selected"
+        },
+        "canPaste": {
+            "reason": "The clipboard is empty, there is no place to paste, or the last batch outcome is unknown"
+        },
+        "canReorder": {
+            "reason": "The selection cannot be reordered"
+        },
+        "canCreateContent": {
+            "reason": "The selection is not a content node without content"
+        },
+        "canConvert": {
+            "reason": "The selection is not a folder that can be converted"
+        },
+        "canEditManifest": {
+            "reason": "The selection is not in a content folder"
+        },
+        "showManifests": {
+            "reason": "Manifest files are hidden"
+        }
+    },
+    "menu": {
+        "newFile": "New File",
+        "newFolder": "New Folder",
+        "paste": "Paste",
+        "open": "Open",
+        "openToSide": "Open to the Side",
+        "cut": "Cut",
+        "copy": "Copy",
+        "copyPath": "Copy Path",
+        "copyRelativePath": "Copy Relative Path",
+        "rename": "Rename",
+        "createContent": "Create Content",
+        "convertToPlain": "Convert to Plain Folder",
+        "convertToContent": "Convert to Content Folder",
+        "include": "Add to Manifest",
+        "drop": "Remove from Manifest",
+        "setDisplay": "Edit Display Name and Icon",
+        "moveUp": "Move Up",
+        "moveDown": "Move Down",
+        "delete": "Delete"
+    },
+    "tree": {
+        "label": "Files",
+        "projectRoot": "Project",
+        "userRoot": "User Assets",
+        "noProject": "No project open",
+        "loading": "Loading…",
+        "readFailedRetry": "Could not read: {{reason}}. Click to retry",
+        "manifestUnreadable": "Manifest unreadable, shown as a plain folder: {{reason}}",
+        "manifestInvalid": "Invalid manifest, shown as a plain folder: {{reason}}",
+        "marks": {
+            "missing": "Missing",
+            "unlisted": "Not listed",
+            "noBody": "No content",
+            "needsPlot": "Needs the plot plugin",
+            "cutMark": "Cut"
+        },
+        "newFileName": "New file name",
+        "newFolderName": "New folder name",
+        "renameLabel": "Rename {{name}}",
+        "drop": {
+            "into": "Move into {{name}}",
+            "intoLast": "Move into {{name}} (at the end)",
+            "after": "Place after {{name}}",
+            "before": "Place before {{name}}",
+            "afterInto": "Place after {{name}} (into {{target}})",
+            "beforeInto": "Place before {{name}} (into {{target}})",
+            "open": "Open {{count}} in this group",
+            "openSome": "Open {{count}} in this group ({{skipped}} more not opened)"
+        },
+        "dragItems_one": "{{count}} item",
+        "dragItems_other": "{{count}} items"
+    },
+    "view": {
+        "openProject": "Open Project",
+        "ended": "Stopped syncing: {{reason}}",
+        "reconnect": "Reconnect",
+        "prefsUnread": "Explorer preferences not loaded; using defaults ({{reason}})",
+        "prefsProtected": "Explorer preferences record is unusable; changes will not be saved ({{reason}})",
+        "prefsUnsaved": "Expansion and display preferences not saved ({{reason}})",
+        "reload": "Reload",
+        "retry": "Retry",
+        "discard": "Discard"
+    },
+    "common": {
+        "cancel": "Cancel"
+    },
+    "dialog": {
+        "delete": {
+            "title_one": "Delete {{count}} item?",
+            "title_other": "Delete {{count}} items?",
+            "confirm": "Delete",
+            "description": "These items and everything inside them will be deleted. This cannot be undone.",
+            "unsaved": "These open files have unsaved changes that will be lost:"
+        },
+        "dirtyCopy": {
+            "title": "Files to copy have unsaved changes",
+            "body": "Save first so the copies include the latest text, or copy the versions on disk without the unsaved changes.",
+            "unrepresentable": "A view of one of these documents cannot be written back as Markdown, so it cannot be saved first; copy the versions on disk without the unsaved changes.",
+            "save": "Save, Then Copy",
+            "disk": "Copy Disk Versions"
+        },
+        "display": {
+            "title": "Display name and icon: {{name}}",
+            "name": "Display name",
+            "icon": "Icon",
+            "hint": "Leave empty to remove. Only the manifest changes, not the file name.",
+            "save": "Save"
+        },
+        "collision": {
+            "title": "An item with this name exists",
+            "source": "Source",
+            "target": "Target",
+            "name": "New name",
+            "rename": "Rename",
+            "skip": "Skip",
+            "cancel": "Cancel the rest",
+            "all": "Do this for the remaining collisions"
+        }
+    },
+    "feedback": {
+        "dismiss": "Dismiss",
+        "running_one": "{{action}}: {{count}} item in progress…",
+        "running_other": "{{action}}: {{count}} items in progress…",
+        "notice": {
+            "editorMissing": "The editor is not available yet; cannot open {{address}}",
+            "openFailed": "Could not open {{address}}: {{reason}}",
+            "failed": "{{action}} failed ({{address}}): {{reason}}"
+        },
+        "manifestNotUpdated": "{{action}} done, but the manifest {{path}} was not updated: {{reason}}",
+        "unknown": {
+            "title_one": "The outcome of {{action}} for {{count}} item is unknown. Copy, cut, paste, drag and delete are unavailable until you dismiss it.",
+            "title_other": "The outcome of {{action}} for {{count}} items is unknown. Copy, cut, paste, drag and delete are unavailable until you dismiss it.",
+            "hint": "Dismissing does not cancel an operation that may still be running; these clipboard items are cleared too.",
+            "recheck": "Refresh",
+            "abandon": "Dismiss"
+        },
+        "report": {
+            "title": "{{action}}: {{done}} done, {{other}} not done",
+            "truncated": "Results were omitted; refresh to check"
+        },
+        "item": {
+            "done": "done",
+            "failed": "failed: {{reason}}",
+            "skipped": "skipped (duplicate)",
+            "notRun": "not run",
+            "cancelled": "cancelled",
+            "removed": "removed: {{paths}}",
+            "residual": "left behind: {{paths}}",
+            "omitted": "(paths omitted)",
+            "declinedSkip": "skipped (name exists)",
+            "declinedCancel": "not run (rest cancelled)"
+        }
+    },
+    "actions": {
+        "create": "Create",
+        "rename": "Rename",
+        "delete": "Delete",
+        "create-content": "Create content",
+        "convert": "Convert",
+        "display": "Edit display name",
+        "include": "Add to manifest",
+        "drop": "Remove from manifest",
+        "reorder": "Reorder",
+        "copy": "Copy",
+        "cut": "Cut",
+        "move": "Move"
+    },
+    "reasons": {
+        "conflict": "an item with that name already exists",
+        "source-changed": "the source was replaced or moved; select it again",
+        "permission-denied": "permission denied",
+        "busy": "another file operation is in progress; try again later",
+        "not-found": "not found",
+        "unknown-outcome": "the outcome is unknown; refresh to check",
+        "document-unsettled": "an open document has unresolved input, changes that cannot be written back, or a disk conflict; resolve it in the editor first"
+    },
+    "nameErrors": {
+        "empty": "The name cannot be empty",
+        "invalid": "The name cannot contain / or \\, or be . or ..",
+        "unsettled": "{{documents}} has unresolved input, changes that cannot be written back, or a disk conflict; resolve it in the editor first"
+    },
+    "unavailable": {
+        "noTarget": "No place to create in: select a folder first",
+        "noSelection": "Nothing suitable is selected",
+        "notApplicable": "This action does not apply to the selection",
+        "busy": "Another batch operation is still running",
+        "notReady": "The explorer is not open yet",
+        "unknown": "The last batch outcome is unknown: check it, then dismiss it in the results area",
+        "emptyClipboard": "The clipboard is empty",
+        "crossRoot": "Cannot copy or move between the project and user assets",
+        "copyFailed": "Could not copy the path",
+        "notVisible": "The explorer is not visible",
+        "staleView": "The explorer view was recreated"
+    }
+}

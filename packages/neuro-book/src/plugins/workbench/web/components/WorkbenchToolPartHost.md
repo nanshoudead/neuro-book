@@ -1,5 +1,5 @@
 ---
-标签: [state:local]
+标签: [state:local, state:inject]
 别名: ["工具区宿主", "Tool Part Host"]
 验证入口: WorkbenchShellLayout
 ---
@@ -25,7 +25,6 @@ Sidebar 与 AuxiliaryBar 取 `--panel-surface`，自己不画外框、圆角，�
 
 ```ts
 import type {ContainerPresentation, PartPresentation} from "../views/presentation";
-import type {DisplayLocale} from "nbook/shared/localized-text";
 
 type Props = {
     part: "sidebar" | "auxiliarybar" | "panel";
@@ -33,17 +32,12 @@ type Props = {
     presentation: PartPresentation;
     /** 选中的容器；区域里没有容器为 null。 */
     selected: ContainerPresentation | null;
-    locale: DisplayLocale;
     /** 区域的可访问名称（已按当前语言取好）。 */
     label: string;
     /** 区域里没有容器时的说明。 */
     emptyText: string;
     /** 标签与内容面板关联用的 id 前缀；外壳用 `useId()` 取一次，面板框架里的标签带用同一个前缀。 */
     idPrefix: string;
-    /** Sidebar 容器标题这个键盘拖动把手的可访问名称模板，`{title}` 换成容器标题。 */
-    dragLabel: string;
-    /** 标签作为拖动源的说明，写到每个标签的 `aria-description`。 */
-    dragHint: string;
 };
 
 type Emits = {
@@ -59,6 +53,10 @@ type Slots = {
 ```
 
 没有 expose；attrs 落在根上。根带 `data-tool-part`（区域）；落点带 `data-container-target`；右栏的标签带带 `data-switcher-band`，标签带 `data-switcher-entry` 与 `data-drag-container`，Sidebar 的容器标题行带 `data-drag-container`（标题文字是 `data-drag-handle` 把手），动作区带 `data-no-drag`，空正文带 `data-empty-part`（拖放会话按这些标记找拖动源与落点）。
+
+## 隐藏通道理由
+
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，标签的拖动把手名称与 `aria-description`、“更多”按钮名称等界面文字都在本插件的目录（命名空间 `nbook.workbench`，`../../locales/`）；语言随端口响应式切换，组件没有语言属性。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。
 
 ## 不支持
 

@@ -3,7 +3,7 @@
  * 不各自重算可见性、模式、标题回落与常驻资格。纯函数；组件、DOM、`load()` 的 Promise 与实例表都不在这里。
  */
 
-import type {LocalizedText} from "nbook/shared/localized-text";
+import type {DisplayText} from "nbook/shared/localized-text";
 
 import {VIEW_LOCATIONS, viewSizeLimits} from "../../shared/views";
 import type {ViewLocation} from "../../shared/views";
@@ -16,7 +16,7 @@ export type ContainerMode = "empty" | "single" | "multiple";
 
 export interface SwitcherItem {
     readonly containerId: string;
-    readonly title: LocalizedText;
+    readonly title: DisplayText;
     readonly icon: string;
 }
 
@@ -28,7 +28,7 @@ export interface PartPresentation {
 
 export interface ViewSlot {
     readonly id: string;
-    readonly title: LocalizedText;
+    readonly title: DisplayText;
     readonly icon: string;
     readonly layout: "scroll" | "fill";
     readonly movable: boolean;
@@ -44,7 +44,7 @@ export interface ContainerPresentation {
     readonly id: string;
     readonly part: ViewLocation;
     readonly axis: ContainerAxis;
-    readonly title: LocalizedText;
+    readonly title: DisplayText;
     readonly icon: string;
     readonly mode: ContainerMode;
     /** 实际成员（含隐藏的），按顺序。 */
@@ -114,7 +114,7 @@ export function buildPresentation(input: PresentationInput): Presentation {
             id: container.id,
             part: container.part,
             axis,
-            title: source?.title ?? {"zh-CN": container.id, "en-US": container.id},
+            title: source?.title ?? container.id,
             icon: source?.icon ?? "i-lucide-square",
             mode,
             members: container.members,

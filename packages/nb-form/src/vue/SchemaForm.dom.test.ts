@@ -9,10 +9,13 @@ import {Type} from "typebox";
 import {defineComponent, h, ref} from "vue";
 import {afterEach, describe, expect, it, vi} from "vitest";
 
+import {createMinimalTranslator} from "@notnotype/nb-ui/text/minimal";
+
+import {formRef, issueWording} from "../builtin-text";
+import {NB_FORM_CATALOGS} from "../locales";
 import type {OptionSource} from "../options";
 import type {FormIssue} from "../validate";
 import {SCHEMA_ISSUE_CODES} from "../validate";
-import {issueText, messagesFor} from "./messages";
 import SchemaForm from "./SchemaForm.vue";
 import type {DraftState} from "./scope";
 
@@ -471,10 +474,11 @@ describe("问题的显示（输出 9、14）", () => {
     });
 
     it("核心可能报出的每个问题码都有中英文的写法，不显示成内部码", () => {
+        const translator = createMinimalTranslator({catalogs: {"nb-form": NB_FORM_CATALOGS}, strict: true});
         for (const code of SCHEMA_ISSUE_CODES) {
             for (const locale of ["zh-CN", "en-US"]) {
-                const text = issueText({path: [], code, params: {limit: 2}, severity: "error", source: "schema"}, locale);
-                expect(text, `${locale} ${code}`).not.toBe(messagesFor(locale).fallback(code));
+                const text = translator.translate(issueWording({path: [], code, params: {limit: 2}, severity: "error", source: "schema"}), locale);
+                expect(text, `${locale} ${code}`).not.toBe(translator.translate(formRef("fallback", {code}), locale));
             }
         }
     });

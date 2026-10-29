@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import {computed} from "vue";
 
+import {useUiText} from "../../text-port";
+
 // 行内加载指示器：按钮外的局部加载态（面板、表格、页面区块）。
 export type SpinnerSize = "sm" | "md" | "lg";
 
@@ -11,9 +13,11 @@ const props = withDefaults(defineProps<{
     showLabel?: boolean;
 }>(), {
     size: "md",
-    label: "加载中",
     showLabel: false,
 });
+
+const text = useUiText();
+const labelText = computed(() => props.label ?? text("spinner.loading"));
 
 const iconSizeClass = computed(() => {
     if (props.size === "sm") {
@@ -27,8 +31,8 @@ const iconSizeClass = computed(() => {
 </script>
 
 <template>
-    <span role="status" :aria-label="props.label" class="inline-flex items-center gap-[var(--space-2)] text-[var(--text-muted)]">
+    <span role="status" :aria-label="labelText" class="inline-flex items-center gap-[var(--space-2)] text-[var(--text-muted)]">
         <span class="i-lucide-loader-2 shrink-0 animate-spin" :class="iconSizeClass"></span>
-        <span v-if="props.showLabel" class="text-[length:var(--text-sm)]">{{ props.label }}</span>
+        <span v-if="props.showLabel" class="text-[length:var(--text-sm)]">{{ labelText }}</span>
     </span>
 </template>

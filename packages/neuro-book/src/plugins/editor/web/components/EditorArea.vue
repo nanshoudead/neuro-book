@@ -7,13 +7,14 @@ import {NestedGrid} from "@notnotype/nb-ui/layout";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import {useText} from "@notnotype/nb-ui/text-port";
 
 import type {EditorArea} from "../area";
 import type {EmptyTip} from "../empty-tips";
 import type {EditorState} from "../editor-registry";
 import type {EditorPageSource} from "../pages";
-import {editorText, nameOf} from "../messages";
+import {useEditorText} from "../text";
+import {nameOf} from "../documents/address";
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 import {tabLabel} from "../tab-label";
@@ -28,7 +29,6 @@ export type EditorIntent = "save" | "close" | "split-right";
 
 const props = withDefaults(defineProps<{
     area: EditorArea;
-    locale: DisplayLocale;
     control: (editor: string) => EditorState;
     pages?: EditorPageSource | null;
     emptyTips?: ReadonlyArray<EmptyTip>;
@@ -43,6 +43,8 @@ const props = withDefaults(defineProps<{
     /** 作品名（面包屑的第一段）；未绑定作品为 null。 */
     workTitle?: string | null;
 }>(), {pages: null, emptyTips: () => [], titleActions: null, tabMenu: null, wrapTabs: true, breadcrumbs: true, workTitle: null});
+const port = useText();
+const t = useEditorText();
 const emit = defineEmits<{(event: "intent", intent: EditorIntent): void; (event: "run-tip", command: string): void; (event: "title-action", key: string): void; (event: "tab-menu", tabId: string, key: string): void}>();
 
 const root = ref<HTMLElement | null>(null);
@@ -103,16 +105,16 @@ onMounted(() => {
     });
 });
 onBeforeUnmount(() => tabDrag?.dispose());
-const DROP_LABELS = {"move": "dropMove", "keep": "dropKeep", "split-left": "dropSplitLeft", "split-right": "dropSplitRight", "split-top": "dropSplitTop", "split-bottom": "dropSplitBottom"} as const;
+const DROP_LABELS = {"move": "drop.move", "keep": "drop.keep", "split-left": "drop.splitLeft", "split-right": "drop.splitRight", "split-top": "drop.splitTop", "split-bottom": "drop.splitBottom"} as const;
 /** 跟手的拖影：被拖标签的图标与名字（与标签条上写的相同），画在指针右下。标签在拖动中没了时整场已经取消。 */
 const ghost = computed(() => {
     const at = pointer.value;
     if (at === null) return null;
     const tab = props.area.groups.groups.value.flatMap((group) => group.tabs).find((candidate) => candidate.id === at.tabId);
     if (tab === undefined) return null;
-    return {label: tabLabel(props.area, tab, props.locale, props.pages ?? null), icon: pageIdOf(tab.address) === null ? fileIconForName(nameOf(tab.address)) : null, x: at.x, y: at.y};
+    return {label: tabLabel(props.area, tab, port, props.pages ?? null), icon: pageIdOf(tab.address) === null ? fileIconForName(nameOf(tab.address)) : null, x: at.x, y: at.y};
 });
-const dropLabel = computed(() => (drop.value === null ? "" : editorText(props.locale, DROP_LABELS[drop.value.label])));
+const dropLabel = computed(() => (drop.value === null ? "" : t(DROP_LABELS[drop.value.label])));
 
 const dialog = computed(() => props.area.dialog.value);
 </script>
@@ -127,8 +129,8 @@ const dialog = computed(() => props.area.dialog.value);
         @focusout="onFocusOut"
     >
         <p v-if="area.notice.value !== null" class="flex items-center gap-2 border-b border-[color:var(--divider)] px-3 py-1.5 text-xs text-[var(--status-warning)]" role="status" data-editor-notice>
-            <span class="min-w-0 flex-1">{{ area.notice.value }}</span>
-            <Button size="sm" variant="ghost" @click="area.dismissNotice()">{{ editorText(locale, "dismiss") }}</Button>
+            <span class="min-w-0 flex-1">{{ port.t(area.notice.value) }}</span>
+            <Button size="sm" variant="ghost" @click="area.dismissNotice()">{{ t("area.dismiss") }}</Button>
         </p>
         <NestedGrid
             v-if="host.node.value !== null"
@@ -143,7 +145,6 @@ const dialog = computed(() => props.area.dialog.value);
                 <EditorGroup
                     :area="area"
                     :group-id="node.id"
-                    :locale="locale"
                     :control="control"
                     :pages="pages ?? null"
                     :empty-tips="emptyTips ?? []"
@@ -167,16 +168,16 @@ const dialog = computed(() => props.area.dialog.value);
         <DropFeedbackOverlay :preview="drop?.preview ?? null" :label="dropLabel" :data-editor-drop="drop === null ? undefined : drop.label" />
         <Dialog
             :model-value="dialog !== null"
-            :title="editorText(locale, dialog?.saveable === false ? 'closeTitleUnrepresentable' : 'closeTitle', {name: dialog === null ? '' : nameOf(dialog.address)})"
+            :title="t(dialog?.saveable === false ? 'closeDialog.titleUnrepresentable' : 'closeDialog.title', {name: dialog === null ? '' : nameOf(dialog.address)})"
             size="sm"
             @request-close="area.answer('cancel')"
         >
-            <p class="text-sm" data-editor-close-dialog>{{ editorText(locale, dialog?.saveable === false ? "closeBodyUnrepresentable" : "closeBody") }}</p>
+            <p class="text-sm" data-editor-close-dialog>{{ t(dialog?.saveable === false ? "closeDialog.bodyUnrepresentable" : "closeDialog.body") }}</p>
             <template #footer>
                 <div class="flex flex-wrap justify-end gap-2">
-                    <Button variant="ghost" size="sm" data-editor-close-cancel @click="area.answer('cancel')">{{ editorText(locale, "cancel") }}</Button>
-                    <Button variant="secondary" size="sm" data-editor-close-discard @click="area.answer('discard')">{{ editorText(locale, "discard") }}</Button>
-                    <Button v-if="dialog?.saveable !== false" variant="primary" size="sm" data-editor-close-save @click="area.answer('save')">{{ editorText(locale, "save") }}</Button>
+                    <Button variant="ghost" size="sm" data-editor-close-cancel @click="area.answer('cancel')">{{ t("closeDialog.cancel") }}</Button>
+                    <Button variant="secondary" size="sm" data-editor-close-discard @click="area.answer('discard')">{{ t("closeDialog.discard") }}</Button>
+                    <Button v-if="dialog?.saveable !== false" variant="primary" size="sm" data-editor-close-save @click="area.answer('save')">{{ t("closeDialog.save") }}</Button>
                 </div>
             </template>
         </Dialog>

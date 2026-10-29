@@ -22,8 +22,14 @@ import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins
 import {createMemoryFiles} from "nbook/plugins/lab/web/fixtures/explorer-scene/memory-files";
 import {standaloneSettings} from "nbook/plugins/settings/testing/standalone";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
+import type {DisplayLocale} from "nbook/shared/localized-text";
+import {textIn} from "nbook/shared/testing/text";
 
 import {createChapter} from "./web/welcome";
+import {projectsCatalogs} from "./web/text";
+
+/** 用 `nbook.projects` 的目录解析成某种语言的文字（窗口里这是翻译端口的事）。 */
+const projectsTextIn = (locale: DisplayLocale) => textIn(locale, {"nbook.projects": projectsCatalogs.catalogs});
 
 const silent = {error: () => undefined};
 let tmp = "";
@@ -97,9 +103,9 @@ describe("欢迎页的新建章节（bookshelf.md 输出 19）", () => {
         const calls: unknown[] = [];
         const commands = await start([editorOf(calls)]);
         const memory = createMemoryFiles({project: ["大纲.md"], user: []});
-        expect(await createChapter(memory.files, commands, "zh-CN")).toBeNull();
-        expect(await createChapter(memory.files, commands, "zh-CN")).toBeNull();
-        expect(await createChapter(memory.files, commands, "en-US")).toBeNull();
+        expect(await createChapter(memory.files, commands, projectsTextIn("zh-CN"))).toBeNull();
+        expect(await createChapter(memory.files, commands, projectsTextIn("zh-CN"))).toBeNull();
+        expect(await createChapter(memory.files, commands, projectsTextIn("en-US"))).toBeNull();
         expect(await names(memory)).toEqual(["New Chapter.md", "大纲.md", "新章节 2.md", "新章节.md"].sort());
         expect(calls).toEqual([
             {address: "project://新章节.md", mode: "permanent"},
@@ -111,7 +117,7 @@ describe("欢迎页的新建章节（bookshelf.md 输出 19）", () => {
     it("编辑器的打开命令不在：文件照样建好，返回“建好了……但打不开”与原因", async () => {
         const commands = await start([]);
         const memory = createMemoryFiles({project: [], user: []});
-        expect(await createChapter(memory.files, commands, "zh-CN")).toMatch(/^建好了 新章节\.md，但打不开：.+/u);
+        expect(await createChapter(memory.files, commands, projectsTextIn("zh-CN"))).toMatch(/^建好了 新章节\.md，但打不开：.+/u);
         expect(await names(memory)).toEqual(["新章节.md"]);
     });
 });

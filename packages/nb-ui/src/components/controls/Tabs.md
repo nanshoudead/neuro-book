@@ -1,5 +1,5 @@
 ---
-标签: [state:local]
+标签: [state:local, state:inject]
 别名: ["标签页", "Tab 栏"]
 ---
 
@@ -72,7 +72,7 @@ type TabsProps = {
     overflow?: "scroll" | "adapt";
     /** adapt 的截断宽度（px）；默认 96 */
     maxItemWidth?: number;
-    /** adapt 的“更多”按钮文字，后面跟收起来的个数；默认 "更多" */
+    /** adapt 的“更多”按钮文字，后面跟收起来的个数；缺省按界面语言取（中文 "更多"） */
     moreLabel?: string;
 };
 
@@ -105,3 +105,7 @@ type TabsEmits = {
 - **不要把一个禁用项的 `value` 传给 `modelValue`**：那会让所有标签的 `tabindex` 都变成 `-1`，整条标签栏无法用 Tab 键进入。
 - **`items` 里的 `value` 必须唯一**：重复值会让多个标签同时呈选中态，键盘移动也会定位到第一个匹配项。
 - `count` 的可见性由 `count !== undefined` 判定，传 `0` 会显示「0」；不想要徽标就不要传这个字段。
+
+## 隐藏通道理由
+
+`state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取“更多”按钮的缺省文字，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `moreLabel` 时以属性为准，不读端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。

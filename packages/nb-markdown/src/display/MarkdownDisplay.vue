@@ -6,6 +6,7 @@
 import {onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import {useMarkdownHost} from "../host";
+import {markdownViewContext, provideMarkdownText} from "../host/text";
 import {defaultMarkdownLanguage} from "../language/syntax";
 import type {MarkdownLocale} from "../locale";
 import {showsAsChip} from "../targets";
@@ -14,10 +15,14 @@ import type {ResolveAsset} from "./MarkdownImage.vue";
 import {DisplayRenderer, schemaFor} from "./renderer";
 import type {DisplayActivation} from "./static-views";
 
-const props = withDefaults(defineProps<{text: string; locale: MarkdownLocale; streaming?: boolean; resolveAsset?: ResolveAsset}>(), {streaming: false, resolveAsset: undefined});
+// `locale` 只在上面没有注入翻译端口时起作用（`../host/text.ts`）。
+const props = withDefaults(defineProps<{text: string; locale?: MarkdownLocale; streaming?: boolean; resolveAsset?: ResolveAsset}>(), {locale: undefined, streaming: false, resolveAsset: undefined});
 const emit = defineEmits<{(e: "activate", activation: DisplayActivation): void}>();
 
 const host = useMarkdownHost();
+const text = provideMarkdownText(() => props.locale);
+// 在 provide 之后取：静态视图里挂的图片要读到这里提供的端口。
+const context = markdownViewContext(text);
 const report = (event: string, message: string, error: unknown): void => host.report(event, message, error);
 
 const root = ref<HTMLElement | null>(null);
@@ -82,9 +87,8 @@ onMounted(() => {
         const language = host.language?.() ?? defaultMarkdownLanguage();
         renderer = new DisplayRenderer(root.value, language, schemaFor(language), {
             document,
-            get locale() {
-                return props.locale;
-            },
+            context,
+            text,
             get resolveAsset() {
                 return props.resolveAsset;
             },
@@ -104,6 +108,14 @@ onMounted(() => {
 });
 
 watch(() => props.text, schedule);
+// 换语言：静态视图里画在普通 DOM 上的文字（小块的悬停提示、HTML 卡片的按钮）是画的时候取的字符串，整篇重画一次。
+// 提示块的展开与 HTML 卡片的展开状态随之回到初始。
+watch(() => text.locale.value, () => {
+    if (renderer === null) return;
+    if (frame !== null) cancelAnimationFrame(frame);
+    renderer.destroy();
+    flush();
+});
 watch(() => props.streaming, placeCursor);
 
 onBeforeUnmount(() => {

@@ -8,7 +8,10 @@ import {flushPromises, mount} from "@vue/test-utils";
 import type {VueWrapper} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
+
 import type {InstallPreview, PluginListEntry, PluginListItem, PluginProblem, PluginsRegistry} from "../../shared/contracts";
+import {pluginsCatalogs} from "../text";
 import PluginsPage from "./PluginsPage.vue";
 
 const mounted: VueWrapper[] = [];
@@ -109,7 +112,9 @@ function registry(initial: PluginListEntry[], options: {readonly safeMode?: bool
 }
 
 async function open(client: Registry, locale: "zh-CN" | "en-US" = "zh-CN", windowPlugins: {problems(): ReadonlyArray<PluginProblem>; onChange(listener: () => void): () => void} | null = null) {
-    const wrapper = mount(PluginsPage, {props: {registry: client, locale, windowPlugins}, attachTo: document.body});
+    // 页面的文字来自窗口的翻译端口：用宿主引擎登记本插件的目录，语言与 `locale` 属性同一个来源。
+    const port = testTextPort(locale, {"nbook.plugins": pluginsCatalogs});
+    const wrapper = mount(PluginsPage, {props: {registry: client, locale, windowPlugins}, attachTo: document.body, global: {provide: provideText(port)}});
     mounted.push(wrapper);
     await flushPromises();
     return wrapper;
@@ -204,6 +209,14 @@ describe("PluginsPage", () => {
         expect(lines()).toEqual(["入口 server（server）激活失败：local 记录需要客户端身份", "入口 browser（browser）受阻：需要的服务 example.goal/progress 没有提供"]);
         expect(goal.querySelector("[data-plugin-problems=entries]")?.textContent).toContain("2 个入口没有运行");
         expect(goal.querySelector("[data-plugin-problems=contributions]")).toBeNull();
+
+        // 本窗口没取到的消息目录：另一种徽标，不算进入口问题。
+        windowProblems = [blocked, {kind: "catalog-unavailable", plugin: "example.goal", location: "browser", locale: "en-US", reason: "invalid", detail: "menu.open：值必须是字符串或嵌套的对象，这里是number"}];
+        notify();
+        await flushPromises();
+        expect(goal.querySelector("[data-plugin-problems=entries]")?.textContent).toContain("2 个入口没有运行");
+        expect(goal.querySelector("[data-plugin-problems=catalogs]")?.textContent).toContain("1 种语言的文字没有取到");
+        expect(lines().at(-1)).toBe("en-US 的文字没有取到：目录内容不合规则（menu.open：值必须是字符串或嵌套的对象，这里是number）");
     });
 
     it("英文界面里内置插件的名称与说明是英文；名称表里没有的内置插件只显示 id", async () => {
@@ -311,6 +324,25 @@ describe("PluginsPage", () => {
         expect((document.querySelector("[data-plugin-install-confirm]") as HTMLButtonElement | null)?.disabled).toBe(false);
     });
 
+    it("英文界面：文字取英文目录，数量徽标按英文的复数形取，列表按英文连接", async () => {
+        const failed: PluginProblem = {kind: "entry-failed", plugin: "example.hello", entry: "server", location: "server", stage: "activate", reason: "activation-threw", message: "boom"};
+        const fake = registry([BUILTIN, {...HELLO, problems: [failed]}], {preview: {
+            id: "example.hello",
+            version: "2.0.0",
+            installed: "1.0.0",
+            relation: "upgrade",
+            blocked: [{plugin: "example.reader", entries: ["main", "ui"], reason: "version-mismatch", range: "^1.0.0"}],
+            unchecked: [],
+        }});
+        const wrapper = await open(fake.client, "en-US");
+        expect(row("nbook.settings").textContent).toContain("Built-in");
+        expect(row("example.hello").querySelector("[data-plugin-problems=entries]")?.textContent).toContain("1 entry point not running");
+        expect([...row("example.hello").querySelectorAll("[data-plugin-problem-line]")].map((line) => line.textContent)).toEqual(["Entry server (server) failed to activate: boom"]);
+        await submitPath(wrapper, "/plugins/new");
+        expect(document.querySelector("[role=dialog]")?.textContent).toContain("Upgrade plugin");
+        expect([...document.querySelectorAll("[data-plugin-preview-blocked-item]")].map((item) => item.textContent)).toEqual(["example.reader (main and ui): requires version ^1.0.0"]);
+    });
+
     it("失败按码显示：清单无效带出错字段；只说原因的码不重复详情；不认识的码给通用文字与路由层的说明", async () => {
         const fake = registry([BUILTIN]);
         const wrapper = await open(fake.client);
@@ -328,6 +360,12 @@ describe("PluginsPage", () => {
         // 同一个失败再来一次：文字换成新节点，读屏会再播报一次。
         expect(document.querySelector("[data-plugin-problem] p")).not.toBe(first);
         expect(document.querySelector("[role=dialog]")).toBeNull();
+
+        fake.answerNext({ok: false, code: "catalog-invalid", detail: {detail: "消息目录有错误：locales/en-US.json：title：……", problems: ["locales/en-US.json：title：值必须是字符串或嵌套的对象，这里是number"]}});
+        await submitPath(wrapper, "/plugins/catalogs");
+        problem = document.querySelector("[data-plugin-problem]");
+        expect(problem?.getAttribute("data-plugin-problem")).toBe("catalog-invalid");
+        expect([...problem!.querySelectorAll("p")].map((line) => line.textContent)).toEqual(["插件的消息目录无效", "locales/en-US.json：title：值必须是字符串或嵌套的对象，这里是number"]);
 
         // 不带详情的码只显示码的文字一次（详情不重复一遍）。
         fake.answerNext({ok: false, code: "already-installed", detail: {detail: "example.hello@1.0.0 已安装或等待重启后切换"}});

@@ -7,6 +7,7 @@
 import type {ToolCallView} from "./types";
 import type {ToolEffects, ToolRendererEntry} from "./registry";
 import {TASK_TOOL_NAMES} from "./task-list";
+import {agentRef} from "./text";
 import {argArray, argString, countLines, objectString} from "./tool-args";
 import type {CodeLine} from "./tool-detail-lines";
 import {splitLines, textLines} from "./tool-detail-lines";
@@ -100,70 +101,70 @@ export const builtinToolRenderers: readonly ToolRendererEntry[] = [
     // explore
     {
         id: "read", toolNames: ["read"], category: "explore", icon: "i-lucide-file-text",
-        label: {key: "tool.read"}, summary: (call) => argString(call, "path"),
-        groupPhrase: (calls) => ({key: "toolGroup.read", params: {count: calls.length}}),
+        label: agentRef("tool.read"), summary: (call) => argString(call, "path"),
+        groupPhrase: (calls) => (agentRef("toolGroup.read", {count: calls.length})),
         effects: readEffects, presentation: "line",
     },
     {
         id: "web_search", toolNames: ["web_search"], category: "explore", icon: "i-lucide-search",
-        label: {key: "tool.webSearch"}, summary: (call) => argString(call, "query"),
-        groupPhrase: (calls) => ({key: "toolGroup.search", params: {count: calls.length}}), presentation: "line",
+        label: agentRef("tool.webSearch"), summary: (call) => argString(call, "query"),
+        groupPhrase: (calls) => (agentRef("toolGroup.search", {count: calls.length})), presentation: "line",
     },
     {
         id: "web_fetch", toolNames: ["web_fetch"], category: "explore", icon: "i-lucide-globe",
-        label: {key: "tool.webFetch"}, summary: (call) => argString(call, "url"),
-        groupPhrase: (calls) => ({key: "toolGroup.fetch", params: {count: calls.length}}), presentation: "line",
+        label: agentRef("tool.webFetch"), summary: (call) => argString(call, "url"),
+        groupPhrase: (calls) => (agentRef("toolGroup.fetch", {count: calls.length})), presentation: "line",
     },
     {
         id: "list", toolNamePrefix: "list_", category: "explore", icon: "i-lucide-list",
-        label: {key: "tool.list"}, summary: (call) => call.name,
-        groupPhrase: (calls) => ({key: "toolGroup.lookup", params: {count: calls.length}}), presentation: "line",
+        label: agentRef("tool.list"), summary: (call) => call.name,
+        groupPhrase: (calls) => (agentRef("toolGroup.lookup", {count: calls.length})), presentation: "line",
     },
     // mutate
     {
         id: "write", toolNames: ["write"], category: "mutate", icon: "i-lucide-file-plus",
-        label: {key: "tool.write"}, summary: (call) => argString(call, "path"),
+        label: agentRef("tool.write"), summary: (call) => argString(call, "path"),
         effects: writeEffects, diff: writeDiff, presentation: "line",
     },
     {
         id: "edit", toolNames: ["edit"], category: "mutate", icon: "i-lucide-file-pen",
-        label: {key: "tool.edit"}, summary: (call) => argString(call, "path") || editInputChanges(call).map((change) => change.path).join(", "),
+        label: agentRef("tool.edit"), summary: (call) => argString(call, "path") || editInputChanges(call).map((change) => change.path).join(", "),
         effects: editEffects, diff: editDiff, presentation: "line",
     },
     {
         id: "apply_patch", toolNames: ["apply_patch"], category: "mutate", icon: "i-lucide-file-diff",
-        label: {key: "tool.applyPatch"},
+        label: agentRef("tool.applyPatch"),
         summary: (call) => parsePatchChanges(argString(call, "patch")).map((change) => change.path).join(", "),
         effects: applyPatchEffects, diff: applyPatchDiff, presentation: "line",
     },
     // interact
     {
         id: "request_user_input", toolNames: ["request_user_input"], category: "interact", icon: "i-lucide-message-circle-question",
-        label: {key: "tool.requestUserInput"}, summary: firstQuestion, presentation: "node",
+        label: agentRef("tool.requestUserInput"), summary: firstQuestion, presentation: "node",
     },
     {
         id: "switch_mode", toolNames: ["switch_mode"], category: "interact", icon: "i-lucide-toggle-right",
-        label: {key: "tool.switchMode"}, summary: (call) => argString(call, "targetMode"), presentation: "node",
+        label: agentRef("tool.switchMode"), summary: (call) => argString(call, "targetMode"), presentation: "node",
     },
     // other
     {
         id: "task", toolNames: TASK_TOOL_NAMES, category: "other", icon: "i-lucide-list-checks",
-        label: {key: "tool.task"}, summary: (call) => argString(call, "title"), presentation: "node",
+        label: agentRef("tool.task"), summary: (call) => argString(call, "title"), presentation: "node",
     },
     {
         id: "run_workflow", toolNames: ["run_workflow"], category: "other", icon: "i-lucide-workflow",
-        label: {key: "tool.runWorkflow"}, summary: (call) => argString(call, "workflowKey"), presentation: "node",
+        label: agentRef("tool.runWorkflow"), summary: (call) => argString(call, "workflowKey"), presentation: "node",
     },
     {
         id: "bash", toolNames: ["bash"], category: "other", icon: "i-lucide-terminal",
-        label: {key: "tool.bash"}, summary: (call) => argString(call, "command"), presentation: "card",
+        label: agentRef("tool.bash"), summary: (call) => argString(call, "command"), presentation: "card",
     },
     {
         id: "execute_sql", toolNames: ["execute_sql"], category: "other", icon: "i-lucide-database",
-        label: {key: "tool.sql"}, summary: (call) => argString(call, "sql"), presentation: "card",
+        label: agentRef("tool.sql"), summary: (call) => argString(call, "sql"), presentation: "card",
     },
     {
         id: "agent_collaboration", toolNames: ["create_agent", "invoke_agent", "detach_agent", "report_result"], category: "other", icon: "i-lucide-users",
-        label: {key: "tool.agentCollaboration"}, summary: (call) => call.name, presentation: "card",
+        label: agentRef("tool.agentCollaboration"), summary: (call) => call.name, presentation: "card",
     },
 ];

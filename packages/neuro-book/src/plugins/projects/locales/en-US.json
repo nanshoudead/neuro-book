@@ -1,0 +1,269 @@
+{
+    "settings": {
+        "library": {
+            "title": "Library Folder",
+            "description": "New works are created here by default"
+        }
+    },
+    "commands": {
+        "nbook": {
+            "project": {
+                "open": {
+                    "title": "Open Project",
+                    "category": "Project"
+                }
+            },
+            "help": {
+                "welcome": {
+                    "title": "Welcome",
+                    "category": "Help"
+                }
+            }
+        }
+    },
+    "home": {
+        "bookshelf": {
+            "title": "Bookshelf"
+        }
+    },
+    "editorPages": {
+        "welcome": {
+            "title": "Welcome"
+        }
+    },
+    "settingsPages": {
+        "nbook": {
+            "works": {
+                "title": "Books"
+            }
+        }
+    },
+    "open": {
+        "title": "Open Project",
+        "placeholder": "Pick a project, or type a project directory path",
+        "empty": "No registered projects yet: type a directory path to register one",
+        "running": "{{path}} · running",
+        "registerAndOpen": "Register and open {{path}}",
+        "listFailed": "Could not list registered projects: {{code}}",
+        "unknownOutcome": "The registration outcome is unknown; try again: {{cause}}",
+        "notCompleted": "The registration did not complete: {{code}}",
+        "retryTitle": {
+            "invalid-path": "Open Project: registration failed (the path is invalid or does not exist)",
+            "not-directory": "Open Project: registration failed (not a directory)",
+            "not-accessible": "Open Project: registration failed (the directory is not readable and writable)",
+            "inside-state-root": "Open Project: registration failed (the directory is inside the application's state directory)",
+            "identity-invalid": "Open Project: registration failed (the project identity file in the directory cannot be read)",
+            "identity-conflict": "Open Project: registration failed (conflicts with another registered project)",
+            "registry-invalid": "Open Project: registration failed (the project registry cannot be read)",
+            "write-failed": "Open Project: registration failed (writing failed)",
+            "unknown": "Open Project: registration failed ({{reason}})"
+        }
+    },
+    "registerFailures": {
+        "invalid-path": "the path is invalid or does not exist",
+        "not-directory": "not a directory",
+        "not-accessible": "the directory is not readable and writable",
+        "inside-state-root": "the directory is inside the application's state directory",
+        "identity-invalid": "the project identity file in the directory cannot be read",
+        "identity-conflict": "conflicts with another registered project",
+        "registry-invalid": "the project registry cannot be read",
+        "write-failed": "writing failed"
+    },
+    "shelf": {
+        "shelfFailed": "Could not load the shelf: {{reason}}",
+        "refreshFailedTitle": "The shelf was not refreshed",
+        "refreshFailed": "Could not fetch the books: {{reason}}. Showing the last data.",
+        "retry": "Retry",
+        "libraryUnavailable": "Could not read the library folder: {{reason}}",
+        "browseFailed": "Could not list the folder: {{reason}}",
+        "registerFailed": "Not added to the shelf: {{reason}}",
+        "coverFailed": "The cover was not saved: {{reason}}",
+        "coverRemoveFailed": "The cover was not removed: {{reason}}",
+        "commandFailed": "Not executed: {{reason}}",
+        "popupBlockedTitle": "New tab blocked",
+        "libraryNotSavedTitle": "Library folder not saved",
+        "popupBlocked": "The browser blocked the new tab; allow pop-ups for this site",
+        "libraryNotSaved": "The book was created, but the library folder was not written to settings: {{reason}}",
+        "libraryChangeNotSaved": "The library folder was not written to settings: {{reason}}",
+        "createInvalid": "{{field}} is invalid: {{reason}}",
+        "createInvalidParent": "The library folder cannot be used: {{reason}}",
+        "createExists": "A folder with this name already exists ({{path}}): change the title, or use “Open an Existing Book”",
+        "createWriteFailed": "Could not write into the library folder: {{reason}}",
+        "createRegisterFailed": "The folder was created ({{path}}) but registration failed: {{reason}}. Use “Open an Existing Book” to finish",
+        "createUnknown": "The outcome is unknown; the shelf was reloaded. Try again if the book is missing",
+        "updateFailed": "Not saved: {{reason}}",
+        "updateUnknown": "The outcome is unknown; the shelf was reloaded. Try again if the old values are still shown",
+        "removeRunning": "This book is open, or still within the grace period after closing; close all its windows and try again in a few minutes",
+        "removeFailed": "Not removed from the shelf: {{reason}}",
+        "fields": {
+            "title": "The title",
+            "description": "The description",
+            "color": "The color",
+            "cover": "The cover"
+        }
+    },
+    "errors": {
+        "unknown-project": "the book is no longer on the shelf",
+        "read-only": "the book's identity file is read-only",
+        "identity-invalid": "the book's identity file cannot be read",
+        "identity-conflict": "the identity in the folder does not match the registry"
+    },
+    "remoteErrors": {
+        "version-changed": "the page and the server are out of sync; reload the page",
+        "unavailable": "the server is temporarily unavailable"
+    },
+    "format": {
+        "words_one": "{{count, number}} word",
+        "words_other": "{{count, number}} words",
+        "wordsTenThousand": "{{amount}}k words",
+        "files_one": "{{count, number}} file",
+        "files_other": "{{count, number}} files",
+        "books_one": "{{count, number}} book",
+        "books_other": "{{count, number}} books",
+        "today": "{{amount}} today",
+        "todayAt": "Today {{time}}",
+        "yesterdayAt": "Yesterday {{time}}"
+    },
+    "welcome": {
+        "chapterName": "New Chapter",
+        "createFailed": "Could not create a chapter: {{reason}}",
+        "openFailed": "Created {{name}}, but could not open it: {{reason}}"
+    },
+    "bookCard": {
+        "more": "More Actions",
+        "openNewWindow": "Open in New Window",
+        "edit": "Edit Info",
+        "remove": "Remove from Shelf",
+        "running": "Open",
+        "none": "Not counted yet",
+        "noDescription": "No description yet",
+        "stale": "Counted {{when}}",
+        "counting": "Counting"
+    },
+    "bookshelfHost": {
+        "removeTitle": "Remove “{{title}}” from the shelf?",
+        "removeDescription": "Only the registration is removed; the folder and its files stay. You can add it back later.",
+        "remove": "Remove",
+        "cancel": "Cancel"
+    },
+    "bookshelfPage": {
+        "brand": "Study",
+        "settings": "Settings",
+        "profile": "Profile is not available yet",
+        "shelf": "Bookshelf",
+        "count_one": "{{count}} book",
+        "count_other": "{{count}} books",
+        "view": "View",
+        "cards": "Cards",
+        "list": "List",
+        "sort": "Sort",
+        "recent": "Recently Edited",
+        "title": "Title",
+        "words": "Word Count",
+        "create": "New Book",
+        "addExisting": "Open Existing…",
+        "retry": "Retry",
+        "loading": "Loading the bookshelf…"
+    },
+    "pathPicker": {
+        "projectTitle": "Open an Existing Book",
+        "projectHint": "A book folder has a .nbook directory inside; any other folder can be registered as a new book.",
+        "directoryTitle": "Choose the Library Folder",
+        "directoryHint": "New books are created inside this folder; it is created on first use if missing.",
+        "typePath": "Type a path",
+        "pathPlaceholder": "Directory path, Enter to go; ~ is accepted",
+        "registered": "Already on the shelf",
+        "project": "Book",
+        "projectTitled": "Book · {{title}}",
+        "empty": "No subfolders here",
+        "up": "Up",
+        "selectedProject": "Selected {{name}} · {{title}}",
+        "selected": "Selected {{name}}",
+        "current": "Use this folder: {{path}}",
+        "none": "Choose a folder",
+        "cancel": "Cancel",
+        "add": "Add to Shelf",
+        "choose": "Choose",
+        "info": "About"
+    },
+    "projectInfo": {
+        "createTitle": "New Book",
+        "editTitle": "Edit Book Info",
+        "title": "Title",
+        "description": "Description",
+        "descriptionPlaceholder": "A sentence or two, shown on the shelf",
+        "color": "Color",
+        "colorHint": "Used for the typeset cover when there is no image, and as the color mark in lists.",
+        "auto": "Auto",
+        "custom": "Custom",
+        "location": "Save to",
+        "locationHint": "A book is a folder created inside this directory and named after the title; the directory is created if missing.",
+        "browse": "Browse…",
+        "uploadCover": "Upload cover…",
+        "replaceCover": "Replace cover…",
+        "removeCover": "Remove cover",
+        "coverHint": "PNG, JPEG or WebP up to 5 MB; without one, a cover is typeset from the title and color.",
+        "coverTooLarge": "The cover must be at most 5 MB",
+        "coverType": "Only PNG, JPEG or WebP",
+        "create": "Create",
+        "save": "Save",
+        "cancel": "Cancel",
+        "coverInfo": "About covers",
+        "colorInfo": "About the color",
+        "locationInfo": "About the location"
+    },
+    "shelfCards": {
+        "label": "Bookshelf",
+        "create": "New Book",
+        "createText": "Give it a title and NeuroBook creates a folder for it in your library.",
+        "createWhere": "In {{library}}",
+        "open": "Open an Existing Book",
+        "openText": "Add a book folder you already have, for example one synced from another computer.",
+        "openWhere": "Choose a folder"
+    },
+    "shelfDesk": {
+        "label": "Desk",
+        "todayLabel": "words today",
+        "totalLabel": "words in all",
+        "total": "{{words}} in total",
+        "continueBook": "Continue “{{title}}”",
+        "recent": "Recently Written",
+        "noRecord": "Open a book and write a little; what you wrote last shows up here.",
+        "emptyTitle": "The shelf is empty",
+        "emptyLead": "In NeuroBook a book is a folder on your computer: chapters and notes are Markdown files inside it, so you can back it up, sync it, or open it in any editor."
+    },
+    "shelfList": {
+        "label": "Books",
+        "create": "New Book",
+        "more": "More Actions",
+        "openNewWindow": "Open in New Window",
+        "edit": "Edit Info",
+        "remove": "Remove from Shelf",
+        "running": "Open",
+        "none": "Not counted yet",
+        "stale": "Counted {{when}}",
+        "counting": "Counting"
+    },
+    "welcomePage": {
+        "noProject": "No work is open",
+        "noDescription": "No description yet",
+        "none": "Not counted yet",
+        "stale": "Counted {{when}}",
+        "start": "Start",
+        "newChapter": "New Chapter",
+        "open": "Open {{name}}",
+        "shelf": "Back to Bookshelf",
+        "recent": "Recent",
+        "noRecent": "No files opened yet",
+        "intro": "Getting Started",
+        "tipFiles": "Chapters are Markdown files in the work's folder; create, rename and drag them in the explorer on the left.",
+        "tipCommands": "opens the command palette, where every action can be found.",
+        "tipCommandsPlain": "Every action can be found in the command palette.",
+        "tipLayout": "The three switches at the top right open the sidebar, the bottom panel and the right sidebar, where plugin views appear."
+    },
+    "worksSettings": {
+        "change": "Change…",
+        "defaultMark": " (default)",
+        "defaultUnknown": "Could not read the default folder"
+    }
+}

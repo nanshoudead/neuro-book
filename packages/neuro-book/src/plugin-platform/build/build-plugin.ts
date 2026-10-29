@@ -9,6 +9,8 @@
  * - `package.json` 给 `publisher`、`name`、`version`，可选 `displayName`、`description`、`license`、`engines.<引擎键>`（缺省取
  *   `^<产品版本>`）、`pluginVersions`，以及 `<档案的 authorField>.definitions`（入口定义模块，缺省 `backend/plugin.ts`、
  *   `web/plugin.ts` 里存在的）；
+ * - 要带消息目录时，`package.json` 写 `l10n.source`（源语言），目录放在 `locales/<语言>.json`，语言列表由这些文件得出；
+ *   这时显示名与说明写在源语言目录的 `manifest.displayName`、`manifest.description`，不写在 `package.json`（目录是唯一的来源）；
  * - `plugin.ts` 导出插件描述 `descriptor`，id 是 `<publisher>.<name>`、版本与 `package.json` 相同；
  * - 每个入口定义模块导出一个或多个 `PluginDefinition`，与内置插件同一写法。模块顶层会在构建时执行一次（为了读出声明）。
  *   入口模块存在却没有导出任何插件定义时构建失败：多半是忘了 `export`。
@@ -20,7 +22,8 @@
  *   服务端与项目入口是 ESM；浏览器入口包成登记工厂并压缩，脚本执行时调用宿主的 `register`，每次激活宿主调用一次工厂。
  *   插件自己的动态导入都内联进这个文件，共享模块的动态导入在浏览器产物里也经工厂的 `require` 取；
  * - `style.css`：各入口的样式合并后包进 `@layer components`，加上插件用到的 Lucide 图标的规则（宿主只为自己源码里出现过的
- *   图标类生成规则）。
+ *   图标类生成规则）；
+ * - `locales/<语言>.json`：作者的消息目录原样复制，先按与安装相同的规则检查（docs/specs/runtime/plugin-manifest.md 的 `l10n`）。
  *
  * 共享模块（档案的 `sharedModules`）留作外部引用；纯度检查按打包器的模块图核对：打进了宿主那一份 Vue（`vue`、
  * `@vue/reactivity`、`@vue/runtime-*`）或档案列出的宿主包的实现就失败，外部引用（静态与动态导入）不在宿主模块表里也失败
@@ -34,7 +37,8 @@ import {stripVTControlCharacters} from "node:util";
 import {basename, dirname, isAbsolute, join, relative, resolve, sep} from "node:path";
 import {fileURLToPath} from "node:url";
 
-import type {ManifestProblem, ManifestSource} from "@notnotype/nb-runtime/plugin-manifest";
+import {localeTagProblem, parseCatalog} from "@notnotype/nb-runtime/plugin-manifest";
+import type {ManifestL10n, ManifestProblem, ManifestSource, MessageCatalog} from "@notnotype/nb-runtime/plugin-manifest";
 import type {PluginDefinition, PluginDescriptor, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 import {getIconData, iconToHTML, iconToSVG, svgToURL} from "@iconify/utils";
 import vue from "@vitejs/plugin-vue";
@@ -175,6 +179,91 @@ async function readAuthor(root: string): Promise<{readonly author: AuthorPackage
     }
     if (problems.length > 0) throw new PluginBuildError("插件目录的 package.json 不完整", problems);
     return {author: raw as unknown as AuthorPackage, raw};
+}
+
+/** 作者目录里的消息目录：清单的 `l10n`、要原样复制的文件，与从源语言目录摘出的显示名和说明。 */
+interface AuthorCatalogs {
+    readonly l10n: ManifestL10n;
+    readonly files: ReadonlyArray<{readonly tag: string; readonly text: string}>;
+    readonly displayName?: string;
+    readonly description?: string;
+}
+
+const LOCALES_DIR = "locales";
+
+/** 源语言目录里 `manifest.<field>` 的文字；没写为 undefined，写成了嵌套对象时记一条问题。 */
+function manifestText(catalog: MessageCatalog, field: "displayName" | "description", file: string, problems: ManifestProblem[]): string | undefined {
+    const section = catalog.manifest;
+    if (section === undefined) return undefined;
+    if (typeof section === "string") {
+        problems.push({path: file, message: "manifest 要写成对象（manifest.displayName、manifest.description），这里是字符串"});
+        return undefined;
+    }
+    const value = section[field];
+    if (value === undefined || typeof value === "string") return value;
+    problems.push({path: file, message: `manifest.${field} 要写成字符串`});
+    return undefined;
+}
+
+/**
+ * 读作者的消息目录：没有 `l10n` 也没有 `locales/` 时为 null；规则见文件头的作者合同。`locales/` 里只放 `<语言>.json`，文件名
+ * 要是规范写法的语言标签，内容按 nb-runtime 的目录规则检查；任何一处不合格都让构建失败，写错的目录不能当没写。
+ */
+async function readAuthorCatalogs(root: string, raw: Record<string, unknown>, author: AuthorPackage): Promise<AuthorCatalogs | null> {
+    const field = raw.l10n;
+    const directory = join(root, LOCALES_DIR);
+    const hasDirectory = existsSync(directory);
+    if (field === undefined && !hasDirectory) return null;
+    const fail = (problems: ReadonlyArray<ManifestProblem>): never => {
+        throw new PluginBuildError("Invalid message catalogs", problems);
+    };
+    if (field === undefined) fail([{path: "l10n", message: "有 locales/ 目录时要在 package.json 写 l10n.source（源语言）"}]);
+    if (typeof field !== "object" || field === null || Array.isArray(field) || Object.keys(field).some((key) => key !== "source")) {
+        fail([{path: "l10n", message: "只写 {source: <源语言>}，语言列表由 locales/ 里的文件得出"}]);
+    }
+    const source = (field as {readonly source?: unknown}).source;
+    if (typeof source !== "string") return fail([{path: "l10n.source", message: "要写源语言，例如 zh-CN"}]);
+    const sourceProblem = localeTagProblem(source);
+    if (sourceProblem !== null) fail([{path: "l10n.source", message: sourceProblem}]);
+    if (!hasDirectory) fail([{path: LOCALES_DIR, message: `没有 locales/ 目录：源语言的目录要放在 locales/${source}.json`}]);
+
+    const problems: ManifestProblem[] = [];
+    const files: Array<{readonly tag: string; readonly text: string}> = [];
+    let sourceCatalog: MessageCatalog | null = null;
+    for (const entry of (await readdir(directory, {withFileTypes: true})).sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))) {
+        const file = `${LOCALES_DIR}/${entry.name}`;
+        if (!entry.isFile() || !entry.name.endsWith(".json")) {
+            problems.push({path: file, message: "locales/ 里只放 <语言>.json 文件"});
+            continue;
+        }
+        const tag = entry.name.slice(0, -".json".length);
+        const tagProblem = localeTagProblem(tag);
+        if (tagProblem !== null) {
+            problems.push({path: file, message: `文件名${tagProblem}`});
+            continue;
+        }
+        const text = await readFile(join(directory, entry.name), "utf8");
+        const parsed = parseCatalog(text);
+        if (!parsed.ok) {
+            problems.push(...parsed.problems.map((problem) => ({path: file, message: problem.path === "" ? problem.message : `${problem.path}：${problem.message}`})));
+            continue;
+        }
+        if (tag === source) sourceCatalog = parsed.catalog;
+        files.push({tag, text});
+    }
+    if (!files.some((item) => item.tag === source) && !problems.some((problem) => problem.path === `${LOCALES_DIR}/${source}.json`)) {
+        problems.push({path: LOCALES_DIR, message: `缺少源语言 ${source} 的目录 locales/${source}.json`});
+    }
+    for (const name of ["displayName", "description"] as const) {
+        if (author[name] !== undefined) problems.push({path: name, message: `有消息目录时${name === "displayName" ? "显示名" : "说明"}写在源语言目录的 manifest.${name}，不写在 package.json`});
+    }
+    const sourceFile = `${LOCALES_DIR}/${source}.json`;
+    const displayName = sourceCatalog === null ? undefined : manifestText(sourceCatalog, "displayName", sourceFile, problems);
+    const description = sourceCatalog === null ? undefined : manifestText(sourceCatalog, "description", sourceFile, problems);
+    if (problems.length > 0) fail(problems);
+    // 源语言排在最前，其余按标签排序：生成的清单与产物跨机器一致。
+    const locales = [source, ...files.map((item) => item.tag).filter((tag) => tag !== source)];
+    return {l10n: {source, locales}, files, ...(displayName === undefined ? {} : {displayName}), ...(description === undefined ? {} : {description})};
 }
 
 /**
@@ -506,6 +595,9 @@ export async function buildPlugin(profile: PlatformProfile, options: BuildPlugin
     await prepareOutDir(profile, root, outDir, options.clean === true);
     const {author, raw} = await readAuthor(root);
     const id = `${author.publisher}.${author.name}`;
+    const catalogs = await readAuthorCatalogs(root, raw, author);
+    const displayName = catalogs === null ? author.displayName : catalogs.displayName;
+    const description = catalogs === null ? author.description : catalogs.description;
 
     // 1. 读声明：执行描述与入口定义模块，不调用 activate。
     const definitionFiles = (definitionsField(raw, profile.authorField) ?? DEFAULT_DEFINITIONS.filter((file) => existsSync(join(root, file)))).map((file) => join(root, file));
@@ -556,8 +648,9 @@ export async function buildPlugin(profile: PlatformProfile, options: BuildPlugin
         definitions,
         engine: author.engines?.[profile.format.platform.engine] ?? `^${profile.productVersion}`,
         ...(author.pluginVersions === undefined ? {} : {pluginVersions: author.pluginVersions}),
-        ...(typeof author.displayName === "string" ? {displayName: author.displayName} : {}),
-        ...(typeof author.description === "string" ? {description: author.description} : {}),
+        ...(typeof displayName === "string" ? {displayName} : {}),
+        ...(typeof description === "string" ? {description} : {}),
+        ...(catalogs === null ? {} : {l10n: catalogs.l10n}),
         ...(author.license === undefined ? {} : {license: author.license}),
         mainOf: (entry: PluginEntryDefinition) => `${entry.id}.js`,
     };
@@ -622,6 +715,13 @@ export async function buildPlugin(profile: PlatformProfile, options: BuildPlugin
         if (style !== null) {
             await writeFile(join(outDir, "style.css"), style);
             files.push("style.css");
+        }
+        if (catalogs !== null) {
+            await mkdir(join(outDir, LOCALES_DIR), {recursive: true});
+            for (const {tag, text} of catalogs.files) {
+                await writeFile(join(outDir, LOCALES_DIR, `${tag}.json`), text);
+                files.push(`${LOCALES_DIR}/${tag}.json`);
+            }
         }
         await writeFile(join(outDir, "package.json"), `${JSON.stringify(manifest, null, 4)}\n`);
         files.push("package.json");

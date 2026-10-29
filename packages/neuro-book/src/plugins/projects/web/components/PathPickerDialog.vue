@@ -8,10 +8,8 @@ import {Button, Dialog, Input, IconButton, InfoTip, Tooltip} from "@notnotype/nb
 
 import {computed, nextTick, ref, useId, watch} from "vue";
 
-import {localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
-
 import type {BrowseEntry} from "../../shared/contracts";
+import {useProjectsText} from "../text";
 import {autoBookColor} from "../shelf-format";
 import FileBrowser from "./FileBrowser.vue";
 import type {FileBrowserEntry, FileBrowserSegment} from "./FileBrowser.vue";
@@ -32,7 +30,6 @@ export interface PathPickerSource {
 }
 
 const props = withDefaults(defineProps<{
-    locale: DisplayLocale;
     open: boolean;
     /** `project`：选一部作品（作品目录或普通目录都能选，已在书架上的不能）；`directory`：选一个目录。 */
     mode: "project" | "directory";
@@ -49,29 +46,7 @@ const emit = defineEmits<{
     (event: "cancel"): void;
 }>();
 
-const TEXT = {
-    projectTitle: {"zh-CN": "打开已有作品", "en-US": "Open an Existing Book"},
-    projectHint: {"zh-CN": "作品文件夹里有 .nbook 目录；选别的文件夹也可以，会作为新作品登记。", "en-US": "A book folder has a .nbook directory inside; any other folder can be registered as a new book."},
-    directoryTitle: {"zh-CN": "选择作品目录", "en-US": "Choose the Library Folder"},
-    directoryHint: {"zh-CN": "新建的作品都放在这个目录下；不存在的目录会在新建时建出来。", "en-US": "New books are created inside this folder; it is created on first use if missing."},
-    typePath: {"zh-CN": "输入路径", "en-US": "Type a path"},
-    pathPlaceholder: {"zh-CN": "目录路径，回车进入；认 ~", "en-US": "Directory path, Enter to go; ~ is accepted"},
-    registered: {"zh-CN": "已在书架上", "en-US": "Already on the shelf"},
-    project: {"zh-CN": "作品", "en-US": "Book"},
-    projectTitled: {"zh-CN": "作品 · {title}", "en-US": "Book · {title}"},
-    empty: {"zh-CN": "这里没有子目录", "en-US": "No subfolders here"},
-    up: {"zh-CN": "上一级", "en-US": "Up"},
-    selectedProject: {"zh-CN": "已选 {name} · {title}", "en-US": "Selected {name} · {title}"},
-    selected: {"zh-CN": "已选 {name}", "en-US": "Selected {name}"},
-    current: {"zh-CN": "用这个目录：{path}", "en-US": "Use this folder: {path}"},
-    none: {"zh-CN": "选一个文件夹", "en-US": "Choose a folder"},
-    cancel: {"zh-CN": "取消", "en-US": "Cancel"},
-    add: {"zh-CN": "加入书架", "en-US": "Add to Shelf"},
-    choose: {"zh-CN": "选定", "en-US": "Choose"},
-    info: {"zh-CN": "说明", "en-US": "About"},
-} satisfies Record<string, LocalizedText>;
-
-const text = (value: LocalizedText): string => localize(value, props.locale);
+const text = useProjectsText();
 
 const listing = ref<PathPickerListing | null>(null);
 const loading = ref(false);
@@ -134,8 +109,8 @@ const entries = computed<FileBrowserEntry[]>(() => (listing.value?.entries ?? []
     id: entry.path,
     name: entry.name,
     kind: "directory",
-    ...(entry.kind === "registered" ? {badge: text(TEXT.registered), disabled: props.mode === "project"} : {}),
-    ...(entry.kind === "project" ? {badge: entry.title === null ? text(TEXT.project) : text(TEXT.projectTitled).replace("{title}", entry.title), badgeTone: "accent" as const, swatch: autoBookColor(entry.path)} : {}),
+    ...(entry.kind === "registered" ? {badge: text("pathPicker.registered"), disabled: props.mode === "project"} : {}),
+    ...(entry.kind === "project" ? {badge: entry.title === null ? text("pathPicker.project") : text("pathPicker.projectTitled", {title: entry.title}), badgeTone: "accent" as const, swatch: autoBookColor(entry.path)} : {}),
 })));
 
 const selectedEntry = computed(() => listing.value?.entries.find((entry) => entry.path === selectedId.value) ?? null);
@@ -143,9 +118,9 @@ const selectedEntry = computed(() => listing.value?.entries.find((entry) => entr
 const chosenPath = computed(() => selectedEntry.value?.path ?? (props.mode === "directory" ? listing.value?.path ?? null : null));
 const summary = computed(() => {
     const entry = selectedEntry.value;
-    if (entry !== null) return entry.kind === "project" && entry.title !== null ? text(TEXT.selectedProject).replace("{name}", entry.name).replace("{title}", entry.title) : text(TEXT.selected).replace("{name}", entry.name);
-    if (props.mode === "directory" && listing.value !== null) return text(TEXT.current).replace("{path}", listing.value.path);
-    return text(TEXT.none);
+    if (entry !== null) return entry.kind === "project" && entry.title !== null ? text("pathPicker.selectedProject", {name: entry.name, title: entry.title}) : text("pathPicker.selected", {name: entry.name});
+    if (props.mode === "directory" && listing.value !== null) return text("pathPicker.current", {path: listing.value.path});
+    return text("pathPicker.none");
 });
 
 function navigate(path: string): void {
@@ -192,7 +167,7 @@ function activate(path: string): void {
 <template>
     <Dialog
         :model-value="open"
-        :title="text(mode === 'project' ? TEXT.projectTitle : TEXT.directoryTitle)"
+        :title="text(mode === 'project' ? 'pathPicker.projectTitle' : 'pathPicker.directoryTitle')"
         size="md"
         :width="640"
         :busy="busy"
@@ -201,12 +176,12 @@ function activate(path: string): void {
         @request-close="emit('cancel')"
     >
         <template #header-extra>
-            <InfoTip :text="text(mode === 'project' ? TEXT.projectHint : TEXT.directoryHint)" :label="text(TEXT.info)" placement="bottom" data-path-picker-info />
+            <InfoTip :text="text(mode === 'project' ? 'pathPicker.projectHint' : 'pathPicker.directoryHint')" :label="text('pathPicker.info')" placement="bottom" data-path-picker-info />
         </template>
         <div class="path-picker" data-path-picker>
             <div v-if="typing" class="path-picker__typing">
-                <Input :id="inputId" v-model="typed" size="sm" :placeholder="text(TEXT.pathPlaceholder)" data-path-picker-input @keydown.enter.prevent="submitTyped" @keydown.esc.prevent="typing = false" />
-                <Button size="sm" variant="secondary" @click="submitTyped">{{ text(TEXT.typePath) }}</Button>
+                <Input :id="inputId" v-model="typed" size="sm" :placeholder="text('pathPicker.pathPlaceholder')" data-path-picker-input @keydown.enter.prevent="submitTyped" @keydown.esc.prevent="typing = false" />
+                <Button size="sm" variant="secondary" @click="submitTyped">{{ text('pathPicker.typePath') }}</Button>
             </div>
             <FileBrowser
                 v-model:selected-id="selectedId"
@@ -214,9 +189,9 @@ function activate(path: string): void {
                 :entries="entries"
                 :loading="loading"
                 :error="loadError"
-                :empty-text="text(TEXT.empty)"
-                :up-label="text(TEXT.up)"
-                :label="text(mode === 'project' ? TEXT.projectTitle : TEXT.directoryTitle)"
+                :empty-text="text('pathPicker.empty')"
+                :up-label="text('pathPicker.up')"
+                :label="text(mode === 'project' ? 'pathPicker.projectTitle' : 'pathPicker.directoryTitle')"
                 class="path-picker__browser"
                 @navigate="activate"
                 @up="up"
@@ -227,11 +202,11 @@ function activate(path: string): void {
             <span data-path-picker-summary>{{ summary }}</span>
         </template>
         <template #footer>
-            <Tooltip :text="text(TEXT.typePath)" placement="top">
-                <IconButton size="sm" icon-class="i-lucide-keyboard" :aria-label="text(TEXT.typePath)" data-path-picker-type @click="startTyping" />
+            <Tooltip :text="text('pathPicker.typePath')" placement="top">
+                <IconButton size="sm" icon-class="i-lucide-keyboard" :aria-label="text('pathPicker.typePath')" data-path-picker-type @click="startTyping" />
             </Tooltip>
-            <Button variant="secondary" :disabled="busy" @click="emit('cancel')">{{ text(TEXT.cancel) }}</Button>
-            <Button variant="primary" :disabled="chosenPath === null" :loading="busy" data-path-picker-confirm @click="confirm">{{ text(mode === "project" ? TEXT.add : TEXT.choose) }}</Button>
+            <Button variant="secondary" :disabled="busy" @click="emit('cancel')">{{ text('pathPicker.cancel') }}</Button>
+            <Button variant="primary" :disabled="chosenPath === null" :loading="busy" data-path-picker-confirm @click="confirm">{{ text(mode === "project" ? 'pathPicker.add' : 'pathPicker.choose') }}</Button>
         </template>
     </Dialog>
 </template>

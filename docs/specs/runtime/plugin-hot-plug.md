@@ -69,11 +69,11 @@ owners:
 6. **窗口同步。** 服务端经远程服务的订阅（[远程服务与 RPC 协议](plugin-channel.md)）把插件集合变化推送到所有窗口；每个窗口按同样的依赖逆序停止、按依赖顺序启动自己的浏览器入口，视图组件由 workbench 在撤回时卸载。离线窗口重连后按当时的插件集合对齐。
 7. **开发模式检查。** 入口停止后，用弱引用确认其激活上下文已被回收，未回收时报告“插件卸载后仍被引用”；跨插件调用的参数与结果做一次结构化克隆，提前暴露传递活对象的违规。检查只在开发模式运行，不改变生产行为。
 8. **Markdown 方言集合变化。** 贡献了 Markdown 方言的插件被禁用或启用时：已打开的 Markdown 编辑器实例与展示器不随之重建，新的方言集合在它们下一次建立时生效（[workspace.markdown-syntaxes](../workspace/markdown-syntaxes.md) 输出 7）；项目进程里的方言声明表按新的插件集合重算，书架统计整轮重扫、今天的基线按新口径重定（[runtime.projects](projects.md) 输出 16）。
-9. **安装、卸载与升级即时生效。** 有本能力时，[`runtime.plugin-install`](plugin-install.md) 写入登记表的操作不等重启：安装确认后立即登记并按激活事件激活，声明层在服务端与所有窗口出现；卸载先给出影响预览（与禁用相同），确认后按禁用流程停止，再执行该 Spec 的删除步骤；升级见第 10 条。插件管理界面不再提示“重启后生效”。
+9. **安装、卸载与升级即时生效。** 有本能力时，[`runtime.plugin-install`](plugin-install.md) 写入登记表的操作不等重启：安装确认后立即登记并按激活事件激活，声明层在服务端与所有窗口出现，插件的消息目录随之登记进各窗口的翻译引擎；卸载先给出影响预览（与禁用相同），确认后按禁用流程停止，再执行该 Spec 的删除步骤；升级见第 10 条。插件管理界面不再提示“重启后生效”。
 10. **热升级。** 有本能力时，[`runtime.plugin-install`](plugin-install.md) 的升级不等重启，按下列步骤在运行中切换；升级的输入、校验与持久格式仍按该 Spec。升级保持插件原来的用户状态：已禁用的插件只验证并提交新版本，不停止、不激活任何入口，也不恢复它的依赖者，登记成功即判定升级成功；下列步骤只对已启用的插件。
     1. **准备：** 新版本复制到自己的版本目录，与旧版本并存；校验清单与 `engines.neurobook`。依赖它的插件如果在 `pluginVersions` 中声明的范围不接受新版本，列出这些插件，由用户确认升级后它们受阻。版本低于已安装版本时，确认界面另外提示降级可能遇到新版本已迁移过的数据。
     2. **切换：** 旧版本的入口执行三步停止（升级内部的停止，不写用户状态），依赖它的入口先停；登记新版本。旧版本的入口原先已激活的，新版本的对应入口立即激活，否则只登记；依赖者重新激活，取得新版本的导出 API。确认界面提示依赖者会短暂停止、在途调用会被中断。
-    3. **两端同步：** 服务端经插件集合变化事件通知所有窗口；窗口停止旧的浏览器入口、注销旧代码、加载新版本，页面不刷新。切换瞬间的在途通道请求由版本校验兜住（[`runtime.plugin-channel`](plugin-channel.md)）。
+    3. **两端同步：** 服务端经插件集合变化事件通知所有窗口；窗口停止旧的浏览器入口、注销旧代码、加载新版本，页面不刷新。插件写了 `l10n` 时，窗口在登记新版本之前按新版本的内容摘要取它的消息目录，整体替换这个插件命名空间下的目录（[`runtime.browser-host`](browser-host.md) 输出 8）；取不到的语言成为本窗口的目录问题，不触发回滚。没有本能力时，升级后的新目录随重启生效。切换瞬间的在途通道请求由版本校验兜住（[`runtime.plugin-channel`](plugin-channel.md)）。
     4. **成功判定与失败回滚：** 升级只在服务端判定。成功的条件是：新版本登记成功；旧版本中已激活、且新版本中仍有同一入口 id 的服务端入口全部激活成功；新版本声明 `onStartup` 的服务端入口全部激活成功。任一条件不满足时自动切回旧版本并报告原因。
        - 新版本删除了旧版本的某个入口是允许的，依赖该入口所提供服务的入口随之受阻，这在影响预览中列出。
        - 浏览器入口在某个窗口中加载或激活失败，不触发回滚，按窗口失败呈现；只有浏览器入口的插件在登记成功时即判定升级成功。离线窗口不参与判定，重连后对齐。
@@ -153,4 +153,4 @@ Smoke：在真实服务端与 Chromium 上用示例外部插件（两端入口�
 
 ## 证据
 
-- 批准依据：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P1 第 4 至 6、9 项与 P11（2026-09-29 批准运行期即时生效，2026-09-30 确认热插拔三档、引用账本、三步停止）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 1 条。热升级（输出 10，场景 12、13）与即时生效的安装、卸载（输出 9）原在 `runtime.plugin-install`，开发者 2026-10-17 决定安装类操作先在下一次启动生效后移入本能力（[w00027 t01 实施计划](../../../.agents/works/w00027-plugin-platform/tasks/t01-requirements/plan.md)）；[t26 同线程卸载与看门狗实验](../../../.agents/works/w00017-application-runtime-architecture/tasks/t26-platform-architecture-redesign/evidences/inproc-probe/output.txt)；等待上限 5 秒与中止宽限 2 秒由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文。
+- 批准依据：消息目录随热插拔在线替换、此前随重启生效依据[《界面文字的消息目录》](../../proposals/i18n-message-catalogs.md)（2026-10-27 接受）；[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P1 第 4 至 6、9 项与 P11（2026-09-29 批准运行期即时生效，2026-09-30 确认热插拔三档、引用账本、三步停止）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 1 条。热升级（输出 10，场景 12、13）与即时生效的安装、卸载（输出 9）原在 `runtime.plugin-install`，开发者 2026-10-17 决定安装类操作先在下一次启动生效后移入本能力（[w00027 t01 实施计划](../../../.agents/works/w00027-plugin-platform/tasks/t01-requirements/plan.md)）；[t26 同线程卸载与看门狗实验](../../../.agents/works/w00017-application-runtime-architecture/tasks/t26-platform-architecture-redesign/evidences/inproc-probe/output.txt)；等待上限 5 秒与中止宽限 2 秒由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文。

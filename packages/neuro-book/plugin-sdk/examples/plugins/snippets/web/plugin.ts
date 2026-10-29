@@ -20,7 +20,7 @@
 import {settingsKey} from "@notnotype/nb-plugin-sdk/settings";
 import {settingsPage} from "@notnotype/nb-plugin-sdk/settings/browser";
 
-import {plugin, SNIPPETS_PAGE} from "../shared/contracts";
+import {plugin, SNIPPETS_PAGE, text} from "../shared/contracts";
 
 /**
  * 分区的声明、激活事件与实现由 `settingsPage` 一次给出：只写短名，分区 id 由它拼成 `example.snippets.main`；`category`
@@ -29,8 +29,8 @@ import {plugin, SNIPPETS_PAGE} from "../shared/contracts";
  */
 const page = settingsPage(plugin, {
     name: SNIPPETS_PAGE,
-    title: {"zh-CN": "常用片段", "en-US": "Snippets"},
-    description: {"zh-CN": "写作时常用的固定文字", "en-US": "Fixed text you insert often"},
+    // `title` 省略：约定键 `settingsPages.main.title`；可选的 `description` 写引用（读法见 `../shared/contracts.ts` 的 `text`）。
+    description: text("settingsPages.main.description"),
     icon: "i-lucide-text-quote",
     layout: "column",
     load: () => import("./SnippetsPage.vue"),

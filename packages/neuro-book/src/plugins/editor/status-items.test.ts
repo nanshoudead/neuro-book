@@ -25,6 +25,8 @@ import type {EditorArea, EditorControlHandle, TextEditorBinding} from "./web/are
 import {editorStateValues} from "./web/state";
 import {CURSOR_ITEM, editorStatusItems, LANGUAGE_ITEM, UNSAVED_ITEM, WORD_COUNT_DELAY_MS, WORD_COUNT_ITEM} from "./web/status-items";
 import {CODE_EDITOR} from "./shared/contracts";
+import {editorCatalogs} from "./web/text";
+import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 /** 组的文本绑定（这些用例里的标签都是文本编辑器）；字节绑定或没有绑定为 null。 */
 const textBinding = (area: Pick<EditorArea, "binding">, groupId: string): TextEditorBinding | null => {
@@ -33,6 +35,13 @@ const textBinding = (area: Pick<EditorArea, "binding">, groupId: string): TextEd
 };
 
 /** 语言的显示名（产品里由语言登记表按声明的第一个别名给出，`web/code/languages.ts`）。 */
+/** 窗口同款引擎，登记了编辑器的目录；返回的 `setLocale` 用来切界面语言。 */
+function editorText(locale: "zh-CN" | "en-US" = "zh-CN") {
+    const engine = createHostTextEngine({locale, strict: true});
+    engine.register("nbook.editor", editorCatalogs.catalogs, editorCatalogs.source);
+    return engine;
+}
+
 const LANGUAGE_NAMES = {name: (id: string): string => (id === "python" ? "Python" : id)};
 /** 产品窗口里的方言声明表：内置方言（插件描述的顶层贡献）。 */
 const BUILTIN_TABLE = dialectTable(Object.values(BUILTIN_DIALECTS).map((declaration) => ({declaration})));
@@ -86,7 +95,7 @@ describe("状态栏条目", () => {
         const {scene, area} = await world();
         const ref = shallowRef<EditorArea | null>(area);
         const keys = editorStateValues(ref);
-        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), new ManualClock(), LANGUAGE_NAMES, BUILTIN_TABLE);
+        const items = editorStatusItems(ref, new ManualClock(), LANGUAGE_NAMES, BUILTIN_TABLE, editorText().port);
         await opened(scene, area, "project://a.md");
         expect(keys.hasUnsavedDocuments.value).toBe(false);
         type(area, "改过的第一章");
@@ -106,7 +115,7 @@ describe("状态栏条目", () => {
     it("保存失败的文档让条目进入错误状态，提示写明是哪个文件与原因", async () => {
         const {scene, area} = await world();
         const ref = shallowRef<EditorArea | null>(area);
-        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), new ManualClock(), LANGUAGE_NAMES, BUILTIN_TABLE);
+        const items = editorStatusItems(ref, new ManualClock(), LANGUAGE_NAMES, BUILTIN_TABLE, editorText().port);
         await opened(scene, area, "project://b.md");
         type(area, "改过的 B");
         // 目录只读：保存写不进去（原子替换要在目录里建临时文件）。
@@ -123,9 +132,9 @@ describe("状态栏条目", () => {
     it("字数取活动文档当前的正文，frontmatter 不计；输入时停手到点才更新，期间反复求值不推迟它；英文界面写 words", async () => {
         const {scene, area} = await world();
         const ref = shallowRef<EditorArea | null>(area);
-        const locale = shallowRef<"zh-CN" | "en-US">("zh-CN");
+        const engine = editorText();
         const clock = new ManualClock();
-        const items = editorStatusItems(ref, computed(() => locale.value), clock, LANGUAGE_NAMES, BUILTIN_TABLE);
+        const items = editorStatusItems(ref, clock, LANGUAGE_NAMES, BUILTIN_TABLE, engine.port);
         const words = (): string => items[WORD_COUNT_ITEM]!.text();
         // 状态栏经响应式求值显示：到点算完要能让它重新求值。
         const shownWords = computed(() => items[WORD_COUNT_ITEM]!.text());
@@ -146,7 +155,7 @@ describe("状态栏条目", () => {
         expect(shownWords.value).toBe("3 字");
         clock.advance(WORD_COUNT_DELAY_MS - 297);
         expect(shownWords.value).toBe("5 字");
-        locale.value = "en-US";
+        engine.setLocale("en-US");
         expect(shownWords.value).toBe("5 words");
     });
 
@@ -154,7 +163,7 @@ describe("状态栏条目", () => {
         const {scene, area} = await world();
         const ref = shallowRef<EditorArea | null>(area);
         const clock = new ManualClock();
-        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), clock, LANGUAGE_NAMES, BUILTIN_TABLE);
+        const items = editorStatusItems(ref, clock, LANGUAGE_NAMES, BUILTIN_TABLE, editorText().port);
         const words = (): string => items[WORD_COUNT_ITEM]!.text();
         await opened(scene, area, "project://a.md");
         expect(words()).toBe("3 字");
@@ -170,7 +179,7 @@ describe("状态栏条目", () => {
         const {scene, area} = await world();
         const ref = shallowRef<EditorArea | null>(area);
         const clock = new ManualClock();
-        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), clock, LANGUAGE_NAMES, BUILTIN_TABLE);
+        const items = editorStatusItems(ref, clock, LANGUAGE_NAMES, BUILTIN_TABLE, editorText().port);
         const shownWords = computed(() => items[WORD_COUNT_ITEM]!.text());
         await opened(scene, area, "project://a.md");
         expect(shownWords.value).toBe("3 字");
@@ -191,7 +200,7 @@ describe("状态栏条目", () => {
         const {scene, area} = await world();
         const ref = shallowRef<EditorArea | null>(area);
         const keys = editorStateValues(ref);
-        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), new ManualClock(), LANGUAGE_NAMES, BUILTIN_TABLE);
+        const items = editorStatusItems(ref, new ManualClock(), LANGUAGE_NAMES, BUILTIN_TABLE, editorText().port);
         await opened(scene, area, "project://c.json");
         const position = shallowRef<{line: number; column: number} | null>({line: 18, column: 4});
         const withPosition: EditorControlHandle = {focus: () => undefined, flushPendingChange: () => undefined, position};
@@ -208,7 +217,7 @@ describe("状态栏条目", () => {
         const {scene, area} = await world();
         const ref = shallowRef<EditorArea | null>(area);
         const keys = editorStateValues(ref);
-        const items = editorStatusItems(ref, computed(() => "zh-CN" as const), new ManualClock(), LANGUAGE_NAMES, BUILTIN_TABLE);
+        const items = editorStatusItems(ref, new ManualClock(), LANGUAGE_NAMES, BUILTIN_TABLE, editorText().port);
         await opened(scene, area, "project://c.json");
         const language = shallowRef<string | null>("python");
         area.registerHandle(area.groups.activeGroup.value, CODE_EDITOR, {focus: () => undefined, flushPendingChange: () => undefined, language});

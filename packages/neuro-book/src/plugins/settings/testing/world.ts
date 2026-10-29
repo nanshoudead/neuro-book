@@ -24,6 +24,8 @@ import type {QuickPick} from "nbook/plugins/workbench/shared/contracts";
 import {clockKey, stateRootKey, windowConnectionKey, windowNavigationKey} from "nbook/shared/host";
 import type {WindowConnection, WindowConnectionState, WindowNavigation} from "nbook/shared/host";
 import {currentProjectKey, windowProjectKey} from "nbook/shared/projects";
+import {windowTextKey} from "nbook/shared/window-text-key";
+import type {WindowText} from "nbook/shared/window-text-key";
 
 import {settingsBackendPlugin} from "../backend/plugin";
 import {descriptor} from "../plugin";
@@ -46,11 +48,12 @@ export interface SettingsWorld {
     project(generation: number, plugins: ReadonlyArray<PluginDefinition>): Promise<Application>;
     /**
      * `connected: false`：链路建好后、实例激活前就断开（首次订阅失败）。`quickPick`：给窗口一个选择服务，并装上带
-     * “切换界面语言”入口的完整 `nbook.settings`（产品里选择服务由工作台提供）。`wrapLink`：包住窗口这一端的链路（每次
+     * “切换界面语言”入口的完整 `nbook.settings`（产品里选择服务由工作台提供）。`text`：给窗口一个翻译引擎（产品里是宿主在每个窗口建的），命令失败原因等要经它解析目录文字；不给时窗口没有引擎，
+     * `TextRef` 显示键名。`wrapLink`：包住窗口这一端的链路（每次
      * 连接与重连都包），测试据此观察发出的请求或推迟结果的交付。`settingsEntries`：给窗口里的 `nbook.settings` 另加入口
      * （产品里设置窗口是本插件的另一个入口），测试据此以 `nbook.settings` 自己的身份调用。
      */
-    window(id: string, plugins: ReadonlyArray<PluginDefinition>, options?: {readonly bound?: boolean; readonly connected?: boolean; readonly quickPick?: QuickPick; readonly wrapLink?: (link: RemoteLink) => RemoteLink; readonly settingsEntries?: ReadonlyArray<PluginEntryDefinition>}): Promise<WorldWindow>;
+    window(id: string, plugins: ReadonlyArray<PluginDefinition>, options?: {readonly bound?: boolean; readonly connected?: boolean; readonly quickPick?: QuickPick; readonly text?: WindowText; readonly wrapLink?: (link: RemoteLink) => RemoteLink; readonly settingsEntries?: ReadonlyArray<PluginEntryDefinition>}): Promise<WorldWindow>;
     close(): Promise<ReadonlyArray<StopResult>>;
 }
 
@@ -170,6 +173,7 @@ export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<Plug
                         {id: "window.navigation", key: windowNavigationKey, create: () => NO_NAVIGATION},
                         {id: "clock", key: clockKey, create: () => clock},
                         ...(windowOptions.quickPick === undefined ? [] : [{id: "test.quick-pick", key: quickPickKey, create: () => windowOptions.quickPick!}]),
+                        ...(windowOptions.text === undefined ? [] : [{id: "test.window-text", key: windowTextKey, create: () => windowOptions.text!}]),
                     ],
                     plugins: [diagnosticsFor("browser", id), definitionAt("browser", descriptor, {...settings, entries: [...settings.entries, ...(windowOptions.settingsEntries ?? [])]}), ...plugins],
                     gates: [],

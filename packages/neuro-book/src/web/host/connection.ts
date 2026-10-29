@@ -1,6 +1,6 @@
 /**
- * 连接对象：窗口与服务端之间唯一的通信出口（runtime.browser-host 可分离的边界 1）：引导请求，与内核 RPC 端口上的
- * 远程服务链路。服务端地址由装配方给出，页面里是 `location.origin`；RPC 地址用同一个主机名与协议、引导给出的端口，
+ * 连接对象：窗口与服务端之间唯一的通信出口（runtime.browser-host 可分离的边界 1）：引导请求、消息目录，与内核 RPC
+ * 端口上的远程服务链路。服务端地址由装配方给出，页面里是 `location.origin`；RPC 地址用同一个主机名与协议、引导给出的端口，
  * 使浏览器发出的 Origin 与页面一致。
  */
 
@@ -35,6 +35,11 @@ export interface Connection {
     bootstrap(project?: string | null): Promise<unknown>;
     /** 连接内核 RPC 端口，WebSocket 打开时完成；没能打开时抛 ConnectionError。之后的断开经链路的 `onClose` 通知。 */
     openRemote(endpoint: RpcEndpoint): Promise<RemoteLink>;
+    /**
+     * 取一份消息目录文件的正文；`path` 是引导目录索引给的前缀加 `<语言>.json`（以 `/` 开头，相对服务端地址）。内容由窗口检查。
+     * 网络失败或非 2xx 时抛 ConnectionError，404 时 `status` 为 404。
+     */
+    catalog(path: string): Promise<string>;
 }
 
 export function createConnection(baseUrl: string): Connection {
@@ -66,6 +71,21 @@ export function createConnection(baseUrl: string): Connection {
                 link.closed();
             });
             return promise;
+        },
+        async catalog(path) {
+            let response: Response;
+            try {
+                // 地址带内容摘要，内容不变：照常走浏览器缓存。
+                response = await fetch(new URL(path, base), {headers: {accept: "application/json"}});
+            } catch (error) {
+                throw new ConnectionError("无法连接服务端", null, {cause: error});
+            }
+            if (!response.ok) throw new ConnectionError(`取不到消息目录（HTTP ${String(response.status)}${await errorCode(response)}）`, response.status);
+            try {
+                return await response.text();
+            } catch (error) {
+                throw new ConnectionError("读消息目录的响应失败", response.status, {cause: error});
+            }
         },
         async bootstrap(project) {
             const target = new URL(url);

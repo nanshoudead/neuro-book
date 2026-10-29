@@ -18,6 +18,7 @@ import type {Layout, Scene} from "nbook/plugins/files/testing/scene";
 import {createLinkTap} from "nbook/plugins/files/testing/tap";
 import type {LinkTap} from "nbook/plugins/files/testing/tap";
 
+import {editorTestText} from "./testing/text";
 import {createDocumentStore, EMPTY_HASH} from "./web/documents/store";
 import type {DocumentStore, StoreEvent, TextDocument} from "./web/documents/store";
 
@@ -186,7 +187,13 @@ describe("Spec workbench.editor 输出 61：写不出", () => {
         expect(at.store.coordinator.affected(["project://"])).toEqual([{address: "project://a.md", state: "unrepresentable"}]);
         expect(await at.store.coordinator.begin(["project://a.md"])).toEqual({ok: false, reason: "blocked", documents: [{address: "project://a.md", state: "unrepresentable"}]});
         expect(await at.store.coordinator.save(["project://"])).toEqual([{address: "project://a.md", ok: false, code: "unrepresentable"}]);
-        expect(at.store.rescue()).toEqual([{path: "project://a.md", text: "A（纯文字）", note: expect.any(String)}]);
+        const rescued = at.store.rescue();
+        expect(rescued).toMatchObject([{path: "project://a.md", text: "A（纯文字）"}]);
+        expect(rescued).toHaveLength(1);
+        const note = rescued[0]?.note;
+        if (note === undefined) throw new Error("写不出的视图交出的正文没有说明");
+        expect(editorTestText("zh-CN").t(note)).toBe("这个视图有写不回 Markdown 的块，那些块只留下了文字（格式丢了）");
+        expect(editorTestText("en-US").t(note)).toBe("This view has blocks that cannot be written back as Markdown; only their text was kept (the formatting is lost)");
 
         expect(at.store.commit(document, "v2", document.revision.value, "A（另一视图）")).toMatchObject({status: "accepted"});
         expect(document.blocked.value.has("v1")).toBe(true);

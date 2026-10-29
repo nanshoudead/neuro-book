@@ -94,8 +94,8 @@ async function idle(stage: Stage): Promise<void> {
     });
 }
 
-/** 状态栏条目此刻的文字；条目还没交到时为 null。 */
-const status = (workbench: WorkbenchStandIn): string | null => workbench.item(FOCUS_ITEM)?.text() ?? null;
+/** 状态栏条目此刻的文字（这个示例给的是字符串）；条目还没交到时为 null。 */
+const status = (workbench: WorkbenchStandIn): unknown => workbench.item(FOCUS_ITEM)?.text() ?? null;
 
 describe("场景 7：专注计时", () => {
     it("命令开始一次专注，时长取设置项；到点服务端结算并推送，状态栏从剩余时间变成今天的个数；之后不再占计时器", async () => {

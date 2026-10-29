@@ -1,5 +1,5 @@
 ---
-标签: []
+标签: [state:inject]
 ---
 
 # Notification
@@ -28,7 +28,7 @@ interface NotificationProps {
     dismissible?: boolean;
     /** 动作按钮文字；可选，默认空字符串 */
     actionLabel?: string;
-    /** 关闭按钮的可访问名称及 title；可选，默认 "关闭通知" */
+    /** 关闭按钮的可访问名称及 title；可选，缺省按界面语言取（中文 "关闭通知"） */
     closeLabel?: string;
     /** 进度（0 到 100）；null 为不确定进度；不给就没有进度条 */
     progress?: number | null;
@@ -52,3 +52,7 @@ interface NotificationSlots {
 ```
 
 所有 props 均为显示配置而非受控通知状态。未提供插槽时分别回退到 `title`、`message`、`actionLabel`；插槽优先于对应文字。`dismiss` 与 `action` 只发事件，父组件负责移除通知或执行动作。组件没有 `expose` API；未声明的 attributes（包括 `class`、`style`）按 Vue 单根节点默认行为落到根 `div`。
+
+## 隐藏通道理由
+
+`state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取关闭按钮的缺省可访问名称，以及不确定进度条的取值文字，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `closeLabel` 时以属性为准，不读端口。进度条的取值文字没有对应的属性，固定走端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。

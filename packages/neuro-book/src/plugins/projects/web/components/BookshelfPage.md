@@ -1,5 +1,5 @@
 ---
-标签: []
+标签: [state:inject]
 别名: ["书架页", "书房"]
 ---
 
@@ -17,7 +17,6 @@
 
 ```ts
 type Props = {
-    locale: DisplayLocale;
     status: "loading" | "ready" | "error";
     error?: string;
     items: ReadonlyArray<ShelfItem>;
@@ -42,6 +41,10 @@ type Emits = {
 ```
 
 `focusShelf()`（expose）：焦点回到书架（卡片视图的列表框、列表的第一行；书架空了时是“新建作品”）。根节点带 `data-bookshelf-page`；按钮 `data-shelf-create`、`data-shelf-add`、`data-shelf-settings`。
+
+## 隐藏通道理由
+
+`state:inject`：经 `useText()` 取宿主注入的翻译端口，界面文字都在本插件的目录（命名空间 `nbook.projects`，`../../locales/`）；语言随端口切换，不重新挂载。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。
 
 ## 不支持
 

@@ -1,0 +1,347 @@
+{
+    "commands": {
+        "category": "文件",
+        "nbook": {
+            "files": {
+                "new-file": {
+                    "title": "新建文件"
+                },
+                "new-folder": {
+                    "title": "新建文件夹"
+                },
+                "collapse-all": {
+                    "title": "全部收起"
+                },
+                "toggle-manifests": {
+                    "title": "显示清单文件"
+                },
+                "rename": {
+                    "title": "重命名"
+                },
+                "delete": {
+                    "title": "删除"
+                },
+                "create-content": {
+                    "title": "创建内容"
+                },
+                "convert": {
+                    "title": "转换文件夹类型"
+                },
+                "set-display": {
+                    "title": "修改展示名与图标"
+                },
+                "include": {
+                    "title": "加入清单"
+                },
+                "drop-entry": {
+                    "title": "从清单移除"
+                },
+                "move-up": {
+                    "title": "上移"
+                },
+                "move-down": {
+                    "title": "下移"
+                },
+                "copy": {
+                    "title": "复制"
+                },
+                "cut": {
+                    "title": "剪切"
+                },
+                "paste": {
+                    "title": "粘贴"
+                },
+                "clear-cut": {
+                    "title": "清除剪切标记"
+                },
+                "retry-list": {
+                    "title": "重试"
+                },
+                "open": {
+                    "title": "打开"
+                },
+                "open-to-side": {
+                    "title": "在侧边打开"
+                },
+                "copy-path": {
+                    "title": "复制路径"
+                },
+                "copy-relative-path": {
+                    "title": "复制相对路径"
+                },
+                "reveal": {
+                    "title": "在资源管理器中显示"
+                }
+            },
+            "view": {
+                "refresh-files": {
+                    "title": "刷新"
+                }
+            }
+        }
+    },
+    "views": {
+        "nbook": {
+            "explorer": {
+                "title": "资源管理器",
+                "actions": {
+                    "nbook": {
+                        "files": {
+                            "new-file": {
+                                "title": "新建文件"
+                            },
+                            "new-folder": {
+                                "title": "新建文件夹"
+                            },
+                            "collapse-all": {
+                                "title": "全部收起"
+                            },
+                            "toggle-manifests": {
+                                "title": "显示清单文件"
+                            }
+                        },
+                        "view": {
+                            "refresh-files": {
+                                "title": "刷新"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "settingsSections": {
+        "nbook": {
+            "explorer": {
+                "title": "资源管理器",
+                "description": "文件树的显示",
+                "groups": {
+                    "tree": {
+                        "title": "文件树"
+                    }
+                }
+            }
+        }
+    },
+    "settings": {
+        "indentGuides": {
+            "title": "缩进参考线",
+            "description": "每层一条竖线，焦点所在那一层加深",
+            "choices": {
+                "none": {
+                    "title": "不显示"
+                },
+                "hover": {
+                    "title": "悬停时显示"
+                },
+                "always": {
+                    "title": "一直显示"
+                }
+            }
+        },
+        "hideMarkdownExtension": {
+            "title": "隐藏 Markdown 扩展名",
+            "description": "改名时仍显示完整名字"
+        }
+    },
+    "state": {
+        "ready": {
+            "reason": "资源管理器尚未打开"
+        },
+        "canCreate": {
+            "reason": "没有可以新建的位置"
+        },
+        "hasSelection": {
+            "reason": "没有选中资源"
+        },
+        "canPaste": {
+            "reason": "剪贴板为空、没有可以粘贴的位置，或上一次批量的结果未知"
+        },
+        "canReorder": {
+            "reason": "选中的项不能在清单里调整顺序"
+        },
+        "canCreateContent": {
+            "reason": "选中的不是没有正文的内容节点"
+        },
+        "canConvert": {
+            "reason": "选中的不是可以转换的文件夹"
+        },
+        "canEditManifest": {
+            "reason": "选中的项不在内容文件夹里"
+        },
+        "showManifests": {
+            "reason": "清单文件没有显示"
+        }
+    },
+    "menu": {
+        "newFile": "新建文件",
+        "newFolder": "新建文件夹",
+        "paste": "粘贴",
+        "open": "打开",
+        "openToSide": "在侧边打开",
+        "cut": "剪切",
+        "copy": "复制",
+        "copyPath": "复制路径",
+        "copyRelativePath": "复制相对路径",
+        "rename": "重命名",
+        "createContent": "创建内容",
+        "convertToPlain": "转为普通文件夹",
+        "convertToContent": "转为内容文件夹",
+        "include": "加入清单",
+        "drop": "从清单移除",
+        "setDisplay": "修改展示名与图标",
+        "moveUp": "上移",
+        "moveDown": "下移",
+        "delete": "删除"
+    },
+    "tree": {
+        "label": "文件",
+        "projectRoot": "项目",
+        "userRoot": "用户资产",
+        "noProject": "尚未打开项目",
+        "loading": "正在读取…",
+        "readFailedRetry": "读取失败：{{reason}}。点击重试",
+        "manifestUnreadable": "清单读不出，按普通文件夹显示：{{reason}}",
+        "manifestInvalid": "清单不合法，按普通文件夹显示：{{reason}}",
+        "marks": {
+            "missing": "缺失",
+            "unlisted": "未列入",
+            "noBody": "无正文",
+            "needsPlot": "需要剧情插件",
+            "cutMark": "剪切中"
+        },
+        "newFileName": "新文件的名字",
+        "newFolderName": "新文件夹的名字",
+        "renameLabel": "重命名 {{name}}",
+        "drop": {
+            "into": "移入 {{name}}",
+            "intoLast": "移入 {{name}}（放在最后）",
+            "after": "放到 {{name}} 之后",
+            "before": "放到 {{name}} 之前",
+            "afterInto": "放到 {{name}} 之后（移入 {{target}}）",
+            "beforeInto": "放到 {{name}} 之前（移入 {{target}}）",
+            "open_other": "在这一组打开 {{count}} 项",
+            "openSome_other": "在这一组打开 {{count}} 项（另 {{skipped}} 项不打开）"
+        },
+        "dragItems_other": "{{count}} 项"
+    },
+    "view": {
+        "openProject": "打开项目",
+        "ended": "已停止同步：{{reason}}",
+        "reconnect": "重新连接",
+        "prefsUnread": "资源管理器偏好未读取，正在用缺省值（{{reason}}）",
+        "prefsProtected": "资源管理器偏好记录无法使用，修改不会保存（{{reason}}）",
+        "prefsUnsaved": "展开与显示偏好未保存（{{reason}}）",
+        "reload": "重新读取",
+        "retry": "重试",
+        "discard": "放弃"
+    },
+    "common": {
+        "cancel": "取消"
+    },
+    "dialog": {
+        "delete": {
+            "title_other": "删除 {{count}} 项？",
+            "confirm": "删除",
+            "description": "将删除下列项及其中的全部内容，删除后不能恢复。",
+            "unsaved": "这些打开的文件有未保存的修改，删除后会丢失："
+        },
+        "dirtyCopy": {
+            "title": "要复制的文件有未保存的修改",
+            "body": "先保存再复制，副本包含最新正文；复制磁盘版本，副本不含未保存的修改。",
+            "unrepresentable": "其中有文档的视图写不回 Markdown，不能先保存；可以复制磁盘版本，副本不含未保存的修改。",
+            "save": "先保存再复制",
+            "disk": "复制磁盘版本"
+        },
+        "display": {
+            "title": "展示名与图标：{{name}}",
+            "name": "展示名",
+            "icon": "图标",
+            "hint": "留空则去掉，只改清单，不改文件名。",
+            "save": "保存"
+        },
+        "collision": {
+            "title": "已存在同名项",
+            "source": "源",
+            "target": "目标",
+            "name": "新名字",
+            "rename": "改名",
+            "skip": "跳过",
+            "cancel": "取消剩余",
+            "all": "对其余同名项都这样"
+        }
+    },
+    "feedback": {
+        "dismiss": "关闭",
+        "running_other": "正在{{action}} {{count}} 项…",
+        "notice": {
+            "editorMissing": "编辑器尚未接入，不能打开 {{address}}",
+            "openFailed": "打开 {{address}} 失败：{{reason}}",
+            "failed": "{{action}}没有完成（{{address}}）：{{reason}}"
+        },
+        "manifestNotUpdated": "{{action}}已完成，但清单 {{path}} 没有更新：{{reason}}",
+        "unknown": {
+            "title_other": "{{action}} {{count}} 项的结果未知。在放弃之前，复制、剪切、粘贴、拖动与删除都不可用。",
+            "hint": "放弃不会取消可能仍在后台执行的操作，剪贴板里的这批项也会清掉。",
+            "recheck": "重新列出",
+            "abandon": "放弃"
+        },
+        "report": {
+            "title": "{{action}}：{{done}} 项完成，{{other}} 项没有完成",
+            "truncated": "结果已省略，请重新列出核对"
+        },
+        "item": {
+            "done": "完成",
+            "failed": "失败：{{reason}}",
+            "skipped": "跳过（与其它项重复）",
+            "notRun": "未执行",
+            "cancelled": "已取消",
+            "removed": "已删除：{{paths}}",
+            "residual": "残留：{{paths}}",
+            "omitted": "（路径已省略）",
+            "declinedSkip": "跳过（同名）",
+            "declinedCancel": "未执行（已取消剩余）"
+        }
+    },
+    "actions": {
+        "create": "新建",
+        "rename": "重命名",
+        "delete": "删除",
+        "create-content": "创建内容",
+        "convert": "转换",
+        "display": "修改展示名",
+        "include": "加入清单",
+        "drop": "从清单移除",
+        "reorder": "调整顺序",
+        "copy": "复制",
+        "cut": "剪切",
+        "move": "移动"
+    },
+    "reasons": {
+        "conflict": "已存在同名项",
+        "source-changed": "源已被替换或移走，请重新选择",
+        "permission-denied": "没有权限",
+        "busy": "另一个文件操作正在进行，请稍后重试",
+        "not-found": "不存在",
+        "unknown-outcome": "结果未知，请重新列出核对",
+        "document-unsettled": "打开的文档有未裁决的输入、写不回的修改或磁盘冲突，先在编辑器里处理"
+    },
+    "nameErrors": {
+        "empty": "名字不能为空",
+        "invalid": "名字不能含 / 或 \\，也不能是 . 或 ..",
+        "unsettled": "{{documents}} 有未裁决的输入、写不回的修改或磁盘冲突，先在编辑器里处理"
+    },
+    "unavailable": {
+        "noTarget": "没有可以新建的位置：先选中一个目录",
+        "noSelection": "没有选中可以操作的项",
+        "notApplicable": "这个动作不适用于选中的项",
+        "busy": "另一个批量操作还在进行",
+        "notReady": "资源管理器尚未打开",
+        "unknown": "上一次批量操作的结果未知：先核对，再在结果区放弃它",
+        "emptyClipboard": "剪贴板是空的",
+        "crossRoot": "不能在项目与用户资产之间复制或移动",
+        "copyFailed": "没能复制路径",
+        "notVisible": "资源管理器没有显示",
+        "staleView": "资源管理器视图已重建"
+    }
+}

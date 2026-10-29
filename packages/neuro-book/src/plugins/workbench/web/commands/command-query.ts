@@ -5,8 +5,7 @@
  * 代理对不能被劈开，否则标亮会把一个字符渲染成半个。
  */
 
-import {localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, DisplayText} from "nbook/shared/localized-text";
+import type {DisplayText, TextResolver} from "nbook/shared/localized-text";
 import type {CommandMetadata} from "nbook/plugins/commands/shared/contracts";
 
 
@@ -131,12 +130,12 @@ function compareMru(left: number, right: number): number {
  * 排序为“匹配分为主、MRU 为次、同分按 id”，空查询因此只按 MRU 与 id 排。
  * 调用方先过滤掉 `expose.human === false` 与当前不可用的命令，本函数不解释可见性。
  */
-export function searchCommands(commands: readonly CommandMetadata[], query: string, recent: readonly string[], locale: DisplayLocale): readonly PaletteItem[] {
+export function searchCommands(commands: readonly CommandMetadata[], query: string, recent: readonly string[], text: TextResolver): readonly PaletteItem[] {
     const scored: {item: PaletteItem; score: number; mru: number}[] = [];
     for (const command of commands) {
-        const title = localize(command.title, locale);
+        const title = text.t(command.title);
         const titleMatch = matchCommandText(title, query);
-        const otherMatch = bestMatch([command.id, ...otherTexts(command.title, locale)], query);
+        const otherMatch = bestMatch([command.id, ...otherTexts(command.title, text)], query);
         const titleWins = titleMatch !== null && (otherMatch === null || titleMatch.score <= otherMatch.score);
         const match = titleWins ? titleMatch : otherMatch;
         if (match === null) continue;
@@ -145,7 +144,7 @@ export function searchCommands(commands: readonly CommandMetadata[], query: stri
                 id: command.id,
                 label: title,
                 description: command.description,
-                category: command.category === undefined ? undefined : localize(command.category, locale),
+                category: command.category === undefined ? undefined : text.t(command.category),
                 shortcut: command.keybinding,
                 labelMatches: titleWins ? match.ranges : undefined,
             },
@@ -169,8 +168,9 @@ export interface ShownPickItem {
  * 别的界面语言下的写法。语言切换时面板的输入保留（quick-open.md），已经输入的文字可能是旧语言的，所以候选在各语言下
  * 的写法都参与匹配；片段只在当前语言的文字命中时渲染。
  */
-export function otherTexts(text: DisplayText, locale: DisplayLocale): string[] {
-    return typeof text === "string" ? [] : Object.entries(text).filter(([key]) => key !== locale).map(([, value]) => value);
+export function otherTexts(text: DisplayText, resolver: TextResolver): string[] {
+    const shown = resolver.t(text);
+    return resolver.variants(text).filter((variant) => variant !== shown);
 }
 
 function bestMatch(texts: ReadonlyArray<string>, query: string): ReturnType<typeof matchCommandText> {

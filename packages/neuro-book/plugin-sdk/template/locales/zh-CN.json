@@ -1,0 +1,34 @@
+{
+    "manifest": {
+        "displayName": "__DISPLAY_NAME__"
+    },
+    "settingsSections": {
+        "main": {
+            "title": "__DISPLAY_NAME__",
+            "groups": {
+                "basic": {
+                    "title": "基本"
+                }
+            }
+        }
+    },
+    "settings": {
+        "greeting": {
+            "title": "问候语"
+        }
+    },
+    "views": {
+        "hello": {
+            "title": "__DISPLAY_NAME__"
+        }
+    },
+    "commands": {
+        "say-hello": {
+            "title": "__DISPLAY_NAME__：打个招呼"
+        }
+    },
+    "hello": {
+        "count_other": "已经打过 {{count}} 次招呼",
+        "sayHello": "打个招呼"
+    }
+}

@@ -72,6 +72,9 @@ export const projectCounterContract = remoteService(plugin, {
  *
  * `unready` 是还没有绑定（入口没激活、或已停止）时读到的值；`reason` 是值不为 true 时给用户看的原因，命令面板用它
  * 解释命令为什么不可用。
+ *
+ * `reason` 写语言映射，不写目录里的键：命令能不能执行由命令所在的实例判断，原因随结果从服务端或项目实例返回；服务端
+ * 不翻译文字引用（docs/specs/ui/i18n.md），写成引用时调用方拿到的是引用本身。语言映射在纯数据层按语言取，两端结果相同。
  */
 export const counterState = definePublicState(plugin.id, {
     nonzero: {type: "boolean", unready: false, reason: {"zh-CN": "计数已经是 0", "en-US": "The count is already zero"}},
@@ -84,7 +87,8 @@ export const counterState = definePublicState(plugin.id, {
  */
 export const reset = command(plugin, {
     name: "reset",
-    title: {"zh-CN": "计数器：归零", "en-US": "Counter: Reset"},
+    // `title` 不写：宿主登记时补成约定键 `commands.reset.title`，文字在本插件的消息目录 `../locales/` 里，命令面板在窗口里
+    // 按界面语言翻译（docs/specs/ui/i18n.md 的“约定键”）。
     description: "Reset the server-side example counter to zero",
     effect: "write",
     // `when` 只引用本运行位置声明的布尔公开键。键为 false 或还没绑定时命令不可用，原因取键声明里的 `reason`。

@@ -68,7 +68,7 @@ provideMarkdownHost(nbookMarkdownHost({
     report,
 }));
 
-/** 只收属性、不 inject 的两个组件（组件规范）：小块的分类与图标经 `env`，图片的说明经 `missing`。 */
+/** 宿主信息只收属性、不读 `provideMarkdownHost` 的两个组件：小块的分类与图标经 `env`，图片的说明经 `missing`（文字两者都经窗口注入的翻译端口）。 */
 const EXTRA: Readonly<Partial<Record<HostedComponent, Record<string, unknown>>>> = {
     InlineChip: {env: nbookChips},
     MarkdownImage: {missing: NBOOK_IMAGE_MISSING},

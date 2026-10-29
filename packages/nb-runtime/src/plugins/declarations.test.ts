@@ -158,3 +158,60 @@ describe("贡献点的声明结构 schema（plugin-manifest.md 的贡献点条�
     });
 });
 
+
+describe("贡献点补全声明 complete", () => {
+    /** 没写 label 时补成“插件 id:贡献 id”；label 写成 "boom" 时抛出。只有补过的声明才过得了 schema。 */
+    function completing(calls: {count: number}): ContributionPointDefinition<{readonly label: string}> {
+        return {
+            id: "labels",
+            implementation: "none",
+            schema: Type.Object({label: Type.String()}),
+            complete: ({plugin, id, declaration}) => {
+                calls.count += 1;
+                const written = declaration as {readonly label?: unknown};
+                if (written.label === "boom") throw new Error("补不了这一条");
+                return written.label === undefined ? {...written, label: `${plugin}:${id}`} : (declaration as {readonly label: string});
+            },
+            validate: ({declaration}) => (declaration.label === "" ? "label 不能为空" : null),
+        };
+    }
+
+    it("schema、validate、声明查询与交给接收者的句柄看到同一份补好的声明；检查视图给写下的原样；抛出即这一条被拒", async () => {
+        const {host, register} = fixture();
+        const read = reader();
+        const calls = {count: 0};
+        const delivered: unknown[] = [];
+        register({id: "owner", contributionPoints: [completing(calls)], entries: [{
+            id: "main", location: "server", receives: ["labels"],
+            activate: () => ({receivers: {labels: {prepare: (handle) => {delivered.push(handle.declaration);}}}}),
+        }]});
+        register({id: "x", entries: [], contributions: [
+            {capability: "labels", id: "x.omitted", declaration: {}},
+            {capability: "labels", id: "x.written", declaration: {label: "写了"}},
+            {capability: "labels", id: "x.empty", declaration: {label: ""}},
+            {capability: "labels", id: "x.boom", declaration: {label: "boom"}},
+        ]});
+        register(read.plugin);
+        expect(await host.activate({plugin: "reader", entry: "main"})).toMatchObject({status: "activated"});
+        expect(await host.activate({plugin: "owner", entry: "main"})).toMatchObject({status: "activated"});
+
+        expect(statusOf(host, "labels", "x.omitted")).toBe("accepted");
+        expect(statusOf(host, "labels", "x.empty")).toBe("rejected:label 不能为空");
+        expect(statusOf(host, "labels", "x.boom")).toBe("rejected:补不了这一条");
+        const listed = read.get().list("labels");
+        expect(listed.map((descriptor) => [descriptor.id, descriptor.declaration])).toEqual([
+            ["x.omitted", {label: "x:x.omitted"}],
+            ["x.written", {label: "写了"}],
+        ]);
+        expect(delivered).toHaveLength(2);
+        expect(delivered).toContain(listed[0]!.declaration);
+        expect(read.get().get("labels", "x.omitted")?.declaration).toBe(listed[0]!.declaration);
+        expect(host.contribution("labels", "x.omitted")[0]?.declaration).toEqual({});
+
+        // 每条登记只补一次：反复推导校验与查询不再调用 complete。
+        calls.count = 0;
+        statusOf(host, "labels", "x.omitted");
+        read.get().list("labels");
+        expect(calls.count).toBe(0);
+    });
+});

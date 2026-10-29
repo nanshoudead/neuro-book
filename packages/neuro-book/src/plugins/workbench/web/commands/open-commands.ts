@@ -7,15 +7,18 @@
 
 import {Type} from "typebox";
 
-import type {CommandDeclaration, CommandImplementation, Release} from "nbook/plugins/commands/shared/contracts";
+import type {CommandImplementation, Release, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 
 import type {QuickPick} from "../../shared/contracts";
+import {workbenchText} from "../../shared/text";
 import type {PaletteHost} from "./palette-host";
 
 export const OPEN_COMMANDS_ID = "nbook.quick-open.open-commands";
 
-export const OPEN_COMMANDS_DECLARATION: CommandDeclaration = {
-    title: {"zh-CN": "命令面板", "en-US": "Command Palette"},
+/** 没有页面宿主时命令与选择共用的原因。 */
+const NO_PALETTE = workbenchText("palette.unavailable");
+
+export const OPEN_COMMANDS_DECLARATION: WrittenCommandDeclaration = {
     description: "Open the command palette.",
     args: Type.Object({}, {additionalProperties: false}),
     effect: "read",
@@ -37,13 +40,13 @@ export class PaletteSlot {
 
     readonly command: CommandImplementation = {
         run: () => {
-            if (this.#current === null) return {ok: false, code: "unavailable", reason: "当前页面没有命令面板"};
+            if (this.#current === null) return {ok: false, code: "unavailable", reason: NO_PALETTE};
             this.#current.openPalette("commands");
             return {ok: true, value: null};
         },
     };
 
     readonly quickPick: QuickPick = {
-        pick: (request) => (this.#current === null ? Promise.resolve({kind: "unavailable", reason: "当前页面没有命令面板"}) : this.#current.openPick(request)),
+        pick: (request) => (this.#current === null ? Promise.resolve({kind: "unavailable", reason: NO_PALETTE}) : this.#current.openPick(request)),
     };
 }

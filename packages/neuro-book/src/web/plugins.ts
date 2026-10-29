@@ -6,6 +6,7 @@
 
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import type {Catalog} from "@notnotype/nb-ui/text";
 
 import {pluginsAt, productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
@@ -13,17 +14,26 @@ import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {createBrowserDiagnosticsPlugin} from "nbook/plugins/diagnostics/web/plugin";
 import {editorBrowserPlugin} from "nbook/plugins/editor/web/plugin";
+import {editorCatalogs} from "nbook/plugins/editor/web/text";
 import {htmlPreviewBrowserPlugin} from "nbook/plugins/html-preview/web/plugin";
+import {htmlPreviewCatalogs} from "nbook/plugins/html-preview/web/text";
 import {imageViewerBrowserPlugin} from "nbook/plugins/image-viewer/web/plugin";
+import {imageViewerCatalogs} from "nbook/plugins/image-viewer/web/text";
 import {markdownBrowserPlugin} from "nbook/plugins/markdown/web/plugin";
+import {markdownCatalogs} from "nbook/plugins/markdown/web/text";
 import {explorerBrowserPlugin} from "nbook/plugins/explorer/web/plugin";
+import {explorerCatalogs} from "nbook/plugins/explorer/web/text";
 import {filesBrowserPlugin} from "nbook/plugins/files/web/plugin";
 import {pluginsBrowserPlugin} from "nbook/plugins/plugins/web/plugin";
+import {pluginsCatalogs} from "nbook/plugins/plugins/web/text";
 import {projectsBrowserPlugin} from "nbook/plugins/projects/web/plugin";
+import {projectsCatalogs} from "nbook/plugins/projects/web/text";
 import {settingsBrowserPlugin} from "nbook/plugins/settings/web/plugin";
+import {settingsCatalogs} from "nbook/plugins/settings/web/text";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
 import {storageBrowserPlugin} from "nbook/plugins/storage/web/plugin";
 import {workbenchBrowserPlugin} from "nbook/plugins/workbench/web/plugin";
+import {workbenchCatalogs} from "nbook/plugins/workbench/web/text";
 
 export interface BrowserPluginContext {
     /** 本窗口运行实例的诊断存储。 */
@@ -60,6 +70,29 @@ export const browserPluginDefinitions: Readonly<Record<string, PluginDefinition>
 /** 宿主适配器：诊断的存储在窗口运行实例建立之前就要能记录（ADR 0026 决策第 5 条）。 */
 export const browserHostPlugins: Readonly<Record<BrowserHostPluginId, BrowserHostPluginFactory>> = {
     "runtime.diagnostics": (context) => createBrowserDiagnosticsPlugin({store: context.store, console: context.console}),
+};
+
+/** 一个内置插件随前端构建的消息目录：各语言的目录与源语言（docs/specs/ui/i18n.md）。 */
+export interface BuiltinCatalogs {
+    readonly source: string;
+    readonly catalogs: Readonly<Record<string, Catalog>>;
+}
+
+/**
+ * 内置插件的消息目录，按插件 id：插件在自己的目录模块里静态导入 `locales/<语言>.json`，在这里登一项，随前端构建进包；窗口在
+ * 挂载界面前把它们登记进翻译引擎，命名空间是插件 id。只有后端入口的内置插件也登在这里：它们的失败码同样在窗口里显示。第三方
+ * 插件的目录不在构建里，经引导的目录索引与目录端点取（docs/specs/runtime/browser-host.md 输出 2）。
+ */
+export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = {
+    "nbook.editor": editorCatalogs,
+    "nbook.explorer": explorerCatalogs,
+    "nbook.html-preview": htmlPreviewCatalogs,
+    "nbook.image-viewer": imageViewerCatalogs,
+    "nbook.markdown": markdownCatalogs,
+    "nbook.plugins": pluginsCatalogs,
+    "nbook.projects": projectsCatalogs,
+    "nbook.settings": settingsCatalogs,
+    "nbook.workbench": workbenchCatalogs,
 };
 
 /** 本外壳构建进去的浏览器插件：清单中有浏览器运行位置的插件，加上只有顶层声明式贡献的插件（只登记它们的声明）。 */

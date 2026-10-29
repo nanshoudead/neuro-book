@@ -40,8 +40,8 @@ export const PluginListItemSchema = Type.Object({
 export type PluginListItem = Static<typeof PluginListItemSchema>;
 
 /**
- * 一个插件此刻在某个运行实例里的问题（plugin-install 的插件页）：入口激活失败、入口受阻、贡献被拒。纯 JSON，按码给，界面按
- * 语言翻译固定的部分；`message` 是激活时抛出的错误消息，插件自己的文字（信任所有插件，不脱敏）。
+ * 一个插件此刻在某个运行实例里的问题（plugin-install 的插件页）：入口激活失败、入口受阻、贡献被拒、消息目录没有取到。纯
+ * JSON，按码给，界面按语言翻译固定的部分；`message` 是激活时抛出的错误消息，插件自己的文字（信任所有插件，不脱敏）。
  */
 export const PluginProblemSchema = Type.Union([
     Type.Object({
@@ -72,6 +72,19 @@ export const PluginProblemSchema = Type.Union([
         capability: Type.String({minLength: 1}),
         id: Type.String({minLength: 1}),
         reason: Type.Union([Type.Literal("invalid-declaration"), Type.Literal("implementation-required"), Type.Literal("implementation-not-accepted"), Type.Literal("duplicate-contribution")]),
+        detail: Type.Union([Type.String(), Type.Null()]),
+    }, {additionalProperties: false}),
+    /**
+     * 窗口没有取到某种语言的目录（docs/specs/runtime/browser-host.md 的非致命目录问题）：只由窗口产生，插件照常登记，文字按
+     * 回退链显示。`not-found` 端点 404（文件没了或摘要不是当前的）；`invalid` 取到了但不合目录规则；`fetch-failed` 连不上或
+     * 端点出错。
+     */
+    Type.Object({
+        kind: Type.Literal("catalog-unavailable"),
+        plugin: Type.String({minLength: 1}),
+        location: Type.String({minLength: 1}),
+        locale: Type.String({minLength: 1}),
+        reason: Type.Union([Type.Literal("not-found"), Type.Literal("invalid"), Type.Literal("fetch-failed")]),
         detail: Type.Union([Type.String(), Type.Null()]),
     }, {additionalProperties: false}),
 ]);
@@ -139,7 +152,7 @@ export const InstallPreviewSchema = Type.Object({
 export type InstallPreview = Static<typeof InstallPreviewSchema>;
 
 export const FailureDetail = Type.Object({detail: Type.String()}, {additionalProperties: false});
-/** 清单无效时另带出错的字段（`entries.ui.main：……`）。 */
+/** 清单或消息目录无效时另带逐条问题（`entries.ui.main：……`、`locales/en-US.json：menu.open：……`）。 */
 export const ManifestFailureDetail = Type.Object({detail: Type.String(), problems: Type.Array(Type.String())}, {additionalProperties: false});
 
 /**
@@ -148,6 +161,7 @@ export const ManifestFailureDetail = Type.Object({detail: Type.String(), problem
  */
 export const installFailureDetails = {
     "manifest-invalid": ManifestFailureDetail,
+    "catalog-invalid": ManifestFailureDetail,
     "incompatible-engine": FailureDetail,
     "already-installed": FailureDetail,
     "uninstall-pending": FailureDetail,

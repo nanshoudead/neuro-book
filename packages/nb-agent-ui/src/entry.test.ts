@@ -5,16 +5,24 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {acceptSubmission, createAgentContext, createHarnessTranscript, formatText, textOf} from "@notnotype/nb-agent-ui";
+import {acceptSubmission, agentRef, createAgentContext, createHarnessTranscript, formatText} from "@notnotype/nb-agent-ui";
+import {NB_AGENT_UI_CATALOGS, NB_AGENT_UI_NAMESPACE} from "@notnotype/nb-agent-ui/locales";
+import {resolveLocaleMap} from "@notnotype/nb-ui/text";
+import {createMinimalTranslator} from "@notnotype/nb-ui/text/minimal";
 
 describe("核心入口", () => {
     it("从包名导入：适配器把一段日志画成消息放进起步的 ctx，受理发送后草稿换版本，文字按语言取", () => {
-        const transcript = createHarnessTranscript({locale: "en-US"});
+        const transcript = createHarnessTranscript();
         transcript.applyLogEntry({kind: "agent_message", seq: 1, at: "2026-10-22T08:00:00.000Z", message: {role: "user", content: "你好", timestamp: 1}});
         transcript.applyLogEntry({kind: "agent_message", seq: 2, at: "2026-10-22T08:00:01.000Z", message: {role: "assistant", content: [{type: "text", text: "在。"}], stopReason: "stop", timestamp: 2}});
         const ctx = createAgentContext({messages: transcript.messages(), composer: {draft: {text: "你好", version: 1}}});
         expect(ctx.messages.map((message) => message.kind)).toEqual(["user", "assistant"]);
         expect(acceptSubmission(ctx.composer, "你好").draft).toEqual({text: "", version: 2});
-        expect(textOf(formatText({"zh-CN": "{n} 条", "en-US": "{n} messages"}, {n: ctx.messages.length}), "en-US")).toBe("2 messages");
+        expect(resolveLocaleMap(formatText({"zh-CN": "{n} 条", "en-US": "{n} messages"}, {n: ctx.messages.length}), "en-US")).toBe("2 messages");
+    });
+
+    it("从包名导入目录（`./locales`）：宿主登记它之后，本包的引用翻得出文字", () => {
+        const translator = createMinimalTranslator({catalogs: {[NB_AGENT_UI_NAMESPACE]: NB_AGENT_UI_CATALOGS}, strict: true});
+        expect(translator.translate(agentRef("harness.compaction"), "en-US")).toBe("Context compacted");
     });
 });

@@ -7,12 +7,17 @@ import type {VueWrapper} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 import {defineComponent, h, nextTick, onBeforeUnmount} from "vue";
 
+import {provideText} from "nbook/shared/testing/text-port";
+
+import {workbenchTestText} from "../../testing/text";
 import WorkbenchActivityBar from "./WorkbenchActivityBar.vue";
 import WorkbenchMoveViewMenu from "./WorkbenchMoveViewMenu.vue";
 import WorkbenchToolPartHost from "./WorkbenchToolPartHost.vue";
 import WorkbenchViewSection from "./WorkbenchViewSection.vue";
 
 const wrappers: VueWrapper[] = [];
+/** 零件里的界面文字经注入的端口取，挂载时给登记了工作台目录的端口。 */
+const withText = {provide: provideText(workbenchTestText("zh-CN"))};
 
 afterEach(() => {
     for (const wrapper of wrappers.splice(0)) wrapper.unmount();
@@ -28,13 +33,14 @@ describe("WorkbenchActivityBar", () => {
     const containers = [{id: "view:a", label: "资源管理器", icon: "i-lucide-files"}, {id: "view:b", label: "搜索", icon: "i-lucide-search"}];
 
     it("点任何一项都发 select（包括已选中的）；选中标记只在 Sidebar 可见时出现", async () => {
-        const wrapper = mount(WorkbenchActivityBar, {props: {label: "活动栏", containers, selected: "view:a", sidebarVisible: true, dragHint: "按空格拿起并拖动"}});
+        const wrapper = mount(WorkbenchActivityBar, {props: {label: "活动栏", containers, selected: "view:a", sidebarVisible: true}, global: withText});
         wrappers.push(wrapper);
         const button = (id: string) => wrapper.get(`[data-activity-container="${id}"]`);
         expect(wrapper.get("nav").attributes("aria-label")).toBe("活动栏");
         expect(button("view:a").attributes("aria-pressed")).toBe("true");
         expect(button("view:b").attributes("aria-pressed")).toBe("false");
         expect(button("view:b").attributes("aria-label")).toBe("搜索");
+        expect(button("view:b").attributes("aria-description")).toBe("按空格拿起并拖动");
         await button("view:a").trigger("click");
         await button("view:b").trigger("click");
         expect(wrapper.emitted("select")).toEqual([["view:a"], ["view:b"]]);
@@ -45,7 +51,7 @@ describe("WorkbenchActivityBar", () => {
     it("底段的全局项按给的顺序排在容器之后；切换按钮按下与否看 pressed；没有命令的是不可点的占位；命令不可用时停用并以原因作提示（输出 40）", async () => {
         const gear = {id: "nbook.settings", title: "设置", icon: "i-lucide-settings", command: {id: "nbook.settings.open", args: {}}, pressed: false, disabledReason: null};
         const items = [{id: "nbook.workbench.profile", title: "个人资料尚未开放", icon: "i-lucide-user-round", command: null, pressed: null, disabledReason: null}, gear];
-        const wrapper = mount(WorkbenchActivityBar, {props: {label: "活动栏", containers, selected: "view:a", sidebarVisible: true, dragHint: "按空格拿起并拖动", items}});
+        const wrapper = mount(WorkbenchActivityBar, {props: {label: "活动栏", containers, selected: "view:a", sidebarVisible: true, items}, global: withText});
         wrappers.push(wrapper);
         expect(wrapper.findAll("[data-activity-container], [data-activity-item]").map((element) => element.attributes("data-activity-container") ?? element.attributes("data-activity-item"))).toEqual(["view:a", "view:b", "nbook.workbench.profile", "nbook.settings"]);
 
@@ -134,10 +140,10 @@ describe("WorkbenchMoveViewMenu", () => {
 });
 
 describe("WorkbenchToolPartHost", () => {
-    const base = {locale: "zh-CN" as const, label: "右栏", emptyText: "将视图拖动到此处显示", idPrefix: "t", dragLabel: "拖动 {title}", dragHint: "按空格拿起并拖动"};
+    const base = {label: "右栏", emptyText: "将视图拖动到此处显示", idPrefix: "t"};
 
     it("右栏没有容器：标签带仍在（落点），不出现空的 tablist；空正文显示说明", () => {
-        const wrapper = mount(WorkbenchToolPartHost, {props: {...base, part: "auxiliarybar", presentation: {switcher: [], selected: null, axis: "vertical"}, selected: null}});
+        const wrapper = mount(WorkbenchToolPartHost, {props: {...base, part: "auxiliarybar", presentation: {switcher: [], selected: null, axis: "vertical"}, selected: null}, global: withText});
         wrappers.push(wrapper);
         expect(wrapper.find("[data-switcher-band='auxiliarybar']").exists()).toBe(true);
         expect(wrapper.find("[role='tablist']").exists()).toBe(false);
@@ -146,7 +152,7 @@ describe("WorkbenchToolPartHost", () => {
 
     it("右栏有容器：标签在标签带里", () => {
         const switcher = [{containerId: "view:a", title: {"zh-CN": "甲", "en-US": "A"}, icon: "i-a"}];
-        const wrapper = mount(WorkbenchToolPartHost, {props: {...base, part: "auxiliarybar", presentation: {switcher, selected: "view:a", axis: "vertical"}, selected: null}});
+        const wrapper = mount(WorkbenchToolPartHost, {props: {...base, part: "auxiliarybar", presentation: {switcher, selected: "view:a", axis: "vertical"}, selected: null}, global: withText});
         wrappers.push(wrapper);
         expect(wrapper.get("[data-switcher-band='auxiliarybar']").find("[role='tab']").text()).toBe("甲");
     });

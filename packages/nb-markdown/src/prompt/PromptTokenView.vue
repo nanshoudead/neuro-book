@@ -78,7 +78,6 @@ function hover(active: boolean): void {
         <InlineChip
             :env="host.chips"
             :kind="chip.kind"
-            :locale="context.locale"
             :label="chip.label"
             :target="chip.target"
             :number="chip.number"

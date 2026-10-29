@@ -1,5 +1,5 @@
 ---
-标签: [env:portal]
+标签: [state:inject, env:portal]
 别名: ["条目条", "Item Strip"]
 ---
 
@@ -23,7 +23,6 @@ type StripEntry = ShownItem & {
     disabledReason: string | null;
 };
 type Props = {
-    locale: DisplayLocale;
     entries: StripEntry[];
     /** 条目按钮的高度（px）。 */
     itemHeight: number;
@@ -40,3 +39,7 @@ type Emits = {
 
 - 没有条目时什么都不画（不占宽度）。
 - 全部收起时只剩“更多”按钮。
+
+## 隐藏通道理由
+
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，“更多”按钮的名称、条目名与文字连成的一句（读屏名称与“更多”里纯文字的一行，中间的标点随语言）在本插件的目录（命名空间 `nbook.workbench`，`../../locales/`）；语言随端口响应式切换，切换后重量条目宽度，组件没有语言属性。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。

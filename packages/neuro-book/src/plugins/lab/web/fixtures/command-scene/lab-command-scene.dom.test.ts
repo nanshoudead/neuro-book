@@ -9,6 +9,8 @@ import {Type} from "typebox";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {defineComponent, h, nextTick} from "vue";
 
+import {editorText} from "nbook/plugins/editor/shared/text";
+
 import {LAB_EVENT_SINK} from "../../lab-event-sink";
 import LabCommandSceneLayer from "./LabCommandSceneLayer.vue";
 import {useLabCommandScene} from "./lab-command-scene";
@@ -97,6 +99,23 @@ describe("useLabCommandScene", () => {
         approve?.click();
         expect(await execution).toEqual({ok: true, value: null});
         expect(runs).toBe(1);
+        wrapper.unmount();
+    });
+
+    it("命令失败的原因是编辑器目录里的文字引用：失败区显示 Lab 语言的整句，不显示键名；事件里的原因保留原值", async () => {
+        const {wrapper, scene, events} = mountScene();
+        const reason = editorText("refusal.noActiveTab");
+        const registered = scene.registry.register({
+            id: "nbook.editor.lab-refused",
+            source: "nbook.lab",
+            declaration: {title: {"zh-CN": "被拒绝的编辑器命令", "en-US": "Refused editor command"}, description: "always unavailable", args: Type.Object({}, {additionalProperties: false}), effect: "read"},
+            run: () => ({ok: false, code: "unavailable", reason}),
+        });
+        if (!registered.ok) throw new Error(registered.reason);
+        expect(await scene.registry.execute("nbook.editor.lab-refused", {})).toMatchObject({ok: false, code: "unavailable"});
+        expect(scene.failure.value).toBe("nbook.editor.lab-refused：没有活动标签");
+        expect(scene.text.t(reason)).toBe("没有活动标签");
+        expect(events.filter((entry) => entry.name === "command").map((entry) => entry.payload)).toEqual([expect.objectContaining({id: "nbook.editor.lab-refused", ok: false, reason})]);
         wrapper.unmount();
     });
 

@@ -9,7 +9,8 @@ import {Value} from "typebox/value";
 
 import type {ContributionDescriptor, ContributionPointDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {LocalizedTextSchema} from "nbook/shared/localized-text";
+import {conventionCompleter} from "nbook/shared/convention-keys";
+import {TextSchema} from "nbook/shared/text";
 
 export const WORKBENCH_STATUSBAR_ITEMS_POINT = "workbench.statusbar-items";
 export const WORKBENCH_TITLEBAR_ITEMS_POINT = "workbench.titlebar-items";
@@ -25,7 +26,7 @@ const When = Type.Object({requires: Type.Array(Type.String({pattern: "\\S"}))}, 
 
 export const ItemDeclarationSchema = Type.Object({
     /** 条目的名字：“更多”菜单与读屏用它。 */
-    title: LocalizedTextSchema,
+    title: TextSchema,
     alignment: Type.Union([Type.Literal("left"), Type.Literal("right")]),
     /** 同侧从小到大排。 */
     order: Rank,
@@ -39,7 +40,7 @@ export type ItemDeclaration = Static<typeof ItemDeclarationSchema>;
 
 export const ActivityBarItemDeclarationSchema = Type.Object({
     /** 悬停提示与可访问名称；没有命令的条目以它说明为什么不可点。 */
-    title: LocalizedTextSchema,
+    title: TextSchema,
     icon: Type.String({pattern: "\\S"}),
     /** 从上往下按它排，同值按 id。 */
     order: Rank,
@@ -87,7 +88,10 @@ export function validateActivityBarItemContribution(descriptor: ContributionDesc
     return null;
 }
 
-/** 三个条目贡献点：插件与测试都用这一份定义。条目只有声明，内核却只能对整个贡献点规定要不要实现：要实现，贡献方交空对象。 */
-export const statusbarItemsPoint: ContributionPointDefinition = {id: WORKBENCH_STATUSBAR_ITEMS_POINT, implementation: "required", idPrefix: "plugin", validate: itemValidator(WORKBENCH_STATUSBAR_ITEMS_POINT)};
-export const titlebarItemsPoint: ContributionPointDefinition = {id: WORKBENCH_TITLEBAR_ITEMS_POINT, implementation: "required", idPrefix: "plugin", validate: itemValidator(WORKBENCH_TITLEBAR_ITEMS_POINT)};
-export const activityBarItemsPoint: ContributionPointDefinition = {id: WORKBENCH_ACTIVITYBAR_ITEMS_POINT, implementation: "required", idPrefix: "plugin", validate: validateActivityBarItemContribution};
+/**
+ * 三个条目贡献点：插件与测试都用这一份定义。条目只有声明，内核却只能对整个贡献点规定要不要实现：要实现，贡献方交空对象。
+ * 没写 `title` 时补约定键 `statusItems`、`titlebarItems`、`activityItems` 加 `.<本地 id>.title`（ui/workbench-shell.md 输出 33、40）。
+ */
+export const statusbarItemsPoint: ContributionPointDefinition = {id: WORKBENCH_STATUSBAR_ITEMS_POINT, implementation: "required", idPrefix: "plugin", complete: conventionCompleter({name: "statusItems", fields: ["title"]}), validate: itemValidator(WORKBENCH_STATUSBAR_ITEMS_POINT)};
+export const titlebarItemsPoint: ContributionPointDefinition = {id: WORKBENCH_TITLEBAR_ITEMS_POINT, implementation: "required", idPrefix: "plugin", complete: conventionCompleter({name: "titlebarItems", fields: ["title"]}), validate: itemValidator(WORKBENCH_TITLEBAR_ITEMS_POINT)};
+export const activityBarItemsPoint: ContributionPointDefinition = {id: WORKBENCH_ACTIVITYBAR_ITEMS_POINT, implementation: "required", idPrefix: "plugin", complete: conventionCompleter({name: "activityItems", fields: ["title"]}), validate: validateActivityBarItemContribution};

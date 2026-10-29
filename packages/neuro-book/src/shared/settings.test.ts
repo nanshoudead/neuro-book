@@ -103,14 +103,16 @@ describe("settingDeclarationProblem：只看这一条声明", () => {
         expect(settingDeclarationProblem("x.editor", "x.editor/theme", declaration({default: "solarized"}))).toContain("不符合 schema");
     });
 
-    it("schema 不能 JSON 序列化、layers 为空或有未知层或重复、title 缺语言、有未知字段", () => {
+    it("schema 不能 JSON 序列化、layers 为空或有未知层或重复、title 不是文字、有未知字段", () => {
         const schemaWithFunction = {...theme, check: () => true};
         expect(settingDeclarationProblem("x.editor", "x.editor/theme", declaration({schema: schemaWithFunction}))).toContain("schema");
         for (const layers of [[], ["machine"], ["user", "user"], "user"]) {
             expect(settingDeclarationProblem("x.editor", "x.editor/theme", declaration({layers})), JSON.stringify(layers)).toContain("layers");
         }
-        expect(settingDeclarationProblem("x.editor", "x.editor/theme", declaration({title: {"zh-CN": "主题"}}))).toContain("title");
-        expect(settingDeclarationProblem("x.editor", "x.editor/theme", declaration({description: "主题"}))).toContain("description");
+        expect(settingDeclarationProblem("x.editor", "x.editor/theme", declaration({title: {"not a tag": "主题"}}))).toContain("title");
+        expect(settingDeclarationProblem("x.editor", "x.editor/theme", declaration({description: 7}))).toContain("description");
+        // 改为接受：纯字符串与单语言写法都是合法文字。
+        expect(settingDeclarationProblem("x.editor", "x.editor/theme", declaration({title: {"zh-CN": "主题"}, description: "主题"}))).toBeNull();
         expect(settingDeclarationProblem("x.editor", "x.editor/theme", {...declaration(), scope: "machine"})).toContain("scope");
         expect(settingDeclarationProblem("x.editor", "x.editor/theme", null)).toContain("对象");
     });
@@ -150,12 +152,12 @@ describe("界面字段（输出 21）", () => {
         for (const order of [1_000_001, -1_000_001, Number.NaN, Number.POSITIVE_INFINITY, "1"]) expect(check({order}), String(order)).toContain("order");
     });
 
-    it("choices 与字面量不一一对应：少一个、多一个、与字面量不符、重复、title 缺语言、有未知字段", () => {
+    it("choices 与字面量不一一对应：少一个、多一个、与字面量不符、重复、title 不是文字、有未知字段", () => {
         expect(check({choices: [choices[0]]})).toContain("缺少字面量 \"macos\"");
         expect(check({choices: [...choices, {value: "solarized", title}]})).toContain("\"solarized\" 不是 schema 的字面量");
         expect(check({choices: [choices[0], {value: "MacOS", title}]})).toContain("不是 schema 的字面量");
         expect(check({choices: [...choices, choices[0]]})).toContain("不止一次");
-        expect(check({choices: [choices[0], {value: "macos", title: {"zh-CN": "macOS"}}]})).toContain("title");
+        expect(check({choices: [choices[0], {value: "macos", title: {"not a tag": "macOS"}}]})).toContain("title");
         expect(check({choices: [choices[0], {value: "macos", title, icon: "x"}]})).toContain("icon");
         expect(check({choices: "nbook"})).toContain("数组");
     });
@@ -184,11 +186,11 @@ describe("动态选项与界面提示（输出 21）", () => {
         expect(settingDeclarationProblem("x.ai", "x.ai/model", declaration({schema: text, default: "", choices: {from: "x.ai.models", extra: 1}}))).toContain("extra");
     });
 
-    it("ui 只收单个字段的提示，文字要中英两份；控件要能用在这种值上", () => {
+    it("ui 只收单个字段的提示，文字可以是字符串、单语言或引用；控件要能用在这种值上", () => {
         const note = declaration({schema: text, default: "", ui: {widget: "multiline", rows: 6, placeholder: {"zh-CN": "写点什么", "en-US": "Write something"}}});
         expect(settingDeclarationProblem("x.ai", "x.ai/note", note)).toBeNull();
         expect(settingDeclarationProblem("x.ai", "x.ai/note", declaration({schema: text, default: "", ui: {label: "x"}}))).toContain("形状");
-        expect(settingDeclarationProblem("x.ai", "x.ai/note", declaration({schema: text, default: "", ui: {placeholder: "只有一种语言"}}))).toContain("形状");
+        expect(settingDeclarationProblem("x.ai", "x.ai/note", declaration({schema: text, default: "", ui: {placeholder: 7}}))).toContain("形状");
         expect(settingDeclarationProblem("x.ai", "x.ai/size", declaration({schema: Type.Integer(), default: 1, ui: {widget: "multiline"}}))).toContain("multiline");
         // 动态选项对应 x-form.options：有它时文字的下拉成立，写多行反而不生效。
         const dynamic = (widget: string) => declaration({schema: text, default: "", choices: {from: "x.ai.models"}, ui: {widget}});

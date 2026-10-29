@@ -145,6 +145,7 @@ describe("控件选择（输出 2）", () => {
         ["confirm 用是 / 否", Type.Boolean({"x-form": {widget: "confirm"}}), "confirm"],
         ["3 项以内、都没有说明用分段控件", literals(3), "segmented"],
         ["3 项以内、有一项的名字超过 16 个字符（哪种语言都算）用横排单选组", Type.Union([Type.Literal("a"), Type.Literal("b")], {"x-form": {choices: [{value: "a", label: {"zh-CN": "总是问", "en-US": "Ask me every single time"}}, {value: "b", label: "从不"}]}}), "radio-row"],
+        ["名字是目录里的键时量不出长度，按长的算，用横排单选组", Type.Union([Type.Literal("a"), Type.Literal("b")], {"x-form": {choices: [{value: "a", label: {kind: "text", key: "always"}}, {value: "b", label: "从不"}]}}), "radio-row"],
         ["名字正好 16 个字符仍用分段控件", Type.Union([Type.Literal("a"), Type.Literal("b")], {"x-form": {choices: [{value: "a", label: "Follow my system"}, {value: "b", label: "Light"}]}}), "segmented"],
         ["3 项以内、有一项带说明用横排单选组", Type.Union([Type.Literal("a"), Type.Literal("b")], {"x-form": {choices: [{value: "a", label: "稳", description: "少出错"}, {value: "b", label: "快"}]}}), "radio-row"],
         ["4 项用下拉", literals(4), "select"],

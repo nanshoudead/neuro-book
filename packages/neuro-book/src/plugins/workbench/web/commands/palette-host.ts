@@ -10,7 +10,6 @@ import {ref, shallowRef} from "vue";
 import type {Ref, ShallowRef} from "vue";
 
 import type {CommandFailure, CommandService} from "nbook/plugins/commands/shared/contracts";
-import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {QuickPickRequest, QuickPickResult} from "../../shared/contracts";
 
@@ -33,8 +32,6 @@ export interface PaletteEditor {
 
 export interface PaletteHost {
     readonly commands: CommandService;
-    /** 面板的显示语言：产品页从配置读，Lab 的命令场景给 Lab 自己的常量。 */
-    readonly locale: Readonly<Ref<DisplayLocale>>;
     /** 命令表每次增减加一：面板据此重算候选，不轮询。 */
     readonly revision: Readonly<Ref<number>>;
     /** 活动编辑器，由持有编辑器的一方写入。 */
@@ -72,7 +69,6 @@ export interface PaletteHost {
 
 export interface PaletteHostOptions {
     readonly commands: CommandService;
-    readonly locale: Readonly<Ref<DisplayLocale>>;
     /** 面板开合时通知；Lab 用它填上下文键 `quick-open-visible`。 */
     readonly onVisibleChange?: (visible: boolean) => void;
     /** 面板执行的命令失败时调用；不给时（Lab 的命令场景）失败只留在命令服务的结果里。 */
@@ -113,7 +109,6 @@ export function createPaletteHost(options: PaletteHostOptions): PaletteHost {
 
     return {
         commands: options.commands,
-        locale: options.locale,
         revision,
         editor,
         editorRevision,

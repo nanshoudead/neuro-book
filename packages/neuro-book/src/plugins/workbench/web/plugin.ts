@@ -18,6 +18,7 @@ import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform, menuImplementatio
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {bindingsOf} from "nbook/shared/store/public";
+import {windowLocale, windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {windowNavigationKey, windowPluginsKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
@@ -32,7 +33,7 @@ import {PART_COMMAND_DECLARATIONS, partCommands} from "./commands/part-commands"
 import {VIEW_COMMAND_DECLARATIONS, viewCommands} from "./commands/view-commands";
 import {appearanceSetting, notificationsKey, quickPickKey, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
 import type {NotificationInput} from "../shared/contracts";
-import {validateHomeContribution, WORKBENCH_HOME_POINT, WORKBENCH_PATH} from "../shared/home";
+import {completeHomeDeclaration, validateHomeContribution, WORKBENCH_HOME_POINT, WORKBENCH_PATH} from "../shared/home";
 import {activityBarItemsPoint, statusbarItemsPoint, titlebarItemsPoint, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "../shared/items";
 import type {ActivityBarItemDeclaration, ItemDeclaration} from "../shared/items";
 import {titlebarMenuPoint, viewTitlePoint, WORKBENCH_TITLEBAR_MENU_POINT, WORKBENCH_VIEW_TITLE_POINT} from "../shared/menus";
@@ -65,8 +66,7 @@ const Notifications = defineAsyncComponent(() => import("./components/WorkbenchN
  * 贡献真正的头像，这一条随之删去。排在设置齿轮（1000）之上。
  */
 const PROFILE_ITEM = "nbook.workbench.profile";
-const PROFILE_DECLARATION: ActivityBarItemDeclaration = {
-    title: {"zh-CN": "个人资料尚未开放", "en-US": "Profile is not available yet"},
+const PROFILE_DECLARATION: Omit<ActivityBarItemDeclaration, "title"> = {
     icon: "i-lucide-user-round",
     order: 900,
 };
@@ -82,14 +82,14 @@ export const workbenchBrowserPlugin: PluginDefinition = {
         titlebarItemsPoint,
         activityBarItemsPoint,
         overlaysPoint,
-        {id: WORKBENCH_HOME_POINT, implementation: "required", validate: validateHomeContribution},
+        {id: WORKBENCH_HOME_POINT, implementation: "required", complete: completeHomeDeclaration, validate: validateHomeContribution},
         titlebarMenuPoint,
         viewTitlePoint,
     ],
     entries: [defineEntry({
         id: "browser",
         location: "browser",
-        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: publicStateKey}, {key: windowPluginsKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: publicStateKey}, {key: windowPluginsKey, required: false}, {key: windowTextKey, required: false}],
         provides: [workbenchRootKey, quickPickKey, notificationsKey],
         receives: [WORKBENCH_PAGES_POINT, WORKBENCH_VIEWS_POINT, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_OVERLAYS_POINT, WORKBENCH_HOME_POINT, WORKBENCH_TITLEBAR_MENU_POINT, WORKBENCH_VIEW_TITLE_POINT],
         contributions: [
@@ -145,12 +145,13 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             });
             const publicState = bindingsOf(workbenchState, workbenchStateBindings(layout.current));
             const settings = context.services.require(settingsKey);
-            const locale = computed(() => displayLocale(settings));
+            const locale = await windowLocale(context.services, () => displayLocale(settings));
+            const text = await windowTextPort(context.services, () => displayLocale(settings));
             const theme = computed(() => settings.get(themeSetting));
             const appearance = computed(() => settings.get(appearanceSetting));
             const homeSlot = new HomeSlot(context.declarations, (message) => diagnostics.record({level: "warn", event: "workbench.home", message, source: {plugin: descriptor.id}}));
             // 通知队列与入口同寿：入口停止时清空，计时器不留到下一代。
-            const notifications = createNotifications((message) => diagnostics.record({level: "warn", event: "workbench.notifications", message, source: {plugin: descriptor.id}}));
+            const notifications = createNotifications((message) => diagnostics.record({level: "warn", event: "workbench.notifications", message, source: {plugin: descriptor.id}}), text);
             context.signal.addEventListener("abort", () => notifications.dispose(), {once: true});
             // 短名只给页面根的标记与“有没有项目”的判断用；界面上显示书名（窗口的显示名，见 nbook/shared/projects）。
             const projectName = project?.name ?? null;
@@ -164,8 +165,8 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 shell: {load: async () => {
                     layout.acquire();
                     return (await import("./components/WorkbenchShell.vue")).default;
-                }, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, locale: locale.value})},
-                renderCommandHost: () => h(CommandHost, {commands, report, locale, notify: (input: NotificationInput) => void notifications.notify(input), attach: (host: PaletteHost) => palettes.attach(host)}),
+                }, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle})},
+                renderCommandHost: () => h(CommandHost, {commands, report, notify: (input: NotificationInput) => void notifications.notify(input), attach: (host: PaletteHost) => palettes.attach(host)}),
                 renderNotifications: () => h(Notifications, {queue: notifications.queue}),
                 renderOverlays: () => h(OverlayHost),
                 projectName,
@@ -184,7 +185,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 contributions: {
                     [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: {[PROFILE_ITEM]: NO_IMPLEMENTATION},
                     [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(WORKBENCH_TITLEBAR_MENU_ITEMS),
-                    [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey), () => locale.value)},
+                    [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick, text), ...panelCommands(() => layout.current.value, palettes.quickPick), ...partCommands(() => layout.current.value, palettes.quickPick), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey))},
                     [PUBLIC_STATE_POINT]: Object.fromEntries(publicState.bindings),
                 },
             };

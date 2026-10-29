@@ -1,5 +1,5 @@
 ---
-标签: [io:remote, state:external, env:global, env:portal]
+标签: [io:remote, state:external, state:inject, env:global, env:portal]
 别名: ["书架页宿主"]
 ---
 
@@ -21,13 +21,16 @@
 ```ts
 type Props = {
     page: ShelfPage;
-    locale: DisplayLocale;
     /** 本页的设置窗口开着（公开状态 `nbook.settings/windowOpen`，由 `bookshelf-home.ts` 读好传入）：齿轮画成按下。 */
     settingsOpen: boolean;
 };
 ```
 
 没有事件：导航、取数与写操作都在模型里完成。
+
+## 隐藏通道理由
+
+`state:inject`：经 `useText()` 取宿主注入的翻译端口，界面文字都在本插件的目录（命名空间 `nbook.projects`，`../../locales/`）；语言随端口切换，不重新挂载。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。
 
 ## 不支持
 

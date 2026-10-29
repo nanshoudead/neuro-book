@@ -1,14 +1,14 @@
 <script setup lang="ts">
 /** 书架页（同名 .md）：标题栏、案头、卡片与列表两种视图；只呈现数据、发出用户动作。 */
 import {Button, Select, IconButton, SegmentedControl, Skeleton} from "@notnotype/nb-ui/components";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {useElementSize} from "@vueuse/core";
 import {computed, ref} from "vue";
 
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 import NeuroBookLockup from "nbook/ui/brand/NeuroBookLockup.vue";
 
 import type {ShelfItem} from "../../shared/shelf";
+import {useProjectsText} from "../text";
 import {sortShelf} from "../shelf-format";
 import type {ShelfSort} from "../shelf-format";
 import ShelfCards from "./ShelfCards.vue";
@@ -20,7 +20,6 @@ defineOptions({name: "BookshelfPage"});
 type ShelfView = "cards" | "list";
 
 const props = withDefaults(defineProps<{
-    locale: DisplayLocale;
     status: "loading" | "ready" | "error";
     error?: string;
     items: ReadonlyArray<ShelfItem>;
@@ -52,29 +51,11 @@ const emit = defineEmits<{
     (event: "open-settings"): void;
 }>();
 
-const TEXT = {
-    brand: {"zh-CN": "书房", "en-US": "Study"},
-    settings: {"zh-CN": "设置", "en-US": "Settings"},
-    profile: {"zh-CN": "个人资料尚未开放", "en-US": "Profile is not available yet"},
-    shelf: {"zh-CN": "书架", "en-US": "Bookshelf"},
-    count: {"zh-CN": "{count} 部", "en-US": "{count} books"},
-    view: {"zh-CN": "视图", "en-US": "View"},
-    cards: {"zh-CN": "卡片", "en-US": "Cards"},
-    list: {"zh-CN": "列表", "en-US": "List"},
-    sort: {"zh-CN": "排序", "en-US": "Sort"},
-    recent: {"zh-CN": "最近编辑", "en-US": "Recently Edited"},
-    title: {"zh-CN": "书名", "en-US": "Title"},
-    words: {"zh-CN": "字数", "en-US": "Word Count"},
-    create: {"zh-CN": "新建作品", "en-US": "New Book"},
-    addExisting: {"zh-CN": "打开已有作品…", "en-US": "Open Existing…"},
-    retry: {"zh-CN": "重试", "en-US": "Retry"},
-    loading: {"zh-CN": "正在读取书架…", "en-US": "Loading the bookshelf…"},
-} satisfies Record<string, LocalizedText>;
-
 /** 不足这个宽度只用列表：卡片一列时信息密度不如列表。 */
 const NARROW_WIDTH = 720;
 
-const text = (value: LocalizedText): string => localize(value, props.locale);
+const port = useText();
+const text = useProjectsText();
 
 const root = ref<HTMLElement | null>(null);
 const {width} = useElementSize(root);
@@ -82,13 +63,13 @@ const {width} = useElementSize(root);
 const narrow = computed(() => width.value > 0 && width.value < NARROW_WIDTH);
 const effectiveView = computed<ShelfView>(() => (narrow.value ? "list" : props.view));
 
-const sorted = computed(() => sortShelf(props.items, props.sort, props.locale));
+const sorted = computed(() => sortShelf(props.items, props.sort, port.locale.value));
 
-const viewOptions = computed(() => [{value: "cards", label: text(TEXT.cards)}, {value: "list", label: text(TEXT.list)}]);
+const viewOptions = computed(() => [{value: "cards", label: text("bookshelfPage.cards")}, {value: "list", label: text("bookshelfPage.list")}]);
 const sortOptions = computed(() => [
-    {value: "recent", label: text(TEXT.recent)},
-    {value: "title", label: text(TEXT.title)},
-    {value: "words", label: text(TEXT.words)},
+    {value: "recent", label: text("bookshelfPage.recent")},
+    {value: "title", label: text("bookshelfPage.title")},
+    {value: "words", label: text("bookshelfPage.words")},
 ]);
 
 function onView(value: unknown): void {
@@ -120,60 +101,59 @@ defineExpose({focusShelf});
             <header class="bookshelf-page__header">
                 <p class="bookshelf-page__brand">
                     <NeuroBookLockup class="bookshelf-page__lockup" />
-                    <span class="bookshelf-page__room">· {{ text(TEXT.brand) }}</span>
+                    <span class="bookshelf-page__room">· {{ text('bookshelfPage.brand') }}</span>
                 </p>
                 <div class="bookshelf-page__tools-right">
                     <!-- 设置窗口开着时按下：灰底、正文色，同工作台活动栏的齿轮（docs/specs/workbench/bookshelf.md 输出 1）。 -->
                     <IconButton
                         size="sm"
                         icon-class="i-lucide-settings"
-                        :aria-label="text(TEXT.settings)"
+                        :aria-label="text('bookshelfPage.settings')"
                         :aria-pressed="settingsOpen"
                         :class="{'bookshelf-page__settings--pressed': settingsOpen}"
                         data-shelf-settings
                         @click="emit('open-settings')"
                     />
                     <!-- 头像只预留位置：没有个人资料之前不是入口，不可点（外壳规范：不以可操作的假入口呈现）。 -->
-                    <span class="bookshelf-page__avatar" :title="text(TEXT.profile)" aria-hidden="true"><span class="i-lucide-user-round"></span></span>
+                    <span class="bookshelf-page__avatar" :title="text('bookshelfPage.profile')" aria-hidden="true"><span class="i-lucide-user-round"></span></span>
                 </div>
             </header>
 
             <!-- 骨架只是装饰（aria-hidden）：读屏听到的是这一句，截图工具按 aria-busy 等书架出来。 -->
             <div v-if="status === 'loading'" class="bookshelf-page__loading" role="status" aria-busy="true" data-shelf-loading>
-                <span class="sr-only">{{ text(TEXT.loading) }}</span>
+                <span class="sr-only">{{ text('bookshelfPage.loading') }}</span>
                 <Skeleton shape="block" height="150px" />
                 <Skeleton shape="block" height="240px" />
             </div>
 
             <div v-else-if="status === 'error'" class="bookshelf-page__error" role="alert">
                 <p>{{ error }}</p>
-                <Button size="sm" @click="emit('retry')">{{ text(TEXT.retry) }}</Button>
+                <Button size="sm" @click="emit('retry')">{{ text('bookshelfPage.retry') }}</Button>
             </div>
 
             <template v-else>
-                <ShelfDesk :locale="locale" :items="items" :now="now" @continue="emit('continue', $event)" />
+                <ShelfDesk :items="items" :now="now" @continue="emit('continue', $event)" />
 
-                <section class="bookshelf-page__shelf" :aria-label="text(TEXT.shelf)">
+                <section class="bookshelf-page__shelf" :aria-label="text('bookshelfPage.shelf')">
                     <div class="bookshelf-page__shelf-head">
                         <h2 class="bookshelf-page__shelf-title">
-                            {{ text(TEXT.shelf) }}
-                            <span class="bookshelf-page__count">{{ text(formatText(TEXT.count, {count: items.length})) }}</span>
+                            {{ text('bookshelfPage.shelf') }}
+                            <span class="bookshelf-page__count">{{ text('bookshelfPage.count', {count: items.length}) }}</span>
                         </h2>
                         <div class="bookshelf-page__tools">
-                            <SegmentedControl v-if="!narrow" :model-value="view" :options="viewOptions" :aria-label="text(TEXT.view)" @update:model-value="onView" />
+                            <SegmentedControl v-if="!narrow" :model-value="view" :options="viewOptions" :aria-label="text('bookshelfPage.view')" @update:model-value="onView" />
                             <!-- Select 是多根组件，scoped 的宽度类落不到它的触发器上；触发器全宽，宽度由这个外框给。 -->
                             <div class="bookshelf-page__sort">
-                                <Select id="bookshelf-sort" :model-value="sort" :options="sortOptions" size="sm" :aria-label="text(TEXT.sort)" @update:model-value="onSort" />
+                                <Select id="bookshelf-sort" :model-value="sort" :options="sortOptions" size="sm" :aria-label="text('bookshelfPage.sort')" @update:model-value="onSort" />
                             </div>
                             <span class="bookshelf-page__gap" aria-hidden="true"></span>
-                            <Button variant="secondary" size="sm" data-shelf-add @click="emit('add-existing')">{{ text(TEXT.addExisting) }}</Button>
-                            <Button variant="primary" size="sm" icon-class="i-lucide-plus" data-shelf-create @click="emit('create')">{{ text(TEXT.create) }}</Button>
+                            <Button variant="secondary" size="sm" data-shelf-add @click="emit('add-existing')">{{ text('bookshelfPage.addExisting') }}</Button>
+                            <Button variant="primary" size="sm" icon-class="i-lucide-plus" data-shelf-create @click="emit('create')">{{ text('bookshelfPage.create') }}</Button>
                         </div>
                     </div>
 
                     <ShelfCards
                         v-if="effectiveView === 'cards' || items.length === 0"
-                        :locale="locale"
                         :items="sorted"
                         :active-id="activeId"
                         :now="now"
@@ -189,7 +169,6 @@ defineExpose({focusShelf});
                     />
                     <ShelfList
                         v-else
-                        :locale="locale"
                         :items="sorted"
                         :now="now"
                         :cover-src="coverSrc"

@@ -11,9 +11,24 @@ import type {Static} from "typebox";
 
 import {definePlugin} from "@notnotype/nb-plugin-sdk";
 import {setting} from "@notnotype/nb-plugin-sdk/settings";
+import {pluginText} from "@notnotype/nb-plugin-sdk/text";
 
 /** 插件的身份（读法见 `../../clock/shared/contracts.ts`）。snippets 只在浏览器窗口里有入口：它不存数据，配置项的读写全交给 `nbook.settings`。 */
 export const plugin = definePlugin({id: "example.snippets", version: "0.1.0", locations: ["browser"]});
+
+/**
+ * 本插件消息目录（`../locales/<语言>.json`，`package.json` 的 `l10n.source` 指出源语言）里的文字引用。界面文字不在代码里写
+ * 双语对象，而是写进目录，宿主在窗口里按当前界面语言翻译（docs/specs/ui/i18n.md）：
+ *
+ * - 声明里**必填**的文字（配置项、分区的 `title`）干脆不写，宿主登记时补成约定键 `<短名>.<本地 id>.<字段>`，例如
+ *   `settings.items.title`、`settingsPages.main.title`（同一 Spec 的“约定键”）；目录里写上这些键即可。
+ * - **可选**的文字（`description`）省略就是没有，要显示就写一个引用。`pluginText<目录类型>(插件 id)` 构造带本插件命名空间的
+ *   引用，键按源语言目录的类型核对，写错编译不过。它是纯函数、不依赖 Vue，服务端与项目实例也会读这份声明，所以从
+ *   `/text` 取，不从浏览器专用的 `/text/browser` 取。
+ *
+ * 服务端不翻译文字引用，引用原样存进声明，设置窗口显示时才翻；语言切换后标题、说明跟着换，不用重新登记。
+ */
+export const text = pluginText<typeof import("../locales/zh-CN.json")>(plugin.id);
 
 /** page 分区的短名：浏览器入口用它贡献分区（`settingsPage`），配置项用它拼出分区 id 写进 `section`。 */
 export const SNIPPETS_PAGE = "main";
@@ -47,7 +62,7 @@ export const itemsSetting = setting(plugin, {
         {name: "场景转换", text: "——"},
         {name: "章末钩子", text: "他还不知道，这封信会改变一切。"},
     ],
-    title: {"zh-CN": "片段", "en-US": "Snippets"},
-    description: {"zh-CN": "本作品里可以另备一份，整份替换用户设置里的片段", "en-US": "A book can keep its own list, which replaces yours entirely"},
+    // `title` 省略：约定键 `settings.items.title`。
+    description: text("settings.items.description"),
     section: SNIPPETS_SECTION,
 });

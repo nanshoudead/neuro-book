@@ -12,7 +12,9 @@
 
 | 导入 | 内容 | 在哪里用 |
 |---|---|---|
-| `@notnotype/nb-plugin-sdk` | 插件框架：`definePlugin`、入口、服务、远程服务、诊断、宿主能力、多语言文字 | 各运行位置 |
+| `@notnotype/nb-plugin-sdk` | 插件框架：`definePlugin`、入口、服务、远程服务、诊断、宿主能力 | 各运行位置 |
+| `@notnotype/nb-plugin-sdk/text` | 界面文字的类型（`Text`、`TextRef`、`LocaleMap`、`TextParams`）与构造文字引用的 `pluginText` | 各运行位置 |
+| `@notnotype/nb-plugin-sdk/text/browser` | 组件里取文字：`usePluginText`、`useText`、`TextPort` | 只在浏览器入口 |
 | `@notnotype/nb-plugin-sdk/state` | 内置插件 `nbook.state`：插件状态 `defineStore`、公开状态 `definePublicState` | 各运行位置 |
 | `@notnotype/nb-plugin-sdk/storage` | 内置插件 `nbook.storage`：私有存储 `defineRecord`、`storageKey` | 各运行位置 |
 | `@notnotype/nb-plugin-sdk/settings` | 内置插件 `nbook.settings`：设置项 `setting`、list 分区 `section`、`settingsKey` | 各运行位置 |
@@ -59,6 +61,7 @@ hello/
 ├── shared/contracts.ts  definePlugin（插件 id、版本、运行位置）、设置分区与设置项、远程服务合同；两端与别的插件都引用它
 ├── web/plugin.ts        浏览器入口
 ├── web/HelloView.vue    视图组件
+├── locales/             界面文字的消息目录（zh-CN.json 是源语言，见下文“界面文字”）
 ├── backend/plugin.ts    服务端与项目入口（模板没有，要时自己加）
 ├── env.d.ts、tsconfig.json
 └── dist/                构建产物，交给用户安装的就是它
@@ -67,7 +70,7 @@ hello/
 - 插件 id、版本与运行位置写在三处：`package.json`（`publisher.name` 与 `version`）、`definePlugin({id, version, locations})`、实际有入口的模块。三处不一致时构建报错，改的时候一起改。贡献的 id 只写短名（见下文“写入口”），不用再写插件 id。
 - 构建预设读的入口模块缺省是 `backend/plugin.ts` 与 `web/plugin.ts` 里存在的；放在别处时在 `package.json` 写 `"nbook": {"definitions": ["src/server.ts", "src/web.ts"]}`，写错（不是路径的数组）构建报错。
 - 构建时会执行 `plugin.ts` 与入口模块的顶层一次（为了读出声明，不调用 `activate`），顶层不要有副作用。
-- 给模板加服务端入口：`definePlugin` 的 `locations` 加上 `"server"`；新建 `backend/plugin.ts`，导出 `plugin.definition([plugin.entry({location: "server", activate: …})])`；构建预设会找到它，`package.json` 不用改。服务端入口只从两端都能用的子路径导入（根入口、`/state`、`/storage`、`/settings`、`/commands`），完整的写法见下文“服务端入口与远程服务”的示例。
+- 给模板加服务端入口：`definePlugin` 的 `locations` 加上 `"server"`；新建 `backend/plugin.ts`，导出 `plugin.definition([plugin.entry({location: "server", activate: …})])`；构建预设会找到它，`package.json` 不用改。服务端入口只从两端都能用的子路径导入（根入口、`/text`、`/state`、`/storage`、`/settings`、`/commands`），完整的写法见下文“服务端入口与远程服务”的示例。
 
 ## 写入口
 
@@ -132,7 +135,7 @@ export const browserPlugin = plugin.definition([plugin.entry({
 
 ### 贡献
 
-界面文字（`title`、`description` 这类）可以写一个字符串，两种界面语言显示同一句；要分开写时给 `{"zh-CN": …, "en-US": …}`。贡献、贡献点（包括自己定义贡献点时的 `schema` 与 `idPrefix`）与激活事件的规则见 [plugins](../../../docs/specs/runtime/plugins.md)。
+声明里的界面文字（`title`、`description` 这类）怎么写见下文“界面文字”。贡献、贡献点（包括自己定义贡献点时的 `schema` 与 `idPrefix`）与激活事件的规则见 [plugins](../../../docs/specs/runtime/plugins.md)。
 
 - **设置分区与设置项**：`/settings` 的 `section(plugin, {name, title, icon, groups})` 是设置窗口左栏的一项（list 分区，`category` 缺省 `plugins`），窗口按设置项的 schema 画控件；`setting(plugin, {name, schema, default, title, layers, applies, section, group})` 是一个设置项，`section` 收分区本身，`group` 只能是那个分区的组 id，写错编译不过。`layers` 是用户能在哪几层改它：缺省 `["user", "project"]`（用户层与作品层，作品层覆盖用户层）；服务端入口只读得到缺省值与用户层（作品层属于项目，项目实例与打开了项目的窗口才读得到），给服务端用的设置项写 `layers: ["user"]`。`applies` 告诉用户改了何时生效，只影响设置窗口的提示：缺省 `now`，另有 `next-run`、`next-session`、`restart`。两者都写进 `plugin.descriptor([…])`，漏写的构建时报。读写要在入口的 `dependencies` 里声明 `settingsKey`，激活时 `context.services.require(settingsKey)` 拿到服务：`get(设置项)` 读有效值，`inspect` 读各层，`update(设置项, 值, {layer})` 写本插件声明的项，`onDidChange((keys) => …)` 在有效值变化时通知（`keys` 是变了的键，和 `设置项.key` 比）。规则见 [configuration](../../../docs/specs/settings/configuration.md)，写法见模板的 `shared/contracts.ts`。
 - **page 分区**：值是列表、对象这类通用控件画不了的，用 `/settings/browser` 的 `settingsPage(plugin, {name, title, icon, load})` 自己画页面，每一项用 `SettingsRow` 排；规则见 [settings-window 的“分区声明”](../../../docs/specs/settings/settings-window.md#分区声明)，写法见示例 snippets。
@@ -151,6 +154,35 @@ export const browserPlugin = plugin.definition([plugin.entry({
   ```
 
   三个函数每次渲染都会调用，从响应式状态现算，不要缓存结果；条目显示不显示只由声明的 `when` 决定，不用让 `text()` 返回空串来隐藏。规则见 [workbench-shell 的“外壳四”](../../../docs/specs/ui/workbench-shell.md#外壳四标题栏状态栏与条目)第 33 条。
+
+### 界面文字
+
+界面文字是文字值 `Text`（`/text` 的类型）：三种写法，NeuroBook 在窗口里按用户的界面语言显示。
+
+- **消息目录里的键**（推荐）：文字写在 `locales/<语言>.json` 里，`package.json` 写 `"l10n": {"source": "zh-CN"}` 指出源语言；目录可以嵌套，键是点号连起来的路径。构建预设把目录复制进产物，显示名与说明写在源语言目录的 `manifest.displayName`、`manifest.description`，不写在 `package.json`。目录的格式（复数形 `<键>_one`、`<键>_other`，插值 `{{name}}`）见 [i18n 的“目录与键”](../../../docs/specs/ui/i18n.md#目录与键)。
+- **字符串**：不翻译的字面文字，各界面语言显示同一句。
+- **语言映射** `{"zh-CN": …, "en-US": …}`：按语言取，取不到取 `en-US`。服务端也能按语言取，所以服务端算出、要给用户看的文字（例如公开状态的 `reason`）写它；服务端不翻译目录里的键。
+
+在声明里：必填的 `title` 不写，宿主登记时补成约定键 `<短名>.<本地 id>.<字段>`，到插件自己的目录里取，例如命令 `say-hello` 是 `commands.say-hello.title`、设置项 `greeting` 是 `settings.greeting.title`、视图 `hello` 是 `views.hello.title`（各贡献点的短名见 [i18n 的“约定键”](../../../docs/specs/ui/i18n.md#约定键)）。可选的 `description` 省略就是没有，要显示就写一个引用：
+
+```ts
+import {pluginText} from "@notnotype/nb-plugin-sdk/text";
+
+// 键按源语言目录的类型核对，写错编译不过（tsconfig 要开 resolveJsonModule）。
+export const text = pluginText<typeof import("../locales/zh-CN.json")>(plugin.id);
+// 声明里：description: text("settings.greeting.description")
+```
+
+在组件里：`/text/browser` 的 `usePluginText` 读 NeuroBook 在窗口根上注入的翻译端口，返回 `(键, 参数) => 当前语言的字符串`；在模板里调用，界面语言切换时组件跟着重画，不用自己传语言。只在 `setup` 里调用。
+
+```ts
+import {usePluginText} from "@notnotype/nb-plugin-sdk/text/browser";
+
+const text = usePluginText<typeof import("../locales/zh-CN.json")>(plugin.id);
+// 模板里：{{ text("hello.count", {count}) }}
+```
+
+要翻一个现成的文字值（例如别处交来的 `Text`）时用 `useText().t(文字)`。运行时现给的文字（状态栏条目的 `text()`、`tooltip()`）不经登记、不补命名空间，用 `pluginText` 构造引用返回。要显示的失败、状态在组件里存原始的码与数据，到模板里再拼成句子：存成拼好的字符串，界面语言切换后它还停在原来的语言。写法见模板的 `web/HelloView.vue` 与示例 snippets。
 
 ### 服务端入口与远程服务
 
@@ -270,7 +302,7 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 
 ### 常用名字
 
-根入口：`definePlugin`、`ok`、`fail`、`remoteService`、`eventSource`、`provideRemote`、`provideService`（同一实例里的本地服务）、`defineServiceKey`、`diagnosticsKey`、`hostClockKey`（宿主给的时钟：`now()` 取时间，`schedule(回调, 毫秒)` 定时并返回取消函数）。`/state`：`defineStore`、`definePublicState`。`/storage`：`defineRecord`、`storageKey`。`/settings`：`section`、`setting`、`settingsKey`。`/settings/browser`：`settingsPage`、`choices`、`SettingsRow`。`/commands`：`command`、`commandServiceKey`。`/workbench`：`view`、`statusItem`。每个子路径的完整名单见 `docs/exports.md`，说明在各自的 `.d.ts` 里。
+根入口：`definePlugin`、`ok`、`fail`、`remoteService`、`eventSource`、`provideRemote`、`provideService`（同一实例里的本地服务）、`defineServiceKey`、`diagnosticsKey`、`hostClockKey`（宿主给的时钟：`now()` 取时间，`schedule(回调, 毫秒)` 定时并返回取消函数）。`/state`：`defineStore`、`definePublicState`。`/storage`：`defineRecord`、`storageKey`。`/settings`：`section`、`setting`、`settingsKey`。`/settings/browser`：`settingsPage`、`choices`、`SettingsRow`。`/commands`：`command`、`commandServiceKey`。`/workbench`：`view`、`statusItem`。`/text`：`pluginText`。`/text/browser`：`usePluginText`、`useText`。每个子路径的完整名单见 `docs/exports.md`，说明在各自的 `.d.ts` 里。
 
 ## 界面
 

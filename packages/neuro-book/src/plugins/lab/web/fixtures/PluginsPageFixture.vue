@@ -4,11 +4,17 @@
  * 表并记进事件 tab；安装总是预览为首次安装 `example.new`（“pending”场景预览为升级、“downgrade”场景为降级、“blocked”场景
  * 为升级并列出重启后受阻的插件）。“write-failed”场景的写操作都以带出错字段的“清单无效”失败，“busy”场景的写操作永不结算。“problems”场景摆出显示名、说明、服务端与本窗口的问题。
  * 场景名带 `-english` 的是同一场景的英文界面。
+ *
+ * 页面的文字来自注入的翻译端口，而 Lab 窗口的端口跟着窗口的界面语言：这里另建一个宿主引擎、登记本插件的目录，语言跟着场景的
+ * `locale` 属性（属性只管列表的连接，两者要一致），只注入给场景里的页面。
  */
-import {computed} from "vue";
+import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
+import {computed, provide, watch} from "vue";
 
 import type {InstallPreview, PluginListEntry, PluginProblem, PluginsRegistry} from "nbook/plugins/plugins/shared/contracts";
 import PluginsPage from "nbook/plugins/plugins/web/components/PluginsPage.vue";
+import {pluginsCatalogs} from "nbook/plugins/plugins/web/text";
+import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import {useLabEventSink} from "../lab-event-sink";
 import {useLabSubject} from "../lab-subject";
@@ -135,6 +141,13 @@ const registry: PluginsRegistry = {
     },
 };
 const bindings = computed(() => subject.bindings.value);
+
+const sceneLocale = (): string => (typeof bindings.value.locale === "string" ? bindings.value.locale : "zh-CN");
+const text = createHostTextEngine({locale: sceneLocale()});
+text.register("nbook.plugins", pluginsCatalogs.catalogs, pluginsCatalogs.source);
+provide(TEXT_PORT_KEY, text.port);
+// 数据面板改了 `locale` 时端口跟着换。
+watch(sceneLocale, (locale) => text.setLocale(locale));
 </script>
 
 <template>

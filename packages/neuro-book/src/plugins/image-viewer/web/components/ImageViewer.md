@@ -1,5 +1,5 @@
 ---
-标签: [state:local]
+标签: [state:local, state:inject]
 别名: ["图片查看器", "Image Viewer"]
 ---
 
@@ -18,6 +18,7 @@ type Props = {
     visible: boolean;
     /** 内容区的可访问名称（文件名）。 */
     label: string;
+    /** 只用于大小的数字格式（`Intl.NumberFormat`）；界面文字经翻译端口，不看它。 */
     locale: DisplayLocale;
 };
 
@@ -39,3 +40,8 @@ type Emits = {
 ## 不支持
 
 - 不编辑、不另存；不逐帧控制动图；不显示 EXIF。
+
+## 隐藏通道理由
+
+- `state:local`：当前显示的图与对象 URL、读取阶段、失败说明、视图状态（模式、比例、滚动位置）。
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，“正在读取”“重试”与各种失败说明都在本插件的目录（命名空间 `nbook.image-viewer`，`../../locales/`）。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。失败说明是出错那一刻翻成的字符串，之后切换语言不更新。

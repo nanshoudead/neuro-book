@@ -16,7 +16,8 @@ import {EDITOR_PAGES_POINT, OPEN_PAGE_COMMAND} from "nbook/plugins/editor/shared
 import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts";
 import type {EditorPageImplementation} from "nbook/plugins/editor/web/pages";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
-import type {CommandDeclaration} from "nbook/plugins/commands/shared/contracts";
+import type {WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
+import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {displayLocale, SETTINGS_PAGES_POINT, SETTINGS_WINDOW_OPEN_KEY, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import type {SettingsPageImplementation} from "nbook/plugins/settings/web/contracts";
 import {publicStateKey} from "nbook/plugins/state/shared/contracts";
@@ -25,12 +26,14 @@ import {notificationsKey, quickPickKey, WORKBENCH_HOME_POINT, WORKBENCH_TITLEBAR
 import type {TitlebarMenuItemDeclaration} from "nbook/plugins/workbench/shared/contracts";
 import type {HomeDeclaration} from "nbook/plugins/workbench/shared/contracts";
 import type {WorkbenchHomeImplementation} from "nbook/plugins/workbench/web/contracts";
+import type {Written} from "nbook/shared/convention-keys";
 import {clockKey, windowNavigationKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 
 import {descriptor} from "../plugin";
 import {projectsRemoteContract} from "../shared/contracts";
 import {projectCoverUrl} from "../shared/cover";
+import {projectsText} from "../shared/text";
 import {createBookshelfHome} from "./bookshelf-home";
 import {browseDirectory} from "./browse";
 import {OPEN_PROJECT_COMMAND, OPEN_PROJECT_DECLARATION, openProject} from "./open-project";
@@ -42,10 +45,11 @@ import type {ShelfPreferencesStore} from "./shelf-preferences";
 import {createWorksPage, WORKS_SECTION, WORKS_SECTION_DECLARATION} from "./works-section";
 import {createWelcomeHost, WELCOME_PAGE_ID} from "./welcome";
 
-const DECLARATION: CommandDeclaration = {...OPEN_PROJECT_DECLARATION, args: Type.Object({}, {additionalProperties: false})};
+const DECLARATION: WrittenCommandDeclaration = {...OPEN_PROJECT_DECLARATION, args: Type.Object({}, {additionalProperties: false})};
 
 export const BOOKSHELF_HOME_ID = "nbook.projects.bookshelf";
-const HOME_DECLARATION: HomeDeclaration = {title: {"zh-CN": "书架", "en-US": "Bookshelf"}};
+/** 标题省略，登记时补成约定键 `home.bookshelf.title`。 */
+const HOME_DECLARATION: Written<HomeDeclaration, "title"> = {};
 
 /** “帮助 > 欢迎”与命令面板打开欢迎页的命令。 */
 export const WELCOME_COMMAND = "nbook.help.welcome";
@@ -55,16 +59,15 @@ const TITLEBAR_MENU_ITEMS: ReadonlyArray<{readonly id: string; readonly declarat
     {id: "nbook.projects.menu.open", declaration: {group: "file", section: "1_open", command: OPEN_PROJECT_COMMAND}},
     {id: "nbook.projects.menu.welcome", declaration: {group: "help", section: "1_help", order: 1, command: WELCOME_COMMAND}},
 ];
-const WELCOME_DECLARATION: CommandDeclaration = {
-    title: {"zh-CN": "欢迎", "en-US": "Welcome"},
-    category: {"zh-CN": "帮助", "en-US": "Help"},
+const WELCOME_DECLARATION: WrittenCommandDeclaration = {
+    category: projectsText("commands.nbook.help.welcome.category"),
     description: "Open the welcome page of the work in this window: overview, new chapter, recent files and getting-started tips.",
     args: Type.Object({}, {additionalProperties: false}),
     effect: "read",
     expose: {agent: "never"},
 };
 /** 作品第一次在本窗口打开时自动打开（docs/specs/workbench/editor.md 输出 33）。 */
-const WELCOME_PAGE: EditorPageDeclaration = {title: {"zh-CN": "欢迎", "en-US": "Welcome"}, icon: "i-lucide-book-open", openOnFirstVisit: true};
+const WELCOME_PAGE: Written<EditorPageDeclaration, "title"> = {icon: "i-lucide-book-open", openOnFirstVisit: true};
 
 /** 命令面板的命令（与工作台的命令搜索同一条）：欢迎页的入门提示显示它的快捷键。 */
 const OPEN_COMMANDS_ID = "nbook.quick-open.open-commands";
@@ -76,7 +79,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
         location: "browser",
         // 命令随贡献方入口激活才进命令表（还没有按命令触发的激活事件）：启动即激活，面板里才列得出“打开项目”。
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: quickPickKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: notificationsKey}, {key: commandServiceKey}, {key: publicStateKey}, {key: windowProjectKey}, {key: filesKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: quickPickKey}, {key: windowNavigationKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: notificationsKey}, {key: commandServiceKey}, {key: publicStateKey}, {key: windowProjectKey}, {key: filesKey, required: false}, {key: windowTextKey, required: false}],
         contributions: [
             {capability: COMMANDS_POINT, id: OPEN_PROJECT_COMMAND, declaration: DECLARATION},
             {capability: COMMANDS_POINT, id: WELCOME_COMMAND, declaration: WELCOME_DECLARATION},
@@ -95,7 +98,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
             const clock = context.services.require(clockKey);
             const notifications = context.services.require(notificationsKey);
             const commands = context.services.require(commandServiceKey);
-            const locale = computed(() => displayLocale(settings));
+            const text = await windowTextPort(context.services, () => displayLocale(settings));
             const state = context.services.require(publicStateKey);
             // 书架右上角的齿轮按下与否：读设置插件的公开键，与工作台活动栏的齿轮同一个来源。
             const settingsOpen = computed(() => {
@@ -106,7 +109,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
                 remote,
                 quickPick,
                 navigateDocument: (href) => navigation.navigateDocument(href),
-                locale: () => locale.value,
+                text,
                 recordFailure: (reason, detail) => diagnostics.record({level: "info", event: "projects.register-failed", message: "登记项目失败", data: {reason, detail}, source: {plugin: descriptor.id}}),
             };
             // 偏好记录在书架第一次渲染时才打开：绑定了项目的窗口不读它。
@@ -115,12 +118,11 @@ export const projectsBrowserPlugin: PluginDefinition = {
             const home: WorkbenchHomeImplementation = {
                 load: async () => createBookshelfHome({
                     component: (await import("./components/BookshelfHost.vue")).default,
-                    locale,
                     settingsOpen,
                     createPage: () => createShelfPage({
                         remote,
                         clock,
-                        locale: () => locale.value,
+                        text,
                         preferences: {
                             view: computed(() => preferences().state.preferences.display.view),
                             sort: computed(() => preferences().state.preferences.display.sort),
@@ -133,7 +135,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
                         cover: coverTransport(),
                         commands: {execute: async (id) => {
                             const result = await commands.execute(id, undefined, {source: "user"});
-                            return result.ok ? {ok: true} : {ok: false, reason: `${result.code}：${result.reason}`};
+                            return result.ok ? {ok: true} : {ok: false, reason: `${result.code}：${text.t(result.reason)}`};
                         }},
                         report: (event, message) => diagnostics.record({level: "warn", event, message, source: {plugin: descriptor.id}}),
                     }),
@@ -144,7 +146,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
                 load: async () => createWorksPage({
                     component: (await import("./components/WorksSettingsPage.vue")).default,
                     settings,
-                    source: {list: (path) => browseDirectory(remote, path, locale.value)},
+                    source: {list: (path) => browseDirectory(remote, path, text)},
                     // 取不到时页面原位写一句淡色的说明，不发通知（bookshelf.md 输出 21），这里只记诊断。
                     library: async () => {
                         const result = await remote.library({});
@@ -152,7 +154,6 @@ export const projectsBrowserPlugin: PluginDefinition = {
                         diagnostics.record({level: "warn", event: "projects.library-failed", message: `取作品目录失败：${result.code}`, source: {plugin: descriptor.id}});
                         return null;
                     },
-                    locale,
                     notifications,
                     report: (message) => diagnostics.record({level: "warn", event: "projects.library-not-saved", message, source: {plugin: descriptor.id}}),
                 }),
@@ -168,7 +169,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
                     files: files.status === "resolved" ? files.instance : null,
                     commands,
                     navigateDocument: (href) => navigation.navigateDocument(href),
-                    locale: () => locale.value,
+                    text,
                     now: () => clock.now(),
                     shortcut: () => {
                         const command = commands.get(OPEN_COMMANDS_ID);

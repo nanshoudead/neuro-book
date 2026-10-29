@@ -1,5 +1,5 @@
 ---
-标签: [state:local, env:portal]
+标签: [state:local, state:inject, env:portal]
 别名: ["作品分区", "作品设置", "Library Settings"]
 ---
 
@@ -22,7 +22,6 @@
 ## 数据
 
 ```ts
-import type {DisplayLocale} from "nbook/shared/localized-text";
 import type {SettingLayer, SettingsFailure, SettingsService} from "nbook/shared/settings";
 import type {PathPickerSource} from "./PathPickerDialog.vue";
 import type {LibraryInfo} from "../shelf-page";
@@ -36,8 +35,6 @@ type Props = {
     source: PathPickerSource;
     /** 当前有效的作品目录（产品里是 `nbook.projects/projects` 的 `library()`，`{path, source: "setting" | "default"}`）；取不到为 null，诊断由提供方记。必填。 */
     readLibrary: () => Promise<LibraryInfo | null>;
-    /** 显示语言。必填。 */
-    locale: DisplayLocale;
 };
 
 type Emits = {
@@ -60,6 +57,7 @@ type Emits = {
 
 - `env:portal`：来自 `PathPickerDialog`（模态对话框传送到 body 或宿主给的传送目标）。
 - `state:local`：选择器开着与否、这次写入中的路径、没设时取到的缺省目录。
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，界面文字都在本插件的目录（命名空间 `nbook.projects`，`../../locales/`）；语言随端口切换，不重新挂载。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。
 
 ## 注意事项
 

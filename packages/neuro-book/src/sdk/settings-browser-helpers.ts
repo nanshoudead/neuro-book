@@ -8,26 +8,27 @@ import type {MaybeRefOrGetter} from "vue";
 import type {OptionSource} from "@notnotype/nb-form";
 
 import {SETTINGS_CHOICES_POINT, settingsChoicesEvent} from "nbook/plugins/settings/shared/sections";
-import type {SettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
+import type {SettingsPageDeclaration, WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
 import type {SettingsChoicesImplementation} from "nbook/plugins/settings/web/contracts";
 import {settingsPageContribution} from "nbook/plugins/settings/web/page-contribution";
 
-import {bound, contributionId, localizedText} from "./plugin";
+import {bound, contributionId} from "./plugin";
 import type {BoundImplementation, ContributionHelper, PluginBuilder, ShortNameRule, Text} from "./plugin";
 import type {ComponentLoad, PropsOf} from "./workbench-helpers";
 
-export interface SettingsPageHelper<Id extends string, Load extends ComponentLoad> extends ContributionHelper<"settings.pages", Id, SettingsPageDeclaration> {
+export interface SettingsPageHelper<Id extends string, Load extends ComponentLoad> extends ContributionHelper<"settings.pages", Id, WrittenSettingsPageDeclaration> {
     readonly where: "browser";
     implement(props?: () => PropsOf<Load>): BoundImplementation<"settings.pages", Id>;
 }
 
 /**
  * 设置窗口的 page 分区：插件自己画页面，每一项用 `SettingsRow` 排。`category` 缺省 `plugins`。设置窗口第一次显示这个分区时
- * 才激活入口：激活事件由 `plugin.entry` 自动并入。
+ * 才激活入口：激活事件由 `plugin.entry` 自动并入。`title` 省略时宿主登记时补成约定键 `settingsPages.<name>.title`
+ * （docs/specs/settings/settings-window.md 的“约定键”）。
  */
 export function settingsPage<const Id extends string, const Name extends string, const Load extends ComponentLoad>(plugin: PluginBuilder<Id>, options: Omit<SettingsPageDeclaration, "title" | "description" | "category" | "keywords"> & {
     readonly name: Name;
-    readonly title: Text;
+    readonly title?: Text;
     readonly description?: Text;
     readonly category?: SettingsPageDeclaration["category"];
     readonly keywords?: ReadonlyArray<Text>;
@@ -39,10 +40,10 @@ export function settingsPage<const Id extends string, const Name extends string,
         id,
         declaration: {
             ...rest,
-            title: localizedText(title),
-            ...(description === undefined ? {} : {description: localizedText(description)}),
+            ...(title === undefined ? {} : {title}),
+            ...(description === undefined ? {} : {description}),
             category: category ?? "plugins",
-            ...(keywords === undefined ? {} : {keywords: keywords.map(localizedText)}),
+            ...(keywords === undefined ? {} : {keywords: [...keywords]}),
         },
         load,
     });

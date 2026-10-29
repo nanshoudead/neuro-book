@@ -19,16 +19,18 @@
  * - 服务商的页内列表不支持排序。“测试连接”是个替身：不发请求，按接口地址是不是 http(s) 开头给出“已连接”或“连接失败”。
  * - 默认模型的选项来自同一插件的选项提供者（已保存的服务商的模型），经 `context.options` 交给字段。
  */
-import {resolveForm, validateForm} from "@notnotype/nb-form";
-import type {FormText} from "@notnotype/nb-form";
-import {describeIssues, SchemaField, widgetLayout} from "@notnotype/nb-form/vue";
+import {resolveForm, resolveText, validateForm} from "@notnotype/nb-form";
+import type {FormHints, FormText} from "@notnotype/nb-form";
+import {describeIssues, SchemaField, useFormText, widgetLayout} from "@notnotype/nb-form/vue";
 import type {DraftState} from "@notnotype/nb-form/vue";
 import {Button, IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, reactive, ref, shallowRef, useId, watch} from "vue";
 
 import {canonical} from "nbook/plugins/settings/shared/layers";
 import {settingHints} from "nbook/plugins/settings/web/setting-form";
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
+import {resolverFor} from "nbook/shared/localized-text";
 import type {SettingDefinition, SettingsService} from "nbook/shared/settings";
 import {settingsFailureText} from "nbook/ui/settings/setting-text";
 import SettingsPageActions from "nbook/ui/settings/SettingsPageActions.vue";
@@ -43,6 +45,15 @@ const props = defineProps<{
     context: SettingsPageContext;
     settings: SettingsService;
 }>();
+
+/** 页面拿着的是自己写下的定义；选项名取配置服务里接受的声明（登记时补全过），与设置窗口一致。 */
+const declaredText = resolverFor(() => "zh-CN", useText());
+/** 表单的文字（字段名、问题的写法）经窗口注入的端口取，与页面里的表单同一个语言。 */
+const formText = useFormText();
+const hintsOf = (setting: SettingDefinition<unknown>): FormHints => {
+    const accepted = props.settings.declaration(setting);
+    return accepted === null ? {} : settingHints(accepted, declaredText);
+};
 
 type Providers = typeof modelsSettings.providers extends SettingDefinition<infer T> ? T : never;
 type Provider = Providers[number];
@@ -80,7 +91,7 @@ const FIELDS = Object.entries(ProviderSchema.properties).map(([name, schema]) =>
     const hints = (schema as {"x-form"?: {label?: FormText; help?: FormText}})["x-form"] ?? {};
     return {name, schema, label: hints.label ?? name, help: hints.help, layout: widgetLayout(schema)};
 });
-const text = (value: FormText | undefined): string => (value === undefined ? "" : typeof value === "string" ? value : value["zh-CN"] ?? "");
+const text = (value: FormText | undefined): string => resolveText(value, "zh-CN");
 
 const saved = computed(() => props.settings.get(providers));
 let nextKey = 0;
@@ -211,7 +222,7 @@ async function save(anyway = false): Promise<void> {
     if (changedElsewhere.value && !anyway) return;
     // 先把输入框里还没提交的草稿交出来（点按钮时它们已经失焦提交，键盘触发时不一定）。
     for (const field of fields.value) field.commit();
-    const [first] = describeIssues(providers.declaration.schema, draft.value, issues.value, "zh-CN", settingHints(providers.declaration));
+    const [first] = describeIssues(providers.declaration.schema, draft.value, issues.value, formText, hintsOf(providers));
     if (first !== undefined || unparseable.size > 0) {
         failure.value = TEXT.notSaved.replace("{reason}", first ?? "有解析不了的输入");
         return;
@@ -222,7 +233,7 @@ async function save(anyway = false): Promise<void> {
         if (result.ok) {
             reset(saved.value);
             await restoreFocus();
-        } else failure.value = TEXT.notWritten.replace("{reason}", settingsFailureText(result.code, result.detail, "zh-CN"));
+        } else failure.value = TEXT.notWritten.replace("{reason}", settingsFailureText(result.code, result.detail, declaredText));
     } finally {
         saving.value = false;
     }
@@ -260,15 +271,14 @@ async function writeNow(setting: SettingDefinition<unknown>, value: unknown): Pr
         <div class="sample-models__body">
             <section v-if="current === null" class="sample-models__group" data-sample-models-general>
                 <h3 class="sample-models__group-title">{{ TEXT.general }}</h3>
-                <SettingsRow v-for="setting in [modelsSettings.defaultModel, modelsSettings.effort]" :key="setting.key" v-slot="row" :settings="settings" :setting="setting" :layer="context.layer.value" locale="zh-CN" :project-title="context.projectTitle.value">
+                <SettingsRow v-for="setting in [modelsSettings.defaultModel, modelsSettings.effort]" :key="setting.key" v-slot="row" :settings="settings" :setting="setting" :layer="context.layer.value" :project-title="context.projectTitle.value">
                     <div class="sample-models__control">
                         <SchemaField
                             :id="row.id"
                             :schema="setting.declaration.schema"
-                            :hints="settingHints(setting.declaration)"
+                            :hints="hintsOf(setting)"
                             :options="context.options"
                             :model-value="row.value"
-                            locale="zh-CN"
                             :disabled="row.disabled"
                             :labelledby="row.labelId"
                             :describedby="row.describedby"
@@ -299,7 +309,6 @@ async function writeNow(setting: SettingDefinition<unknown>, value: unknown): Pr
                                         :readonly="!writable"
                                         :labelledby="`${uid}-${current.key}-${field.name}-label`"
                                         :describedby="field.help === undefined ? undefined : `${uid}-${current.key}-${field.name}-help`"
-                                        locale="zh-CN"
                                         bare
                                         commit="change"
                                         :onUpdate:modelValue="handlersFor(current.key, field.name).update"
@@ -320,7 +329,7 @@ async function writeNow(setting: SettingDefinition<unknown>, value: unknown): Pr
                 <Button size="sm" variant="secondary" @click="discard">{{ TEXT.reread }}</Button>
                 <Button size="sm" variant="secondary" :disabled="saving" @click="save(true)">{{ TEXT.saveAnyway }}</Button>
             </p>
-            <SettingsSaveBar locale="zh-CN" :dirty="dirty" :busy="saving" :can-save="writable && !changedElsewhere" :message="failure ?? undefined" @save="save()" @discard="discard" />
+            <SettingsSaveBar :dirty="dirty" :busy="saving" :can-save="writable && !changedElsewhere" :message="failure ?? undefined" @save="save()" @discard="discard" />
         </div>
     </div>
 </template>

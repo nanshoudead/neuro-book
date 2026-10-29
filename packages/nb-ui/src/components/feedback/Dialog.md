@@ -114,11 +114,11 @@ interface DialogProps {
     bodyClass?: string;
     /** 标题区附加 class；默认空字符串 */
     headerClass?: string;
-    /** 默认取消按钮文字；默认 "取消" */
+    /** 默认取消按钮文字；缺省按界面语言取（中文 "取消"） */
     cancelLabel?: string;
-    /** 默认确认按钮文字；默认 "确认" */
+    /** 默认确认按钮文字；缺省按界面语言取（中文 "确认"） */
     confirmLabel?: string;
-    /** 关闭按钮的可访问名称与 title；默认 "关闭" */
+    /** 关闭按钮的可访问名称与 title；缺省按界面语言取（中文 "关闭"） */
     closeLabel?: string;
 }
 
@@ -173,6 +173,7 @@ interface DialogSlots {
 - `env:portal`：遮罩与面板要脱离宿主的裁剪与层叠上下文；默认传送到 `body`，宿主可用 `provideTeleportTarget(选择器)` 在组件树上给一个更近的目标；组件自己写明的 `teleportTarget` 优先，目标查不到时回退 `body`。`false` 时禁用 Teleport。
 - `env:global`：模态打开期间由 reka 在 `document` 处理 Escape 与焦点、锁定页面滚动；浮动窗口拖动期间在 `window` 上监听指针移动与松开（开始拖动后捕获在面板上，期间拦住 `document` 的 `selectstart`），缩放期间捕获在手柄上、在手柄上监听，手势结束或卸载时解除。另有全应用一份的已打开模态列表（按打开顺序）：打开时登记、关闭或卸载时移除，用它算自己叠在第几层。它和 reka 自己的图层栈一样只做叠放协调、不承载数据，所以不算 store；层级取决于别的对话框什么时候打开，父组件给不出来。
 - `state:inject`：读宿主提供的传送目标与 `contained`、外层窗口的嵌套深度；向内容树提供嵌套深度与局部浮层层级。
+- `state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取取消、确认、关闭按钮的缺省文案，无标题时的屏幕阅读器标题，以及浮动窗口缩放手柄的可访问名称，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `cancelLabel`、`confirmLabel`、`closeLabel` 时以属性为准，不读端口。缩放手柄的名称没有对应的属性，固定走端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。
 
 ## 上游边界
 

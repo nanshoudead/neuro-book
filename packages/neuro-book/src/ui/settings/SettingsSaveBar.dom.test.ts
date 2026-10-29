@@ -6,15 +6,23 @@
 import {mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
+import {settingsTestText} from "nbook/plugins/settings/testing/text";
+import {settingsCatalogs} from "nbook/plugins/settings/web/text";
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
+import type {DisplayLocale} from "nbook/shared/localized-text";
+
 import SettingsSaveBar from "./SettingsSaveBar.vue";
+
+/** 文字取自 `nbook.settings` 的目录（经测试端口）；断言也经目录解析，不在测试里重复写一份文案。 */
+const port = (locale: DisplayLocale) => testTextPort(locale, {"nbook.settings": settingsCatalogs});
 
 const mounted: Array<{unmount(): void}> = [];
 afterEach(() => {
     for (const wrapper of mounted.splice(0)) wrapper.unmount();
 });
 
-function bar(props: {readonly dirty: boolean; readonly busy?: boolean; readonly canSave?: boolean; readonly message?: string; readonly locale?: "zh-CN" | "en-US"}) {
-    const wrapper = mount(SettingsSaveBar, {props: {locale: "zh-CN", busy: false, ...props}, attachTo: document.body});
+function bar(props: {readonly dirty: boolean; readonly busy?: boolean; readonly canSave?: boolean; readonly message?: string}, locale: DisplayLocale = "zh-CN") {
+    const wrapper = mount(SettingsSaveBar, {props: {busy: false, ...props}, global: {provide: provideText(port(locale))}, attachTo: document.body});
     mounted.push(wrapper);
     return wrapper;
 }
@@ -22,9 +30,10 @@ function bar(props: {readonly dirty: boolean; readonly busy?: boolean; readonly 
 /** 组件发出的 `save`、`discard` 各发了几次（test-utils 的 `emitted()` 还会记根元素上冒泡的原生 `click`，不算）。 */
 const counts = (wrapper: ReturnType<typeof bar>) => ({save: wrapper.emitted("save")?.length ?? 0, discard: wrapper.emitted("discard")?.length ?? 0});
 
-const buttons = (wrapper: ReturnType<typeof bar>) => {
+const buttons = (wrapper: ReturnType<typeof bar>, locale: DisplayLocale = "zh-CN") => {
+    const {t} = settingsTestText(locale);
     const found = wrapper.findAll("button");
-    return {discard: found.find((button) => button.text() === "放弃更改" || button.text() === "Discard Changes")!, save: found.find((button) => button.text() === "保存" || button.text() === "Save")!};
+    return {discard: found.find((button) => button.text() === t("saveBar.discard"))!, save: found.find((button) => button.text() === t("saveBar.save"))!};
 };
 
 describe("没有改动", () => {
@@ -46,7 +55,7 @@ describe("没有改动", () => {
 describe("有改动", () => {
     it("缺省写“有未保存的更改”，两个按钮可用，点了各发各的事件", async () => {
         const wrapper = bar({dirty: true});
-        expect(wrapper.get("[data-settings-save-bar-note]").text()).toBe("有未保存的更改");
+        expect(wrapper.get("[data-settings-save-bar-note]").text()).toBe(settingsTestText("zh-CN").t("saveBar.unsaved"));
         const {discard, save} = buttons(wrapper);
         expect([discard.attributes("disabled"), save.attributes("disabled")]).toEqual([undefined, undefined]);
         await save.trigger("click");
@@ -56,15 +65,17 @@ describe("有改动", () => {
 
     it("自定义文字取代缺省的文字；英文界面里按钮与缺省文字都是英文", () => {
         expect(bar({dirty: true, message: "还没保存：缺一项"}).get("[data-settings-save-bar-note]").text()).toBe("还没保存：缺一项");
-        const english = bar({dirty: true, locale: "en-US"});
-        expect(english.get("[data-settings-save-bar-note]").text()).toBe("Unsaved changes");
-        expect(buttons(english).save.exists()).toBe(true);
+        const english = bar({dirty: true}, "en-US");
+        const {t} = settingsTestText("en-US");
+        expect(english.get("[data-settings-save-bar-note]").text()).toBe(t("saveBar.unsaved"));
+        expect(buttons(english, "en-US").save.exists()).toBe(true);
+        expect(t("saveBar.unsaved")).not.toBe(settingsTestText("zh-CN").t("saveBar.unsaved"));
     });
 
     it("保存中：文字照旧，两个按钮停用，点了不发事件", async () => {
         const wrapper = bar({dirty: true, busy: true});
         const {discard, save} = buttons(wrapper);
-        expect(wrapper.get("[data-settings-save-bar-note]").text()).toBe("有未保存的更改");
+        expect(wrapper.get("[data-settings-save-bar-note]").text()).toBe(settingsTestText("zh-CN").t("saveBar.unsaved"));
         expect([discard.attributes("disabled"), save.attributes("disabled")]).toEqual(["", ""]);
         await save.trigger("click");
         expect(counts(wrapper)).toEqual({save: 0, discard: 0});

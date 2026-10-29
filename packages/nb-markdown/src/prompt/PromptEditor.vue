@@ -30,13 +30,13 @@ import {SuggestionMenu, suggestionMenuOptions, suggestionOptionId, type Suggesti
 import type {Node as PMNode} from "@tiptap/pm/model";
 import {EditorState as PMEditorState, TextSelection} from "@tiptap/pm/state";
 import type {EditorView} from "@tiptap/pm/view";
+import {provideMarkdownText} from "../host/text";
 import type {MarkdownLocale} from "../locale";
 
 import PromptAttachmentStrip from "./PromptAttachmentStrip.vue";
 import PromptPasteBlockView from "./PromptPasteBlockView.vue";
 import PromptTokenView from "./PromptTokenView.vue";
 import {PromptAttachmentTracker, type PromptAttachmentExcerpt} from "./prompt-attachments";
-import {promptText} from "./prompt-labels";
 import {
     DISMISS_TRIGGER,
     atomLeafText,
@@ -90,7 +90,8 @@ import {
 
 const props = withDefaults(defineProps<{
     draft: PromptEditorDraft;
-    locale: MarkdownLocale;
+    /** 只在上面没有注入翻译端口时起作用（`../host/text.ts`）。 */
+    locale?: MarkdownLocale;
     placeholder?: string;
     ariaLabel?: string;
     readonly?: boolean;
@@ -110,6 +111,7 @@ const props = withDefaults(defineProps<{
     fill?: boolean;
     bare?: boolean;
 }>(), {
+    locale: undefined,
     placeholder: "",
     ariaLabel: "",
     readonly: false,
@@ -144,6 +146,9 @@ const emit = defineEmits<{
     (e: "attachment-remove", payload: {localId: string}): void;
     (e: "attachment-reject", payload: {kind: PromptEditorAttachmentKind; count: number}): void;
 }>();
+
+// 节点视图（粘贴块、小块）与附件条经 inject 拿到同一个端口。
+const {t} = provideMarkdownText(() => props.locale);
 
 const menuId = `prompt-menu-${useId()}`;
 
@@ -184,9 +189,6 @@ const pastePolicy = computed(() => resolvePastePolicy(props.pastePolicy));
 const nodeContext: PromptNodeContext = {
     get readonly() {
         return props.readonly;
-    },
-    get locale() {
-        return props.locale;
     },
     get highlighted() {
         return highlighted.value;
@@ -610,7 +612,7 @@ const historyItems = computed<PromptEditorMenuItem[]>(() => {
         return [{
             id: String(index),
             label: entry.split("\n").find((line) => line.trim()) ?? entry,
-            description: lines > 1 ? promptText(props.locale, "lines", {count: lines}) : undefined,
+            description: lines > 1 ? t("prompt.lines", {count: lines}) : undefined,
             insertText: entry,
         }];
     });
@@ -970,7 +972,6 @@ defineExpose({
     >
         <PromptAttachmentStrip
             :cards="cards"
-            :locale="props.locale"
             :highlighted="highlighted"
             :readonly="props.readonly"
             @activate="activateCard"
@@ -1001,8 +1002,8 @@ defineExpose({
             :anchor="rootRef"
             :label="menu.title || undefined"
             :loading="menu.loading"
-            :loading-text="promptText(props.locale, 'menuLoading')"
-            :empty-text="menu.emptyText || promptText(props.locale, 'menuEmpty')"
+            :loading-text="t('prompt.menuLoading')"
+            :empty-text="menu.emptyText || t('prompt.menuEmpty')"
             :placement="menuSide"
             match-anchor-width
             @select="confirmItem"
@@ -1019,8 +1020,8 @@ defineExpose({
             :groups="historyGroups"
             :active-id="historyActiveId"
             :anchor="rootRef"
-            :label="promptText(props.locale, 'historyTitle')"
-            :empty-text="props.recall.length > 0 ? promptText(props.locale, 'historyNoMatch') : promptText(props.locale, 'historyEmpty')"
+            :label="t('prompt.historyTitle')"
+            :empty-text="props.recall.length > 0 ? t('prompt.historyNoMatch') : t('prompt.historyEmpty')"
             :placement="menuSide"
             match-anchor-width
             @select="selectHistory"
@@ -1034,8 +1035,8 @@ defineExpose({
                         class="prompt-editor__history-search-input"
                         type="text"
                         :value="historyQuery"
-                        :placeholder="promptText(props.locale, 'historySearch')"
-                        :aria-label="promptText(props.locale, 'historySearch')"
+                        :placeholder="t('prompt.historySearch')"
+                        :aria-label="t('prompt.historySearch')"
                         role="combobox"
                         aria-expanded="true"
                         :aria-controls="menuId"
@@ -1047,7 +1048,7 @@ defineExpose({
                         @focusout="onHistoryFocusOut"
                     >
                 </div>
-                <div class="nb-ui-menu-label">{{ promptText(props.locale, "historyTitle") }}</div>
+                <div class="nb-ui-menu-label">{{ t("prompt.historyTitle") }}</div>
             </template>
         </SuggestionMenu>
     </div>

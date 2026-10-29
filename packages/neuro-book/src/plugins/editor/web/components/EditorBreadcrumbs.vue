@@ -6,10 +6,9 @@ import {computed, nextTick, onBeforeUnmount, ref, shallowRef, watch} from "vue";
 
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type {CatppuccinIcon} from "nbook/ui/file-icons/catppuccin";
-import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {EditorOutline} from "../../shared/contracts";
-import {editorText} from "../messages";
+import {useEditorText} from "../text";
 
 export interface BreadcrumbSegment {
     readonly kind: "root" | "dir" | "file";
@@ -27,7 +26,6 @@ const props = withDefaults(defineProps<{
     parent: string | null;
     outline: EditorOutline | null;
     list: (address: string, signal: AbortSignal) => Promise<BreadcrumbListing>;
-    locale: DisplayLocale;
     focusSeq?: number;
 }>(), {focusSeq: 0});
 const emit = defineEmits<{
@@ -53,7 +51,7 @@ let controller: AbortController | null = null;
 /** 选中目录项会让下拉报一次关闭：这一次不当真（进下一层时下拉留着）。 */
 let keepOpen = false;
 
-const t = (key: Parameters<typeof editorText>[1]): string => editorText(props.locale, key);
+const t = useEditorText();
 
 const stop = (): void => {
     seq += 1;
@@ -123,9 +121,9 @@ watch(opened, (index) => {
 const directoryItems = computed((): DropdownMenuItemData[] => {
     const current = listing.value;
     if (current === null) return [];
-    if (current.state === "loading") return [{label: t("crumbLoading"), value: "state:loading", disabled: true}];
-    if (current.state === "failed") return [{label: current.reason, value: "state:failed", disabled: true, tone: "danger"}, {label: t("crumbRetry"), value: "state:retry", iconClass: "i-lucide-rotate-cw"}];
-    if (current.entries.length === 0) return [{label: t("crumbEmpty"), value: "state:empty", disabled: true}];
+    if (current.state === "loading") return [{label: t("crumbs.loading"), value: "state:loading", disabled: true}];
+    if (current.state === "failed") return [{label: current.reason, value: "state:failed", disabled: true, tone: "danger"}, {label: t("crumbs.retry"), value: "state:retry", iconClass: "i-lucide-rotate-cw"}];
+    if (current.entries.length === 0) return [{label: t("crumbs.empty"), value: "state:empty", disabled: true}];
     return current.entries.map((entry): DropdownMenuItemData => {
         if (entry.kind === "directory") return {label: entry.name, value: `dir:${entry.address}`, iconClass: "i-lucide-folder", rightIconClass: "i-lucide-chevron-right"};
         if (entry.kind === "file") return {label: entry.name, value: `file:${entry.address}`, iconClass: "i-lucide-file-text", type: "radio", group: "files", checked: entry.address === current.current};
@@ -202,7 +200,7 @@ watch(() => props.focusSeq, (next, previous) => {
 </script>
 
 <template>
-    <nav v-if="segments.length > 0" ref="nav" class="editor-crumbs" :aria-label="t('crumbsLabel')" data-editor-breadcrumbs>
+    <nav v-if="segments.length > 0" ref="nav" class="editor-crumbs" :aria-label="t('crumbs.label')" data-editor-breadcrumbs>
         <template v-for="(segment, index) in segments" :key="segment.address">
             <span v-if="index > 0" class="i-lucide-chevron-right editor-crumbs__separator" aria-hidden="true"></span>
             <DropdownMenu :items="directoryItems" :open="opened === index" @update:open="(open: boolean) => openSegment(index, open)" @select="select">

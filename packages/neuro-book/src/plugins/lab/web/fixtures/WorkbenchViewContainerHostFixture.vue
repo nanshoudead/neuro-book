@@ -1,4 +1,9 @@
 <script setup lang="ts">
+import {defaultTextPort} from "@notnotype/nb-ui/text-port";
+import type {Text} from "@notnotype/nb-ui/text";
+
+/** Lab 场景固定显示中文。 */
+const labText = (text: Text): string => defaultTextPort().t(text);
 /**
  * WorkbenchViewContainerHost 的夹具：自己当一层小小的视图实例宿主——按 `target` 事件把样例内容搬进分节里的落点，
  * 收起开关与边界手势写回场景输入，场景里因此能真实地拖动边界、收起与展开。
@@ -41,7 +46,7 @@ function onResize(payload: {sizes: Record<string, number>}): void {
         <div class="hidden" aria-hidden="true" inert>
             <Teleport v-for="view in container().views" :key="view.id" :to="targets.get(view.id) ?? undefined" :disabled="targets.get(view.id) === undefined">
                 <ul class="h-full overflow-auto p-2 text-sm" :data-sample-view="view.id">
-                    <li v-for="row in 30" :key="row" class="rounded px-2 py-1 hover:bg-[var(--bg-hover)]">{{ view.title["zh-CN"] }} · 条目 {{ row }}</li>
+                    <li v-for="row in 30" :key="row" class="rounded px-2 py-1 hover:bg-[var(--bg-hover)]">{{ labText(view.title) }} · 条目 {{ row }}</li>
                 </ul>
             </Teleport>
         </div>

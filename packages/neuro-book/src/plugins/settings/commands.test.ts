@@ -34,9 +34,16 @@ import {textOf} from "nbook/shared/localized-text";
 import {RELOAD_DELAY_MS} from "./backend/layer-owner";
 import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_WINDOW_OPEN_KEY, settingsKey} from "./shared/contracts";
 import type {SettingsService} from "nbook/shared/settings";
+import {settingsTestText} from "./testing/text";
 import {settingsWorld} from "./testing/world";
 import type {SettingsWorld} from "./testing/world";
+import {settingsText} from "./shared/text";
 import {settingsWindowEntry, settingsWindowState, SWITCH_LOCALE_COMMAND} from "./web/plugin";
+import {settingsCatalogs} from "./web/text";
+import {createHostTextEngine} from "nbook/web/host/text-engine";
+
+/** 断言用的目录文字：与窗口引擎同一份 `nbook.settings` 目录。 */
+const texts = settingsTestText("zh-CN");
 
 let tmp = "";
 let counter = 0;
@@ -105,7 +112,10 @@ async function world(user?: string): Promise<SettingsWorld> {
 
 async function window(created: SettingsWorld, id: string, quickPick: QuickPick): Promise<Reader> {
     const target: Reader = {commands: null, settings: null, state: null};
-    await created.window(id, [statePlugin, commandsPlugin, reader(target)], {bound: false, quickPick});
+    // 窗口的翻译引擎登记 `nbook.settings` 的目录：命令失败原因等经它解析，与产品里宿主给的一样。
+    const text = createHostTextEngine({locale: "zh-CN", strict: true});
+    text.register("nbook.settings", settingsCatalogs.catalogs, settingsCatalogs.source);
+    await created.window(id, [statePlugin, commandsPlugin, reader(target)], {bound: false, quickPick, text});
     return target;
 }
 
@@ -137,8 +147,8 @@ describe("切换界面语言", () => {
         const a = await window(created, "w-a", choose);
         expect(await a.commands!.execute(SWITCH_LOCALE_COMMAND, {}, {source: "user"})).toEqual({ok: true, value: null});
         const request = choose.requests[0]!;
-        expect(textOf(request.title, "zh-CN")).toBe("切换界面语言");
-        expect(request.items.map((item) => [item.id, item.label, item.detail === undefined ? null : textOf(item.detail, "zh-CN")])).toEqual([["zh-CN", "简体中文", "当前"], ["en-US", "English", null]]);
+        expect(texts.resolver.t(request.title)).toBe(texts.t("commands.switch-locale.title"));
+        expect(request.items.map((item) => [item.id, item.label, item.detail === undefined ? null : texts.resolver.t(item.detail)])).toEqual([["zh-CN", "简体中文", texts.t("switch.current")], ["en-US", "English", null]]);
         expect(displayLocale(a.settings!)).toBe("en-US");
 
         const cancelled = await world();
@@ -220,7 +230,7 @@ describe("打开设置窗口（settings-window.md 输出 15）", () => {
     it("命令登记为只读、不对 Agent 开放、默认键位 Mod+,；公开键的限定名与合同常量一致", async () => {
         const created = await themeWorld({});
         const window = await workbenchWindow(created, "w-open", false, [settingsWindowEntry]);
-        expect(window.commands!.get(OPEN_SETTINGS_COMMAND)).toMatchObject({ok: true, value: {effect: "read", keybinding: "Mod+,", expose: {agent: "never"}, title: {"zh-CN": "打开设置"}}});
+        expect(window.commands!.get(OPEN_SETTINGS_COMMAND)).toMatchObject({ok: true, value: {effect: "read", keybinding: "Mod+,", expose: {agent: "never"}, title: settingsText("commands.open.title")}});
         expect(settingsWindowState.key("windowOpen")).toBe(SETTINGS_WINDOW_OPEN_KEY);
         expect(window.state!.read(SETTINGS_WINDOW_OPEN_KEY)).toEqual({status: "ready", value: false});
     });

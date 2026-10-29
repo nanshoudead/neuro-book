@@ -21,17 +21,17 @@
  *   时（位置是后来才挂上的）就地定位。取走之后模型里没有了，之后的重读、换标签不会再跳。
  */
 import {Button, Kbd, Spinner, Textarea} from "@notnotype/nb-ui/components";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, onBeforeUnmount, ref, useId, watch} from "vue";
 
 import {currentKeyPlatform} from "nbook/plugins/commands/shared/contracts";
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {LocalizedText} from "nbook/shared/localized-text";
 import type {SettingLayer, SettingsFailure} from "nbook/shared/settings";
 import {usePageChrome} from "nbook/ui/settings/page-chrome";
 import SettingsSaveBar from "nbook/ui/settings/SettingsSaveBar.vue";
 import {settingsFailureText} from "nbook/ui/settings/setting-text";
 
 import type {LayerTextPosition} from "../../shared/layers";
+import {useSettingsText} from "../text";
 import {composing, isModKey} from "../keys";
 import type {SettingsWindow} from "../settings-window";
 
@@ -44,26 +44,8 @@ const props = defineProps<{
     path: string | null;
 }>();
 
-const TEXT = {
-    label: {"zh-CN": "设置文件（{layer}）", "en-US": "Settings file ({layer})"},
-    user: {"zh-CN": "用户", "en-US": "User"},
-    project: {"zh-CN": "本作品", "en-US": "This Book"},
-    tabKey: {"zh-CN": "插入缩进", "en-US": "inserts an indent"},
-    escThen: {"zh-CN": "后", "en-US": "then"},
-    escTabKey: {"zh-CN": "移出编辑区", "en-US": "leaves the editor"},
-    saveKey: {"zh-CN": "保存", "en-US": "saves"},
-    loading: {"zh-CN": "正在读取设置文件", "en-US": "Reading the settings file"},
-    readFailed: {"zh-CN": "无法读取设置文件：{detail}", "en-US": "Could not read the settings file: {detail}"},
-    reread: {"zh-CN": "重新读取", "en-US": "Reload"},
-    saveAnyway: {"zh-CN": "仍然保存", "en-US": "Save Anyway"},
-    changedElsewhere: {"zh-CN": "文件已在别处被修改。“重新读取”会放弃这里的更改，“仍然保存”会覆盖别处的修改。", "en-US": "The file was changed elsewhere. Reload discards your changes here; Save Anyway overwrites the other changes."},
-    conflict: {"zh-CN": "未保存：文件已在别处被修改。“重新读取”会放弃这里的更改，“仍然保存”会覆盖别处的修改。", "en-US": "Not saved: the file was changed elsewhere. Reload discards your changes here; Save Anyway overwrites the other changes."},
-    invalidText: {"zh-CN": "未保存：第 {line} 行第 {column} 列：{detail}", "en-US": "Not saved: line {line}, column {column}: {detail}"},
-    failed: {"zh-CN": "未保存：{detail}", "en-US": "Not saved: {detail}"},
-} satisfies Record<string, LocalizedText>;
-
-const locale = props.window.locale;
-const text = (template: LocalizedText, params: Readonly<Record<string, string | number>> = {}): string => localize(formatText(template, params), locale.value);
+const port = useText();
+const text = useSettingsText();
 
 const textareaId = `settings-file-${useId()}`;
 const hintId = `${textareaId}-hint`;
@@ -238,7 +220,7 @@ async function write(content: string, against: string): Promise<void> {
         if (token !== readToken) return;
         if (!result.ok) {
             if (result.code === "invalid-text" && result.position !== undefined) {
-                failure.value = {code: result.code, message: text(TEXT.invalidText, {line: result.position.line, column: result.position.column, detail: result.detail})};
+                failure.value = {code: result.code, message: text("file.invalidText", {line: result.position.line, column: result.position.column, detail: result.detail})};
                 errorAt.value = result.position;
                 // 把光标放到出错的地方，不用自己数行列。
                 const at = offsetOf(content, result.position);
@@ -246,7 +228,7 @@ async function write(content: string, against: string): Promise<void> {
                 area?.focus();
                 area?.setSelectionRange(at, at);
             } else {
-                failure.value = {code: result.code, message: result.code === "conflict" ? text(TEXT.conflict) : text(TEXT.failed, {detail: settingsFailureText(result.code, result.detail, locale.value)})};
+                failure.value = {code: result.code, message: result.code === "conflict" ? text("file.conflict") : text("file.failed", {detail: settingsFailureText(result.code, result.detail, port)})};
             }
             return;
         }
@@ -272,7 +254,7 @@ async function saveAnyway(): Promise<void> {
     if (file === undefined || saving.value || unreachable.value) return;
     const fresh = await file.read();
     if (!fresh.ok) {
-        failure.value = {code: fresh.code, message: text(TEXT.failed, {detail: settingsFailureText(fresh.code, fresh.detail, locale.value)})};
+        failure.value = {code: fresh.code, message: text("file.failed", {detail: settingsFailureText(fresh.code, fresh.detail, port)})};
         return;
     }
     await write(draft.value, fresh.revision);
@@ -333,18 +315,18 @@ function onKeydown(event: KeyboardEvent): void {
         <code v-if="path !== null" class="settings-file__path" data-settings-file-path>{{ path }}</code>
         <div v-if="state.kind === 'loading'" class="settings-file__notice" role="status" aria-live="polite">
             <Spinner size="sm" />
-            <span>{{ text(TEXT.loading) }}</span>
+            <span>{{ text("file.loading") }}</span>
         </div>
         <div v-else-if="state.kind === 'read-failed'" class="settings-file__notice settings-file__notice--error" role="alert">
-            <span>{{ text(TEXT.readFailed, {detail: state.detail}) }}</span>
-            <Button size="sm" variant="secondary" @click="reread">{{ text(TEXT.reread) }}</Button>
+            <span>{{ text("file.readFailed", {detail: state.detail}) }}</span>
+            <Button size="sm" variant="secondary" @click="reread">{{ text("file.reread") }}</Button>
         </div>
         <template v-else>
-            <label :for="textareaId" class="settings-file__visually-hidden">{{ text(TEXT.label, {layer: text(layer === "user" ? TEXT.user : TEXT.project)}) }}</label>
+            <label :for="textareaId" class="settings-file__visually-hidden">{{ text("file.label", {layer: text(layer === "user" ? "file.user" : "file.project")}) }}</label>
             <p v-if="changedElsewhere" class="settings-file__notice settings-file__notice--warning" role="status" data-settings-file-changed>
-                <span>{{ text(TEXT.changedElsewhere) }}</span>
-                <Button size="sm" variant="secondary" @click="reread">{{ text(TEXT.reread) }}</Button>
-                <Button size="sm" variant="secondary" :disabled="saving || unreachable" @click="saveAnyway">{{ text(TEXT.saveAnyway) }}</Button>
+                <span>{{ text("file.changedElsewhere") }}</span>
+                <Button size="sm" variant="secondary" @click="reread">{{ text("file.reread") }}</Button>
+                <Button size="sm" variant="secondary" :disabled="saving || unreachable" @click="saveAnyway">{{ text("file.saveAnyway") }}</Button>
             </p>
             <p
                 v-if="failure !== null"
@@ -356,8 +338,8 @@ function onKeydown(event: KeyboardEvent): void {
             >
                 <span>{{ failure.message }}</span>
                 <template v-if="failure.code === 'conflict'">
-                    <Button size="sm" variant="secondary" @click="reread">{{ text(TEXT.reread) }}</Button>
-                    <Button size="sm" variant="secondary" :disabled="saving || unreachable" @click="saveAnyway">{{ text(TEXT.saveAnyway) }}</Button>
+                    <Button size="sm" variant="secondary" @click="reread">{{ text("file.reread") }}</Button>
+                    <Button size="sm" variant="secondary" :disabled="saving || unreachable" @click="saveAnyway">{{ text("file.saveAnyway") }}</Button>
                 </template>
             </p>
             <!-- 外框画在这一层：行号列与出错行的底垫在透明的文本框底下，文本框自己不再带描边与底色。聚焦、只读、出错的外观仍由 nb-ui 的控件基座按外框给。 -->
@@ -385,12 +367,12 @@ function onKeydown(event: KeyboardEvent): void {
                 />
             </div>
             <p :id="hintId" class="settings-file__keys" data-settings-file-keys>
-                <span class="settings-file__key"><Kbd>Tab</Kbd>{{ text(TEXT.tabKey) }}</span>
-                <span class="settings-file__key"><Kbd>Esc</Kbd>{{ text(TEXT.escThen) }}<Kbd>Tab</Kbd>{{ text(TEXT.escTabKey) }}</span>
-                <span class="settings-file__key"><Kbd>{{ modKeyLabel }}</Kbd><Kbd>S</Kbd>{{ text(TEXT.saveKey) }}</span>
+                <span class="settings-file__key"><Kbd>Tab</Kbd>{{ text("file.tabKey") }}</span>
+                <span class="settings-file__key"><Kbd>Esc</Kbd>{{ text("file.escThen") }}<Kbd>Tab</Kbd>{{ text("file.escTabKey") }}</span>
+                <span class="settings-file__key"><Kbd>{{ modKeyLabel }}</Kbd><Kbd>S</Kbd>{{ text("file.saveKey") }}</span>
             </p>
             <!-- 保存栏在视图底部（视图占满窗口给的区域，栏不随内容滚走）：按钮一直在，没有改动时停用，焦点不会因为它消失而掉到页面上。连不上时与保存中一样停用。 -->
-            <SettingsSaveBar :locale="locale" :dirty="dirty" :busy="saving" :can-save="!unreachable" data-settings-file-actions @save="save" @discard="discard" />
+            <SettingsSaveBar :dirty="dirty" :busy="saving" :can-save="!unreachable" data-settings-file-actions @save="save" @discard="discard" />
         </template>
     </div>
 </template>

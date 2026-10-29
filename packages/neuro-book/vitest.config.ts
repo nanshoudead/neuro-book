@@ -20,8 +20,9 @@ export default mergeConfig(viteConfig, defineConfig({
         // Node 26 自带的全局 localStorage 在没有 --localstorage-file 时只打印实验警告；关掉它，页面里的 localStorage
         // 由 happy-dom 提供。
         execArgv: ["--no-experimental-webstorage"],
-        // 示例插件的界面组件同样在这里测（`plugin-sdk/examples/README.md` 的“运行”）。
-        include: ["src/**/*.dom.test.ts", "plugin-sdk/examples/**/*.dom.test.ts"],
+        // 示例插件的界面组件同样在这里测（`plugin-sdk/examples/README.md` 的“运行”）；`plugin-sdk/` 顶层的是用生成的 SDK 包在仓库外
+        // 构建、再在这里渲染的第三方插件。
+        include: ["src/**/*.dom.test.ts", "plugin-sdk/*.dom.test.ts", "plugin-sdk/examples/**/*.dom.test.ts"],
         setupFiles: [testSupport],
         globalSetup: [testSupport],
     },

@@ -39,6 +39,10 @@ import {BROWSER_BOOTSTRAP_PATH, BROWSER_PROTOCOL_VERSION} from "nbook/shared/bro
 import {clockKey, windowConnectionKey} from "nbook/shared/host";
 import type {WindowConnectionState} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
+import {windowLocale, windowTextKey} from "nbook/shared/window-text";
+import {commandServiceKey} from "nbook/plugins/commands/shared/contracts";
+import type {CommandService} from "nbook/plugins/commands/shared/contracts";
+import {localeSetting, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {PRODUCT_VERSION} from "nbook/shared/product";
 import type {WindowProject} from "nbook/shared/projects";
 import {projectProbeContract, remoteProbeContract, remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
@@ -152,6 +156,41 @@ describe("窗口运行实例", () => {
         expect(browserWindow.state.status).toBe("closed");
     });
 
+    it("改界面语言设置：窗口的翻译端口与插件经 windowLocale 取到的语言一起切换（i18n 输出 8）", async () => {
+        const seen: {locale: {readonly value: string} | null; commands: CommandService | null} = {locale: null, commands: null};
+        const probeId = "test.locale-reader";
+        const reader = {
+            descriptor: {id: probeId, version: "0.1.0", locations: ["browser"] as const},
+            definition: {
+                id: probeId,
+                entries: [{
+                    id: "browser",
+                    location: "browser" as const,
+                    activationEvents: ["onStartup"],
+                    dependencies: [{key: settingsKey}, {key: commandServiceKey}, {key: windowTextKey, required: false}],
+                    activate: async (context: ActivationContext) => {
+                        const settings = context.services.require(settingsKey);
+                        seen.commands = context.services.require(commandServiceKey);
+                        seen.locale = await windowLocale(context.services, () => settings.get(localeSetting));
+                        return {};
+                    },
+                }],
+            } satisfies PluginDefinition,
+        };
+        const builtin = [...builtinBrowserPlugins, reader.descriptor];
+        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", catalogs: [], plugins: builtin.map(({id, version}) => ({id, version}))}));
+        const {browserWindow} = openWindow({url: stub.url, builtin, definitions: {...browserPluginDefinitions, [probeId]: reader.definition}});
+        await browserWindow.start();
+        expect(browserWindow.text.port.locale.value).toBe("zh-CN");
+        expect(seen.locale?.value).toBe("zh-CN");
+        const result = await seen.commands?.execute("nbook.settings.switch-locale", {locale: "en-US"});
+        expect(result?.ok).toBe(true);
+        await waitUntil("界面语言切到 en-US", () => browserWindow.text.port.locale.value === "en-US");
+        expect(seen.locale?.value).toBe("en-US");
+        await browserWindow.stop();
+        stub.stop();
+    });
+
     it("服务端连不上：可重试的连接失败，没有运行实例；服务端起来后重试成功（场景 2）", async () => {
         const probe = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: () => new Response()});
         const port = probe.port as number;
@@ -208,8 +247,8 @@ describe("窗口运行实例", () => {
 
     it("结构不合法或缺少必需插件：启动失败", async () => {
         for (const body of [
-            {protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: STUB_RPC, revision: "r", plugins: "nbook.workbench"},
-            {protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: STUB_RPC, revision: "r", plugins: [{id: "runtime.diagnostics", version: PRODUCT_VERSION}]},
+            {protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: STUB_RPC, revision: "r", catalogs: [], plugins: "nbook.workbench"},
+            {protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: STUB_RPC, revision: "r", catalogs: [], plugins: [{id: "runtime.diagnostics", version: PRODUCT_VERSION}]},
         ]) {
             const stub = serveBootstrap(() => Response.json(body));
             const {browserWindow} = openWindow({url: stub.url});
@@ -221,7 +260,7 @@ describe("窗口运行实例", () => {
 
     it("引导集合里没有命令系统：启动失败并指名 nbook.commands（工作台的面板与键位依赖它）", async () => {
         const plugins = builtinBrowserPlugins.filter((plugin) => plugin.id !== "nbook.commands").map(({id, version}) => ({id, version}));
-        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: STUB_RPC, revision: "r", plugins}));
+        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: STUB_RPC, revision: "r", catalogs: [], plugins}));
         const {browserWindow} = openWindow({url: stub.url});
         await browserWindow.start();
         expect(failureOf(browserWindow.state)?.status).toBe("startup-failed");
@@ -252,7 +291,7 @@ describe("窗口运行实例", () => {
     it("定义表的表项与定义的插件 id 不一致：启动失败并指名两个 id，错配的定义不激活", async () => {
         const optional = {id: "nbook.optional", version: "0.1.0", locations: ["browser"] as const};
         const plugins = [...builtinBrowserPlugins, optional].map(({id, version}) => ({id, version}));
-        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins}));
+        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", catalogs: [], plugins}));
         const activated: string[] = [];
         const {browserWindow} = openWindow({
             url: stub.url,
@@ -290,7 +329,7 @@ describe("窗口运行实例", () => {
         };
         const declarationOnly: PluginDescriptor = {id: "test.notes", version: "0.1.0", locations: [], contributions: [{capability: "test.notes", id: "test.notes/first", declaration: {}}]};
         const builtin = [...builtinBrowserPlugins, owner.descriptor, declarationOnly];
-        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins: builtin.map(({id, version}) => ({id, version}))}));
+        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", catalogs: [], plugins: builtin.map(({id, version}) => ({id, version}))}));
         const {browserWindow} = openWindow({url: stub.url, builtin, definitions: {...browserPluginDefinitions, [owner.descriptor.id]: owner.definition}});
         await browserWindow.start();
         expect(browserWindow.state.status).toBe("ready");
@@ -321,7 +360,7 @@ describe("窗口运行实例", () => {
         const manifest = {publisher: "example", name: "notes", version: "2.0.0", engines: {neurobook: ">=0.1.0"}, contributes: [{capability: "test.notes", id: "example.notes/first", declaration: {}}]};
         const thirdParty = {id: "example.notes", version: "2.0.0", manifest, files: "/api/runtime/plugins/example.notes/files/0123456789abcdef/"};
         const plugins = [...builtin.map(({id, version}) => ({id, version})), thirdParty];
-        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins}));
+        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", catalogs: [], plugins}));
         const definitions = {...browserPluginDefinitions, [owner.descriptor.id]: owner.definition};
         const {browserWindow} = openWindow({url: stub.url, builtin, definitions});
         await browserWindow.start();
@@ -330,13 +369,13 @@ describe("窗口运行实例", () => {
         await browserWindow.stop();
         stub.stop();
 
-        const future = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins: [...plugins, {id: "nbook.future", version: "0.1.0"}]}));
+        const future = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", catalogs: [], plugins: [...plugins, {id: "nbook.future", version: "0.1.0"}]}));
         const {browserWindow: stale} = openWindow({url: future.url, builtin, definitions});
         await stale.start();
         expect(failureOf(stale.state)).toMatchObject({status: "incompatible", reason: expect.stringContaining("nbook.future")});
         future.stop();
 
-        const broken = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins: [...builtin.map(({id, version}) => ({id, version})), {...thirdParty, manifest: {...manifest, version: "x"}}]}));
+        const broken = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", catalogs: [], plugins: [...builtin.map(({id, version}) => ({id, version})), {...thirdParty, manifest: {...manifest, version: "x"}}]}));
         const {browserWindow: unreadable} = openWindow({url: broken.url, builtin, definitions});
         await unreadable.start();
         expect(failureOf(unreadable.state)).toMatchObject({status: "incompatible", reason: expect.stringContaining("example.notes@2.0.0")});
@@ -350,7 +389,7 @@ describe("窗口运行实例", () => {
         const capture: DiagnosticsConsole = {error: () => undefined, warn: (_text, record) => warnings.push(record)};
         const manifest = {publisher: "example", name: "styled", version: "1.0.0", engines: {neurobook: ">=0.1.0"}, style: "style.css"};
         const files = "/api/runtime/plugins/example.styled/files/0123456789abcdef/";
-        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins: [...builtinBrowserPlugins.map(({id, version}) => ({id, version})), {id: "example.styled", version: "1.0.0", manifest, files}]}));
+        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", catalogs: [], plugins: [...builtinBrowserPlugins.map(({id, version}) => ({id, version})), {id: "example.styled", version: "1.0.0", manifest, files}]}));
         const {browserWindow} = openWindow({url: stub.url, document: page.document, console: capture});
         await browserWindow.start();
         expect(browserWindow.state.status).toBe("ready");
@@ -378,7 +417,7 @@ describe("窗口运行实例", () => {
     it("非必需插件的入口激活失败：只影响该入口，窗口照常 ready", async () => {
         const optional = {id: "nbook.optional", version: "0.1.0", locations: ["browser"] as const};
         const plugins = [...builtinBrowserPlugins, optional].map(({id, version}) => ({id, version}));
-        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins}));
+        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", catalogs: [], plugins}));
         const {browserWindow} = openWindow({
             url: stub.url,
             builtin: [...builtinBrowserPlugins, optional],
@@ -398,7 +437,7 @@ describe("窗口运行实例", () => {
     it("其它插件贡献的页面在窗口 ready 时已在页面表里；两个插件贡献同一路径时都被拒绝，留给服务端的路径被拒绝，窗口照常 ready", async () => {
         const extra = [pagePlugin("test.page", "/probe"), pagePlugin("test.dup-a", "/dup"), pagePlugin("test.dup-b", "/dup"), pagePlugin("test.api", "/api/probe"), pagePlugin("test.builtin", "/workbench")];
         const builtin = [...builtinBrowserPlugins, ...extra.map((plugin) => plugin.descriptor)];
-        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins: builtin.map(({id, version}) => ({id, version}))}));
+        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", catalogs: [], plugins: builtin.map(({id, version}) => ({id, version}))}));
         const {browserWindow} = openWindow({
             url: stub.url,
             builtin,
@@ -487,7 +526,7 @@ function newRecord(): CallerRecord {
 function callerWindow(record: CallerRecord, rpc: () => {readonly port: number; readonly path: string}, options: {readonly clock?: ManualClock; readonly holdName?: string} = {}) {
     const caller = remoteCaller(record, options.holdName ?? null);
     const builtin = [...builtinBrowserPlugins, caller.descriptor];
-    const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpc(), revision: "r", plugins: builtin.map(({id, version}) => ({id, version}))}));
+    const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpc(), revision: "r", catalogs: [], plugins: builtin.map(({id, version}) => ({id, version}))}));
     const opened = openWindow({url: stub.url, builtin, definitions: {...browserPluginDefinitions, [caller.descriptor.id]: caller.definition}, clock: options.clock});
     return {...opened, stub};
 }
@@ -738,7 +777,7 @@ function projectWindow(server: RunningServer, record: ProjectRecordOfWindow, opt
     const builtin = [...builtinBrowserPlugins, caller.descriptor];
     const stub = serveBootstrap((request) => {
         const project = new URL(request.url).searchParams.get("project") === null ? {} : {project: {title: "雾港"}};
-        return Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: options.rpc?.() ?? rpcOf(server), revision: "r", plugins: builtin.map(({id, version}) => ({id, version})), ...project});
+        return Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: options.rpc?.() ?? rpcOf(server), revision: "r", catalogs: [], plugins: builtin.map(({id, version}) => ({id, version})), ...project});
     });
     const opened = openWindow({url: stub.url, builtin, definitions: {...browserPluginDefinitions, [caller.descriptor.id]: caller.definition}, project: options.project, clock: options.clock});
     return {...opened, stub};

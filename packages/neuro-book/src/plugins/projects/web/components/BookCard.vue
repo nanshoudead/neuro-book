@@ -2,12 +2,11 @@
 /** 书卡（同名 .md）：封面、书名、简介、统计与最近编辑；只发事件，键盘与选中归 ShelfCards。 */
 import {DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
-
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import {useText} from "@notnotype/nb-ui/text-port";
 
 import {projectDisplayName} from "../../shared/shelf";
 import type {ShelfItem} from "../../shared/shelf";
+import {useProjectsText} from "../text";
 import {formatFiles, formatWhen, formatWords} from "../shelf-format";
 import BookCover from "./BookCover.vue";
 
@@ -15,7 +14,6 @@ defineOptions({name: "BookCard"});
 
 // highlighted 的缺省要是 undefined（缺省同 active）：Vue 会把没传的布尔 prop 当成 false。
 const props = withDefaults(defineProps<{
-    locale: DisplayLocale;
     item: ShelfItem;
     now: string;
     /** 封面图地址；null 用排版封面。 */
@@ -36,42 +34,31 @@ const emit = defineEmits<{
     (event: "pick", id: string): void;
 }>();
 
-const TEXT = {
-    more: {"zh-CN": "更多操作", "en-US": "More Actions"},
-    openNewWindow: {"zh-CN": "在新窗口打开", "en-US": "Open in New Window"},
-    edit: {"zh-CN": "编辑信息", "en-US": "Edit Info"},
-    remove: {"zh-CN": "从书架移除", "en-US": "Remove from Shelf"},
-    running: {"zh-CN": "已打开", "en-US": "Open"},
-    none: {"zh-CN": "尚未统计", "en-US": "Not counted yet"},
-    noDescription: {"zh-CN": "还没有简介", "en-US": "No description yet"},
-    stale: {"zh-CN": "统计于{when}", "en-US": "Counted {when}"},
-    counting: {"zh-CN": "正在统计", "en-US": "Counting"},
-} satisfies Record<string, LocalizedText>;
-
-const text = (value: LocalizedText): string => localize(value, props.locale);
+const port = useText();
+const text = useProjectsText();
 
 /** 字数与篇数；`none` 写“尚未统计”。 */
 function counts(): string {
     const {stats} = props.item;
-    if (stats.freshness === "none") return text(TEXT.none);
-    return `${formatWords(stats.words, props.locale)} · ${formatFiles(stats.files, props.locale)}`;
+    if (stats.freshness === "none") return text("bookCard.none");
+    return `${formatWords(stats.words, port)} · ${formatFiles(stats.files, port)}`;
 }
 
 /** 最近编辑时间与新鲜度说明（Spec 输出 8）：`fresh` 不加说明。 */
 function when(): string | null {
     const {stats} = props.item;
     const parts: string[] = [];
-    if (stats.last !== null) parts.push(formatWhen(stats.last.at, props.now, props.locale));
-    if (stats.freshness === "counting") parts.push(text(TEXT.counting));
-    else if (stats.freshness === "stale" && stats.computedAt !== null) parts.push(text(formatText(TEXT.stale, {when: formatWhen(stats.computedAt, props.now, props.locale)})));
+    if (stats.last !== null) parts.push(formatWhen(stats.last.at, props.now, port));
+    if (stats.freshness === "counting") parts.push(text("bookCard.counting"));
+    else if (stats.freshness === "stale" && stats.computedAt !== null) parts.push(text("bookCard.stale", {when: formatWhen(stats.computedAt, props.now, port)}));
     return parts.length === 0 ? null : parts.join(" · ");
 }
 
 function menu(): DropdownMenuItemData[] {
     return [
-        {value: "open-new-window", label: text(TEXT.openNewWindow)},
-        {value: "edit", label: text(TEXT.edit)},
-        {value: "remove", label: text(TEXT.remove), tone: "danger"},
+        {value: "open-new-window", label: text("bookCard.openNewWindow")},
+        {value: "edit", label: text("bookCard.edit")},
+        {value: "remove", label: text("bookCard.remove"), tone: "danger"},
     ];
 }
 
@@ -95,16 +82,16 @@ function onMenu(value: string): void {
         <BookCover :id="item.id" :title="projectDisplayName(item)" :color="item.color" :src="coverSrc" :width="84" class="book-card__cover" />
         <div class="book-card__text">
             <h3 class="book-card__title">{{ projectDisplayName(item) }}</h3>
-            <p class="book-card__blurb" :class="{'book-card__blurb--empty': item.description === null || item.description === ''}">{{ item.description === null || item.description === "" ? text(TEXT.noDescription) : item.description }}</p>
+            <p class="book-card__blurb" :class="{'book-card__blurb--empty': item.description === null || item.description === ''}">{{ item.description === null || item.description === "" ? text('bookCard.noDescription') : item.description }}</p>
             <div class="book-card__foot">
                 <span>{{ counts() }}</span>
-                <span v-if="item.state !== 'stopped'" class="book-card__running">{{ when() === null ? text(TEXT.running) : `${when() ?? ""} · ${text(TEXT.running)}` }}</span>
+                <span v-if="item.state !== 'stopped'" class="book-card__running">{{ when() === null ? text('bookCard.running') : `${when() ?? ""} · ${text('bookCard.running')}` }}</span>
                 <span v-else-if="when() !== null">{{ when() }}</span>
             </div>
         </div>
         <!-- 更多菜单是卡片的兄弟交互：点它不触发打开（.stop），也不嵌在按钮里。 -->
         <DropdownMenu :items="menu()" align="end" root-class="book-card__more" @select="onMenu" @click.stop>
-            <IconButton size="sm" icon-class="i-lucide-ellipsis" :aria-label="text(TEXT.more)" @click.stop />
+            <IconButton size="sm" icon-class="i-lucide-ellipsis" :aria-label="text('bookCard.more')" @click.stop />
         </DropdownMenu>
     </article>
 </template>

@@ -6,9 +6,9 @@ import {Type} from "typebox";
 import type {Static, TObject, TSchema} from "typebox";
 
 import {COMMANDS_POINT, runsWithoutArgs} from "nbook/plugins/commands/shared/contracts";
-import type {CommandDeclaration, CommandImplementation, CommandResult} from "nbook/plugins/commands/shared/contracts";
+import type {CommandDeclaration, CommandImplementation, CommandResult, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 
-import {bound, COMMAND_SEGMENT, contributionId, localizedText} from "./plugin";
+import {bound, COMMAND_SEGMENT, contributionId} from "./plugin";
 import type {BoundImplementation, ContributionHelper, PluginBuilder, Problem, ShortNameRule, Text} from "./plugin";
 
 /**
@@ -19,7 +19,7 @@ type HumanArgsRule<Args extends TObject, Expose> = {} extends Static<Args>
     ? unknown
     : Expose extends {readonly human: false} ? unknown : Problem<"命令参数有必填项：命令面板不收集参数，参数改成可选，或者写 expose: {human: false}">;
 
-export interface CommandHelper<Id extends string = string, Args = unknown> extends ContributionHelper<typeof COMMANDS_POINT, Id, CommandDeclaration> {
+export interface CommandHelper<Id extends string = string, Args = unknown> extends ContributionHelper<typeof COMMANDS_POINT, Id, WrittenCommandDeclaration> {
     readonly where: "anywhere";
     /** 执行命令；`args` 已按声明的 schema 校验过。 */
     implement(run: (args: Args) => CommandResult<unknown> | Promise<CommandResult<unknown>>): BoundImplementation<typeof COMMANDS_POINT, Id>;
@@ -39,11 +39,12 @@ function strictObject(schema: TSchema, noun: string): TSchema {
 
 /**
  * 命令；`args` 缺省为空对象，没写 `additionalProperties` 的补成 `false`。不带参数过不了校验的命令在命令面板里执行不了：
- * 这种命令要写 `expose: {human: false}`，否则加载即抛错。
+ * 这种命令要写 `expose: {human: false}`，否则加载即抛错。`title` 省略时宿主登记时补成约定键 `commands.<name>.title`，
+ * 文字原样写进声明（docs/specs/workbench/commands.md 的“约定键”）。
  */
 export function command<const Id extends string, const Name extends string, Args extends TObject = TObject<{}>, const Expose extends CommandDeclaration["expose"] = undefined>(plugin: PluginBuilder<Id>, options: Omit<CommandDeclaration, "title" | "category" | "args" | "expose"> & {
     readonly name: Name;
-    readonly title: Text;
+    readonly title?: Text;
     readonly category?: Text;
     readonly args?: Args;
     readonly expose?: Expose;
@@ -56,7 +57,7 @@ export function command<const Id extends string, const Name extends string, Args
         const which = required.length > 0 ? `有必填项（${required.join("、")}）` : "收不下空对象";
         throw new TypeError(`命令 ${id} 的参数${which}，命令面板不收集参数：参数改成可选，或者写 expose: {human: false} 只给 Agent 与代码用`);
     }
-    const declaration: CommandDeclaration = {...rest, title: localizedText(title), ...(category === undefined ? {} : {category: localizedText(category)}), args: schema};
+    const declaration: WrittenCommandDeclaration = {...rest, ...(title === undefined ? {} : {title}), ...(category === undefined ? {} : {category}), args: schema};
     return {
         id,
         contribution: {capability: COMMANDS_POINT, id, declaration},

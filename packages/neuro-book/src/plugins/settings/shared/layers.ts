@@ -6,7 +6,7 @@
 import {Value} from "typebox/value";
 
 import {isJson} from "nbook/shared/settings";
-import type {SettingDeclaration, SettingLayer, SettingSource, SettingsFailure} from "nbook/shared/settings";
+import type {SettingDeclaration, SettingLayer, SettingSource, SettingsFailure, WrittenSettingDeclaration} from "nbook/shared/settings";
 
 /** 拥有者进程的启动标识加进程内单调递增的序号；只有启动标识相同的两个修订号可以比较先后。 */
 export interface Revision {
@@ -14,9 +14,17 @@ export interface Revision {
     readonly seq: number;
 }
 
-/** 一条已接受的声明与它的声明者。 */
+/**
+ * 一条声明与它的声明者。层的规则只看 schema、默认值与允许的层，不看文字，所以按作者写下的类型收：没经插件宿主登记的
+ * `defineSetting` 结果也能直接用。
+ */
 export interface DeclaredSetting {
     readonly plugin: string;
+    readonly declaration: WrittenSettingDeclaration;
+}
+
+/** 经插件宿主登记、已接受的一条（`acceptedSettings` 的结果）：声明已由贡献点补全，标题总有值。 */
+export interface AcceptedSetting extends DeclaredSetting {
     readonly declaration: SettingDeclaration;
 }
 
@@ -103,7 +111,7 @@ export function canonical(value: unknown): string {
 }
 
 /** 一个键在本实例的有效值：允许的层里最具体的那一层的值，没有则取默认值（输出 6）。对象整体覆盖，不合并。 */
-export function effectiveOf(key: string, declaration: SettingDeclaration, layers: Readonly<Partial<Record<SettingLayer, Readonly<Record<string, unknown>>>>>): {readonly value: unknown; readonly source: SettingSource} {
+export function effectiveOf(key: string, declaration: WrittenSettingDeclaration, layers: Readonly<Partial<Record<SettingLayer, Readonly<Record<string, unknown>>>>>): {readonly value: unknown; readonly source: SettingSource} {
     for (const layer of ["project", "user"] as const) {
         const values = layers[layer];
         if (values === undefined || !declaration.layers.includes(layer) || !Object.hasOwn(values, key)) continue;

@@ -17,9 +17,9 @@ import type {InstallFailureCode, ManageFailureCode} from "nbook/plugin-platform/
 import {descriptor} from "../plugin";
 import {pluginsRegistryContract} from "../shared/contracts";
 
-/** 安装与预览的失败：清单无效时带上出错的字段，其余码只带说明。 */
+/** 安装与预览的失败：清单或目录无效时带上逐条问题，其余码只带说明。 */
 function refusedInstall(failure: InventoryFailure<InstallFailureCode>) {
-    return failure.code === "manifest-invalid"
+    return failure.code === "manifest-invalid" || failure.code === "catalog-invalid"
         ? {ok: false as const, code: failure.code, detail: {detail: failure.detail, problems: [...(failure.problems ?? [])]}}
         : {ok: false as const, code: failure.code, detail: {detail: failure.detail}};
 }

@@ -35,7 +35,7 @@ owners:
 
 - 列表对已登录用户可见；安装、启用、禁用、卸载与升级只允许插件所有者执行，其它用户得到 403。操作对整个实例生效。
 - **安装的输入**是服务端可读的一个本地文件夹路径，文件夹根目录有插件清单 `package.json`。Desktop 由本机文件选择器取得路径；服务端部署时路径位于服务器上。
-- 复制范围：清单有 `files` 字段时按 npm 的规则复制：每项是相对插件文件夹的 glob，命中目录时递归包含其全部内容，`!` 开头的项排除；npm 总是包含的文件照样包含（`package.json`、根目录的 README、LICENSE 或 LICENCE、`main` 与 `bin` 指向的文件）。不支持 npm 的扩展 glob（例如 `+(dist|lib)`），写了时安装以 `manifest-invalid` 拒绝。没有 `files` 时复制整个文件夹。两种情况都排除 `node_modules` 与 `.git`。复制后必须包含全部入口文件。
+- 复制范围：清单有 `files` 字段时按 npm 的规则复制：每项是相对插件文件夹的 glob，命中目录时递归包含其全部内容，`!` 开头的项排除；npm 总是包含的文件照样包含（`package.json`、根目录的 README、LICENSE 或 LICENCE、`main` 与 `bin` 指向的文件）。不支持 npm 的扩展 glob（例如 `+(dist|lib)`），写了时安装以 `manifest-invalid` 拒绝。没有 `files` 时复制整个文件夹。两种情况都排除 `node_modules` 与 `.git`。复制后必须包含全部入口文件，以及清单 `l10n.locales` 列出的全部消息目录 `locales/<语言>.json`（[`runtime.plugin-manifest`](plugin-manifest.md) 输出 12）。
 - 路径边界：`files` 中的项必须是相对路径且不越出源文件夹；复制范围内的任何路径（包括路径中间的目录）是符号链接时安装被拒绝，被排除项剪掉的路径不在范围内；源文件夹不得位于 `<State Root>/plugins/` 之内。
 - 插件 id 已安装、版本不同时，安装请求按升级处理；版本与当前版本或待切换版本相同时拒绝（“已安装相同版本”），开发者需要提高版本号，或先卸载、重启后再安装。插件处于卸载中时，安装同一插件被拒绝，提示先重启。
 - 安全模式由环境变量 `NEURO_BOOK_SAFE_MODE=1` 开启；`nbook start --safe-mode` 以它启动（[`runtime.cli`](cli.md)）。
@@ -44,7 +44,7 @@ owners:
 
 1. **列表。** 返回全部内置与第三方插件：id、版本、来源（内置或第三方）、用户状态、待生效变化、汇总运行状态与原因（见 [`runtime.plugin-manifest`](plugin-manifest.md)），以及不登记的原因：`manifest-invalid`（清单无效）、`entry-missing`（安装时有的入口文件不见了，与安装时同一个码）、`unreadable`（读不了安装目录）、`incompatible-engine`（不兼容）、`safe-mode`（安全模式未加载）。内置插件标为内置，不提供启用、禁用与卸载操作。
 2. **安装。**
-   1. 校验清单（[`runtime.plugin-manifest`](plugin-manifest.md) 的全部规则）与 `engines.neurobook`；第三方 id 以 `nbook.` 开头时拒绝。
+   1. 校验清单（[`runtime.plugin-manifest`](plugin-manifest.md) 的全部规则）与 `engines.neurobook`；第三方 id 以 `nbook.` 开头时拒绝。清单有 `l10n` 时，预览与安装都按 [`runtime.plugin-manifest`](plugin-manifest.md) 输出 12 检查源文件夹里的每份消息目录，有问题时以 `catalog-invalid` 拒绝，详情逐条列出文件、键路径与原因；安装在复制完成后再检查一次复制结果，所以 `files` 漏了目录文件时安装以 `catalog-invalid` 拒绝（预览只看源文件夹，看不出这一种）。启动时不再检查目录：安装之后目录坏了或不见了，插件照常登记，问题由取目录的窗口报告（[`runtime.browser-host`](browser-host.md) 输出 8）。
    2. 安装确认界面必须说明完全信任的后果：插件可以访问全部作品、服务器与本机资源。命令行安装时打印同一句说明，执行命令本身算确认；降级或有插件会受阻时要 `--yes`（[`runtime.cli`](cli.md)）。
    3. 用户确认后复制（不链接）到安装目录，写入插件登记表为已启用。本次运行中插件不登记、不激活；下一次启动时登记并按激活事件激活，声明层在服务端与所有窗口出现。
 3. **卸载**（只限第三方插件）。确认界面让用户选择是否同时删除插件的私有存储、配置与密钥（默认保留）。确认后登记表把插件标为卸载中，并记下是否删除私有数据；本次运行中插件照常。下一次启动时不加载它，删除安装目录与（按记录）私有数据，最后移除记录；依赖它的入口以 `missing-service` 受阻。
@@ -96,11 +96,12 @@ owners:
 
 ## 失败与恢复
 
-插件管理接口的业务失败码。每个方法只返回自己的那一组：列表只有 `registry-failed`；预览与安装是 `manifest-invalid`、`incompatible-engine`、`already-installed`、`uninstall-pending`、`path-rejected`、`entry-missing`、`copy-failed`、`registry-failed`；启用、禁用与卸载是 `builtin-fixed`、`not-installed`、`uninstall-pending`、`registry-failed`。
+插件管理接口的业务失败码。每个方法只返回自己的那一组：列表只有 `registry-failed`；预览与安装是 `manifest-invalid`、`catalog-invalid`、`incompatible-engine`、`already-installed`、`uninstall-pending`、`path-rejected`、`entry-missing`、`copy-failed`、`registry-failed`；启用、禁用与卸载是 `builtin-fixed`、`not-installed`、`uninstall-pending`、`registry-failed`。
 
 | 码 | 含义 | 调用方怎么办 |
 |---|---|---|
 | `manifest-invalid` | 清单不存在、不是合法 JSON 或不符合 [`runtime.plugin-manifest`](plugin-manifest.md)（包括第三方 id 用了保留的发布者 `nbook`），详情给出出错字段 | 修改插件清单后重试 |
+| `catalog-invalid` | 清单 `l10n` 列出的消息目录缺失、不是合法 JSON 或内容不符合 [`runtime.plugin-manifest`](plugin-manifest.md) 输出 12，详情逐条给出文件、键路径与原因；已复制的部分已删除 | 修改目录文件或 `files` 后重试 |
 | `incompatible-engine` | `engines.neurobook` 不接受产品版本 | 换兼容的插件版本 |
 | `already-installed` | 同一 id 与版本已安装或待切换 | 提高版本号，或卸载、重启后再装 |
 | `uninstall-pending` | 插件处于卸载中 | 重启后再安装 |
@@ -142,9 +143,10 @@ owners:
 14. **内置插件。** 列表包含全部内置插件，标为内置、版本等于产品版本；对内置插件的启用、禁用与卸载请求得到 `builtin-fixed`。
 15. **服务端与命令行同时写。** 服务端运行时，两个进程（服务端的插件页与命令行，或两个命令行）同时各安装一个不同的插件：两次都成功，登记表两条都在，重启后两个插件都登记，目录都保留。
 16. **待切换期间换版本与卸载中安装。** 0.1.0 运行、0.2.0 待切换时安装 0.3.0：重启后运行 0.3.0，0.2.0 与 0.1.0 的目录都被删除；在登记表改记 0.3.0 之前结束进程，重启后运行 0.2.0，0.3.0 的目录被删除。卸载中的插件再安装得到 `uninstall-pending`。
+17. **消息目录。** 清单 `l10n` 列出的某份目录不是合法 JSON、叶子不是字符串或缺了源语言的目录时，预览与安装都得到 `catalog-invalid`，详情指出文件与键路径；`files` 没有包含 `locales/` 时预览通过、安装得到 `catalog-invalid`；两种情况都不留下安装目录与登记表记录。
 
 Smoke：示例外部插件完成场景 1、3、8、12、13，在真实服务端与 Chromium 上运行，使用临时 State Root（[测试与临时根合同](../../testing/README.md)）。
 
 ## 证据
 
-- 批准依据：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P8 与 P11；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 1、3、4 条；[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)；插件登记表文件名 `plugins.json`、复制范围与路径边界、拒绝同版本重装、允许降级并提示、各操作的提交点、插件管理限插件所有者、安全模式环境变量名、插件管理由内置插件 `nbook.plugins` 提供，由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文；操作在下一次启动生效、热升级移至 `runtime.plugin-hot-plug`、重启生效的升级、内置插件列出但不能启停与卸载、产品版本，由开发者 2026-10-17 在 [w00027 t01 实施计划](../../../.agents/works/w00027-plugin-platform/tasks/t01-requirements/plan.md) 中确认。
+- 批准依据：消息目录的复制与 `catalog-invalid` 依据[《界面文字的消息目录》](../../proposals/i18n-message-catalogs.md)（2026-10-27 接受）；[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P8 与 P11；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 1、3、4 条；[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)；插件登记表文件名 `plugins.json`、复制范围与路径边界、拒绝同版本重装、允许降级并提示、各操作的提交点、插件管理限插件所有者、安全模式环境变量名、插件管理由内置插件 `nbook.plugins` 提供，由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文；操作在下一次启动生效、热升级移至 `runtime.plugin-hot-plug`、重启生效的升级、内置插件列出但不能启停与卸载、产品版本，由开发者 2026-10-17 在 [w00027 t01 实施计划](../../../.agents/works/w00027-plugin-platform/tasks/t01-requirements/plan.md) 中确认。

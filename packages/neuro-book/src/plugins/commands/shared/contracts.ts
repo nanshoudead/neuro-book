@@ -14,7 +14,10 @@ import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
-import {LocalizedTextSchema} from "nbook/shared/localized-text";
+import type {Text} from "@notnotype/nb-ui/text";
+
+import {conventionCompleter} from "nbook/shared/convention-keys";
+import {TextSchema} from "nbook/shared/text";
 
 import type {WhenPredicate} from "./context-keys";
 
@@ -34,12 +37,17 @@ export type CommandFailureCode =
     | "execution-error"
     | "stale-target";
 
-export type CommandResult<T> = {ok: true; value: T} | {ok: false; code: CommandFailureCode; reason: string};
+/**
+ * 失败的 `reason` 是给人看的文字值（docs/specs/workbench/commands.md 的“结果合同”）：浏览器里的命令交目录里的文字引用，
+ * 显示的一方（命令面板、失败通知、菜单）按当前语言翻，切换语言后随之换文字；服务端没有翻译端口，那里产生的原因写字符串或
+ * 语言映射。交给服务端的远程结果在窗口里先翻成字符串（`plugin.ts` 的 `remoteCommands`）。
+ */
+export type CommandResult<T> = {ok: true; value: T} | {ok: false; code: CommandFailureCode; reason: Text};
 
 /** 失败的结果里调用方要读的两项。 */
 export interface CommandFailure {
     readonly code: CommandFailureCode;
-    readonly reason: string;
+    readonly reason: Text;
 }
 
 /**
@@ -62,8 +70,9 @@ const AgentExposureSchema = Type.Union([Type.Literal("never"), Type.Literal("con
  * 语义检查（id 规则、`when` 的键是否登记、标注与 `effect` 是否冲突）见 `registry.ts`。
  */
 export const CommandDeclarationSchema = Type.Object({
-    title: LocalizedTextSchema,
-    category: Type.Optional(LocalizedTextSchema),
+    /** 没写时登记处补成约定键 `commands.<本地 id>.title`（docs/specs/workbench/commands.md 的“约定键”）。 */
+    title: TextSchema,
+    category: Type.Optional(TextSchema),
     /** 稳定的英文语义说明，给 Agent 看，不随界面语言变化。 */
     description: Type.String({pattern: "\\S"}),
     /** 参数的 JSON Schema：必须是对象且关闭额外属性，执行前严格校验，不转换、不补默认值。 */
@@ -90,6 +99,12 @@ export type CommandDeclaration = Omit<Static<typeof CommandDeclarationSchema>, "
     readonly args: TSchema;
     readonly when?: WhenPredicate;
 };
+
+/** 作者写下的命令声明：`title` 可以省略，登记时由贡献点补成约定键（docs/specs/workbench/commands.md 的“约定键”）。 */
+export type WrittenCommandDeclaration = Omit<CommandDeclaration, "title"> & {readonly title?: CommandDeclaration["title"]};
+
+/** `nbook.commands` 贡献点的补全：给文字引用补命名空间，没写 `title` 时补约定键 `commands.<本地 id>.title`。 */
+export const completeCommandDeclaration = conventionCompleter({name: "commands", fields: ["title"]});
 
 export type CommandExposure = NonNullable<CommandDeclaration["expose"]>;
 
@@ -142,7 +157,10 @@ export const commandServiceKey: ServiceKey<CommandService> = defineServiceKey<Co
 const RemoteCommandSchema = Type.Object({
     id: Type.String(),
     source: Type.String(),
-    title: LocalizedTextSchema,
+    /** 原样转发声明里的文字：`TextRef` 带着贡献方的命名空间，服务端不翻译，交给能翻译的一方。 */
+    title: TextSchema,
+    /** 没写分类为 null。 */
+    category: Type.Union([TextSchema, Type.Null()]),
     description: Type.String(),
     /** 参数的 JSON Schema。 */
     args: Type.Unknown(),
@@ -165,10 +183,12 @@ const RemoteCommandResultSchema = Type.Union([
  * 跨实例列出与执行某个窗口里的命令（docs/specs/workbench/commands.md 的“跨实例列出与执行”）：浏览器的
  * `nbook.commands` 入口提供，第一版只允许服务端调用，服务端插件以 `.at({client: 窗口实例 id})` 选定窗口。
  * `when` 只在命令所在的窗口求值：服务端问到的是那个窗口此刻的状态，不保存窗口状态的副本。
+ *
+ * 版本 2：`list` 的 `title` 从中英两份放宽为文字值（含文字引用），并加上 `category`。
  */
 export const commandsRemoteContract = defineRemoteService({
     id: "nbook.commands/remote",
-    version: 1,
+    version: 2,
     provider: "client",
     callers: ["server"],
     methods: {
@@ -182,6 +202,6 @@ export const commandsRemoteContract = defineRemoteService({
 });
 
 export {currentKeyPlatform, formatKeybinding, parseKeybinding} from "./keybinding";
-export {arrangeMenu, matchesExtensions, MENU_BUTTON, MENU_EXTENSIONS, menuImplementations, MenuItemRegistry, menuItemValidator, menuLocation} from "./menus";
+export {arrangeMenu, completeMenuItemDeclaration, matchesExtensions, MENU_BUTTON, MENU_EXTENSIONS, menuImplementations, MenuItemRegistry, menuItemValidator, menuLocation} from "./menus";
 export type {MenuCurrentFiles, MenuEntry, MenuFacts, MenuItemDeclaration, MenuItemImplementation, MenuLocation} from "./menus";
 export type {KeyModifiers, KeyPlatform, ParsedKeybinding} from "./keybinding";

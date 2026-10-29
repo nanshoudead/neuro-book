@@ -82,7 +82,7 @@ function enabled(id: string): boolean {
 
 async function run(id: string, invocation?: CommandInvocation): Promise<void> {
     const result = await scene.registry.execute(id, {}, invocation);
-    lastResult.value = result.ok ? `${id}：完成` : `${id}：${result.code}（${result.reason}）`;
+    lastResult.value = result.ok ? `${id}：完成` : `${id}：${result.code}（${scene.text.t(result.reason)}）`;
 }
 
 onBeforeUnmount(() => {

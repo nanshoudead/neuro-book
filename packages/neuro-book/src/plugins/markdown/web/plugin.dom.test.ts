@@ -1,7 +1,7 @@
 /**
  * `nbook.markdown` 的服务 `markdownKey` 交出的 nb-markdown 组件（真实插件实例，docs/specs/ui/markdown-display.md、ui/prompt-editor.md
  * 的宿主接口）：外面套的几层（`withHost`、`MarkdownHosted`）把外露方法转给里面的组件，对话视图的输入框才能调 PromptEditor 的
- * `focus` 等；不读宿主的图片与小块经属性拿到 nbook 的说明与分类。
+ * `focus` 等；不读宿主的图片与小块经属性拿到 nbook 的说明与分类，说明经窗口的翻译端口取（端口登记了 `nbook.markdown` 的目录）。
  */
 
 import {flushPromises, mount} from "@vue/test-utils";
@@ -18,10 +18,12 @@ import {createApplication} from "nbook/application";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
 import {createMemoryFiles} from "nbook/plugins/lab/web/fixtures/explorer-scene/memory-files";
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
 import {markdownKey} from "../shared/contracts";
 import type {MarkdownComponents} from "../shared/contracts";
 import {markdownBrowserPlugin} from "./plugin";
+import {markdownCatalogs} from "./text";
 
 const silent = {error: () => undefined};
 const cleanups: Array<() => void | Promise<void>> = [];
@@ -53,9 +55,11 @@ async function served(): Promise<MarkdownComponents> {
     return components;
 }
 
+/** 挂在窗口里：窗口的翻译端口登记了内置插件的目录。 */
 function mountServed(component: Component, props: Record<string, unknown>) {
     const handle = shallowRef<Record<string, unknown> | null>(null);
-    const wrapper = mount({render: () => h(component, {ref: handle, ...props})}, {attachTo: document.body});
+    const port = testTextPort("zh-CN", {"nbook.markdown": markdownCatalogs});
+    const wrapper = mount({render: () => h(component, {ref: handle, ...props})}, {attachTo: document.body, global: {provide: provideText(port)}});
     cleanups.push(() => wrapper.unmount());
     return {wrapper, handle};
 }
@@ -70,10 +74,10 @@ describe("markdownKey 交出的 nb-markdown 组件", () => {
 
     it("单独交出的图片写明不在作品里；单独交出的小块按作品文件分类（local:// 是回形针，作品里的文件是文件图标）", async () => {
         const {MarkdownImage, InlineChip} = await served();
-        const image = mountServed(MarkdownImage, {src: "../外面.png", alt: "外面", locale: "zh-CN"});
+        const image = mountServed(MarkdownImage, {src: "../外面.png", alt: "外面"});
         await waitUntil("图片说明", () => (image.wrapper.text() === "外面（不在作品里，不显示）" ? true : null));
-        const attachment = mountServed(InlineChip, {kind: "reference", label: "截图", target: "local://截图.png", locale: "zh-CN"});
-        const work = mountServed(InlineChip, {kind: "reference", label: "林雪", target: "/设定/林雪.md", locale: "zh-CN"});
+        const attachment = mountServed(InlineChip, {kind: "reference", label: "截图", target: "local://截图.png"});
+        const work = mountServed(InlineChip, {kind: "reference", label: "林雪", target: "/设定/林雪.md"});
         await flushPromises();
         await waitUntil("小块", () => (attachment.wrapper.find(".i-lucide-paperclip").exists() && work.wrapper.find("svg[data-file-icon]").exists() ? true : null));
         expect(work.wrapper.find("[data-inline-chip]").classes()).toContain("nb-chip--work");

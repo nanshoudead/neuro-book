@@ -9,6 +9,7 @@ import {ColorSwatchPickerItem, ColorSwatchPickerRoot, injectListboxRootContext, 
 import {computed, defineComponent, onBeforeUnmount, ref, watchEffect} from "vue";
 
 import {usePopoverLayer} from "../../composables/usePopoverLayer";
+import {useUiText} from "../../text-port";
 import Tooltip from "../feedback/Tooltip.vue";
 import ColorPickerPanel from "./ColorPickerPanel.vue";
 
@@ -31,8 +32,10 @@ const props = withDefaults(defineProps<{
     columns: 0,
     size: "md",
     disabled: false,
-    label: "颜色",
 });
+
+const text = useUiText();
+const labelText = computed(() => props.label ?? text("colorSwatches.label"));
 
 const emit = defineEmits<{
     (event: "update:modelValue", value: string | null): void;
@@ -112,7 +115,7 @@ const layout = computed(() => (props.columns > 0 ? {gridTemplateColumns: `repeat
             class="outline-none"
             :class="props.columns > 0 ? 'grid' : 'flex flex-wrap'"
             :style="[{gap: 'var(--nb-swatch-gap)'}, layout ?? {}]"
-            :aria-label="props.label"
+            :aria-label="labelText"
         >
             <Tooltip v-if="props.autoLabel !== ''" :text="props.autoLabel">
                 <ColorSwatchPickerItem :value="AUTO" :aria-label="props.autoLabel" class="nb-swatches__item nb-swatches__item--auto" data-color-swatch="auto" @select="choose(null)">

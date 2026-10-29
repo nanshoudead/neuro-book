@@ -2,7 +2,8 @@
 
 Agent 对话视图。行为合同见 [`ui.agent-conversation-view`](../../docs/specs/ui/agent-conversation-view.md)，包的约定见 [AGENTS.md](AGENTS.md)。
 
-- `@notnotype/nb-agent-ui`：核心，纯 TS。视图合同（`ctx`、`services`、`action`）、注册表、界面文字，以及宿主注入组件要满足的形状（`ports.ts`）。
+- `@notnotype/nb-agent-ui`：核心，纯 TS。视图合同（`ctx`、`services`、`action`）、注册表、界面文字的引用（`agentRef`），以及宿主注入组件要满足的形状（`ports.ts`）。
+- `@notnotype/nb-agent-ui/locales`：本包界面文字的消息目录（命名空间 `nb-agent-ui`，源语言 zh-CN），注入翻译端口的宿主登记它，见“[界面文字](#界面文字)”。
 - `@notnotype/nb-agent-ui/vue`：渲染层。宿主挂 `AgentConversationView`，要会话列表时另挂 `AgentSessionList`；注册表用内置登记（`builtinContributions` 或四份单独的）加自己的。
 - `@notnotype/nb-agent-ui/lab`：只给应用的 Component Lab，单独挂内部零件与算轮次样例；不是宿主接口，形状随时会变。
 
@@ -77,17 +78,40 @@ bun add @notnotype/nb-agent-ui
 
 4. **数据**：视图不持有会话数据。消息、运行状态、草稿、附件状态都经 `ctx` 给出，宿主受理用户操作后给出新的 `ctx`（例如发送后给一个新版本的空草稿）。
 
-5. **会话列表**：`AgentSessionList` 不在 `AgentConversationView` 里，宿主把它摆在左栏或下拉里。它不 inject，语言由 `locale` 属性给；条目、选中与加载状态全由宿主给，用户操作以 `action` 交回（`session.select`、`session.create`、出错时重试发 `sessions.refresh`），可以和视图的 action 交给同一个处理函数。
+5. **会话列表**：`AgentSessionList` 不在 `AgentConversationView` 里，宿主把它摆在左栏或下拉里。界面文字与视图一样取（见下一节）；条目、选中与加载状态全由宿主给，用户操作以 `action` 交回（`session.select`、`session.create`、出错时重试发 `sessions.refresh`），可以和视图的 action 交给同一个处理函数。
    - 宿主自己有标题与新建入口时传 `header: false`；`labels` 覆盖包内文字（例如整页叫“对话”）。
    - 列表不持有下拉的开关：宿主收到 `session.select`、`session.create` 后自己关下拉，`sessions.refresh` 不关。
    - 时间按 `now` 与本地日历日写成“14:32”“昨天”“10月18日”。宿主要定期更新 `now`（例如每分钟），否则过了午夜，“今天”的行不会变成“昨天”。
+
+## 界面文字
+
+本包的界面文字在自带的消息目录里（`@notnotype/nb-agent-ui/locales`），组件经 nb-ui 的翻译端口（`@notnotype/nb-ui/text-port`）取。核心拿不到语言，消息、注册表、过程摘要里的文字是引用（`TextRef`）或宿主给的中英两份（`LocaleMap`），显示时才翻译（[`ui/i18n`](../../docs/specs/ui/i18n.md)）。
+
+**宿主注入了翻译端口时**（例如 neuro-book）：宿主要登记本包的目录，组件的语言以端口为准，`AgentConversationView`、`AgentSessionList`、`AgentModelCatalog` 的 `locale` 属性不起作用。
+
+```ts
+import {NB_AGENT_UI_CATALOGS, NB_AGENT_UI_NAMESPACE, NB_AGENT_UI_SOURCE_LOCALE} from "@notnotype/nb-agent-ui/locales";
+
+engine.register(NB_AGENT_UI_NAMESPACE, NB_AGENT_UI_CATALOGS, NB_AGENT_UI_SOURCE_LOCALE);
+```
+
+忘了登记时界面上是键名（或宿主的严格模式下报缺键），不会悄悄换成中文。
+
+### 没有宿主时
+
+宿主不注入翻译端口时什么都不用做：
+
+- 三个根组件按自己的 `locale` 属性（缺省 zh-CN）建 nb-ui 的缺省端口（所有已导入共享包登记的目录、nb-ui 的最小实现），并提供给子组件，嵌套的 nb-ui 控件与嵌进来的别的共享包（例如 nb-markdown 的展示器）也用它；`locale` 变了文字跟着变，不用重新挂载。
+- 内部零件脱离根组件单独挂载、上面也没有端口时，用缺省端口，语言 zh-CN。单独挂零件又要别的语言，就在外面调用 `provideAgentView({locale})`（`./lab` 入口）或自己注入端口。
+
+缺省端口用的最小实现（nb-ui 的 `createMinimalTranslator`）只认 `{{name}}` 插值与 `_one`、`_other` 这类复数后缀，本包的目录只用到这些。
 
 ## 跑 harness 的宿主
 
 `createHarnessTranscript()` 把 nb-harness 的会话日志条目与流式事件合成 `ctx.messages`（实现与两条来源的分工见 `src/harness.ts` 的模块头）：
 
 ```ts
-const transcript = createHarnessTranscript({locale});
+const transcript = createHarnessTranscript();
 for (const entry of await log.read()) transcript.applyLogEntry(entry);   // 打开会话：先读已有日志
 // 运行中：按到达顺序
 transcript.applyEvent(agentEvent);      // harness.subscribe 的事件，或 SSE 帧里的 JSON

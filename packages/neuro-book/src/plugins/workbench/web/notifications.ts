@@ -2,11 +2,15 @@
  * 工作台的通知服务（docs/specs/workbench/notifications.md）：本窗口一份 nb-ui 通知队列，`notificationsKey` 的提供项包着它，
  * 页面根上的 `NotificationStack` 显示它。常驻规则在这里定：error 与带动作的通知不自动消失，调用方不用自己算时长。
  * 动作抛错由这里接住并经 `report` 记诊断（`workbench.notifications`）；视口在动作之后移除通知。
+ *
+ * 文字原样进队列，由视口在渲染时经窗口的翻译端口翻（输出 9）；这里只在写诊断时用 `text` 把动作名翻成此刻的字符串。
  */
 
 // 队列从不带 DOM 的子路径取：本文件与插件入口一起在无 DOM 的编译组里，composables 的总出口会把用到 window 的别的 composable 一起拉进来。
 import {createNotificationQueue, DEFAULT_NOTIFICATION_DURATION} from "@notnotype/nb-ui/notifications";
 import type {NotificationQueue} from "@notnotype/nb-ui/notifications";
+
+import type {TextResolver} from "nbook/shared/localized-text";
 
 import type {NotificationHandle, NotificationInput, Notifications} from "../shared/contracts";
 
@@ -25,7 +29,7 @@ function durationOf(input: Pick<NotificationInput, "tone" | "action" | "sticky">
 
 type NotificationAction = NonNullable<NotificationInput["action"]>;
 
-export function createNotifications(report: (message: string) => void): WindowNotifications {
+export function createNotifications(report: (message: string) => void, text: Pick<TextResolver, "t">): WindowNotifications {
     const queue = createNotificationQueue();
     const guarded = (action: NotificationAction): NotificationAction => ({
         label: action.label,
@@ -33,7 +37,7 @@ export function createNotifications(report: (message: string) => void): WindowNo
             try {
                 action.run();
             } catch (error) {
-                report(`通知动作“${action.label}”失败：${error instanceof Error ? error.message : String(error)}`);
+                report(`通知动作“${text.t(action.label)}”失败：${error instanceof Error ? error.message : String(error)}`);
             }
         },
     });

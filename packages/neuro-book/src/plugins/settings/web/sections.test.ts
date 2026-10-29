@@ -32,6 +32,7 @@ import {descriptor} from "../plugin";
 import {SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT} from "../shared/contracts";
 import type {SettingsPageDeclaration, SettingsSectionDeclaration} from "../shared/contracts";
 import {validatePageContribution} from "../shared/sections";
+import {settingsText} from "../shared/text";
 import type {SettingsPageImplementation} from "./contracts";
 import {settingsBrowserCore} from "./plugin";
 import {settingsWindowSourceKey} from "./window-source";
@@ -175,7 +176,7 @@ describe("分区的登记校验", () => {
         expect(source.delivery("x.notes.main")).toEqual({kind: "available"});
     });
 
-    it("字段：groups 只给 list，layout、layers 与 keywords 只给 page；keywords 至多 20 个、两种语言都有；小组 id 合规且不重复，layers 非空不重复；已删除的 kind 是未知字段", async () => {
+    it("字段：groups 只给 list，layout、layers 与 keywords 只给 page；keywords 至多 20 个、每个都是合法文字（语言标签合法）；小组 id 合规且不重复，layers 非空不重复；已删除的 kind 是未知字段", async () => {
         const groups = [{id: "ui", title}, {id: "more-ui", title}];
         const cases: Readonly<Record<string, SectionSpec>> = {
             "x.combo.list-ok": list({groups}),
@@ -193,10 +194,11 @@ describe("分区的登记校验", () => {
             "x.combo.no-icon": page({icon: " "}),
             "x.combo.order": list({order: 2_000_000}),
             "x.combo.extra": page({minimumWidth: 600}),
-            "x.combo.title": list({title: {"zh-CN": "只有中文"}}),
+            "x.combo.title": list({title: {"not a tag": "标题"}}),
+            "x.combo.title-single": list({title: {"zh-CN": "只有中文"}}),
             "x.combo.keywords-ok": page({keywords: Array.from({length: 20}, () => title)}),
             "x.combo.keywords-many": page({keywords: Array.from({length: 21}, () => title)}),
-            "x.combo.keywords-lang": page({keywords: [{"zh-CN": "密钥"}]}),
+            "x.combo.keywords-lang": page({keywords: [{"not a tag": "密钥"}]}),
             "x.combo.list-keywords": list({keywords: [title]}),
         };
         const {application} = await start([contributor("x.combo", cases, control())]);
@@ -204,7 +206,9 @@ describe("分区的登记校验", () => {
         expect(validation(application, SETTINGS_SECTIONS_POINT, "x.combo.list-ok")).toEqual({status: "accepted"});
         expect(validation(application, SETTINGS_PAGES_POINT, "x.combo.page-ok")).toEqual({status: "accepted"});
         expect(validation(application, SETTINGS_PAGES_POINT, "x.combo.keywords-ok")).toEqual({status: "accepted"});
-        for (const id of Object.keys(cases).filter((id) => !id.endsWith("-ok"))) {
+        // 改为接受：单语言与纯字符串标题合法（ui/i18n.md 输出 1）。
+        expect(validation(application, SETTINGS_SECTIONS_POINT, "x.combo.title-single")).toEqual({status: "accepted"});
+        for (const id of Object.keys(cases).filter((id) => !id.endsWith("-ok") && !id.endsWith("-single"))) {
             expect(validation(application, pointOf(id), id), id).toMatchObject({status: "rejected", reason: "invalid-declaration"});
         }
         expect(application.plugins.entryState({plugin: "x.combo", entry: "browser"})?.status).toBe("available");
@@ -220,7 +224,7 @@ describe("分区的登记校验", () => {
         expect(validation(application, SETTINGS_PAGES_POINT, "x.top.page")).toMatchObject({status: "rejected", reason: "implementation-required"});
         expect(source.sections().map((section) => section.id)).toEqual(["nbook.appearance"]);
         // 浏览器实例里装不进服务端入口，直接用拥有者的校验函数验。
-        expect(validatePageContribution({capability: SETTINGS_PAGES_POINT, id: "x.top.page", plugin: "x.top", entry: "server", location: "server", declaration: page().declaration})).toBe(`${SETTINGS_PAGES_POINT} 只接受浏览器入口的贡献`);
+        expect(validatePageContribution({capability: SETTINGS_PAGES_POINT, id: "x.top.page", plugin: "x.top", entry: "server", location: "server", declaration: page().declaration})).toBe(`${SETTINGS_PAGES_POINT} only accepts contributions from browser entries`);
     });
 
     it("同一 id 出现在两个贡献点上：两者都不进目录，记一条诊断，指向它的配置项归入“其它”", async () => {
@@ -233,7 +237,7 @@ describe("分区的登记校验", () => {
         expect(validation(application, SETTINGS_SECTIONS_POINT, "x.twin.main")).toEqual({status: "accepted"});
         expect(validation(application, SETTINGS_PAGES_POINT, "x.twin.main")).toEqual({status: "accepted"});
         expect(source.sections().map((section) => section.id)).toEqual(["nbook.appearance"]);
-        expect(diagnostics.query({}).records.filter((record) => record.event === "settings.sections").map((record) => record.message)).toEqual(["分区 id x.twin.main 同时出现在 list 与 page 两个贡献点上，两者都不显示"]);
+        expect(diagnostics.query({}).records.filter((record) => record.event === "settings.sections").map((record) => record.message)).toEqual(["Section id x.twin.main appears on both the list and page contribution points; neither is shown"]);
         expect(await source.load("x.twin.main")).toEqual({status: "stale"});
     });
 });
@@ -247,12 +251,16 @@ describe("分区目录与交付状态", () => {
             plugin: "nbook.settings",
             kind: "list",
             declaration: {
-                title: {"zh-CN": "外观", "en-US": "Appearance"},
-                description: {"zh-CN": "界面的主题、明暗与语言", "en-US": "Theme, appearance and language of the interface"},
+                // 标题没写，登记时补成约定键；描述是可选字段，写了的就是它自己。
+                title: settingsText("settingsSections.nbook.appearance.title"),
+                description: settingsText("settingsSections.nbook.appearance.description"),
                 icon: "i-lucide-palette",
                 category: "app",
                 order: 10,
-                groups: [{id: "ui", title: {"zh-CN": "界面", "en-US": "Interface"}}, {id: "language", title: {"zh-CN": "语言", "en-US": "Language"}}],
+                groups: [
+                    {id: "ui", title: settingsText("settingsSections.nbook.appearance.groups.ui.title")},
+                    {id: "language", title: settingsText("settingsSections.nbook.appearance.groups.language.title")},
+                ],
             },
         });
         expect(source.delivery("nbook.appearance")).toEqual({kind: "available"});
@@ -303,8 +311,8 @@ describe("分区目录与交付状态", () => {
         ]);
         expect(source.delivery("x.empty.page")).toEqual({kind: "available"});
         const empty = await source.load("x.empty.page");
-        expect(empty.status === "failed" && (empty.error as Error).message).toBe("page 分区 x.empty.page 交出的实现没有 load()");
-        expect(diagnostics.query({}).records.filter((record) => record.event === "settings.sections").map((record) => record.message)).toEqual(["page 分区 x.empty.page 交出的实现没有 load()，打开时按加载失败显示"]);
+        expect(empty.status === "failed" && (empty.error as Error).message).toBe("Page section x.empty.page has an implementation without load()");
+        expect(diagnostics.query({}).records.filter((record) => record.event === "settings.sections").map((record) => record.message)).toEqual(["Page section x.empty.page has an implementation without load(); opening it shows a load failure"]);
         const broken = await source.load("x.broken.page");
         expect(broken.status === "failed" && (broken.error as Error).message).toBe("组件模块加载失败");
     });
@@ -320,7 +328,7 @@ describe("分区目录与交付状态", () => {
         expect(await source.retry("x.page.main")).toEqual({status: "activated"});
         expect(delivery.value).toEqual({kind: "available"});
         expect(application.plugins.entryState({plugin: "x.page", entry: "browser"})?.generation).toBe(2);
-        expect(await source.retry("nope.section")).toEqual({status: "failed", reason: "未登记的分区 nope.section"});
+        expect(await source.retry("nope.section")).toEqual({status: "failed", reason: "Section nope.section is not registered"});
     });
 
     it("入口受阻：原位给出原因，没有重试", async () => {

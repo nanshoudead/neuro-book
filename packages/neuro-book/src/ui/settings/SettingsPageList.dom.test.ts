@@ -10,8 +10,16 @@ import {defineComponent, h, provide, ref} from "vue";
 import type {PropType} from "vue";
 
 import {createPageChrome, SETTINGS_PAGE_CHROME} from "./page-chrome";
+import {settingsTestText} from "nbook/plugins/settings/testing/text";
+import {settingsCatalogs} from "nbook/plugins/settings/web/text";
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
+
 import SettingsPageList from "./SettingsPageList.vue";
 import type {SettingsPageListItem} from "./SettingsPageList.vue";
+
+/** 文字取自 `nbook.settings` 的目录（经测试端口）；断言也经目录解析，不在测试里重复写一份文案。 */
+const mountGlobal = {provide: provideText(testTextPort("zh-CN", {"nbook.settings": settingsCatalogs}))};
+const {t} = settingsTestText("zh-CN");
 
 const mounted: Array<{unmount(): void}> = [];
 afterEach(() => {
@@ -48,7 +56,7 @@ function host(options: {chrome?: ReturnType<typeof createPageChrome>; open?: str
             }, {default: ({item}: {item: SettingsPageListItem}) => h("p", {"data-detail": item.id}, `${item.title} 的详情`)});
         },
     });
-    const wrapper = mount(Host, {props: {chrome: options.chrome}, attachTo: document.body});
+    const wrapper = mount(Host, {props: {chrome: options.chrome}, global: mountGlobal, attachTo: document.body});
     mounted.push(wrapper);
     return {wrapper, value, items};
 }
@@ -69,7 +77,7 @@ describe("列表", () => {
         const tones = [...document.body.querySelectorAll<HTMLElement>("[data-settings-page-list-status]")].map((element) => [element.textContent, element.dataset.tone]);
         expect(tones).toEqual([["已连接", "success"], ["未连接", "muted"], ["连接失败", "error"]]);
         expect([...document.body.querySelectorAll("[data-settings-page-list-modified]")].map((dot) => dot.closest("[data-settings-page-list-item]")?.getAttribute("data-settings-page-list-item"))).toEqual(["deepseek"]);
-        expect(row("deepseek")!.querySelector("[data-settings-page-list-modified]")?.getAttribute("aria-label")).toBe("有改动");
+        expect(row("deepseek")!.querySelector("[data-settings-page-list-modified]")?.getAttribute("aria-label")).toBe(t("pageList.modified"));
     });
 
     it("每一行键盘可达：是可聚焦的按钮，不被移出 Tab 顺序", () => {
@@ -84,7 +92,7 @@ describe("列表", () => {
     });
 
     it("点一行发出这一项的 id；值由调用方改，调用方没改时仍是列表", async () => {
-        const wrapper = mount(SettingsPageList, {props: {items: ITEMS, modelValue: null, label: "服务商"}, attachTo: document.body});
+        const wrapper = mount(SettingsPageList, {props: {items: ITEMS, modelValue: null, label: "服务商"}, global: mountGlobal, attachTo: document.body});
         mounted.push(wrapper);
         await wrapper.get("[data-settings-page-list-item='ollama']").trigger("click");
         expect(wrapper.emitted("update:modelValue")).toEqual([["ollama"]]);
@@ -110,7 +118,7 @@ describe("受控的列表、详情、列表（没有窗口通道）", () => {
         expect(document.body.querySelector("[data-state]")?.getAttribute("data-state")).toBe("detail");
         expect(detail()?.textContent).toBe("本地 Ollama 的详情");
         expect(row("deepseek")).toBeNull();
-        expect(inlineBack()?.textContent?.trim()).toBe("返回");
+        expect(inlineBack()?.textContent?.trim()).toBe(t("pageList.back"));
         inlineBack()!.click();
         await flushPromises();
         expect(value.value).toBeNull();

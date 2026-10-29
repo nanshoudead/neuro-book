@@ -1,5 +1,5 @@
 ---
-标签: [state:local, env:portal]
+标签: [state:local, env:portal, state:inject]
 别名: ["模型目录", "添加模型", "Model Catalog"]
 ---
 
@@ -34,8 +34,8 @@ interface AgentModelCatalogProps {
     providers: readonly CatalogProviderView[];
     /** 必填：已经在候选里的引用（`服务商/模型名`），显示“已添加”。 */
     chosen: readonly string[];
-    /** 必填：界面语言。 */
-    locale: AgentLocale;
+    /** 界面语言，只在上面没有注入翻译端口时起作用；缺省 zh-CN。 */
+    locale?: AgentLocale;
 }
 
 interface AgentModelCatalogEmits {
@@ -64,4 +64,5 @@ interface AgentModelCatalogEmits {
 
 ## 隐藏通道理由
 
-`env:portal` 来自 nb-ui 的 Dialog：对话框渲染到宿主提供的浮层目标（缺省 body）。
+- `env:portal` 来自 nb-ui 的 Dialog：对话框渲染到宿主提供的浮层目标（缺省 body）。
+- `state:inject`：读宿主注入的翻译端口（nb-ui 的 `TEXT_PORT_KEY`）取界面文字；宿主要登记本包的目录（`@notnotype/nb-agent-ui/locales`），语言以端口为准。上面没有注入时按 `locale`（缺省 zh-CN）建缺省端口并提供给子组件，见 [README](../../../README.md#没有宿主时)。

@@ -10,7 +10,8 @@ import {Value} from "typebox/value";
 
 import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";
 
-import {LocalizedTextSchema} from "nbook/shared/localized-text";
+import {conventionCompleter} from "nbook/shared/convention-keys";
+import {TextSchema} from "nbook/shared/text";
 
 export const WORKBENCH_HOME_POINT = "workbench.home";
 
@@ -19,10 +20,13 @@ export const WORKBENCH_PATH = "/workbench";
 
 export const HomeDeclarationSchema = Type.Object({
     /** 首页的名字：诊断与文档标题用它。 */
-    title: LocalizedTextSchema,
+    title: TextSchema,
 }, {additionalProperties: false});
 
 export type HomeDeclaration = Static<typeof HomeDeclarationSchema>;
+
+/** `workbench.home` 的补全：没写 `title` 时补约定键 `home.<本地 id>.title`（docs/specs/ui/workbench-shell.md 输出 36）。 */
+export const completeHomeDeclaration = conventionCompleter({name: "home", fields: ["title"]});
 
 /** 只看这一条声明本身；几个首页同时在时的裁决在接收者（全部不采用，记诊断）。 */
 export function validateHomeContribution(descriptor: ContributionDescriptor): string | null {

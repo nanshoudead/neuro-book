@@ -7,7 +7,7 @@ import {describe, expect, it} from "bun:test";
 import {Type} from "typebox";
 
 import {defineSetting} from "nbook/shared/settings";
-import type {SettingDeclaration} from "nbook/shared/settings";
+import type {WrittenSettingDeclaration} from "nbook/shared/settings";
 
 import {editLayerText, parseLayerText} from "./layer-text";
 import type {EditResult} from "./layer-text";
@@ -19,7 +19,7 @@ const size = defineSetting({plugin: "x.ui", name: "editor.fontSize", schema: Typ
 const font = defineSetting({plugin: "x.ui", name: "font", schema: Type.Object({family: Type.String(), size: Type.Number()}), default: {family: "serif", size: 12}, title});
 const anything = defineSetting({plugin: "x.ui", name: "anything", schema: Type.Unknown(), default: null, title});
 
-const declarations: ReadonlyMap<string, SettingDeclaration> = new Map([theme, locale, size, font, anything].map((setting) => [setting.key, setting.declaration]));
+const declarations: ReadonlyMap<string, WrittenSettingDeclaration> = new Map([theme, locale, size, font, anything].map((setting) => [setting.key, setting.declaration]));
 
 function textOf(result: EditResult): string {
     if (!result.ok) throw new Error(`编辑失败：${result.detail}`);

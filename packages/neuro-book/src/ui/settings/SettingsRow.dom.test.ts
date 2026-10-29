@@ -9,6 +9,11 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 import {h} from "vue";
 import {Type} from "typebox";
 
+import {settingsTestText} from "nbook/plugins/settings/testing/text";
+import {settingsCatalogs} from "nbook/plugins/settings/web/text";
+import {workbenchCatalogs} from "nbook/plugins/workbench/web/text";
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
+
 import {createSettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
 import type {HostLayer, SettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
 import {localeSetting} from "nbook/plugins/settings/shared/contracts";
@@ -17,6 +22,10 @@ import {defineSetting} from "nbook/shared/settings";
 import type {SettingDefinition, SettingLayer} from "nbook/shared/settings";
 
 import SettingsRow from "./SettingsRow.vue";
+
+/** 界面文字取自 `nbook.settings` 的目录（经测试端口），断言也经目录解析，不在测试里重复写一份中文。 */
+const port = testTextPort("zh-CN", {"nbook.settings": settingsCatalogs, "nbook.workbench": workbenchCatalogs});
+const {t} = settingsTestText("zh-CN");
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -52,8 +61,9 @@ function host(layers: {readonly user?: HostLayer; readonly project?: HostLayer})
 function row(created: SettingsHost, setting: SettingDefinition<unknown>, layer: SettingLayer, extra: Record<string, unknown> = {}) {
     const plugin = setting.key.slice(0, setting.key.indexOf("/"));
     const wrapper = mount(SettingsRow, {
-        props: {settings: created.service(plugin), setting, layer, locale: "zh-CN" as const, ...extra},
+        props: {settings: created.service(plugin), setting, layer, ...extra},
         slots: {default: (slot: {value: unknown; disabled: boolean; id: string; describedby: string | undefined}) => h("span", {"data-slot": "", "data-disabled": String(slot.disabled), "data-describedby": slot.describedby}, [JSON.stringify(slot.value), h("input", {id: slot.id})])},
+        global: {provide: provideText(port)},
         attachTo: document.body,
     });
     cleanup.push(() => wrapper.unmount());
@@ -82,9 +92,9 @@ describe("SettingsRow", () => {
         const modified = row(created, appearanceSetting as SettingDefinition<unknown>, "user");
         expect(modified.attributes("data-settings-row-modified")).toBe("");
         // 已修改：标题后一个小圆点（读屏名字“已修改”），恢复默认在最右一格里，是图标按钮。
-        expect(dotOf(modified).attributes("aria-label")).toBe("已修改");
+        expect(dotOf(modified).attributes("aria-label")).toBe(t("row.modified"));
         expect(modified.get("label").element.parentElement?.contains(dotOf(modified).element)).toBe(true);
-        expect(cellOf(modified).find("[data-settings-row-reset]").attributes("aria-label")).toBe("恢复默认");
+        expect(cellOf(modified).find("[data-settings-row-reset]").attributes("aria-label")).toBe(t("row.reset"));
         expect(slotOf(modified).text()).toBe("\"dark\"");
         await modified.find("[data-settings-row-reset]").trigger("click");
         await flushPromises();
@@ -98,9 +108,9 @@ describe("SettingsRow", () => {
         const created = host({user: {values: {"nbook.workbench/appearance": "system"}}, project: {values: {"nbook.workbench/appearance": "light"}}});
         await flushPromises();
         const titled = row(created, appearanceSetting as SettingDefinition<unknown>, "user", {projectTitle: "雾港"});
-        expect(titled.find("[data-settings-row-overridden]").text()).toBe("《雾港》已单独设为浅色，此处的更改在该作品中不生效");
+        expect(titled.find("[data-settings-row-overridden]").text()).toBe(t("row.overridden", {title: "雾港", value: "浅色"}));
         const untitled = row(created, appearanceSetting as SettingDefinition<unknown>, "user");
-        expect(untitled.find("[data-settings-row-overridden]").text()).toBe("本作品已单独设为浅色，此处的更改在该作品中不生效");
+        expect(untitled.find("[data-settings-row-overridden]").text()).toBe(t("row.overriddenUntitled", {value: "浅色"}));
         // 本作品没写的项没有提示。
         expect(row(created, themeSetting as SettingDefinition<unknown>, "user").find("[data-settings-row-overridden]").exists()).toBe(false);
     });
@@ -111,7 +121,7 @@ describe("SettingsRow", () => {
         const wrapper = row(created, themeSetting as SettingDefinition<unknown>, "project");
         expect(wrapper.attributes("data-settings-row-state")).toBe("inherit");
         const tag = wrapper.get("[data-settings-row-inherited]");
-        expect(tag.text()).toBe("来自用户设置");
+        expect(tag.text()).toBe(t("row.inherited"));
         // 标签不是控件的名字：不在 label 里，经 describedby 念
         expect(wrapper.get("label").text()).toBe("主题");
         expect((slotOf(wrapper).attributes("data-describedby") ?? "").split(" ")).toContain(tag.attributes("id"));
@@ -131,7 +141,7 @@ describe("SettingsRow", () => {
         // 写了的项：小圆点，“移除本作品的设置”与“恢复默认”同一个图标按钮、放在最右一格，只是名字不同。
         expect(dotOf(wrapper).exists()).toBe(true);
         const remove = cellOf(wrapper).get("[data-settings-row-remove]");
-        expect(remove.attributes("aria-label")).toBe("移除本作品的设置");
+        expect(remove.attributes("aria-label")).toBe(t("row.remove"));
         expect(remove.text()).toBe("");
         expect(wrapper.find("[data-settings-row-reset]").exists()).toBe(false);
         await remove.trigger("click");
@@ -204,7 +214,7 @@ describe("SettingsRow", () => {
         expect(inherited.get("[data-settings-row-head]").text()).toBe("");
         const notAllowed = row(created, localeSetting as SettingDefinition<unknown>, "project");
         expect(notAllowed.attributes("data-settings-row-state")).toBe("not-allowed");
-        expect(notAllowed.text()).toContain("仅可在用户设置中修改");
+        expect(notAllowed.text()).toContain(t("row.userOnly"));
         expect(slotOf(notAllowed).exists()).toBe(false);
     });
 
@@ -213,7 +223,7 @@ describe("SettingsRow", () => {
         await flushPromises();
         const tagged = row(created, restartSetting as SettingDefinition<unknown>, "user");
         const tag = tagged.get("[data-settings-row] .settings-row__applies");
-        expect(tag.text()).toBe("重启后生效");
+        expect(tag.text()).toBe(t("applies.restart"));
         expect(tagged.get("label").text()).toBe("并发数");
         const ids = (slotOf(tagged).attributes("data-describedby") ?? "").split(" ");
         expect(ids).toContain(tag.attributes("id"));
@@ -287,13 +297,13 @@ describe("SettingsRow", () => {
         expect(slotOf(user).exists()).toBe(false);
         expect(user.find("input").exists()).toBe(false);
         expect(user.get("[data-settings-row-value]").text()).toBe("other-book");
-        expect(cellOf(user).get("[data-settings-row-lock]").attributes("aria-label")).toBe("只读");
+        expect(cellOf(user).get("[data-settings-row-lock]").attributes("aria-label")).toBe(t("row.readOnly"));
         expect(dotOf(user).exists()).toBe(false);
         expect(user.find("[data-settings-row-reset]").exists()).toBe(false);
 
         const project = row(created, readOnlySetting as SettingDefinition<unknown>, "project");
         expect(project.get("[data-settings-row-value]").text()).toBe("other-book");
-        expect(project.get("[data-settings-row-inherited]").text()).toBe("来自用户设置");
+        expect(project.get("[data-settings-row-inherited]").text()).toBe(t("row.inherited"));
         expect(slotOf(project).exists()).toBe(false);
         expect(cellOf(project).find("[data-settings-row-lock]").exists()).toBe(true);
     });

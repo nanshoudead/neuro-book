@@ -1,5 +1,5 @@
 ---
-标签: []
+标签: [state:inject]
 别名: ["会话列表", "对话列表", "Session List"]
 ---
 
@@ -56,7 +56,7 @@ props: {
     state?: "ready" | "loading" | "error";       // 缺省 ready
     errorMessage?: string;
     now: number;                                  // 宿主给的当前时间
-    locale: AgentLocale;
+    locale?: AgentLocale;                         // 只在上面没有注入翻译端口时起作用，缺省 zh-CN
     header?: boolean;                             // 缺省 true
     labels?: Partial<Record<"title" | "create" | "loading" | "empty" | "error" | "retry" | "untitled", string>>;
 }
@@ -66,4 +66,8 @@ emits: {action: [action: AgentViewAction]}
 - 时间按本地时区的日历日写：与 `now` 同一天写时刻，前一天写“昨天”，同一年写月日，否则加上年；晚于 `now` 时按同一天写。宿主要定期更新 `now`，否则过了午夜“今天”的行不会变成“昨天”。
 - `labels` 覆盖包内文字，给整句；宿主把会话叫成“对话”时用它。英文也由宿主给。
 
-不 inject：它挂在视图之外，`AgentConversationView` 提供的语言与渲染组件到不了它，语言经 `locale` 给。没有隐藏通道，不持有状态。
+它挂在视图之外，`AgentConversationView` 提供的渲染组件到不了它，也用不到；不持有状态。
+
+## 隐藏通道理由
+
+- `state:inject`：读宿主注入的翻译端口（nb-ui 的 `TEXT_PORT_KEY`）取界面文字；宿主要登记本包的目录（`@notnotype/nb-agent-ui/locales`），语言以端口为准。上面没有注入时按 `locale`（缺省 zh-CN）建缺省端口并提供给子组件，见 [README](../../README.md#没有宿主时)。时间的格式也按端口的语言。

@@ -15,6 +15,7 @@ import {sashBandBox, type SashBandBox} from "./sash-feedback";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
 import {createSplitterSession, type SplitterGestureChange} from "./splitter-session";
 import {useLayoutExtent} from "../../composables/useLayoutExtent";
+import {useUiText} from "../../text-port";
 import {useSashGesture, type SashGestureScope} from "../../composables/useSashGesture";
 import type {SashGestureBinding, SashGestureHost} from "./sash-gesture";
 import type {SplitterGestureCancellation, SplitterGestureState} from "./splitter-gesture";
@@ -76,6 +77,7 @@ const DEFAULT_SASH_SIZE = 1;
  */
 const SEAM_THICKNESS_PX = 1;
 
+const text = useUiText();
 const axis = computed<GridAxis>(() => props.direction === "horizontal" ? "width" : "height");
 const panelIds = computed(() => props.panels.map((panel, index) => panel.id ?? `panel-${index}`));
 const panelIdsKey = computed(() => panelIds.value.join("|"));
@@ -609,11 +611,11 @@ onBeforeUnmount(() => {
                     :data-sash-revealed="isRevealed(index) ? 'true' : undefined"
                     :aria-orientation="props.direction === 'horizontal' ? 'vertical' : 'horizontal'"
                     :aria-controls="domPanelIds[index]"
-                    :aria-label="`调整 ${panelIds[index]} 与 ${panelIds[index + 1]} 的${axis === 'width' ? '宽度' : '高度'}`"
+                    :aria-label="text(axis === 'width' ? 'splitter.resizeWidth' : 'splitter.resizeHeight', {before: panelIds[index] ?? '', after: panelIds[index + 1] ?? ''})"
                     :aria-valuemin="Math.round(panelBounds(index).low)"
                     :aria-valuemax="ariaMax(index)"
                     :aria-valuenow="Math.round(renderedSizes[index] ?? 0)"
-                    :aria-valuetext="renderedCollapsed(index) ? '已收起' : `${Math.round(renderedSizes[index] ?? 0)} 像素`"
+                    :aria-valuetext="renderedCollapsed(index) ? text('splitter.collapsed') : text('splitter.pixels', {size: Math.round(renderedSizes[index] ?? 0)})"
                     :aria-disabled="props.disabled || sashSizes[index] === 0 ? 'true' : undefined"
                     :data-disabled="sashSizes[index] === 0 ? 'true' : undefined"
                     :tabindex="props.disabled || sashSizes[index] === 0 ? -1 : 0"

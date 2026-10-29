@@ -1,14 +1,13 @@
 <script setup lang="ts">
 import {computed} from "vue";
 import {IconButton} from "@notnotype/nb-ui/components";
-import type {MarkdownLocale} from "../locale";
 
-import {promptText} from "./prompt-labels";
+import {useMarkdownText} from "../host/text";
+
 import {PASTE_COLLAPSED_LINES} from "./prompt-text";
 
 const props = withDefaults(defineProps<{
     number: number;
-    locale: MarkdownLocale;
     content: string;
     expanded?: boolean;
     highlighted?: boolean;
@@ -25,6 +24,8 @@ const emit = defineEmits<{
     (e: "update:expanded", expanded: boolean): void;
     (e: "hover", active: boolean): void;
 }>();
+
+const {t} = useMarkdownText();
 
 defineSlots<{
     actions?: () => unknown;
@@ -48,14 +49,14 @@ const preview = computed(() => lines.value.slice(0, PASTE_COLLAPSED_LINES).join(
         <div class="prompt-paste__head">
             <span class="prompt-paste__icon i-lucide-clipboard-paste" aria-hidden="true" />
             <span class="prompt-paste__number">#{{ props.number }}</span>
-            <span class="prompt-paste__title">{{ promptText(props.locale, "pasteTitle") }} · {{ promptText(props.locale, "lines", {count: lines.length}) }}</span>
+            <span class="prompt-paste__title">{{ t("prompt.pasteTitle") }} · {{ t("prompt.lines", {count: lines.length}) }}</span>
             <span class="prompt-paste__actions">
                 <IconButton
                     v-if="collapsible"
                     size="sm"
                     :icon-class="props.expanded ? 'i-lucide-chevrons-down-up' : 'i-lucide-chevrons-up-down'"
-                    :title="props.expanded ? promptText(props.locale, 'pasteCollapse') : promptText(props.locale, 'pasteExpand')"
-                    :aria-label="props.expanded ? promptText(props.locale, 'pasteCollapse') : promptText(props.locale, 'pasteExpand')"
+                    :title="props.expanded ? t('prompt.pasteCollapse') : t('prompt.pasteExpand')"
+                    :aria-label="props.expanded ? t('prompt.pasteCollapse') : t('prompt.pasteExpand')"
                     :aria-expanded="props.expanded"
                     data-prompt-paste-action="expand"
                     @click="emit('update:expanded', !props.expanded)"
@@ -66,7 +67,7 @@ const preview = computed(() => lines.value.slice(0, PASTE_COLLAPSED_LINES).join(
         <pre
             v-if="clipped"
             class="prompt-paste__body is-clipped"
-            :title="promptText(props.locale, 'pasteExpand')"
+            :title="t('prompt.pasteExpand')"
             @click="emit('update:expanded', true)"
         >{{ preview }}</pre>
         <slot v-else-if="$slots.body" name="body" />

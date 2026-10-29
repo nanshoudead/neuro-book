@@ -4,8 +4,10 @@
  * 或 `run-item`，切换、打开 Sidebar 与执行命令由宿主做。
  */
 import {DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, onBeforeUnmount, onMounted, ref} from "vue";
 
+import {workbenchText} from "../../shared/text";
 import {layoutStrip} from "../items/item-strip";
 
 export interface ActivityContainer {
@@ -33,12 +35,10 @@ const props = withDefaults(defineProps<{
     containers: ReadonlyArray<ActivityContainer>;
     selected: string | null;
     sidebarVisible: boolean;
-    /** 条目作为拖动源的说明（写到 `aria-description`），例如“按空格拿起并拖动”。 */
-    dragHint: string;
     items?: ReadonlyArray<ActivityItem>;
-    /** 放不下时收起其余条目的“更多”按钮的可访问名称。 */
-    moreLabel?: string;
-}>(), {items: () => [], moreLabel: "更多"});
+}>(), {items: () => []});
+
+const port = useText();
 
 const emit = defineEmits<{
     (event: "select", id: string): void;
@@ -92,14 +92,14 @@ const moreItems = computed(() => props.containers.filter((container) => strip.va
                     :data-activity-container="container.id"
                     :data-switcher-entry="container.id"
                     :data-drag-container="container.id"
-                    :aria-description="dragHint"
+                    :aria-description="port.t(workbenchText('shell.drag.hint'))"
                     class="workbench-activity-bar__item"
                     :class="{'workbench-activity-bar__item--active': sidebarVisible && container.id === selected}"
                     @click="emit('select', container.id)"
                 />
             </Tooltip>
             <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" side="right" align="end" @select="(id: string) => emit('select', id)">
-                <IconButton size="lg" icon-class="i-lucide-ellipsis" :aria-label="moreLabel" class="workbench-activity-bar__item" data-activity-more />
+                <IconButton size="lg" icon-class="i-lucide-ellipsis" :aria-label="port.t(workbenchText('common.more'))" class="workbench-activity-bar__item" data-activity-more />
             </DropdownMenu>
         </div>
         <div class="workbench-activity-bar__footer" data-activity-items>

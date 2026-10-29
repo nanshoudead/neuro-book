@@ -25,6 +25,7 @@ import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins
 import {clockKey, windowConnectionKey, windowPluginsKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import {defineSetting} from "nbook/shared/settings";
+import {testTextPort} from "nbook/shared/testing/text-port";
 import {createWindowPlugins} from "nbook/web/host/window-plugins";
 
 import {descriptor} from "../plugin";
@@ -32,6 +33,7 @@ import {SETTINGS_CHOICES_POINT, settingsChoicesEvent} from "../shared/contracts"
 import {validateChoiceContribution} from "../shared/sections";
 import type {SettingsChoicesImplementation} from "./contracts";
 import {settingsBrowserCore} from "./plugin";
+import {settingsCatalogs} from "./text";
 import {settingsWindowSourceKey} from "./window-source";
 import type {SettingsWindowSource} from "./window-source";
 
@@ -126,7 +128,10 @@ function read(source: SettingsWindowSource, id: string): OptionSource | undefine
     return entry === undefined ? undefined : toValue(entry);
 }
 
-const reasonOf = (option: OptionSource | undefined): unknown => (option?.status === "unavailable" ? option.reason : null);
+/** 窗口里的翻译端口（宿主引擎、严格模式）登记本插件目录：原因写目录里的键，按两种语言翻出来看用户读到的文字。 */
+const ports = {"zh-CN": testTextPort("zh-CN", {[descriptor.id]: settingsCatalogs}), "en-US": testTextPort("en-US", {[descriptor.id]: settingsCatalogs})};
+
+const reasonOf = (option: OptionSource | undefined): unknown => (option?.status === "unavailable" ? {"zh-CN": ports["zh-CN"].t(option.reason), "en-US": ports["en-US"].t(option.reason)} : null);
 const messages = (diagnostics: DiagnosticsStore): string[] => diagnostics.query({}).records.filter((record) => record.event === "settings.choices").map((record) => record.message);
 
 async function stopEntry(toggle: Control): Promise<void> {
@@ -145,7 +150,7 @@ describe("选项提供者的登记校验", () => {
         expect(validation("x.models.Upper")).toMatchObject({status: "rejected", reason: "invalid-declaration"});
         expect(validation("x.extra.list")).toMatchObject({status: "rejected", reason: "invalid-declaration"});
         // 浏览器实例里装不进服务端入口，直接用拥有者的校验函数验。
-        expect(validateChoiceContribution({capability: SETTINGS_CHOICES_POINT, id: "x.models.list", plugin: "x.models", entry: "server", location: "server", declaration: {}})).toBe(`${SETTINGS_CHOICES_POINT} 只接受浏览器入口的贡献`);
+        expect(validateChoiceContribution({capability: SETTINGS_CHOICES_POINT, id: "x.models.list", plugin: "x.models", entry: "server", location: "server", declaration: {}})).toBe(`${SETTINGS_CHOICES_POINT} only accepts contributions from browser entries`);
     });
 
     it("写在插件顶层（没有实现）为 implementation-required", async () => {
@@ -192,7 +197,7 @@ describe("选项源", () => {
             provider("x.blocked", ["x.blocked.list"], control(), {dependencies: [{key: missing}]}),
             provider("x.models", ["x.models.list"], failing),
         ]);
-        expect(reasonOf(read(source, "x.blocked.list"))).toEqual({"zh-CN": "无法加载选项：missing-service：x.models/missing", "en-US": "Can't load options: missing-service：x.models/missing"});
+        expect(reasonOf(read(source, "x.blocked.list"))).toEqual({"zh-CN": "无法加载选项：missing-service: x.models/missing", "en-US": "Can't load options: missing-service: x.models/missing"});
         expect(reasonOf(read(source, "x.models.list"))).toEqual({"zh-CN": "无法加载选项：提供者入口按开关激活失败", "en-US": "Can't load options: 提供者入口按开关激活失败"});
         failing.fail = false;
         expect((await application.plugins.recover({plugin: "x.models", entry: "browser"})).status).toBe("reset");
@@ -229,9 +234,9 @@ describe("选项源", () => {
             expect(shaped.value?.status, JSON.stringify(bad)).toBe("unavailable");
         }
         read(source, "x.throws.list");
-        expect(messages(diagnostics).filter((message) => message.startsWith("选项提供者 x.throws.list"))).toEqual(["选项提供者 x.throws.list 出错：连不上服务商"]);
-        expect(messages(diagnostics)).toContain("选项提供者 x.empty.list 出错：交出的实现没有 source()");
-        expect(messages(diagnostics)).toContain("选项提供者 x.shape.list 出错：第 1 项的 value 不是字符串");
+        expect(messages(diagnostics).filter((message) => message.startsWith("Choice provider x.throws.list"))).toEqual(["Choice provider x.throws.list failed: 连不上服务商"]);
+        expect(messages(diagnostics)).toContain("Choice provider x.empty.list failed: the implementation has no source()");
+        expect(messages(diagnostics)).toContain("Choice provider x.shape.list failed: item 1 value is not a string");
     });
 });
 
@@ -252,9 +257,9 @@ describe("按需激活：要一个提供者的选项时触发 onSettingsChoices"
         const option = computed(() => read(source, "x.models.list"));
         expect(option.value).toEqual({status: "loading"});
         await waitUntil("判定不能按需激活", () => option.value?.status === "unavailable");
-        expect(reasonOf(option.value)).toEqual({"zh-CN": "无法加载选项：插件没有声明打开设置时提供选项：入口 x.models/browser 没有声明 onSettingsChoices:x.models.list", "en-US": "Can't load options: the plugin does not provide options when settings open: 入口 x.models/browser 没有声明 onSettingsChoices:x.models.list"});
+        expect(reasonOf(option.value)).toEqual({"zh-CN": "无法加载选项：插件没有声明打开设置时提供选项：Entry x.models/browser does not declare onSettingsChoices:x.models.list", "en-US": "Can't load options: the plugin does not provide options when settings open: Entry x.models/browser does not declare onSettingsChoices:x.models.list"});
         expect(application.plugins.entryState({plugin: "x.models", entry: "browser"})?.status).toBe("registered");
-        expect(messages(diagnostics)).toEqual(["选项提供者 x.models.list 不能按需激活：入口 x.models/browser 没有声明 onSettingsChoices:x.models.list"]);
+        expect(messages(diagnostics)).toEqual(["Choice provider x.models.list cannot be activated on demand: Entry x.models/browser does not declare onSettingsChoices:x.models.list"]);
         // 之后入口经别的途径激活了：按交付给出选项。
         await application.plugins.activate({plugin: "x.models", entry: "browser"});
         expect(option.value?.status).toBe("ready");

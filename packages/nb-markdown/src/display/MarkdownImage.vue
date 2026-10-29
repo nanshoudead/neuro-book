@@ -1,34 +1,28 @@
 <script setup lang="ts">
 /**
  * Markdown 里的一张图片（同名 .md）。不 inject 宿主：展示器的静态视图与编辑器的节点视图用 `render()` 把它挂到普通 DOM 上，
- * 那里没有应用上下文，inject 拿不到东西；要的都经属性给。
+ * 挂的时候只带着翻译端口（`markdownViewContext`），宿主的东西经属性给。文字读翻译端口。
  */
 import {computed, onBeforeUnmount, shallowRef, watch} from "vue";
 
-import {say as sayText} from "../locale";
-import type {MarkdownLocale, MarkdownText} from "../locale";
+import {useMarkdownText} from "../host/text";
+import type {MarkdownText} from "../locale";
 
 export type ResolveAsset = (src: string, signal: AbortSignal) => Promise<{url: string; release(): void} | null>;
 
 const props = withDefaults(defineProps<{
     src: string;
-    locale: MarkdownLocale;
     alt?: string;
     title?: string | null;
     resolveAsset?: ResolveAsset;
     refresh?: number;
-    /** 不显示时的说明，`{name}` 是说明文字或地址；缺省“{name}（不显示）”。 */
+    /** 不显示时的说明，参数 `name` 是说明文字或地址（字符串与语言映射写 `{name}`）；缺省“{name}（不显示）”。 */
     missing?: MarkdownText;
 }>(), {alt: "", title: null, resolveAsset: undefined, refresh: 0, missing: undefined});
 
 const emit = defineEmits<{(e: "activate"): void}>();
 
-const TEXT = {
-    image: {"zh-CN": "图片", "en-US": "Image"},
-    none: {"zh-CN": "{name}（不显示）", "en-US": "{name} (not shown)"},
-    failed: {"zh-CN": "{name} 读不出", "en-US": "Cannot read {name}"},
-} satisfies Record<string, MarkdownText>;
-const say = (key: keyof typeof TEXT, values: Readonly<Record<string, string>> = {}): string => sayText(key === "none" && props.missing !== undefined ? props.missing : TEXT[key], props.locale, values);
+const {t, text} = useMarkdownText();
 
 type Shown = {readonly kind: "loading"} | {readonly kind: "shown"; readonly url: string} | {readonly kind: "none"} | {readonly kind: "failed"};
 
@@ -80,10 +74,10 @@ const tip = computed(() => props.title ?? (props.alt === "" ? undefined : props.
 <template>
     <span class="nb-markdown-image" data-markdown-image :data-state="state.kind">
         <img v-if="state.kind === 'shown'" class="nb-markdown-image__img" :src="state.url" :alt="props.alt" :title="tip" @error="state = {kind: 'failed'}" @click="emit('activate')" />
-        <span v-else-if="state.kind === 'loading'" class="nb-markdown-image__placeholder">{{ props.alt === "" ? say("image") : props.alt }}</span>
+        <span v-else-if="state.kind === 'loading'" class="nb-markdown-image__placeholder">{{ props.alt === "" ? t("image.image") : props.alt }}</span>
         <span v-else class="nb-markdown-image__missing" :class="{'is-failed': state.kind === 'failed'}">
             <span class="i-lucide-image-off nb-markdown-image__icon" aria-hidden="true"></span>
-            {{ state.kind === "failed" ? say("failed", {name}) : say("none", {name}) }}
+            {{ state.kind === "failed" ? t("image.failed", {name}) : props.missing === undefined ? t("image.none", {name}) : text(props.missing, {name}) }}
         </span>
     </span>
 </template>

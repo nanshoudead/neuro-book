@@ -17,16 +17,17 @@ import type {EditorState} from "nbook/plugins/editor/web/editor-registry";
 import {createAssetUrls, markdownAssetsKey} from "nbook/plugins/markdown/web/parts/asset-urls";
 import {SyntaxCatalog, syntaxCatalogKey} from "nbook/plugins/markdown/web/syntax-catalog";
 import {CODE_EDITOR, MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import {editorText} from "nbook/plugins/editor/shared/text";
 
 import {useLabEventSink} from "../../lab-event-sink";
 import type {LabFixtureProps} from "../../lab-subject";
 import LabFixtureControls from "../../LabFixtureControls.vue";
 import {createMemoryFiles} from "../explorer-scene/memory-files";
+import {provideEditorText} from "./editor-text";
 
 const props = defineProps<LabFixtureProps>();
-/** 场景输入只给界面语言。 */
-const locale = computed((): DisplayLocale => (props.input?.props?.locale === "en-US" ? "en-US" : "zh-CN"));
+/** 界面语言只由场景决定（场景 `english` 用英文），端口注入给后代的编辑器区。 */
+const text = provideEditorText(props.scene);
 const record = useLabEventSink();
 
 /** 方言场景的正文：各种方言、提示块、任务列表与原样内容在编辑器里的样子（docs/specs/workspace/markdown-dialect.md）。 */
@@ -151,13 +152,13 @@ const setReads = (value: string | number | boolean | null): void => {
     memory.readsHeld.value = value === "held";
 };
 const emptyTips: ReadonlyArray<EmptyTip> = [
-    {command: "nbook.quick-open.open-commands", label: "显示所有命令", keys: ["Ctrl", "Shift", "P"], hint: null},
-    {command: "nbook.files.new-file", label: "新建文件", keys: null, hint: "资源管理器标题行的“新建文件”"},
-    {command: "nbook.help.welcome", label: "打开欢迎页", keys: null, hint: "帮助 › 欢迎"},
+    {command: "nbook.quick-open.open-commands", label: text.t(editorText("tips.commands")), keys: ["Ctrl", "Shift", "P"], hint: null},
+    {command: "nbook.files.new-file", label: text.t(editorText("tips.newFile")), keys: null, hint: text.t(editorText("tips.newFileWhere"))},
+    {command: "nbook.help.welcome", label: text.t(editorText("tips.welcome")), keys: null, hint: text.t(editorText("tips.welcomeWhere"))},
 ];
 const onIntent = (intent: string): void => {
     record("intent", intent);
-    if (intent === "save") void area.save().then((result) => record("save", result.ok ? "ok" : result.reason));
+    if (intent === "save") void area.save().then((result) => record("save", result.ok ? "ok" : text.t(result.reason)));
     if (intent === "close") {
         const tab = area.groups.activeTab();
         if (tab !== null) void area.close(tab.id);
@@ -172,7 +173,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <EditorArea :area="area" :locale="locale" :control="control" :empty-tips="emptyTips" class="h-full w-full" data-lab-subject @intent="onIntent" @run-tip="(command) => record('run-tip', command)" />
+    <EditorArea :area="area" :control="control" :empty-tips="emptyTips" :wrap-tabs="props.input?.props?.wrapTabs !== false" class="h-full w-full" data-lab-subject @intent="onIntent" @run-tip="(command) => record('run-tip', command)" />
     <LabFixtureControls>
         <div class="flex flex-wrap items-center gap-3 text-xs" data-lab-editor-controls>
             <span class="text-[var(--text-secondary)]">正文读取</span>

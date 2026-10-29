@@ -2,7 +2,9 @@
     "name": "focus",
     "publisher": "example",
     "version": "0.1.0",
-    "description": "专注计时：写作时的番茄钟，演示设置项、命令、侧栏视图、状态栏条目、服务端远程服务与私有存储",
     "private": true,
-    "type": "module"
+    "type": "module",
+    "l10n": {
+        "source": "zh-CN"
+    }
 }

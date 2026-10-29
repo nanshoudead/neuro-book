@@ -14,6 +14,7 @@ import IssueSummary from "./IssueSummary.vue";
 import LayoutItem from "./LayoutItem.vue";
 import {sortIssues} from "./order";
 import {createFormScope, provideFormScope} from "./scope";
+import {provideFormText} from "./text";
 import type {CommitMode, DraftState, FormMode, FormOptionSources} from "./scope";
 import type {FormWidget} from "./widgets";
 
@@ -21,7 +22,8 @@ const props = withDefaults(defineProps<{
     schema: object;
     layout?: FormLayout;
     modelValue?: unknown;
-    locale: string;
+    /** 没有宿主注入翻译端口时表单文字的语言（缺省 zh-CN）；有注入时以端口为准，这一项不起作用（`./text.ts`）。 */
+    locale?: string;
     mode?: FormMode;
     readonly?: boolean;
     disabled?: boolean;
@@ -39,6 +41,7 @@ const props = withDefaults(defineProps<{
 }>(), {
     layout: undefined,
     modelValue: undefined,
+    locale: undefined,
     mode: "edit",
     readonly: false,
     disabled: false,
@@ -59,6 +62,7 @@ const emit = defineEmits<{
 }>();
 
 const model = computed(() => resolveForm(props.schema as JsonSchema, props.layout === undefined ? {} : {layout: props.layout}));
+const text = provideFormText(() => props.locale);
 const scope = createFormScope({
     model: () => model.value,
     value: () => props.modelValue,
@@ -69,7 +73,7 @@ const scope = createFormScope({
     disabled: () => props.disabled,
     commit: () => props.commit,
     revision: () => props.revision,
-    locale: () => props.locale,
+    locale: () => text.locale.value,
     issues: () => props.issues,
     meta: () => props.meta,
     options: () => props.options,

@@ -27,16 +27,14 @@
  * 一整份，不是在用户设置上加减几条。之后两层各管各的，用户设置再加片段，这本书里看不到；“移除本作品的设置”删掉本作品
  * 层的键，回到沿用。
  */
-import {computed, ref, watch} from "vue";
+import {ref, watch} from "vue";
 
-import {formatText, localize} from "@notnotype/nb-plugin-sdk";
-import type {LocalizedText} from "@notnotype/nb-plugin-sdk";
-import {displayLocale} from "@notnotype/nb-plugin-sdk/settings";
 import type {SettingsFailure, SettingsService} from "@notnotype/nb-plugin-sdk/settings";
 import {SettingsRow} from "@notnotype/nb-plugin-sdk/settings/browser";
 import type {SettingsPageContext} from "@notnotype/nb-plugin-sdk/settings/browser";
+import {usePluginText} from "@notnotype/nb-plugin-sdk/text/browser";
 
-import {itemsSetting} from "../shared/contracts";
+import {itemsSetting, plugin} from "../shared/contracts";
 import type {Snippet} from "../shared/contracts";
 import {saveSnippets} from "./snippets";
 import SnippetsEditor from "./SnippetsEditor.vue";
@@ -46,21 +44,20 @@ const props = defineProps<{
     settings: SettingsService;
 }>();
 
-const TEXT = {
-    notSaved: {"zh-CN": "没有保存（{code}）：{detail}", "en-US": "Not saved ({code}): {detail}"},
-} satisfies Record<string, LocalizedText>;
-
-// 显示语言也是一项配置（`nbook.settings/locale`），在 computed 里读，切换语言时页面跟着换文字。
-const locale = computed(() => displayLocale(props.settings));
+// 取文字的写法见 `SnippetsEditor.vue`。目录里带参数的写成 `{{code}}`，参数在调用时给。
+const text = usePluginText<typeof import("../locales/zh-CN.json")>(plugin.id);
 
 /**
- * 最近一次写入的失败原因。页面没有依赖工作台的通知服务（那样没有工作台的窗口里这个插件就起不来），失败写在列表下面
+ * 最近一次写入的失败。页面没有依赖工作台的通知服务（那样没有工作台的窗口里这个插件就起不来），失败写在列表下面
  * 的状态行里；下一次写成功时清掉。
+ *
+ * 存的是失败本身（码与详情），不是拼好的一句话：句子在模板里按当前语言拼，失败提示还在时切换界面语言，它也跟着换。
+ * 存成字符串的话，它就停在出错那一刻的语言。
  */
-const problem = ref<string | null>(null);
+const problem = ref<{readonly code: SettingsFailure; readonly detail: string} | null>(null);
 
 function report(failure: {readonly code: SettingsFailure; readonly detail: string} | null): void {
-    problem.value = failure === null ? null : localize(formatText(TEXT.notSaved, failure), locale.value);
+    problem.value = failure === null ? null : {code: failure.code, detail: failure.detail};
 }
 
 // 换了标签，或当前这一层变了（写成功，包括 SettingsRow 自己的“恢复默认”这类写入；或在别的窗口、别的编辑器里被改了），
@@ -86,14 +83,13 @@ async function save(items: ReadonlyArray<Snippet>): Promise<boolean> {
             :settings="settings"
             :setting="itemsSetting"
             :layer="context.layer.value"
-            :locale="locale"
             :project-title="context.projectTitle.value"
             wide
             @write-failed="report"
         >
-            <SnippetsEditor :items="(row.value as ReadonlyArray<Snippet>)" :disabled="row.disabled" :locale="locale" :save="save" />
+            <SnippetsEditor :items="(row.value as ReadonlyArray<Snippet>)" :disabled="row.disabled" :save="save" />
         </SettingsRow>
-        <p v-if="problem !== null" class="snippets-page__problem" role="status" data-snippets-problem>{{ problem }}</p>
+        <p v-if="problem !== null" class="snippets-page__problem" role="status" data-snippets-problem>{{ text("page.notSaved", {code: problem.code, detail: problem.detail}) }}</p>
     </div>
 </template>
 

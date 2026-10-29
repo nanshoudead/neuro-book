@@ -8,12 +8,13 @@
 import type {ServerSharedModule} from "nbook/plugin-platform-profile";
 
 export async function serverHostModules(): Promise<Readonly<Record<ServerSharedModule, object>>> {
-    const [reactivity, typebox, typeboxValue, typeboxCompile, sdk, state, storage, settings, commands] = await Promise.all([
+    const [reactivity, typebox, typeboxValue, typeboxCompile, sdk, text, state, storage, settings, commands] = await Promise.all([
         import("@vue/reactivity"),
         import("typebox"),
         import("typebox/value"),
         import("typebox/compile"),
         import("nbook/sdk/index"),
+        import("nbook/sdk/text"),
         import("nbook/sdk/state"),
         import("nbook/sdk/storage"),
         import("nbook/sdk/settings"),
@@ -25,6 +26,7 @@ export async function serverHostModules(): Promise<Readonly<Record<ServerSharedM
         "typebox/value": typeboxValue,
         "typebox/compile": typeboxCompile,
         "@notnotype/nb-plugin-sdk": sdk,
+        "@notnotype/nb-plugin-sdk/text": text,
         "@notnotype/nb-plugin-sdk/state": state,
         "@notnotype/nb-plugin-sdk/storage": storage,
         "@notnotype/nb-plugin-sdk/settings": settings,

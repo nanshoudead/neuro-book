@@ -12,13 +12,19 @@ import type {Application} from "@notnotype/nb-runtime/application";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
+import type {Text} from "@notnotype/nb-ui/text";
+
 import {createApplication} from "nbook/application";
 import type {PublicStateRead} from "nbook/plugins/state/shared/contracts";
+import {resolverFor} from "nbook/shared/localized-text";
+import {pluginText} from "nbook/shared/plugin-text";
+import {createTextEngine} from "nbook/web/host/text-engine";
 
 import {statusbarItemsPoint, titlebarItemsPoint, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "../../shared/items";
 import type {ItemDeclaration} from "../../shared/items";
 import type {ItemImplementation} from "../contracts";
 import {ItemRegistry} from "./registry";
+import {workbenchTestText} from "../../testing/text";
 
 const started: Application[] = [];
 
@@ -63,10 +69,10 @@ function ownerPlugin(owner: Owner): PluginDefinition {
 
 interface Control {
     context: ActivationContext | null;
-    text: () => string;
+    text: () => Text;
 }
 
-function contributor(id: string, items: Readonly<Record<string, ItemDeclaration>>, control: Control, point: string = WORKBENCH_STATUSBAR_ITEMS_POINT): PluginDefinition {
+function contributor(id: string, items: Readonly<Record<string, Partial<ItemDeclaration>>>, control: Control, point: string = WORKBENCH_STATUSBAR_ITEMS_POINT): PluginDefinition {
     return {
         id,
         entries: [{
@@ -94,7 +100,7 @@ async function start(plugins: ReadonlyArray<PluginDefinition>): Promise<{applica
     return {application, owner};
 }
 
-const control = (text: () => string = () => "文字"): Control => ({context: null, text});
+const control = (text: () => Text = () => "文字"): Control => ({context: null, text});
 
 describe("条目注册表", () => {
     it("交付后出现：左侧在前，同侧按 order 再按 id；文字、提示与状态取实现；标题按语言", async () => {
@@ -103,16 +109,29 @@ describe("条目注册表", () => {
             "test.items.a": declaration("A", {order: 2}),
             "test.items.left": declaration("L", {alignment: "left", order: 9, command: {id: "nbook.editor.save-all"}}),
         }, control())]);
-        const shown = owner.status!.shown("zh-CN");
+        const shown = owner.status!.shown(workbenchTestText("zh-CN"));
         expect(shown.map((item) => item.id)).toEqual(["test.items.left", "test.items.a", "test.items.b"]);
         expect(shown[0]).toMatchObject({title: "标题L", text: "文字", tooltip: "提示", state: "warning", command: {id: "nbook.editor.save-all", args: {}}});
-        expect(owner.status!.shown("en-US")[1]!.title).toBe("Title A");
+        expect(owner.status!.shown(workbenchTestText("en-US"))[1]!.title).toBe("Title A");
+    });
+
+    it("实现返回固定的文字引用、声明省略标题：都按窗口当前语言翻译，切换语言后在 computed 里重算", async () => {
+        const engine = createTextEngine({locale: "zh-CN", strict: true, report: () => undefined});
+        engine.register("test.items", {"zh-CN": {count: "次数", statusItems: {count: {title: "计数"}}}, "en-US": {count: "Count", statusItems: {count: {title: "Counter"}}}}, "zh-CN");
+        // 同一个引用对象每次渲染都交回去：文字变化只能来自语言切换。
+        const fixed = pluginText("test.items")("count");
+        const {owner} = await start([contributor("test.items", {"test.items.count": {alignment: "right", order: 0, priority: 0}}, control(() => fixed))]);
+        const text = resolverFor(() => engine.port.locale.value, engine.port);
+        const shown = computed(() => owner.status!.shown(text).map((item) => `${item.title}/${item.text}`));
+        expect(shown.value).toEqual(["计数/次数"]);
+        engine.setLocale("en-US");
+        expect(shown.value).toEqual(["Counter/Count"]);
     });
 
     it("when 的键都已就绪且为真才显示；值变化后在 computed 里重算", async () => {
         state.clear();
         const {owner} = await start([contributor("test.items", {"test.items.dirty": declaration("D", {when: {requires: ["test.items/dirty"]}})}, control())]);
-        const ids = computed(() => owner.status!.shown("zh-CN").map((item) => item.id));
+        const ids = computed(() => owner.status!.shown(workbenchTestText("zh-CN")).map((item) => item.id));
         expect(ids.value).toEqual([]);
         state.set("test.items/dirty", true);
         expect(ids.value).toEqual(["test.items.dirty"]);
@@ -126,8 +145,8 @@ describe("条目注册表", () => {
             contributor("test.two", {"test.one.same": declaration("2"), "other.item": declaration("3")}, control()),
             contributor("test.three", {"test.three.left": declaration("4", {alignment: "left"})}, control(), WORKBENCH_TITLEBAR_ITEMS_POINT),
         ]);
-        expect(owner.status!.shown("zh-CN")).toEqual([]);
-        expect(owner.title!.shown("zh-CN")).toEqual([]);
+        expect(owner.status!.shown(workbenchTestText("zh-CN"))).toEqual([]);
+        expect(owner.title!.shown(workbenchTestText("zh-CN"))).toEqual([]);
         expect(application.plugins.contribution(WORKBENCH_STATUSBAR_ITEMS_POINT, "test.one.same").map((entry) => entry.validation.status)).toEqual(["rejected", "rejected"]);
         expect(application.plugins.contribution(WORKBENCH_STATUSBAR_ITEMS_POINT, "other.item")[0]?.validation).toMatchObject({status: "rejected", detail: "贡献 id 要以插件 id test.two 加“.”开头：other.item"});
         expect(application.plugins.contribution(WORKBENCH_TITLEBAR_ITEMS_POINT, "test.three.left")[0]?.validation).toMatchObject({status: "rejected", detail: "标题栏的条目只放在右侧：test.three.left"});
@@ -140,13 +159,13 @@ describe("条目注册表", () => {
             return "文字";
         });
         const {owner} = await start([contributor("test.items", {"test.items.a": declaration("A")}, toggle)]);
-        expect(owner.status!.shown("zh-CN").map((item) => item.id)).toEqual(["test.items.a"]);
+        expect(owner.status!.shown(workbenchTestText("zh-CN")).map((item) => item.id)).toEqual(["test.items.a"]);
         const before = calls;
         const closing = toggle.context!.scope.parent!.close();
-        expect(owner.status!.shown("zh-CN")).toEqual([]);
+        expect(owner.status!.shown(workbenchTestText("zh-CN"))).toEqual([]);
         expect(calls).toBe(before);
         expect((await closing).status).toBe("closed");
-        await waitUntil("条目撤回", () => owner.status!.shown("zh-CN").length === 0);
+        await waitUntil("条目撤回", () => owner.status!.shown(workbenchTestText("zh-CN")).length === 0);
     });
 
     it("实现抛错的条目原位显示为出错且不可点，别的照常；同一个句柄只记一次诊断", async () => {
@@ -156,8 +175,8 @@ describe("条目注册表", () => {
             })),
             contributor("test.good", {"test.good.item": declaration("好", {order: 1})}, control()),
         ]);
-        const first = owner.status!.shown("zh-CN");
-        owner.status!.shown("zh-CN");
+        const first = owner.status!.shown(workbenchTestText("zh-CN"));
+        owner.status!.shown(workbenchTestText("zh-CN"));
         expect(first.map((item) => [item.id, item.text, item.state, item.command])).toEqual([["test.bad.item", "标题坏", "error", null], ["test.good.item", "文字", "warning", null]]);
         expect(first[0]!.tooltip).toBe("这个条目出错了：算不出来");
         expect(owner.reports).toEqual(["条目 test.bad.item 的实现出错：算不出来"]);

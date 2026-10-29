@@ -8,6 +8,7 @@ import {Value} from "typebox/value";
 import {isBuiltinId, isReservedPublisher, KERNEL_ACTIVATION_PREFIXES, portabilityProblems} from "../plugins/plugins";
 import type {PluginPlatform} from "../plugins/plugins";
 
+import {localeTagProblem} from "./catalog";
 import {byPath, contractSchemas, ENTRY_ID, ENTRY_ID_RULE, ID_SEGMENT_RULE, isIdSegment, isInsidePath, isPluginId, joinPath, manifestSchema, restoreContract} from "./schema";
 import type {ManifestEntry, ManifestInput, ManifestProblem, ManifestReadResult, VersionSyntax} from "./schema";
 
@@ -167,6 +168,21 @@ function read(value: unknown, context: ReadContext): ManifestReadResult {
 
     if (input.style !== undefined && !isInsidePath(input.style)) add("style", `必须是相对插件目录、不含 .. 的路径：${input.style}`);
 
+    if (input.l10n !== undefined) {
+        const {source, locales} = input.l10n;
+        const seenLocales = new Set<string>();
+        for (const [index, tag] of locales.entries()) {
+            const at = `l10n.locales.${String(index)}`;
+            const tagProblem = localeTagProblem(tag);
+            if (tagProblem !== null) add(at, tagProblem);
+            if (seenLocales.has(tag)) add(at, `语言重复：${tag}`);
+            seenLocales.add(tag);
+        }
+        const sourceProblem = localeTagProblem(source);
+        if (sourceProblem !== null) add("l10n.source", sourceProblem);
+        else if (!seenLocales.has(source)) add("l10n.source", `源语言必须在 l10n.locales 里：${source}`);
+    }
+
     if (problems.length > 0) return {status: "invalid", problems: problems.sort(byPath)};
 
     const locations: string[] = [];
@@ -192,6 +208,7 @@ function read(value: unknown, context: ReadContext): ManifestReadResult {
             pluginVersions: {...input.pluginVersions},
             contracts: {...contracts},
             style: input.style ?? null,
+            l10n: input.l10n === undefined ? null : {source: input.l10n.source, locales: [...input.l10n.locales]},
         },
     };
 }

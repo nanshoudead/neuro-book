@@ -2,6 +2,7 @@
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useAttrs, watch} from "vue";
 import DropdownMenu from "../popup/DropdownMenu.vue";
 import type {DropdownMenuItemData} from "../popup/dropdown-menu.types";
+import {useUiText} from "../../text-port";
 import {moveRoving, rovingMove} from "../../utils/roving";
 import {adaptTabs} from "./tabs-adapt";
 import type {TabsAdaptState} from "./tabs-adapt";
@@ -44,7 +45,6 @@ const props = withDefaults(defineProps<{
     baseline: true,
     overflow: "scroll",
     maxItemWidth: 96,
-    moreLabel: "更多",
 });
 
 const emit = defineEmits<{
@@ -95,6 +95,8 @@ const tabBoxClass = computed(() => [
 
 // ── 宽度适配（overflow="adapt"，同名 .md） ─────────────────────────────────
 
+const text = useUiText();
+const moreText = computed(() => props.moreLabel ?? text("tabs.more"));
 const adaptive = computed(() => props.overflow === "adapt");
 const rootRef = ref<HTMLDivElement | null>(null);
 const measureRef = ref<HTMLDivElement | null>(null);
@@ -155,8 +157,8 @@ onMounted(() => {
 onBeforeUnmount(() => observer?.disconnect());
 // 选中项变了：在渲染之前重排（被收起来的那个要换出来），键盘移动后的焦点才能落到它上面。
 watch(() => props.modelValue, () => measure());
-// 标签或截断宽度变了：测量层先重渲染，再量。
-watch([() => props.items, () => props.maxItemWidth, () => props.size], () => void nextTick(measure));
+// 标签、截断宽度或“更多”的文字（语言切换会换）变了：测量层先重渲染，再量。
+watch([() => props.items, () => props.maxItemWidth, () => props.size, moreText], () => void nextTick(measure));
 
 function selectHidden(value: string): void {
     const item = props.items.find((candidate) => candidate.value === value);
@@ -215,7 +217,7 @@ function selectHidden(value: string): void {
         </div>
         <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" align="end" @select="selectHidden">
             <button type="button" class="nb-ui-focus-ring-inset text-[var(--text-secondary)] hover:text-[var(--text-main)]" :class="tabBoxClass" data-tabs-more>
-                {{ props.moreLabel }} {{ moreItems.length }}<span class="i-lucide-chevron-down h-[1em] w-[1em]" aria-hidden="true"></span>
+                {{ moreText }} {{ moreItems.length }}<span class="i-lucide-chevron-down h-[1em] w-[1em]" aria-hidden="true"></span>
             </button>
         </DropdownMenu>
         <!-- 测量层：完整标题的每个标签、只留图标的标签与“更多”，不可见、不占位、不进无障碍树。 -->
@@ -226,7 +228,7 @@ function selectHidden(value: string): void {
                 <span v-if="item.count !== undefined" class="rounded-[var(--radius-pill)] px-[var(--space-1)] font-mono text-[length:var(--text-2xs)]">{{ item.count }}</span>
             </span>
             <span :class="tabBoxClass" data-measure-icon><span class="h-[1.15em] w-[1.15em] shrink-0"></span></span>
-            <span :class="tabBoxClass" data-measure-more>{{ props.moreLabel }} {{ props.items.length }}<span class="h-[1em] w-[1em]"></span></span>
+            <span :class="tabBoxClass" data-measure-more>{{ moreText }} {{ props.items.length }}<span class="h-[1em] w-[1em]"></span></span>
         </div>
     </div>
     <div v-else ref="tablistRef" v-bind="attrs" role="tablist" :aria-label="props.ariaLabel || undefined" class="flex items-end gap-[var(--space-2)] overflow-x-auto" :class="props.baseline ? 'border-b-[length:var(--border-w)] border-[color:var(--divider)]' : ''" @keydown="handleKeydown">

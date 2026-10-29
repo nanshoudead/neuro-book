@@ -2,19 +2,17 @@
 /** 书架的列表视图（同名 .md）：一行一部作品；只发事件。 */
 import {DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
-
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import {useText} from "@notnotype/nb-ui/text-port";
 
 import {projectDisplayName} from "../../shared/shelf";
 import type {ShelfItem} from "../../shared/shelf";
+import {useProjectsText} from "../text";
 import {formatFiles, formatWhen, formatWords} from "../shelf-format";
 import BookCover from "./BookCover.vue";
 
 defineOptions({name: "ShelfList"});
 
 const props = defineProps<{
-    locale: DisplayLocale;
     items: ReadonlyArray<ShelfItem>;
     now: string;
     /** 一部作品的封面图地址；没有封面为 null。 */
@@ -29,44 +27,32 @@ const emit = defineEmits<{
     (event: "create"): void;
 }>();
 
-const TEXT = {
-    label: {"zh-CN": "作品列表", "en-US": "Books"},
-    create: {"zh-CN": "新建作品", "en-US": "New Book"},
-    more: {"zh-CN": "更多操作", "en-US": "More Actions"},
-    openNewWindow: {"zh-CN": "在新窗口打开", "en-US": "Open in New Window"},
-    edit: {"zh-CN": "编辑信息", "en-US": "Edit Info"},
-    remove: {"zh-CN": "从书架移除", "en-US": "Remove from Shelf"},
-    running: {"zh-CN": "已打开", "en-US": "Open"},
-    none: {"zh-CN": "尚未统计", "en-US": "Not counted yet"},
-    stale: {"zh-CN": "统计于{when}", "en-US": "Counted {when}"},
-    counting: {"zh-CN": "正在统计", "en-US": "Counting"},
-} satisfies Record<string, LocalizedText>;
-
-const text = (value: LocalizedText): string => localize(value, props.locale);
+const port = useText();
+const text = useProjectsText();
 
 /** 字数与篇数；`none` 写“尚未统计”。 */
 function counts(item: ShelfItem): string {
     const {stats} = item;
-    if (stats.freshness === "none") return text(TEXT.none);
-    return `${formatWords(stats.words, props.locale)} · ${formatFiles(stats.files, props.locale)}`;
+    if (stats.freshness === "none") return text("shelfList.none");
+    return `${formatWords(stats.words, port)} · ${formatFiles(stats.files, port)}`;
 }
 
 /** 最近编辑时间与新鲜度说明（Spec 输出 8）：`fresh` 不加说明。 */
 function when(item: ShelfItem): string {
     const {stats} = item;
     const parts: string[] = [];
-    if (stats.last !== null) parts.push(formatWhen(stats.last.at, props.now, props.locale));
-    if (stats.freshness === "counting") parts.push(text(TEXT.counting));
-    else if (stats.freshness === "stale" && stats.computedAt !== null) parts.push(text(formatText(TEXT.stale, {when: formatWhen(stats.computedAt, props.now, props.locale)})));
-    if (item.state !== "stopped") parts.push(text(TEXT.running));
+    if (stats.last !== null) parts.push(formatWhen(stats.last.at, props.now, port));
+    if (stats.freshness === "counting") parts.push(text("shelfList.counting"));
+    else if (stats.freshness === "stale" && stats.computedAt !== null) parts.push(text("shelfList.stale", {when: formatWhen(stats.computedAt, props.now, port)}));
+    if (item.state !== "stopped") parts.push(text("shelfList.running"));
     return parts.length === 0 ? "—" : parts.join(" · ");
 }
 
 function menu(): DropdownMenuItemData[] {
     return [
-        {value: "open-new-window", label: text(TEXT.openNewWindow)},
-        {value: "edit", label: text(TEXT.edit)},
-        {value: "remove", label: text(TEXT.remove), tone: "danger"},
+        {value: "open-new-window", label: text("shelfList.openNewWindow")},
+        {value: "edit", label: text("shelfList.edit")},
+        {value: "remove", label: text("shelfList.remove"), tone: "danger"},
     ];
 }
 
@@ -78,7 +64,7 @@ function onMenu(item: ShelfItem, value: string): void {
 </script>
 
 <template>
-    <ul class="shelf-list" :aria-label="text(TEXT.label)" data-shelf-list>
+    <ul class="shelf-list" :aria-label="text('shelfList.label')" data-shelf-list>
         <li v-for="item in items" :key="item.id" class="shelf-list__row" data-shelf-row>
             <button type="button" class="shelf-list__main" @click="emit('open', item.id)">
                 <BookCover :id="item.id" :title="projectDisplayName(item)" :color="item.color" :src="coverSrc(item)" :width="30" class="shelf-list__cover" />
@@ -90,14 +76,14 @@ function onMenu(item: ShelfItem, value: string): void {
                 <span class="shelf-list__when" :class="{'shelf-list__when--running': item.state !== 'stopped'}">{{ when(item) }}</span>
             </button>
             <DropdownMenu :items="menu()" align="end" root-class="shelf-list__more" @select="onMenu(item, $event)">
-                <IconButton size="sm" icon-class="i-lucide-ellipsis" :aria-label="text(TEXT.more)" />
+                <IconButton size="sm" icon-class="i-lucide-ellipsis" :aria-label="text('shelfList.more')" />
             </DropdownMenu>
         </li>
         <!-- 末行的“新建作品”：不带 data-shelf-row，按行数数作品与找第一行的地方不把它算进去。 -->
         <li class="shelf-list__row shelf-list__row--create">
             <button type="button" class="shelf-list__main shelf-list__main--create" data-shelf-create-row @click="emit('create')">
                 <span class="shelf-list__slot" aria-hidden="true">+</span>
-                <span class="shelf-list__create">{{ text(TEXT.create) }}</span>
+                <span class="shelf-list__create">{{ text('shelfList.create') }}</span>
             </button>
         </li>
     </ul>

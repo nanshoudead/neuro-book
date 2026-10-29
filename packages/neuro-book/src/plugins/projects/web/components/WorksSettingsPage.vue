@@ -6,12 +6,11 @@
 import {Button} from "@notnotype/nb-ui/components";
 import {ref, watch} from "vue";
 
-import {localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 import type {SettingLayer, SettingsFailure, SettingsService} from "nbook/shared/settings";
 import SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 
 import {librarySetting} from "../../shared/contracts";
+import {useProjectsText} from "../text";
 import type {LibraryInfo} from "../shelf-page";
 import PathPickerDialog from "./PathPickerDialog.vue";
 import type {PathPickerSource} from "./PathPickerDialog.vue";
@@ -25,20 +24,13 @@ const props = defineProps<{
     source: PathPickerSource;
     /** 当前有效的作品目录（产品里是 `nbook.projects/projects` 的 `library()`）；取不到为 null。 */
     readLibrary: () => Promise<LibraryInfo | null>;
-    locale: DisplayLocale;
 }>();
 
 const emit = defineEmits<{
     (event: "write-failed", failure: {readonly code: SettingsFailure; readonly detail: string}): void;
 }>();
 
-const TEXT = {
-    change: {"zh-CN": "更改…", "en-US": "Change…"},
-    defaultMark: {"zh-CN": "（缺省）", "en-US": " (default)"},
-    defaultUnknown: {"zh-CN": "取不到缺省目录", "en-US": "Could not read the default folder"},
-} satisfies Record<string, LocalizedText>;
-
-const text = (value: LocalizedText): string => localize(value, props.locale);
+const text = useProjectsText();
 
 const picking = ref(false);
 /** 这次选定、还在写的目录：写入结算之前显示它，结算后回到层里的值。 */
@@ -88,12 +80,11 @@ async function pick(path: string): Promise<void> {
             :settings="settings"
             :setting="librarySetting"
             :layer="layer"
-            :locale="locale"
             @write-failed="(failure) => emit('write-failed', {code: failure.code, detail: failure.detail})"
         >
             <span v-if="shown(row.value) !== ''" class="works-settings__path" data-works-library>{{ shown(row.value) }}</span>
-            <span v-else-if="fallback.status === 'ready'" class="works-settings__path" data-works-library data-works-library-default>{{ fallback.path }}<span class="works-settings__mark">{{ text(TEXT.defaultMark) }}</span></span>
-            <span v-else-if="fallback.status === 'failed'" class="works-settings__unknown" data-works-library data-works-library-default-unknown>{{ text(TEXT.defaultUnknown) }}</span>
+            <span v-else-if="fallback.status === 'ready'" class="works-settings__path" data-works-library data-works-library-default>{{ fallback.path }}<span class="works-settings__mark">{{ text('worksSettings.defaultMark') }}</span></span>
+            <span v-else-if="fallback.status === 'failed'" class="works-settings__unknown" data-works-library data-works-library-default-unknown>{{ text('worksSettings.defaultUnknown') }}</span>
             <Button
                 :id="row.id"
                 variant="secondary"
@@ -101,10 +92,9 @@ async function pick(path: string): Promise<void> {
                 :disabled="row.disabled || pending !== null"
                 data-works-library-change
                 @click="picking = true"
-            >{{ text(TEXT.change) }}</Button>
+            >{{ text('worksSettings.change') }}</Button>
             <!-- 选择器在行的插槽里：模态对话框叠在设置窗口之上，关闭时焦点回到“更改…”。 -->
             <PathPickerDialog
-                :locale="locale"
                 :open="picking"
                 mode="directory"
                 :source="source"

@@ -32,6 +32,8 @@ import {
     SET_PANEL_POSITION_COMMAND,
     TOGGLE_PANEL_MAXIMIZED_COMMAND,
 } from "./panel-commands";
+import {completedCommand} from "../../testing/declarations";
+import {failureText, workbenchTestText} from "../../testing/text";
 
 let tmp = "";
 let counter = 0;
@@ -73,7 +75,7 @@ describe("声明", () => {
     it("五条命令的声明通过命令系统的校验；when 只引用工作台声明的公开键", () => {
         const declared = new Set((Object.keys(workbenchState.declarations) as (keyof typeof workbenchState.declarations)[]).map((name) => workbenchState.key(name)));
         for (const [id, declaration] of Object.entries(PANEL_COMMAND_DECLARATIONS)) {
-            expect(commandDeclarationProblems(id, "nbook.workbench", declaration), id).toEqual([]);
+            expect(commandDeclarationProblems(id, "nbook.workbench", completedCommand(id, declaration)), id).toEqual([]);
             for (const key of declaration.when.requires) expect(declared.has(key), key).toBe(true);
         }
     });
@@ -111,13 +113,13 @@ describe("命令", () => {
     it("位置与对齐：带参数直接改；省略时经选择列出并标出当前，选中即改，取消不改；选择服务不可用时 unavailable", async () => {
         const store = await layout();
         store.actions.acceptLayoutFacts(SPLIT);
-        const choose = picker((request) => (request.items.some((item) => item.id === "right") && textOf(request.title, "zh-CN") === "面板位置" ? {kind: "item", id: "right"} : {kind: "item", id: "justify"}));
+        const choose = picker((request) => (request.items.some((item) => item.id === "right") && workbenchTestText("zh-CN").t(request.title) === "面板位置" ? {kind: "item", id: "right"} : {kind: "item", id: "justify"}));
         const commands = panelCommands(() => store, choose);
 
         expect(await commands[SET_PANEL_POSITION_COMMAND].run({position: "top"})).toEqual({ok: true, value: null});
         expect(store.state.panel.position).toBe("top");
         expect(await commands[SET_PANEL_POSITION_COMMAND].run({})).toEqual({ok: true, value: null});
-        expect(choose.requests[0]!.items.map((item) => [item.id, item.detail === undefined ? null : textOf(item.detail, "zh-CN")])).toEqual([["bottom", null], ["top", "当前"], ["left", null], ["right", null]]);
+        expect(choose.requests[0]!.items.map((item) => [item.id, item.detail === undefined ? null : workbenchTestText("zh-CN").t(item.detail)])).toEqual([["bottom", null], ["top", "当前"], ["left", null], ["right", null]]);
         expect(store.state.panel.position).toBe("right");
 
         store.actions.setPanelPosition("bottom");
@@ -149,7 +151,10 @@ describe("命令", () => {
         expect(store.state.panel.maximized).toBe(false);
 
         const detached = panelCommands(() => null, picker(() => ({kind: "cancelled"})));
-        expect(await detached[SET_PANEL_HIDDEN_COMMAND].run({hidden: true})).toMatchObject({ok: false, code: "unavailable"});
+        const notOpen = await detached[SET_PANEL_HIDDEN_COMMAND].run({hidden: true});
+        expect(notOpen).toMatchObject({ok: false, code: "unavailable"});
+        expect(failureText(notOpen, "zh-CN")).toBe("工作台布局没有打开（这个窗口没有显示外壳）");
+        expect(failureText(notOpen, "en-US")).toBe("The workbench layout is not open (this window does not show the shell)");
     });
 });
 
@@ -157,18 +162,19 @@ describe("经命令注册表", () => {
     /** 真实的命令注册表：上下文键读工作台公开状态的绑定（产品里由 `nbook.state` 转交，读法相同）。 */
     function registryFor(store: LayoutStore) {
         const bindings = workbenchStateBindings(shallowRef<LayoutStore | null>(store)) as unknown as Readonly<Record<string, {readonly value: unknown}>>;
-        const declarations = workbenchState.declarations as Readonly<Record<string, {readonly reason?: {readonly "zh-CN": string}}>>;
+        const declarations = workbenchState.declarations as unknown as Readonly<Record<string, {readonly reason?: Parameters<ReturnType<typeof workbenchTestText>["t"]>[0]}>>;
+        const text = workbenchTestText("zh-CN");
         const nameOf = (key: string): string | null => (key.startsWith("nbook.workbench/") ? key.slice("nbook.workbench/".length) : null);
         const contextKeys: ContextKeySource = {
             problem: (key) => (nameOf(key) !== null && nameOf(key)! in declarations ? null : `${key} 不是工作台的公开键`),
-            evaluate: (key) => (bindings[nameOf(key)!]?.value === true ? {matches: true} : {matches: false, reason: declarations[nameOf(key)!]?.reason?.["zh-CN"] ?? key}),
+            evaluate: (key) => (bindings[nameOf(key)!]?.value === true ? {matches: true} : {matches: false, reason: (declarations[nameOf(key)!]?.reason === undefined ? key : text.t(declarations[nameOf(key)!]!.reason!))}),
         };
         const registry = createCommandRegistry({contextKeys, report: (error) => {
             throw error;
         }});
         const implementations = panelCommands(() => store, picker(() => ({kind: "cancelled"})));
         for (const [id, declaration] of Object.entries(PANEL_COMMAND_DECLARATIONS)) {
-            const registered = registry.register({id, source: "nbook.workbench", declaration, run: implementations[id as keyof typeof implementations].run});
+            const registered = registry.register({id, source: "nbook.workbench", declaration: completedCommand(id, declaration), run: implementations[id as keyof typeof implementations].run});
             expect(registered.ok, id).toBe(true);
         }
         const enabled = () => Object.fromEntries(Object.keys(PANEL_COMMAND_DECLARATIONS).map((id) => [id.slice("nbook.view.".length), registry.isEnabled(id).ok]));

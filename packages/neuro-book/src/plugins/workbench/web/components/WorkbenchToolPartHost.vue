@@ -3,10 +3,9 @@
 import {computed, onBeforeUnmount, ref, watch} from "vue";
 
 import {Tabs} from "@notnotype/nb-ui/components";
+import {useText} from "@notnotype/nb-ui/text-port";
 
-import {localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
-
+import {workbenchText} from "../../shared/text";
 import type {ContainerPresentation, PartPresentation} from "../views/presentation";
 import {switcherPanelId, switcherTabId} from "./switcher-ids";
 import "./hover-actions.css";
@@ -16,7 +15,6 @@ import "./hover-actions.css";
  * 再窄就只留图标、收进“更多”。
  */
 const TAB_MAX_WIDTH = 96;
-const MORE: LocalizedText = {"zh-CN": "更多", "en-US": "More"};
 
 defineOptions({name: "WorkbenchToolPartHost"});
 
@@ -24,16 +22,13 @@ const props = defineProps<{
     part: "sidebar" | "auxiliarybar" | "panel";
     presentation: PartPresentation;
     selected: ContainerPresentation | null;
-    locale: DisplayLocale;
     label: string;
     emptyText: string;
     /** 标签与内容面板关联用的 id 前缀（`switcher-ids.ts`）。 */
     idPrefix: string;
-    /** Sidebar 容器标题这个键盘拖动把手的可访问名称模板，`{title}` 换成容器标题。 */
-    dragLabel: string;
-    /** 标签作为拖动源的说明（写到 `aria-description`），例如“按空格拿起并拖动”。 */
-    dragHint: string;
 }>();
+
+const resolver = useText();
 
 const emit = defineEmits<{
     (event: "select", containerId: string): void;
@@ -46,12 +41,12 @@ defineSlots<{
 
 const tabs = computed(() => props.presentation.switcher.map((item) => ({
     value: item.containerId,
-    label: localize(item.title, props.locale),
+    label: resolver.t(item.title),
     iconClass: item.icon,
     id: switcherTabId(props.idPrefix, props.part, item.containerId),
     controls: switcherPanelId(props.idPrefix, props.part),
     // 标签是 Switcher 的条目，也是整容器的拖动源（拖放会话按这两个标记找）。
-    attrs: {"data-switcher-entry": item.containerId, "data-drag-container": item.containerId, "aria-description": props.dragHint},
+    attrs: {"data-switcher-entry": item.containerId, "data-drag-container": item.containerId, "aria-description": resolver.t(workbenchText("shell.drag.hint"))},
 })));
 /** 右栏与面板的内容是标签带的 tabpanel；Sidebar 的切换在 ActivityBar，不是标签。 */
 const tabbed = computed(() => props.part !== "sidebar" && props.selected !== null);
@@ -70,7 +65,7 @@ onBeforeUnmount(() => {
         <header v-if="showTitleRow && selected !== null" class="workbench-tool-part__head workbench-tool-part__head--drag" :data-drag-container="selected.id">
             <span class="workbench-tool-part__icon" :class="selected.icon" aria-hidden="true"></span>
             <!-- 标题文字是键盘拖动的把手；指针拖动用整个标题行。 -->
-            <h2 class="workbench-tool-part__title"><span class="nb-ui-focus-ring workbench-tool-part__handle" role="button" tabindex="0" :aria-label="dragLabel.replace('{title}', localize(selected.title, locale))" data-drag-handle>{{ localize(selected.title, locale) }}</span></h2>
+            <h2 class="workbench-tool-part__title"><span class="nb-ui-focus-ring workbench-tool-part__handle" role="button" tabindex="0" :aria-label="resolver.t(workbenchText('shell.drag.label', {title: resolver.t(selected.title)}))" data-drag-handle>{{ resolver.t(selected.title) }}</span></h2>
             <div class="workbench-tool-part__actions" data-no-drag data-hover-actions>
                 <slot name="actions" :container="selected"></slot>
             </div>
@@ -84,7 +79,7 @@ onBeforeUnmount(() => {
                     size="sm"
                     overflow="adapt"
                     :max-item-width="TAB_MAX_WIDTH"
-                    :more-label="localize(MORE, locale)"
+                    :more-label="resolver.t(workbenchText('common.more'))"
                     :baseline="false"
                     :model-value="presentation.selected ?? ''"
                     :items="tabs"

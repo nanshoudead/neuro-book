@@ -14,15 +14,15 @@ import {shallowRef} from "@vue/reactivity";
 import type {ContributionDescriptor, ContributionHandle, ContributionReceiver} from "@notnotype/nb-runtime/plugins";
 
 import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import type {TextResolver} from "nbook/shared/localized-text";
 
 import type {ItemDeclaration} from "../../shared/items";
+import {workbenchText} from "../../shared/text";
 import type {ItemImplementation} from "../contracts";
 
 export type ItemState = "normal" | "warning" | "error";
 
-/** 外壳此刻要画的一个条目：文字都已按语言取好。 */
+/** 外壳此刻要画的一个条目：文字（声明的标题与实现给的文字、提示）都已按当前语言翻好。 */
 export interface ShownItem {
     readonly id: string;
     readonly title: string;
@@ -40,7 +40,6 @@ export type StripEntry = ShownItem & {readonly disabledReason: string | null};
 
 type ItemHandle = ContributionHandle<ItemDeclaration, ItemImplementation>;
 
-const BROKEN: LocalizedText = {"zh-CN": "这个条目出错了：{message}", "en-US": "This item failed: {message}"};
 
 export class ItemRegistry {
     readonly #catalog: ReadonlyMap<string, ItemDeclaration>;
@@ -78,14 +77,14 @@ export class ItemRegistry {
     }
 
     /** 此刻要显示的条目：左侧在前、右侧在后，同侧按 order 再按 id。响应式：在 computed 里读。 */
-    shown(locale: DisplayLocale): ShownItem[] {
+    shown(text: TextResolver): ShownItem[] {
         void this.#version.value;
         if (this.#stopped) return [];
         const items: ShownItem[] = [];
         for (const [id, handle] of this.#handles) {
             const declaration = this.#catalog.get(id);
             if (declaration === undefined || !handle.published || !this.#visible(declaration)) continue;
-            items.push(this.#render(id, handle, declaration, locale));
+            items.push(this.#render(id, handle, declaration, text));
         }
         const side = (item: ShownItem) => (item.alignment === "left" ? 0 : 1);
         return items.sort((a, b) => side(a) - side(b) || a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -98,10 +97,10 @@ export class ItemRegistry {
         });
     }
 
-    #render(id: string, handle: ItemHandle, declaration: ItemDeclaration, locale: DisplayLocale): ShownItem {
+    #render(id: string, handle: ItemHandle, declaration: ItemDeclaration, text: TextResolver): ShownItem {
         const base = {
             id,
-            title: localize(declaration.title, locale),
+            title: text.t(declaration.title),
             alignment: declaration.alignment,
             order: declaration.order,
             priority: declaration.priority,
@@ -109,14 +108,15 @@ export class ItemRegistry {
         };
         try {
             const implementation = handle.implementation();
-            return {...base, text: implementation.text(), tooltip: implementation.tooltip?.() ?? null, state: implementation.state?.() ?? "normal"};
+            const tooltip = implementation.tooltip?.();
+            return {...base, text: text.t(implementation.text()), tooltip: tooltip === undefined ? null : text.t(tooltip), state: implementation.state?.() ?? "normal"};
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             if (!this.#reported.has(handle)) {
                 this.#reported.add(handle);
                 this.#report(`条目 ${id} 的实现出错：${message}`);
             }
-            return {...base, text: base.title, tooltip: localize(formatText(BROKEN, {message}), locale), state: "error", command: null};
+            return {...base, text: base.title, tooltip: text.t(workbenchText("items.broken", {message})), state: "error", command: null};
         }
     }
 }

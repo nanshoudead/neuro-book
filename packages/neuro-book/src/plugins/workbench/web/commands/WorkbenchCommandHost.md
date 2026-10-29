@@ -1,5 +1,5 @@
 ---
-标签: [state:local, env:global]
+标签: [state:local, state:inject, env:global]
 别名: ["命令宿主", "Command Host"]
 ---
 
@@ -17,8 +17,6 @@ type Props = {
     attach: (host: PaletteHost) => Release;
     /** 键位不合法、冲突与快捷键执行失败的去处。 */
     report: (error: Error) => void;
-    /** 当前显示语言（产品页从配置读），响应式；面板文字随它即时换。 */
-    locale: Readonly<Ref<DisplayLocale>>;
     /** 面板或快捷键执行的命令失败时弹通知（产品页接工作台的通知服务）；不给时失败只进 `report`。 */
     notify?: (input: NotificationInput) => void;
 };
@@ -30,6 +28,7 @@ type Props = {
 
 - `env:global`：挂载时在 `window` 上以捕获阶段监听 `keydown`（页面里的控件先处理按键会让组合键漏掉）；卸载时移除监听、释放键位分发、断开面板槽位、释放面板宿主，四件都做。
 - `state:local`：面板宿主（打开状态、查询、会话里用过的命令）随组件销毁。
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，执行失败通知的标题等界面文字都在本插件的目录（命名空间 `nbook.workbench`，`../../locales/`）；语言随端口切换，不重新挂载，组件没有语言属性。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。
 
 ## 失败
 

@@ -51,7 +51,7 @@ export type SettingsSectionEntry =
 type PageHandle = ContributionHandle<SettingsPageDeclaration, SettingsPageImplementation>;
 
 function entryReason(state: EntryState): string {
-    if (state.blocked !== null) return `${state.blocked.reason}：${state.blocked.key}`;
+    if (state.blocked !== null) return `${state.blocked.reason}: ${state.blocked.key}`;
     return state.failure?.error?.message ?? state.failure?.reason ?? state.status;
 }
 
@@ -87,7 +87,7 @@ export class SettingsSectionRegistry {
         this.#trigger = trigger;
         const pageIds = new Set(pages.map((descriptor) => descriptor.id));
         const clashing = new Set(lists.map((descriptor) => descriptor.id).filter((id) => pageIds.has(id)));
-        for (const id of [...clashing].sort()) report(`分区 id ${id} 同时出现在 list 与 page 两个贡献点上，两者都不显示`);
+        for (const id of [...clashing].sort()) report(`Section id ${id} appears on both the list and page contribution points; neither is shown`);
         const entries: SettingsSectionEntry[] = [
             ...lists.filter((descriptor) => !clashing.has(descriptor.id)).map((descriptor) => ({id: descriptor.id, plugin: descriptor.plugin, kind: "list" as const, declaration: descriptor.declaration})),
             ...pages.filter((descriptor) => !clashing.has(descriptor.id)).map((descriptor) => ({id: descriptor.id, plugin: descriptor.plugin, kind: "page" as const, declaration: descriptor.declaration})),
@@ -139,17 +139,17 @@ export class SettingsSectionRegistry {
         if (this.#plugins.entryState(ref)?.status !== "registered") return;
         const event = settingsPageEvent(sectionId);
         const unreachable = (reason: string): void => {
-            if (this.#notActivatable.get(sectionId) !== reason) this.#report(`page 分区 ${sectionId} 不能按需激活：${reason}`);
+            if (this.#notActivatable.get(sectionId) !== reason) this.#report(`Page section ${sectionId} cannot be activated on demand: ${reason}`);
             this.#notActivatable.set(sectionId, reason);
             this.#bump();
         };
-        if (!(this.#plugins.activationEvents(ref) ?? []).includes(event)) return unreachable(`入口 ${known.plugin}/${entry} 没有声明 ${event}`);
-        if (this.#trigger === null) return unreachable("窗口没有触发激活事件的出口");
+        if (!(this.#plugins.activationEvents(ref) ?? []).includes(event)) return unreachable(`Entry ${known.plugin}/${entry} does not declare ${event}`);
+        if (this.#trigger === null) return unreachable("The window has no way to trigger activation events");
         this.#notActivatable.delete(sectionId);
         void this.#trigger(event).then((result) => {
-            if (result.status === "rejected") unreachable(`触发 ${event} 被拒（${result.reason}）`);
+            if (result.status === "rejected") unreachable(`Triggering ${event} was rejected (${result.reason})`);
             else this.#bump();
-        }, (error: unknown) => unreachable(`触发 ${event} 出错：${error instanceof Error ? error.message : String(error)}`));
+        }, (error: unknown) => unreachable(`Triggering ${event} failed: ${error instanceof Error ? error.message : String(error)}`));
     }
 
     /** `settings.pages` 的接收者；跨点撞名的 page 分区不在目录里，它的句柄不收。 */
@@ -160,7 +160,7 @@ export class SettingsSectionRegistry {
                 this.#handles.set(handle.id, handle);
                 this.#revoked.delete(handle.id);
                 if (!hasLoad(handle.implementation())) {
-                    this.#report(`page 分区 ${handle.id} 交出的实现没有 load()，打开时按加载失败显示`);
+                    this.#report(`Page section ${handle.id} has an implementation without load(); opening it shows a load failure`);
                 }
                 this.#bump();
             },
@@ -179,7 +179,7 @@ export class SettingsSectionRegistry {
         if (handle === undefined || this.#stopped) return {status: "stale"};
         try {
             const implementation = handle.implementation();
-            if (!hasLoad(implementation)) return {status: "failed", error: new TypeError(`page 分区 ${sectionId} 交出的实现没有 load()`)};
+            if (!hasLoad(implementation)) return {status: "failed", error: new TypeError(`Page section ${sectionId} has an implementation without load()`)};
             const component = await implementation.load();
             return this.#current(sectionId, handle) ? {status: "loaded", component} : {status: "stale"};
         } catch (error) {
@@ -192,8 +192,8 @@ export class SettingsSectionRegistry {
     async retry(sectionId: string): Promise<WindowPluginRetry> {
         const known = this.#entries.get(sectionId);
         const entry = this.#pageEntries.get(sectionId) ?? null;
-        if (known === undefined || entry === null) return {status: "failed", reason: `未登记的分区 ${sectionId}`};
-        if (this.#plugins === null) return {status: "failed", reason: "宿主没有提供入口状态"};
+        if (known === undefined || entry === null) return {status: "failed", reason: `Section ${sectionId} is not registered`};
+        if (this.#plugins === null) return {status: "failed", reason: "The host does not provide entry states"};
         const result = await this.#plugins.retry({plugin: known.plugin, entry});
         this.#bump();
         return result;

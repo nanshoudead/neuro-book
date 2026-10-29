@@ -32,6 +32,7 @@ import {ActivityItemRegistry} from "./web/items/activity-items";
 import {ItemRegistry} from "./web/items/registry";
 import {createShellChrome} from "./web/titlebar/titlebar-source";
 import type {ShellChrome} from "./web/titlebar/titlebar-source";
+import {workbenchTestText} from "./testing/text";
 
 const silent = {error: () => undefined};
 let tmp = "";
@@ -146,7 +147,7 @@ async function start(plugins: ReadonlyArray<PluginDefinition>): Promise<{applica
     return {application, chrome: owner.chrome!};
 }
 
-const shape = (chrome: ShellChrome) => chrome.menus("zh-CN").map((group) => [group.label, group.sections.map((section) => section.map((entry) => entry.id))]);
+const shape = (chrome: ShellChrome) => chrome.menus(workbenchTestText("zh-CN")).map((group) => [group.label, group.sections.map((section) => section.map((entry) => entry.id))]);
 
 describe("标题栏菜单的贡献", () => {
     it("组按工作台定的顺序、空组不画；各插件的项按节名合进同一节；勾选与可用、固定参数照菜单项的共同规则", async () => {
@@ -162,7 +163,7 @@ describe("标题栏菜单的贡献", () => {
                 {id: "test.extra.save-too", declaration: {group: "file", section: "2_save", order: 5, command: "test.menu.open"}},
             ], control()),
         ]);
-        const menus = computed(() => chrome.menus("zh-CN"));
+        const menus = computed(() => chrome.menus(workbenchTestText("zh-CN")));
         expect(shape(chrome)).toEqual([
             ["文件", [["test.extra.open"], ["test.menu.item.save", "test.extra.save-too"]]],
             ["视图", [["test.menu.item.later", "test.menu.item.toggle"]]],
@@ -208,7 +209,7 @@ describe("标题栏菜单的贡献", () => {
             ], control()),
             menuOnlyPlugin("test.server", [{id: "test.server.item", declaration: {group: "file", section: "1", command: "test.menu.open"}}], control(), "server"),
         ]);
-        expect(chrome.menus("zh-CN")).toEqual([]);
+        expect(chrome.menus(workbenchTestText("zh-CN"))).toEqual([]);
         const validation = (id: string) => application.plugins.contribution(WORKBENCH_TITLEBAR_MENU_POINT, id).map((entry) => entry.validation);
         expect(validation("other.item")[0]).toMatchObject({status: "rejected", detail: "贡献 id 要以插件 id test.bad 加“.”开头：other.item"});
         expect(validation("test.bad.group")[0]).toMatchObject({status: "rejected"});

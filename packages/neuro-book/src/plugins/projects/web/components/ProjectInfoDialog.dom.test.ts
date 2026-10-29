@@ -6,7 +6,13 @@
 import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
+import {provideText, testTextPort} from "nbook/shared/testing/text-port";
+
+import {projectsCatalogs} from "../text";
 import ProjectInfoDialog from "./ProjectInfoDialog.vue";
+
+/** 注入窗口同款的翻译端口（严格模式，缺键或缺参数直接抛错）。 */
+const global = {provide: provideText(testTextPort("zh-CN", {"nbook.projects": projectsCatalogs}))};
 
 const mounted: Array<{unmount(): void}> = [];
 afterEach(() => {
@@ -19,7 +25,8 @@ type Props = Partial<InstanceType<typeof ProjectInfoDialog>["$props"]>;
 /** 窗口经 Teleport 挂到 body 上，所以查 document.body。 */
 function open(props: Props = {}) {
     const wrapper = mount(ProjectInfoDialog, {
-        props: {locale: "zh-CN" as const, open: true, mode: "create" as const, location: "/home/writer/Documents/NeuroBook", ...props},
+        global,
+        props: {open: true, mode: "create" as const, location: "/home/writer/Documents/NeuroBook", ...props},
         attachTo: document.body,
     });
     mounted.push(wrapper);

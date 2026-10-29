@@ -97,6 +97,7 @@ examples/
 │   ├── plugin.ts            插件描述：id、版本、有入口的运行位置
 │   ├── shared/contracts.ts  `definePlugin` 与对其它插件公开的合同：服务接口与键、远程服务合同、贡献点、设置项、公开键与命令
 │   ├── backend/plugin.ts    后端代码的插件定义常量（server、project 位置的入口）
+│   ├── locales/<语言>.json  界面文字的消息目录，`package.json` 的 `l10n.source` 指出源语言
 │   └── web/plugin.ts        浏览器代码的插件定义常量；界面组件（`.vue`）与它并列，只在用到时动态导入
 ├── scenarios/NN-*.test.ts   场景：把插件装进运行实例、核对行为
 └── testing/                 场地与探针：测试支持代码，不含断言
@@ -108,6 +109,7 @@ examples/
 - 服务键按服务 id 识别，只在提供方的 `shared/contracts.ts` 定义一次（[ADR 0025](../../../../docs/adr/0025-service-keys-by-id.md)）。
 - 插件定义是常量，没有工厂参数（[ADR 0026](../../../../docs/adr/0026-plugin-definitions-as-constants.md)）：要宿主的东西就依赖宿主能力，对别的插件的依赖同样写在入口的 `dependencies` 里。定义按代码所在的一侧导出，后端不能引用浏览器代码；一份后端定义可以含 `server` 与 `project` 两个位置的入口。
 - `web/` 与 `backend/` 互不引用，只经 `shared/` 交换类型与 schema；`plugin.ts`、`shared/` 与 `web/` 也过浏览器那份类型检查，不用 Bun 与 Node 的接口。
+- 界面文字写进插件自己的消息目录，不在代码里写双语对象（[i18n](../../../../docs/specs/ui/i18n.md)）：声明里必填的 `title` 省略，登记时补成约定键；可选的 `description` 与运行时现给的文字用 `/text` 的 `pluginText` 构造引用；组件里用 `/text/browser` 的 `usePluginText`，不经属性传语言。服务端算出、要给用户看的文字（counter 公开键的 `reason`）写语言映射：服务端不翻译目录里的键。写法见 snippets 的 `shared/contracts.ts` 与 `web/SnippetsEditor.vue`。
 
 ## 插件
 
@@ -118,7 +120,7 @@ examples/
 | [counter](plugins/counter/) | server、project | 一份后端定义两个入口。服务端：`defineStore` 把计数持久化进 `nbook.storage`，公开键 `example.counter/nonzero`，命令 `example.counter.reset` 的 `when` 引用它，远程合同与订阅、提供方看到的调用方。项目：每个项目实例一份的计数，第一次调用时按需激活，窗口省略 `.at()` 即到达绑定的项目 |
 | [menu](plugins/menu/) | server | 定义贡献点 `menu.items`：规则写成 `schema` 与 `idPrefix`、登记时逐条校验，启动即激活、收到菜单项记诊断，接收者 `published` 与 `revoke`、执行时经 `implementation()` 取实现；`context.declarations` 列出已接受声明的标题，贡献方还没激活也列得出 |
 | [file-menu](plugins/file-menu/) | server | 向贡献点提交声明与实现，与拥有者之间没有服务依赖；注释说明这里为什么仍启动即激活、按需激活怎样写 |
-| [snippets](plugins/snippets/) | browser（配置项在每个实例登记） | 配置项写在插件描述里、由宿主登记进每个实例；向 `settings.pages` 贡献 page 分区，`load()` 按需加载页面；页面用 `SettingsRow` 的宽排法按 `context.layer` 只编辑这一层，按层读（`inspect`）与按层写（`update(..., {layer})`）；什么时候用 page 而不是 list |
+| [snippets](plugins/snippets/) | browser（配置项在每个实例登记） | 配置项写在插件描述里、由宿主登记进每个实例；向 `settings.pages` 贡献 page 分区，`load()` 按需加载页面；页面用 `SettingsRow` 的宽排法按 `context.layer` 只编辑这一层，按层读（`inspect`）与按层写（`update(..., {layer})`）；什么时候用 page 而不是 list；界面文字的消息目录、约定键与组件里的 `usePluginText`，失败提示存码、显示时按语言拼 |
 | [focus](plugins/focus/) | server、browser | 完整示例“专注计时”：list 分区里的设置项、命令、侧栏视图（`view` 助手的 `implement` 把 store 交给组件）、状态栏条目（挂切换命令）、服务端远程服务与私有存储；计时的权威在服务端，到点由结算函数记完成（纯函数，几个请求各自结算不会多记），条件保存防丢更新，坏记录用 `reset` 重来；窗口按 `endsAt` 算剩余、只在计时时走表、重连后重取 |
 
 ## 外部插件
@@ -151,7 +153,7 @@ examples/
 
 - [`testing/stage.ts`](testing/stage.ts) 像应用包的宿主那样装配运行实例：每个实例装上与产品宿主相同的内置插件（诊断、`nbook.state`、`nbook.storage`，服务端与窗口另有 `nbook.commands`），给出状态根、时钟与项目；服务端带路由，项目实例与窗口经进程内链路连上它，帧照样经 JSON 编解码。状态根在场景的临时目录里，同一个场地再起服务端读到的是上一次写下的数据。`attach` 把一个插件装进子作用域并激活，用来演示调用方停止。
 - [`testing/probes.ts`](testing/probes.ts) 的探针站在“使用这些服务的插件”的位置上，把拿到的本地服务（`serviceProbe`）或以探针身份的远程访问（`remoteProbe`）交给场景；产品里没有这样的插件。要以某个示例插件**自己**的身份调用时（场景 06 写这个插件声明的配置项），探针作为一个入口加进那个插件的定义，而不是另起一个插件。
-- [`testing/workbench.ts`](testing/workbench.ts) 是工作台的替身：场地不装真正的工作台，替身只拥有视图与状态栏条目两个贡献点，校验用产品里同一份函数，场景直接读条目的 `text()`。视图组件不在 Bun 里加载，由组件测试（`*.dom.test.ts`）覆盖。
+- [`testing/workbench.ts`](testing/workbench.ts) 是工作台的替身：场地不装真正的工作台，替身只拥有视图与状态栏条目两个贡献点，贡献点用产品里同一份定义（补约定键与校验都相同），场景直接读条目的 `text()`。视图组件不在 Bun 里加载，由组件测试（`*.dom.test.ts`）覆盖。
 - 场景遵守[测试写法](../../../../docs/testing/README.md#测试写法)：真实内核实例与真实内置插件，不用 mock、spy、假计时器与固定等待；时间由场地时钟推进；每个场景在 `afterEach` 里停止全部实例并核对正常关闭，临时目录在 `afterAll` 删除。
 
 ## 还没演示的

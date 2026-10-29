@@ -1,5 +1,5 @@
 ---
-标签: []
+标签: [state:inject]
 ---
 
 # Spinner
@@ -14,7 +14,7 @@ type SpinnerSize = "sm" | "md" | "lg";
 interface SpinnerProps {
     /** 指示图标尺寸档位；可选，默认 "md" */
     size?: SpinnerSize;
-    /** status 的无障碍名称；可选，默认 "加载中"；showLabel 为 true 时也作为可见文字 */
+    /** status 的无障碍名称；可选，缺省按界面语言取（中文 "加载中"）；showLabel 为 true 时也作为可见文字 */
     label?: string;
     /** 是否显示 label 文字；可选，默认 false */
     showLabel?: boolean;
@@ -27,3 +27,7 @@ interface SpinnerProps {
 所有 props 都是显示配置，不表示或修改外部加载状态。根节点始终是 `role="status"` 且 `aria-label` 取 `label`；`showLabel` 只控制是否另显示相同文字。图标持续旋转：`sm` 尺寸为 `calc(var(--control-h-sm)*0.5)`，`md` 为 `calc(var(--control-h-sm)*0.64)`，`lg` 为 `var(--control-h-sm)`。
 
 不提供 `expose` API；未声明的 attributes（包括 `class`、`style`）按 Vue 单根节点默认行为落到根节点。组件不负责请求、加载完成/失败切换或取消操作，也没有禁用、只读状态。
+
+## 隐藏通道理由
+
+`state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取缺省可访问名称，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `label` 时以属性为准，不读端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。

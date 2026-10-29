@@ -60,7 +60,7 @@ frontmatter 还可以带一行可选 `验证入口: WorkbenchShellLayout`，登�
 
 无障碍名称、角色与关联关系，以及最小最大尺寸、内容超出时滚动还是裁剪，写入对应的布局或交互一节。
 
-frontmatter 的能力标签和「数据」一节的类型声明都可以与实现机械比对，工具尚未建立，当前靠评审核对。布局、交互与状态的自然语言描述无法自动校验，只能依靠「改行为时先改文档再改实现」这一顺序。缺少文档的组件在报告中列为待声明。
+frontmatter 的能力标签和「数据」一节的类型声明都可以与实现机械比对，工具尚未建立，当前靠评审核对。例外是取翻译端口：`.vue` 调用 `useText()`、`useXxxText()`、`inject(TEXT_PORT_KEY…)` 或共享包根组件的 `provideFormText()`、`provideAgentText()`、`provideMarkdownText()` 时，同名 `.md` 的「标签」必须含 `state:inject`，由 `governance:check`（[`scripts/ci/component-inject-tags.ts`](../../../scripts/ci/component-inject-tags.ts)）检查。布局、交互与状态的自然语言描述无法自动校验，只能依靠「改行为时先改文档再改实现」这一顺序。缺少文档的组件在报告中列为待声明。
 
 ## 能力标签
 

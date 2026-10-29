@@ -5,7 +5,7 @@
  */
 import {computed, ref, useId, watch} from "vue";
 
-import {messagesFor} from "./messages";
+import {useFormText} from "./text";
 
 /** 超过这么多行或这么多字时先折叠。 */
 const FOLD_LINES = 6;
@@ -13,7 +13,6 @@ const FOLD_CHARS = 400;
 
 const props = withDefaults(defineProps<{
     text: string;
-    locale: string;
     /** 文字类的值：给复制按钮。 */
     copyable?: boolean;
     /** 没有值：显示占位，弱化。 */
@@ -23,7 +22,7 @@ const props = withDefaults(defineProps<{
 }>(), {copyable: false, empty: false, label: ""});
 
 const contentId = `nb-form-view-${useId()}`;
-const messages = computed(() => messagesFor(props.locale));
+const formText = useFormText();
 const foldable = computed(() => props.text.split("\n").length > FOLD_LINES || props.text.length > FOLD_CHARS);
 const expanded = ref(false);
 type CopyState = "idle" | "copied" | "failed";
@@ -42,7 +41,7 @@ async function copy(): Promise<void> {
     }
 }
 
-const copyLabel = computed(() => (copyState.value === "copied" ? messages.value.copied : copyState.value === "failed" ? messages.value.copyFailed : messages.value.copy));
+const copyLabel = computed(() => (copyState.value === "copied" ? formText.t("copied") : copyState.value === "failed" ? formText.t("copyFailed") : formText.t("copy")));
 </script>
 
 <template>
@@ -51,24 +50,24 @@ const copyLabel = computed(() => (copyState.value === "copied" ? messages.value.
             :id="contentId"
             class="nb-form-view__text"
             :class="{'nb-form-view__text--folded': foldable && !expanded, 'nb-form-view__text--empty': props.empty}"
-        >{{ props.empty ? messages.empty : props.text }}</div>
+        >{{ props.empty ? formText.t('empty') : props.text }}</div>
         <div v-if="!props.empty && (foldable || props.copyable)" class="nb-form-view__actions">
             <button
                 v-if="foldable"
                 type="button"
                 class="nb-form-view__action"
-                :aria-label="props.label ? (expanded ? messages.collapseOf(props.label) : messages.expandOf(props.label)) : undefined"
+                :aria-label="props.label ? (expanded ? formText.t('collapseOf', {label: props.label}) : formText.t('expandOf', {label: props.label})) : undefined"
                 :aria-expanded="expanded"
                 :aria-controls="contentId"
                 @click="expanded = !expanded"
             >
-                {{ expanded ? messages.collapse : messages.expand }}
+                {{ expanded ? formText.t('collapse') : formText.t('expand') }}
             </button>
             <button
                 v-if="props.copyable"
                 type="button"
                 class="nb-form-view__action"
-                :aria-label="props.label && copyState === 'idle' ? messages.copyOf(props.label) : undefined"
+                :aria-label="props.label && copyState === 'idle' ? formText.t('copyOf', {label: props.label}) : undefined"
                 @click="copy"
                 @blur="copyState = 'idle'"
             >

@@ -53,8 +53,8 @@ type AgentConversationViewProps = {
     viewMode?: AgentViewMode;
     /** 浮层渲染目标；false 表示就地渲染。默认 false。 */
     teleportTarget?: string | false;
-    /** 界面语言，必填；子组件经 provide 取用。 */
-    locale: AgentLocale;
+    /** 界面语言，只在上面没有注入翻译端口时起作用；缺省 zh-CN。宿主注入了端口时语言以端口为准。 */
+    locale?: AgentLocale;
     /** 宿主注入的 Markdown 显示、Markdown 折叠预览、提示词编辑器与已发送文字的显示；缺哪个用包内的缺省实现。默认 {}。 */
     renderers?: AgentViewRenderers;
     /** 是否显示顶栏；宿主页面自有标题时传 false，原始视图的切换入口随之没有，用 viewMode 控制。默认 true。 */
@@ -80,7 +80,7 @@ type AgentConversationViewExpose = {
 };
 ```
 
-没有插槽，扩展一律通过注册表。语言与渲染组件经 `provideAgentView` 交给子组件（`state:inject`）；单独挂载零件时调用方自己调用它。未声明的 attribute、`class` 与 `style` 落到根节点。
+没有插槽，扩展一律通过注册表。渲染组件与翻译端口经 `provideAgentView` 交给子组件（`state:inject`）；单独挂载零件时调用方自己调用它。未声明的 attribute、`class` 与 `style` 落到根节点。
 
 `ctx.messages` 的语义约束：按时间顺序排列；同一 `id` 只出现一次；运行中尚未落盘的内容也在其中。`ctx.now` 是宿主提供的当前时间，运行中的用时按它计算，视图不自己计时，所以 Lab 可以确定性回放。
 
@@ -99,6 +99,7 @@ type AgentConversationViewExpose = {
 
 - `state:local`：未受控时的视图模式、输入框中尚未发送的文字、是否跟随底部与阅读锚点、正在预览的图片。这些是纯界面状态，不影响会话数据。每一轮里的展开状态由 `AgentConversationTurn` 自持。
 - `env:portal`：溢出菜单使用 nb-ui `Dropdown`，其菜单浮层渲染到 `body`。原图预览对话框和后续切片的面板与弹窗渲染到 `teleportTarget`，目标不存在时就地渲染。
+- `state:inject`：读宿主注入的翻译端口（nb-ui 的 `TEXT_PORT_KEY`）取界面文字；宿主要登记本包的目录（`@notnotype/nb-agent-ui/locales`），语言以端口为准。上面没有注入时按 `locale`（缺省 zh-CN）建缺省端口并提供给子组件，见 [README](../../README.md#没有宿主时)。渲染组件经 `provideAgentView` 交给子组件。
 
 ## 已知偏差
 

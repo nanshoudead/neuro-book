@@ -12,6 +12,9 @@ import type {TSchema} from "typebox";
 import {Value} from "typebox/value";
 import {Compile} from "typebox/compile";
 
+import {isText} from "@notnotype/nb-ui/text";
+import type {Text} from "@notnotype/nb-ui/text";
+
 import {evaluateContextWhen} from "./context-keys";
 import type {ContextKeySource} from "./context-keys";
 import {CommandDeclarationSchema} from "./contracts";
@@ -54,10 +57,13 @@ export interface CommandRegistryOptions {
     readonly report: (error: Error) => void;
 }
 
+/** 登记与别名的结果：拒绝的原因是命令表自己写的说明，总是字符串。 */
+export type RegistrationResult = {ok: true; value: Release} | {ok: false; code: "invalid-args"; reason: string};
+
 export interface CommandRegistry extends CommandService {
-    register(definition: CommandDefinition): CommandResult<Release>;
+    register(definition: CommandDefinition): RegistrationResult;
     /** 把外部已有的 id 映射到 canonical 命令；别名只解析，不产生第二份实现。 */
-    registerAlias(alias: string, targetId: string): CommandResult<Release>;
+    registerAlias(alias: string, targetId: string): RegistrationResult;
 }
 
 interface CommandEntry {
@@ -169,7 +175,7 @@ export function createCommandRegistry(options: CommandRegistryOptions): CommandR
     }
 
     /** 后来者被拒绝、首个保留；同一原因只报告一次，反复登记不刷屏。 */
-    function reject(key: string, reason: string): CommandResult<Release> {
+    function reject(key: string, reason: string): RegistrationResult {
         if (!reported.has(key)) {
             reported.add(key);
             options.report(new Error(reason));
@@ -293,7 +299,7 @@ export function createCommandRegistry(options: CommandRegistryOptions): CommandR
                 }
                 return result;
             };
-            const fail = (code: CommandFailureCode, reason: string): CommandResult<unknown> => finish({ok: false, code, reason});
+            const fail = (code: CommandFailureCode, reason: Text): CommandResult<unknown> => finish({ok: false, code, reason});
 
             try {
                 const resolution = resolve(id);
@@ -353,7 +359,8 @@ export function createCommandRegistry(options: CommandRegistryOptions): CommandR
                 const settled = result as {ok: boolean; value?: unknown; code?: unknown; reason?: unknown};
                 if (settled.ok) return finish({ok: true, value: settled.value === undefined ? null : settled.value});
                 const code = typeof settled.code === "string" && FAILURE_CODES.includes(settled.code) ? settled.code as CommandFailureCode : "execution-error";
-                return fail(code, typeof settled.reason === "string" ? settled.reason : String(settled.reason));
+                // 命令返回的原因是文字值时原样交出，文字引用由显示的一方翻；别的值转成字符串。
+                return fail(code, isText(settled.reason) ? settled.reason : String(settled.reason));
             } catch (error) {
                 return fail("execution-error", asError(error).message);
             }

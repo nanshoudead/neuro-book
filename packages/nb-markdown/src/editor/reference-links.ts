@@ -12,6 +12,7 @@ import {Plugin, PluginKey} from "@tiptap/pm/state";
 import {Decoration, DecorationSet} from "@tiptap/pm/view";
 
 import {chipView, renderChipIcon} from "../chip/chip";
+import {markdownTextIn} from "../host/text";
 import {showsAsChip} from "../targets";
 import type {MarkdownViewHost} from "./view-host";
 
@@ -50,11 +51,12 @@ function linkRanges(doc: PMNode): LinkRange[] {
 function decorationsOf(doc: PMNode, host: MarkdownViewHost): DecorationSet {
     const decorations: Decoration[] = [];
     const base = host.base();
+    const {port} = markdownTextIn(host.context);
     for (const {from, to, mark} of linkRanges(doc)) {
         const href = String(mark.attrs.href ?? "");
         const target = host.chips.targets.classify(href, base);
         if (!showsAsChip(target)) continue;
-        const chip = chipView({kind: "reference", label: doc.textBetween(from, to), target: href, base, number: null, state: "ready", error: "", locale: host.locale()}, host.chips);
+        const chip = chipView({kind: "reference", label: doc.textBetween(from, to), target: href, base, number: null, state: "ready", error: "", translate: (text) => port.t(text)}, host.chips);
         const variant = target.variant ?? target.kind;
         decorations.push(Decoration.inline(from, to, {class: "nb-chip-link", title: chip.title, "data-reference-link": variant}));
         decorations.push(Decoration.inline(to - 1, to, {class: "nb-chip-link--end"}));

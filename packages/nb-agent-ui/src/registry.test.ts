@@ -1,6 +1,7 @@
 import {describe, expect, it} from "bun:test";
 import {AgentViewRegistryConflictError, createAgentViewRegistry, GENERIC_TOOL_RENDERER, type HeaderActionEntry} from "./registry";
 import {builtinToolRenderers} from "./builtin-tools";
+import {agentRef} from "./text";
 
 const builtinToolsContribution = {source: "builtin:tools", tools: builtinToolRenderers};
 
@@ -124,7 +125,7 @@ describe("工具回调抛错", () => {
         const tool = registry.resolveTool("boom");
         const call = {id: "c1", name: "boom", status: "success" as const, args: {}};
         expect(tool.summary(call)).toBe("boom");
-        expect(tool.groupPhrase?.([call, call, call])).toEqual({key: "toolGroup.generic", params: {count: 3}});
+        expect(tool.groupPhrase?.([call, call, call])).toEqual(agentRef("toolGroup.generic", {count: 3}));
         expect(tool.effects?.(call)).toEqual({read: [], changed: []});
     });
 

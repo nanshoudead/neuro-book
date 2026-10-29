@@ -31,6 +31,26 @@
                 }
             })();
         </script>
+        <!-- 加载页的界面语言（src/web/host/locale-hint.ts 记下）：第一帧前按上一次的界面语言设 <html lang> 与加载页的读屏名；读不到或不在宿主语言集合里时保持 zh-CN。两种语言的文字与宿主目录 nbook.host 的 loading.label 由 locale-hint.dom.test.ts 核对一致。 -->
+        <script>
+            (function () {
+                try {
+                    var labels = { "zh-CN": "正在启动 NeuroBook", "en-US": "Starting NeuroBook" };
+                    var tag = localStorage.getItem("nbook.host-locale");
+                    if (tag === null || !Object.prototype.hasOwnProperty.call(labels, tag)) return;
+                    document.documentElement.lang = tag;
+                    // 加载页的 <main> 在这段脚本之后才解析到：文档解析完立即补上（已解析完则立即设）。
+                    var label = function () {
+                        var page = document.querySelector("[data-browser-host-status]");
+                        if (page !== null) page.setAttribute("aria-label", labels[tag]);
+                    };
+                    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", label);
+                    else label();
+                } catch (error) {
+                    console.warn("[nbook] Cannot read the stored interface language", error);
+                }
+            })();
+        </script>
     </head>
     <body>
         <div id="app">

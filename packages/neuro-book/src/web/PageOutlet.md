@@ -1,5 +1,5 @@
 ---
-标签: [state:local, env:route]
+标签: [state:local, state:inject, env:route]
 ---
 
 # PageOutlet
@@ -36,3 +36,4 @@ type Emits = {
 
 - `state:local`：持有窗口状态的本地快照，随订阅更新，组件卸载时取消订阅。
 - `env:route`：经 `RouterView` 读取装配方安装的路由；路由归宿主，一个文档一个，组件不发起跳转。
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，翻译离线横幅（宿主目录 `nbook.host` 的 `offline.banner`）。

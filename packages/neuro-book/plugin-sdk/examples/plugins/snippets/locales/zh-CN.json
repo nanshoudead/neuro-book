@@ -1,0 +1,30 @@
+{
+    "manifest": {
+        "description": "常用片段：设置窗口里的一个 page 分区，编辑写作时常插入的几段固定文字"
+    },
+    "settings": {
+        "items": {
+            "title": "片段",
+            "description": "本作品里可以另备一份，整份替换用户设置里的片段"
+        }
+    },
+    "settingsPages": {
+        "main": {
+            "title": "常用片段",
+            "description": "写作时常用的固定文字"
+        }
+    },
+    "editor": {
+        "name": "名字",
+        "text": "正文",
+        "up": "上移",
+        "down": "下移",
+        "remove": "删除",
+        "add": "添加片段",
+        "newName": "新片段",
+        "empty": "还没有片段"
+    },
+    "page": {
+        "notSaved": "没有保存（{{code}}）：{{detail}}"
+    }
+}

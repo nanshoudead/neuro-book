@@ -1,6 +1,6 @@
 ---
 验证入口: EditorArea
-标签: []
+标签: [state:inject]
 别名: ["编辑组", "Editor Group"]
 ---
 
@@ -14,7 +14,6 @@
 type Props = {
     area: EditorArea;
     groupId: string;
-    locale: DisplayLocale;
     /** 编辑器此刻的组件（`editor-registry.ts`）：不在（gone）、未交付（pending）或已交付（ready，带组件）。 */
     control: (editor: string) => {kind: "gone"} | {kind: "pending"} | {kind: "ready"; component: Component};
     /** 页面标签（输出 33）的标题与组件；不给时页面标签显示页面 id 与“这个页面已经不在了”。 */
@@ -69,3 +68,7 @@ type Emits = {
 ## 不支持
 
 - 不显示差异比较。
+
+## 隐藏通道理由
+
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，标签条的无障碍文字、状态条、读取失败与编辑器不可用的说明这些界面文字都在本插件的目录（命名空间 `nbook.editor`，`../../locales/`）；语言随端口切换，不重新挂载，组件没有语言属性。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。 交给控件的 `locale` 属性是控件合同的一员（`shared/contracts.ts` 的 `EditorControlProps`，别的插件的控件要用），取自同一个端口的当前语言，不是编辑组自己取文字用的。

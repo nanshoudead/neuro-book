@@ -124,7 +124,8 @@ describe("登记、释放与冲突", () => {
             [command("nbook.edit"), "nbook.<domain>.<action>"],
             [command("nbook.local.undo"), "未登记的命令域：local"],
             [command("nbook.edit.undo", {description: " "}), "/description"],
-            [command("nbook.edit.undo", {title: {"zh-CN": "撤销"} as CommandDeclaration["title"]}), "/title"],
+            [command("nbook.edit.undo", {title: {"zh-CN": 1} as unknown as CommandDeclaration["title"]}), "/title"],
+            [command("nbook.edit.undo", {category: {kind: "text", key: "other:title"}}), "/category"],
             [command("nbook.edit.undo", {args: Type.Object({text: Type.String()})}), "/args"],
             [command("nbook.edit.undo", {args: Type.Array(Type.String()) as TSchema}), "/args"],
             [command("nbook.edit.undo", {effect: "write", expose: {hints: {readOnly: true}}}), "readOnly 标注与 effect=write 冲突"],
@@ -138,6 +139,15 @@ describe("登记、释放与冲突", () => {
             expect(registry.list()).toEqual([]);
             expect(reported).toHaveLength(1);
         }
+    });
+
+    it("标题与分类改为接受任何文字值：字符串、单语言的语言映射与文字引用都能登记", () => {
+        const {registry, reported} = harness();
+        value(registry.register(command("nbook.edit.undo", {title: "Undo"})));
+        value(registry.register(command("nbook.edit.redo", {title: {"zh-CN": "重做"}, category: "Edit"})));
+        value(registry.register(command("nbook.edit.cut", {title: {kind: "text", ns: "nbook.test", key: "commands.cut.title"}, category: {kind: "text", ns: "nbook.test", key: "categories.edit"}})));
+        expect(registry.list().map((entry) => entry.title)).toEqual(["Undo", {"zh-CN": "重做"}, {kind: "text", ns: "nbook.test", key: "commands.cut.title"}]);
+        expect(reported).toEqual([]);
     });
 
     it("when 引用未登记的键：照常登记，但不可用、原因写明；执行为 unavailable；同一命令同一个键只报告一次", async () => {
@@ -289,15 +299,22 @@ describe("参数严格校验与执行错误", () => {
         expect(events.map((event) => event.result.ok)).toEqual([false, false, false]);
     });
 
-    it("成功但没给值归一为 null；处理函数给出的失败码不在合同内时改为 execution-error", async () => {
+    it("成功但没给值归一为 null；处理函数给出的失败码不在合同内时改为 execution-error；原因是文字值时原样交出，不是时转成字符串", async () => {
         const {registry} = harness();
+        const blocked = {kind: "text", ns: "nbook.workbench", key: "layout.notOpen"} as const;
         value(registry.register(command("nbook.editor.focus", {run: () => ({ok: true, value: undefined})})));
         value(registry.register(command("nbook.edit.undo", {run: () => ({ok: false, code: "boom", reason: "自定义"}) as unknown as CommandResult<unknown>})));
         value(registry.register(command("nbook.edit.redo", {run: () => ({ok: false, code: "stale-target", reason: "文档已换代"})})));
+        value(registry.register(command("nbook.editor.go-to-line", {run: () => ({ok: false, code: "unavailable", reason: blocked})})));
+        value(registry.register(command("nbook.quick-open.open-line", {run: () => ({ok: false, code: "unavailable", reason: {"zh-CN": "没有", "en-US": "None"}})})));
+        value(registry.register(command("nbook.quick-open.open-commands", {run: () => ({ok: false, code: "unavailable", reason: 42}) as unknown as CommandResult<unknown>})));
 
         expect(await registry.execute("nbook.editor.focus")).toEqual({ok: true, value: null});
         expect(await registry.execute("nbook.edit.undo")).toEqual({ok: false, code: "execution-error", reason: "自定义"});
         expect(await registry.execute("nbook.edit.redo")).toEqual({ok: false, code: "stale-target", reason: "文档已换代"});
+        expect(await registry.execute("nbook.editor.go-to-line")).toEqual({ok: false, code: "unavailable", reason: blocked});
+        expect(await registry.execute("nbook.quick-open.open-line")).toEqual({ok: false, code: "unavailable", reason: {"zh-CN": "没有", "en-US": "None"}});
+        expect(await registry.execute("nbook.quick-open.open-commands")).toEqual({ok: false, code: "unavailable", reason: "42"});
     });
 
     it("审计监听器抛错不影响执行结果，其它监听器照常收到", async () => {

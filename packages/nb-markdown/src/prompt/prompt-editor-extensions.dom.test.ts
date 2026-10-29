@@ -27,7 +27,6 @@ const editors: Editor[] = [];
 
 const context: PromptNodeContext = {
     readonly: false,
-    locale: "zh-CN",
     highlighted: null,
     attachmentState: () => null,
     activate: () => undefined,

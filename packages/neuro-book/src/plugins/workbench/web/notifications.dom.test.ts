@@ -1,7 +1,8 @@
 /**
- * 工作台通知服务（docs/specs/workbench/notifications.md 输出 2 到 5）：发出的通知在视口里出现；error 与带动作的常驻，
- * 其余按色调自动消失；update 推进进度并在任务结束后改成限时；明确给的 sticky 保留；动作点了通知移除，抛错也移除并记诊断；dispose 清空。
- * 真实的 nb-ui 队列与视口，时长用真实的短时长等可观察结果。
+ * 工作台通知服务（docs/specs/workbench/notifications.md 输出 2 到 5、9）：发出的通知在视口里出现；error 与带动作的常驻，
+ * 其余按色调自动消失；update 推进进度并在任务结束后改成限时；明确给的 sticky 保留；动作点了通知移除，抛错也移除并记诊断；dispose 清空；
+ * 文字引用在显示时按窗口的当前语言翻，切换语言后已显示的通知跟着换文字。
+ * 真实的 nb-ui 队列与视口、宿主的翻译引擎（像窗口根那样注入），时长用真实的短时长等可观察结果。
  */
 
 import {flushPromises, mount} from "@vue/test-utils";
@@ -9,6 +10,10 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 import {h} from "vue";
 
 import {NotificationStack} from "@notnotype/nb-ui/components";
+import {textRef} from "@notnotype/nb-ui/text";
+
+import {provideText} from "nbook/shared/testing/text-port";
+import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import {createNotifications} from "./notifications";
 
@@ -18,13 +23,18 @@ afterEach(() => {
     document.body.innerHTML = "";
 });
 
+/** 发出方 `test.sender` 的目录：通知文字用它的键。 */
+const SENDER = {"zh-CN": {saved: {title: "已保存", message: "共 {{count}} 部"}, retry: "重试"}, "en-US": {saved: {title: "Saved", message: "{{count}} books"}, retry: "Retry"}};
+
 function world() {
     const reports: string[] = [];
-    const notifications = createNotifications((message) => reports.push(message));
-    const wrapper = mount({render: () => h(NotificationStack, {queue: notifications.queue, position: "bottom-right"})}, {attachTo: document.body});
+    const engine = createHostTextEngine({locale: "zh-CN", strict: true});
+    engine.register("test.sender", SENDER, "zh-CN");
+    const notifications = createNotifications((message) => reports.push(message), engine.port);
+    const wrapper = mount({render: () => h(NotificationStack, {queue: notifications.queue, position: "bottom-right"})}, {attachTo: document.body, global: {provide: provideText(engine.port)}});
     mounted.push(wrapper);
     const texts = (): string[] => [...document.body.querySelectorAll("[data-notification-stack] [role='status']")].map((node) => node.textContent?.replace(/\s+/g, " ").trim() ?? "");
-    return {notifications, texts, reports};
+    return {notifications, texts, reports, engine};
 }
 
 describe("工作台通知服务", () => {
@@ -90,6 +100,40 @@ describe("工作台通知服务", () => {
         notifications.dispose();
         await flushPromises();
         expect(texts()).toHaveLength(0);
+    });
+
+    it("输出 9：标题、正文与动作名是文字值，显示时按窗口的当前语言翻；切换语言后已显示的通知跟着换，字符串原样", async () => {
+        const {notifications, texts, engine} = world();
+        notifications.notify({
+            tone: "warning",
+            title: textRef("saved.title", undefined, "test.sender"),
+            message: textRef("saved.message", {count: 3}, "test.sender"),
+            action: {label: textRef("retry", undefined, "test.sender"), run: () => {}},
+        });
+        notifications.notify({tone: "warning", title: {"zh-CN": "书架没有更新", "en-US": "Shelf not updated"}, message: "Book.md"});
+        await flushPromises();
+        const notice = document.body.querySelector("[data-notification-stack] [role='status']");
+        // 视口里一条通知的文字是标题、正文与动作名连在一起。
+        expect(texts()).toEqual(["已保存共 3 部重试", "书架没有更新Book.md"]);
+        engine.setLocale("en-US");
+        await flushPromises();
+        expect(texts()).toEqual(["Saved3 booksRetry", "Shelf not updatedBook.md"]);
+        // 同一个元素换了文字，不是重新发出。
+        expect(document.body.querySelector("[data-notification-stack] [role='status']")).toBe(notice);
+        notifications.dispose();
+    });
+
+    it("动作名是文字引用时，动作抛错的诊断写此刻语言的动作名", async () => {
+        const {notifications, reports, engine} = world();
+        engine.setLocale("en-US");
+        notifications.notify({tone: "warning", message: "Book.md", action: {label: textRef("retry", undefined, "test.sender"), run: () => {
+            throw new Error("offline");
+        }}});
+        await flushPromises();
+        [...document.body.querySelectorAll("button")].find((node) => node.textContent?.trim() === "Retry")?.click();
+        await flushPromises();
+        expect(reports).toEqual(["通知动作“Retry”失败：offline"]);
+        notifications.dispose();
     });
 
     it("限时通知到点消失", async () => {

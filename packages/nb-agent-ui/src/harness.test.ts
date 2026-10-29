@@ -1,6 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {createHarnessTranscript, logSeqOf} from "./harness";
+import {agentRef} from "./text";
 
 const AT = "2026-10-22T08:00:00.000Z";
 let seq = 0;
@@ -31,15 +32,15 @@ describe("harness 适配器：日志", () => {
         expect(transcript.problems()).toEqual([]);
     });
 
-    it("运行出错：末尾一条按错误类型写成的说明，不带 provider 的原文；可重试的类型标为可重试", () => {
-        const transcript = createHarnessTranscript({locale: "en-US"});
+    it("运行出错：末尾一条按错误类型写成的说明（本包目录的引用，视图按当前语言翻译），不带 provider 的原文；可重试的类型标为可重试", () => {
+        const transcript = createHarnessTranscript();
         transcript.applyLogEntry(entry("session_snapshot", {profile: {key: "qa", version: "1"}, initial: {}, tools: []}));
         transcript.applyLogEntry(entry("run_end", {stopReason: "error", error: {kind: "auth", status: null, message: "Missing env NB_KEY"}}));
-        expect(transcript.messages()).toEqual([{kind: "error", id: expect.any(String), timestamp: Date.parse(AT), message: "The model service key is missing or invalid. Check the settings.", retryable: false}]);
+        expect(transcript.messages()).toEqual([{kind: "error", id: expect.any(String), timestamp: Date.parse(AT), message: agentRef("harness.error.auth"), retryable: false}]);
 
         const network = createHarnessTranscript();
         network.applyLogEntry(entry("run_end", {stopReason: "error", error: {kind: "network", status: null, message: "ECONNRESET"}}));
-        expect(network.messages()[0]).toMatchObject({kind: "error", message: "网络连接出错，请稍后重试。", retryable: true});
+        expect(network.messages()[0]).toMatchObject({kind: "error", message: agentRef("harness.error.network"), retryable: true});
     });
 
     // 真实 harness 停止时会先写工具结果与一条中止的助手消息（见 harness.contract.test.ts）；这里测的是日志被截断时的降级。

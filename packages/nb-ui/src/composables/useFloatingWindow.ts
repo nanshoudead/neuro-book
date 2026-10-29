@@ -12,6 +12,8 @@ import {computed, onBeforeUnmount, ref, shallowRef, watch} from "vue";
 import type {CSSProperties, Ref} from "vue";
 import {useElementSize, useWindowSize} from "@vueuse/core";
 
+import type {NbUiTextKey} from "../locales";
+
 /** 缩放方向：正号表示拖动时右/下边界跟随指针，负号表示左/上边界跟随指针。 */
 export type FloatingWindowResizeDirection = {
     width: 0 | 1 | -1;
@@ -20,7 +22,8 @@ export type FloatingWindowResizeDirection = {
 
 export type FloatingWindowResizeHandle = {
     id: string;
-    label: string;
+    /** 读屏名称在 nb-ui 目录里的键；显示时由组件经翻译端口取。 */
+    labelKey: NbUiTextKey;
     orientation?: "vertical" | "horizontal";
     direction: FloatingWindowResizeDirection;
     class: string;
@@ -28,12 +31,12 @@ export type FloatingWindowResizeHandle = {
 
 /** 角落要能任意拖，所以四个角都在；负方向（左/上）拖动时同时改写窗口的 x / y。 */
 export const FLOATING_WINDOW_RESIZE_HANDLES: ReadonlyArray<FloatingWindowResizeHandle> = [
-    {id: "right", label: "调整窗口宽度", orientation: "vertical", direction: {width: 1, height: 0}, class: "inset-y-0 right-0 w-2 cursor-ew-resize"},
-    {id: "bottom", label: "调整窗口高度", orientation: "horizontal", direction: {width: 0, height: 1}, class: "inset-x-0 bottom-0 h-2 cursor-ns-resize"},
-    {id: "bottom-right", label: "调整窗口大小", direction: {width: 1, height: 1}, class: "bottom-0 right-0 h-3 w-3 cursor-nwse-resize"},
-    {id: "bottom-left", label: "调整窗口大小", direction: {width: -1, height: 1}, class: "bottom-0 left-0 h-3 w-3 cursor-nesw-resize"},
-    {id: "top-right", label: "调整窗口大小", direction: {width: 1, height: -1}, class: "top-0 right-0 h-3 w-3 cursor-nesw-resize"},
-    {id: "top-left", label: "调整窗口大小", direction: {width: -1, height: -1}, class: "top-0 left-0 h-3 w-3 cursor-nwse-resize"},
+    {id: "right", labelKey: "floatingWindow.resizeWidth", orientation: "vertical", direction: {width: 1, height: 0}, class: "inset-y-0 right-0 w-2 cursor-ew-resize"},
+    {id: "bottom", labelKey: "floatingWindow.resizeHeight", orientation: "horizontal", direction: {width: 0, height: 1}, class: "inset-x-0 bottom-0 h-2 cursor-ns-resize"},
+    {id: "bottom-right", labelKey: "floatingWindow.resize", direction: {width: 1, height: 1}, class: "bottom-0 right-0 h-3 w-3 cursor-nwse-resize"},
+    {id: "bottom-left", labelKey: "floatingWindow.resize", direction: {width: -1, height: 1}, class: "bottom-0 left-0 h-3 w-3 cursor-nesw-resize"},
+    {id: "top-right", labelKey: "floatingWindow.resize", direction: {width: 1, height: -1}, class: "top-0 right-0 h-3 w-3 cursor-nesw-resize"},
+    {id: "top-left", labelKey: "floatingWindow.resize", direction: {width: -1, height: -1}, class: "top-0 left-0 h-3 w-3 cursor-nwse-resize"},
 ];
 
 /** 按下后移动超过这么多 CSS 像素才算拖动窗口；不到这一步松开就是一次普通的点击。 */

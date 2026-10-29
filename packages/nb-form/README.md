@@ -15,11 +15,26 @@ const issues = validateForm(model, value);                   // 问题按字段�
 Vue 渲染层（`@notnotype/nb-form/vue`）：
 
 ```vue
-<SchemaForm :schema="schema" v-model="value" locale="zh-CN" :options="{providers}" />
-<SchemaField :schema="setting" v-model="value" locale="zh-CN" :id="rowId" bare />
+<SchemaForm :schema="schema" v-model="value" :options="{providers}" />
+<SchemaField :schema="setting" v-model="value" :id="rowId" bare />
 ```
 
 组件合同见 [`SchemaForm.md`](src/vue/SchemaForm.md)、[`SchemaField.md`](src/vue/SchemaField.md)。
+
+## 文字与语言
+
+描述里的文字（标题、说明、占位、单位、选项名、调用方问题的文字）是 nb-ui 的文字值：字符串、目录里的键（`TextRef`），或按语言给出的映射。表单自己的文字（“添加”、问题汇总、按码写出的问题等）在本包自带的消息目录里，命名空间 `nb-form`，源语言 zh-CN（[`docs/specs/ui/i18n.md`](../../docs/specs/ui/i18n.md)）。
+
+- **有宿主**：宿主经 nb-ui 的 `TEXT_PORT_KEY` 注入翻译端口，并登记本包的目录；语言以端口为准，`locale` 属性不起作用。
+
+  ```ts
+  import {NB_FORM_CATALOGS, NB_FORM_NAMESPACE} from "@notnotype/nb-form/locales";
+  engine.register(NB_FORM_NAMESPACE, NB_FORM_CATALOGS, "zh-CN");
+  ```
+
+- **没有宿主**（nbdev 面板、独立页面）：不用注入。`SchemaForm`、`SchemaField` 按 `locale`（缺省 zh-CN）用缺省端口，目录里没有的语言显示中文；描述里写别的命名空间的键时，那份目录要先用 nb-ui 的 `registerDefaultCatalog` 登记进缺省端口，否则显示键名。
+
+核心（`@notnotype/nb-form`）没有目录：`resolveText(text, locale)` 只解析字符串与语言映射，遇到 `TextRef` 返回键名作兜底；界面上的文字由 Vue 层经端口翻译。调用方要在自己的位置写出问题时，在组件的 `setup` 里 `useFormText()` 取得表单所用的端口，交给 `describeIssues(schema, value, issues, text, hints?)`。
 
 ## 安装
 

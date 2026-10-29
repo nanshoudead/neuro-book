@@ -1,5 +1,5 @@
 /**
- * 只给应用的 Component Lab 用的入口：单独挂载内部零件、交出语言与渲染组件、算出轮次样例。不是宿主接口，形状随时会变；
+ * 只给应用的 Component Lab 用的入口：单独挂载内部零件、交出渲染组件与翻译端口、算出轮次样例。不是宿主接口，形状随时会变；
  * 宿主只挂 `AgentConversationView`（`@notnotype/nb-agent-ui/vue`）。
  *
  * 这些零件有同名 `.md` 与 Lab 场景，但不经 `docs:check` 的受管组件机检（只认 `/vue` 入口），标签靠人审。Lab 的场景登记在顶层

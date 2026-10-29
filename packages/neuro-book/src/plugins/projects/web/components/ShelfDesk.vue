@@ -1,20 +1,19 @@
 <script setup lang="ts">
 /** 案头（同名 .md）：统计、最近写到与看板娘；空书架时是问候。只发事件。 */
 import {Button} from "@notnotype/nb-ui/components";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed} from "vue";
 
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 import NeuroBookMood from "nbook/ui/brand/NeuroBookMood.vue";
 
 import {projectDisplayName} from "../../shared/shelf";
 import type {ShelfItem} from "../../shared/shelf";
+import {useProjectsText} from "../text";
 import {continueTarget, formatBooks, formatFiles, formatSigned, formatWhen, formatWords, recentPieces, shelfTotals} from "../shelf-format";
 
 defineOptions({name: "ShelfDesk"});
 
 const props = defineProps<{
-    locale: DisplayLocale;
     items: ReadonlyArray<ShelfItem>;
     now: string;
 }>();
@@ -23,57 +22,46 @@ const emit = defineEmits<{
     (event: "continue", id: string): void;
 }>();
 
-const TEXT = {
-    label: {"zh-CN": "案头", "en-US": "Desk"},
-    todayLabel: {"zh-CN": "今天写了字", "en-US": "words today"},
-    totalLabel: {"zh-CN": "共写了字", "en-US": "words in all"},
-    total: {"zh-CN": "共 {words}", "en-US": "{words} in total"},
-    continueBook: {"zh-CN": "继续写作《{title}》", "en-US": "Continue “{title}”"},
-    recent: {"zh-CN": "最近写到", "en-US": "Recently Written"},
-    noRecord: {"zh-CN": "打开一部作品写几个字，这里会记下你写到哪了。", "en-US": "Open a book and write a little; what you wrote last shows up here."},
-    emptyTitle: {"zh-CN": "书架还是空的", "en-US": "The shelf is empty"},
-    emptyLead: {"zh-CN": "在 NeuroBook 里，一部作品就是你电脑上的一个文件夹：章节、设定都是里面的 Markdown 文件，随时可以备份、同步，或者用别的编辑器打开。", "en-US": "In NeuroBook a book is a folder on your computer: chapters and notes are Markdown files inside it, so you can back it up, sync it, or open it in any editor."},
-} satisfies Record<string, LocalizedText>;
-
-const text = (value: LocalizedText): string => localize(value, props.locale);
+const port = useText();
+const text = useProjectsText();
 const totals = computed(() => shelfTotals(props.items));
 const target = computed(() => continueTarget(props.items));
 const recent = computed(() => recentPieces(props.items, 3));
 const headline = computed(() => (totals.value.today === null
-    ? {number: formatWords(totals.value.words, props.locale).replace(/\s*(字|words)$/u, ""), label: text(TEXT.totalLabel)}
-    : {number: formatSigned(totals.value.today, props.locale), label: text(TEXT.todayLabel)}));
+    ? {number: formatWords(totals.value.words, port).replace(/\s*(字|words)$/u, ""), label: text("shelfDesk.totalLabel")}
+    : {number: formatSigned(totals.value.today, port.locale.value), label: text("shelfDesk.todayLabel")}));
 </script>
 
 <template>
-    <section class="shelf-desk" :class="{'shelf-desk--empty': items.length === 0}" :aria-label="text(TEXT.label)" data-shelf-desk>
+    <section class="shelf-desk" :class="{'shelf-desk--empty': items.length === 0}" :aria-label="text('shelfDesk.label')" data-shelf-desk>
         <!-- 容器查询只对后代生效：section 当容器，网格放在里面这一层，窄时才换得了列模板。 -->
         <div class="shelf-desk__grid">
         <template v-if="items.length === 0">
             <div class="shelf-desk__greeting">
-                <h1 class="shelf-desk__title">{{ text(TEXT.emptyTitle) }}</h1>
-                <p class="shelf-desk__lead">{{ text(TEXT.emptyLead) }}</p>
+                <h1 class="shelf-desk__title">{{ text('shelfDesk.emptyTitle') }}</h1>
+                <p class="shelf-desk__lead">{{ text('shelfDesk.emptyLead') }}</p>
             </div>
         </template>
         <template v-else>
             <div class="shelf-desk__stats" data-shelf-stats>
                 <p class="shelf-desk__headline"><span class="shelf-desk__number">{{ headline.number }}</span><span class="shelf-desk__unit">{{ headline.label }}</span></p>
                 <p class="shelf-desk__totals">
-                    <span v-if="totals.today !== null">{{ text(formatText(TEXT.total, {words: formatWords(totals.words, locale)})) }}</span>
-                    <span>{{ formatFiles(totals.files, locale) }}</span>
-                    <span>{{ formatBooks(totals.books, locale) }}</span>
+                    <span v-if="totals.today !== null">{{ text('shelfDesk.total', {words: formatWords(totals.words, port)}) }}</span>
+                    <span>{{ formatFiles(totals.files, port) }}</span>
+                    <span>{{ formatBooks(totals.books, port) }}</span>
                 </p>
-                <Button v-if="target !== null" variant="primary" class="shelf-desk__continue" data-continue @click="emit('continue', target.id)">{{ text(formatText(TEXT.continueBook, {title: projectDisplayName(target)})) }} →</Button>
+                <Button v-if="target !== null" variant="primary" class="shelf-desk__continue" data-continue @click="emit('continue', target.id)">{{ text('shelfDesk.continueBook', {title: projectDisplayName(target)}) }} →</Button>
             </div>
             <div class="shelf-desk__recent" data-shelf-recent>
-                <h2 class="shelf-desk__eyebrow">{{ text(TEXT.recent) }}</h2>
-                <p v-if="recent.length === 0" class="shelf-desk__none">{{ text(TEXT.noRecord) }}</p>
+                <h2 class="shelf-desk__eyebrow">{{ text('shelfDesk.recent') }}</h2>
+                <p v-if="recent.length === 0" class="shelf-desk__none">{{ text('shelfDesk.noRecord') }}</p>
                 <ul v-else class="shelf-desk__pieces">
                     <li v-for="piece in recent" :key="piece.item.id" class="shelf-desk__piece">
                         <button type="button" class="shelf-desk__piece-button" :data-recent-piece="piece.item.id" @click="emit('continue', piece.item.id)">
                             <span class="shelf-desk__piece-head">
                                 <span class="shelf-desk__piece-book">{{ projectDisplayName(piece.item) }}</span>
                                 <span class="shelf-desk__piece-label">{{ piece.last.label }}</span>
-                                <span class="shelf-desk__piece-when">{{ formatWhen(piece.last.at, now, locale) }}</span>
+                                <span class="shelf-desk__piece-when">{{ formatWhen(piece.last.at, now, port) }}</span>
                             </span>
                             <span v-if="piece.last.excerpt !== ''" class="shelf-desk__piece-excerpt">{{ piece.last.excerpt }}</span>
                         </button>

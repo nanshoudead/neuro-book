@@ -1,105 +1,105 @@
 /**
  * 结果区与内联输入的文字：把控制器给出的失败码、动作与逐项结果换成当前显示语言的说明。常见的失败码换成可读的原因，
- * 不认识的原样带上服务端的说明。
+ * 不认识的原样带上服务端的说明。文字经翻译端口解析（`TextResolver`），在渲染期调用才随语言切换更新。
  */
 
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import type {TextResolver} from "nbook/shared/localized-text";
 
+import {explorerText} from "../shared/text";
+import type {ExplorerTextKey} from "../shared/text";
 import type {ActionName, NameError, Notice, ReportResult, UnavailableReason} from "./controller";
-import {explorerText} from "./messages";
-import type {ExplorerMessage} from "./messages";
 
-const ACTIONS: Readonly<Record<ActionName, ExplorerMessage>> = {
-    "create": "actionCreate",
-    "rename": "actionRename",
-    "delete": "actionDelete",
-    "create-content": "actionCreateContent",
-    "convert": "actionConvert",
-    "display": "actionDisplay",
-    "include": "actionInclude",
-    "drop": "actionDrop",
-    "reorder": "actionReorder",
-    "copy": "actionCopy",
-    "cut": "actionCut",
-    "move": "actionMove",
+const ACTIONS: Readonly<Record<ActionName, ExplorerTextKey>> = {
+    "create": "actions.create",
+    "rename": "actions.rename",
+    "delete": "actions.delete",
+    "create-content": "actions.create-content",
+    "convert": "actions.convert",
+    "display": "actions.display",
+    "include": "actions.include",
+    "drop": "actions.drop",
+    "reorder": "actions.reorder",
+    "copy": "actions.copy",
+    "cut": "actions.cut",
+    "move": "actions.move",
 };
 
-const CODES: Readonly<Record<string, ExplorerMessage>> = {
-    "conflict": "codeConflict",
-    "source-changed": "codeSourceChanged",
-    "permission-denied": "codePermission",
-    "busy": "codeBusy",
-    "not-found": "codeNotFound",
-    "unknown-outcome": "codeUnknown",
-    "document-unsettled": "codeUnsettled",
+const CODES: Readonly<Record<string, ExplorerTextKey>> = {
+    "conflict": "reasons.conflict",
+    "source-changed": "reasons.source-changed",
+    "permission-denied": "reasons.permission-denied",
+    "busy": "reasons.busy",
+    "not-found": "reasons.not-found",
+    "unknown-outcome": "reasons.unknown-outcome",
+    "document-unsettled": "reasons.document-unsettled",
 };
 
-export function actionText(locale: DisplayLocale, action: ActionName): string {
-    return explorerText(locale, ACTIONS[action]);
+export function actionText(text: TextResolver, action: ActionName): string {
+    return text.t(explorerText(ACTIONS[action]));
 }
 
-export function reasonText(locale: DisplayLocale, code: string, detail: string): string {
+export function reasonText(text: TextResolver, code: string, detail: string): string {
     const known = CODES[code];
-    return known === undefined ? `${code}：${detail}` : explorerText(locale, known);
+    return known === undefined ? `${code}：${detail}` : text.t(explorerText(known));
 }
 
-export function noticeText(locale: DisplayLocale, notice: Notice): string {
+export function noticeText(text: TextResolver, notice: Notice): string {
     switch (notice.kind) {
         case "editor-missing":
-            return explorerText(locale, "editorMissing", {address: notice.address});
+            return text.t(explorerText("feedback.notice.editorMissing", {address: notice.address}));
         case "open-failed":
-            return explorerText(locale, "openFailed", {address: notice.address, reason: notice.reason});
+            return text.t(explorerText("feedback.notice.openFailed", {address: notice.address, reason: text.t(notice.reason)}));
         case "failed":
-            return explorerText(locale, "actionFailed", {action: actionText(locale, notice.action), address: notice.address, reason: reasonText(locale, notice.code, notice.detail)});
+            return text.t(explorerText("feedback.notice.failed", {action: actionText(text, notice.action), address: notice.address, reason: reasonText(text, notice.code, notice.detail)}));
         case "manifest":
-            return notice.issues.map((issue) => explorerText(locale, "manifestNotUpdated", {action: actionText(locale, notice.action), path: issue.path, reason: issue.detail})).join("\n");
+            return notice.issues.map((issue) => text.t(explorerText("feedback.manifestNotUpdated", {action: actionText(text, notice.action), path: issue.path, reason: issue.detail}))).join("\n");
     }
 }
 
-export function nameErrorText(locale: DisplayLocale, error: NameError): string {
+export function nameErrorText(text: TextResolver, error: NameError): string {
     switch (error.code) {
         case "empty":
-            return explorerText(locale, "nameEmpty");
+            return text.t(explorerText("nameErrors.empty"));
         case "invalid":
-            return explorerText(locale, "nameInvalid");
+            return text.t(explorerText("nameErrors.invalid"));
         case "conflict":
-            return explorerText(locale, "codeConflict");
+            return text.t(explorerText("reasons.conflict"));
         case "failed":
             return error.detail;
         case "unsettled":
-            return explorerText(locale, "codeUnsettledAt", {documents: error.detail});
+            return text.t(explorerText("nameErrors.unsettled", {documents: error.detail}));
     }
 }
 
-export function itemText(locale: DisplayLocale, result: ReportResult): string {
+export function itemText(text: TextResolver, result: ReportResult): string {
     switch (result.status) {
         case "declined":
-            return explorerText(locale, result.reason === "skip" ? "itemDeclinedSkip" : "itemDeclinedCancel");
+            return text.t(explorerText(result.reason === "skip" ? "feedback.item.declinedSkip" : "feedback.item.declinedCancel"));
         case "done":
-            return explorerText(locale, "itemDone");
+            return text.t(explorerText("feedback.item.done"));
         case "failed":
-            return explorerText(locale, "itemFailed", {reason: reasonText(locale, result.code, result.detail)});
+            return text.t(explorerText("feedback.item.failed", {reason: reasonText(text, result.code, result.detail)}));
         case "skipped":
-            return explorerText(locale, "itemSkipped");
+            return text.t(explorerText("feedback.item.skipped"));
         case "not-run":
-            return explorerText(locale, "itemNotRun");
+            return text.t(explorerText("feedback.item.notRun"));
         case "cancelled":
-            return explorerText(locale, "itemCancelled");
+            return text.t(explorerText("feedback.item.cancelled"));
     }
 }
 
-const UNAVAILABLE: Readonly<Record<UnavailableReason, ExplorerMessage>> = {
-    "no-target": "unavailableNoTarget",
-    "no-selection": "unavailableNoSelection",
-    "not-applicable": "unavailableNotApplicable",
-    "busy": "unavailableBusy",
-    "stopped": "notReady",
-    "unknown-outcome": "unavailableUnknown",
-    "empty-clipboard": "unavailableEmptyClipboard",
-    "cross-root": "unavailableCrossRoot",
-    "copy-failed": "unavailableCopyFailed",
+const UNAVAILABLE: Readonly<Record<UnavailableReason, ExplorerTextKey>> = {
+    "no-target": "unavailable.noTarget",
+    "no-selection": "unavailable.noSelection",
+    "not-applicable": "unavailable.notApplicable",
+    "busy": "unavailable.busy",
+    "stopped": "unavailable.notReady",
+    "unknown-outcome": "unavailable.unknown",
+    "empty-clipboard": "unavailable.emptyClipboard",
+    "cross-root": "unavailable.crossRoot",
+    "copy-failed": "unavailable.copyFailed",
 };
 
-export function unavailableText(locale: DisplayLocale, reason: UnavailableReason): string {
-    return explorerText(locale, UNAVAILABLE[reason]);
+export function unavailableText(text: TextResolver, reason: UnavailableReason): string {
+    return text.t(explorerText(UNAVAILABLE[reason]));
 }

@@ -4,19 +4,19 @@
  * （外壳二），实例层搬进各区域的落点。
  */
 import {Tabs} from "@notnotype/nb-ui/components";
+import {useText} from "@notnotype/nb-ui/text-port";
 import type {GridDropRect, GridOrientation} from "@notnotype/nb-ui/layout";
+import type {TextParams} from "@notnotype/nb-ui/text";
 import {computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 import type {Component} from "vue";
 
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import type {DisplayText} from "nbook/shared/localized-text";
 import TitleActions from "nbook/ui/menus/TitleActions.vue";
 import {NO_TITLE_ACTIONS} from "nbook/ui/menus/title-actions";
 import type {TitleActionsModel} from "nbook/ui/menus/title-actions";
 
 import {
-    PANEL_COMMAND_DECLARATIONS,
     SET_PANEL_ALIGNMENT_COMMAND,
     SET_PANEL_COLLAPSED_COMMAND,
     SET_PANEL_HIDDEN_COMMAND,
@@ -24,6 +24,8 @@ import {
     TOGGLE_PANEL_MAXIMIZED_COMMAND,
 } from "../commands/panel-commands";
 import {MOVE_VIEW_COMMAND, PART_LABELS, newContainerLabel} from "../commands/view-commands";
+import {workbenchText} from "../../shared/text";
+import type {WorkbenchTextKey} from "../../shared/text";
 import {SHELL_PART_IDS} from "../shell/sizes";
 import type {ShellLayoutFacts, ShellPartId, ShellSizePatch} from "../shell/sizes";
 import {TeleportMemory} from "../shell/teleport-memory";
@@ -66,33 +68,13 @@ const props = defineProps<{
     /** 标题栏的菜单与搜索、两侧的条目；没有时标题栏只有品牌与项目名（外壳四之前的样子）。 */
     chrome?: ShellChrome;
     project: string | null;
-    locale: DisplayLocale;
 }>();
 
-const TEXT = {
-    ready: {"zh-CN": "工作台已就绪。没有打开项目。", "en-US": "The workbench is ready. No project is open."},
-    readyWithProject: {"zh-CN": "工作台已就绪。当前项目：{name}", "en-US": "The workbench is ready. Current project: {name}"},
-    panel: {"zh-CN": "面板", "en-US": "Panel"},
-    emptyPart: {"zh-CN": "将视图拖动到此处显示", "en-US": "Drag a view here to show it"},
-    emptyContainer: {"zh-CN": "容器里的视图都已隐藏", "en-US": "All views in this container are hidden"},
-    activityBar: {"zh-CN": "活动栏", "en-US": "Activity Bar"},
-    moveTo: {"zh-CN": "移动到", "en-US": "Move To"},
-    resetLocation: {"zh-CN": "重置位置", "en-US": "Reset Location"},
-    dragLabel: {"zh-CN": "拖动 {title}", "en-US": "Drag {title}"},
-    dragHint: {"zh-CN": "按空格拿起并拖动", "en-US": "Press Space to pick up and drag"},
-    dropMoveView: {"zh-CN": "移到这里", "en-US": "Move here"},
-    dropDetachView: {"zh-CN": "新建容器", "en-US": "New container"},
-    dropMoveContainer: {"zh-CN": "移动容器", "en-US": "Move container"},
-    dropMergeContainer: {"zh-CN": "并入 {count} 个视图", "en-US": "Merge {count} views"},
-    dropReveal: {"zh-CN": "放到{part}", "en-US": "Show in {part}"},
-    more: {"zh-CN": "更多", "en-US": "More"},
-    moreActions: {"zh-CN": "更多操作", "en-US": "More Actions"},
-    dropBefore: {"zh-CN": "放在“{title}”前", "en-US": "Place before “{title}”"},
-    dropAfter: {"zh-CN": "放在“{title}”后", "en-US": "Place after “{title}”"},
-} satisfies Record<string, LocalizedText>;
-
-const text = (value: LocalizedText): string => localize(value, props.locale);
-const welcome = computed(() => (props.project === null ? text(TEXT.ready) : text(formatText(TEXT.readyWithProject, {name: props.project}))));
+const resolver = useText();
+const text = (value: DisplayText): string => resolver.t(value);
+/** 外壳自己的目录文字（命名空间 `nbook.workbench`）；语言随窗口的端口切换。 */
+const message = (key: WorkbenchTextKey, params?: TextParams): string => resolver.t(workbenchText(key, params));
+const welcome = computed(() => (props.project === null ? message("shell.welcome.noProject") : message("shell.welcome.withProject", {name: props.project})));
 
 const state = computed(() => props.layout.state);
 
@@ -106,31 +88,31 @@ const editorContext: EditorAreaContext = {visible: computed(() => state.value.fa
 const editorComponent = computed((): Component | null => {
     const provider = props.editorArea?.current.value ?? null;
     if (provider === null) return null;
-    return editorAreaComponent(provider, () => props.locale);
+    return editorAreaComponent(provider, resolver);
 });
 /** 面板看不见：隐藏或拖到零。状态栏按钮此时是“显示面板”，执行时同时清除这两种（与命令的省略参数同一判断）。 */
 const panelHidden = computed(() => state.value.panel.hidden || state.value.dragCollapsed.panel === true);
 
 /** 框架按钮：可用性问命令系统；先读布局状态，让按钮随它重新求值（命令系统的可用性变化不通知）。 */
-const FRAME: ReadonlyArray<{id: keyof typeof PANEL_COMMAND_DECLARATIONS; icon: string}> = [
-    {id: SET_PANEL_POSITION_COMMAND, icon: "i-lucide-panel-bottom"},
-    {id: SET_PANEL_ALIGNMENT_COMMAND, icon: "i-lucide-align-horizontal-space-between"},
-    {id: SET_PANEL_COLLAPSED_COMMAND, icon: "i-lucide-chevrons-down"},
-    {id: TOGGLE_PANEL_MAXIMIZED_COMMAND, icon: "i-lucide-maximize-2"},
-    {id: SET_PANEL_HIDDEN_COMMAND, icon: "i-lucide-x"},
+const FRAME: ReadonlyArray<{id: string; icon: string; title: WorkbenchTextKey}> = [
+    {id: SET_PANEL_POSITION_COMMAND, icon: "i-lucide-panel-bottom", title: "commands.nbook.view.set-panel-position.title"},
+    {id: SET_PANEL_ALIGNMENT_COMMAND, icon: "i-lucide-align-horizontal-space-between", title: "commands.nbook.view.set-panel-alignment.title"},
+    {id: SET_PANEL_COLLAPSED_COMMAND, icon: "i-lucide-chevrons-down", title: "commands.nbook.view.set-panel-collapsed.title"},
+    {id: TOGGLE_PANEL_MAXIMIZED_COMMAND, icon: "i-lucide-maximize-2", title: "commands.nbook.view.toggle-panel-maximized.title"},
+    {id: SET_PANEL_HIDDEN_COMMAND, icon: "i-lucide-x", title: "commands.nbook.view.set-panel-hidden.title"},
 ];
 const frameActions = computed<ReadonlyArray<PanelFrameAction>>(() => {
     const {panel, ready, facts} = state.value;
     void [panel.position, panel.alignment, panel.hidden, panel.collapsed, panel.maximized, ready, facts?.mode];
-    return FRAME.map(({id, icon}) => {
+    return FRAME.map(({id, icon, title}) => {
         const enabled = props.commands.isEnabled(id);
         const available = enabled.ok && enabled.value;
         return {
             id,
             icon,
-            label: localize(PANEL_COMMAND_DECLARATIONS[id].title, props.locale),
+            label: message(title),
             disabled: !available,
-            ...(enabled.ok ? {} : {reason: enabled.reason}),
+            ...(enabled.ok ? {} : {reason: resolver.t(enabled.reason)}),
             ...(id === SET_PANEL_COLLAPSED_COMMAND ? {pressed: panel.collapsed} : id === TOGGLE_PANEL_MAXIMIZED_COMMAND ? {pressed: panel.maximized} : {}),
         };
     });
@@ -143,7 +125,7 @@ function run(id: string, args: Record<string, unknown> = {}): void {
 /** “打开项目”的命令 id：项目插件的公开合同，工作台不为它依赖项目插件的模块。 */
 const OPEN_PROJECT_COMMAND = "nbook.project.open";
 
-const titleMenus = computed(() => props.chrome?.menus(props.locale) ?? []);
+const titleMenus = computed(() => props.chrome?.menus(resolver) ?? []);
 /** 标题栏三个布局按钮的按下态：区域此刻看得见（未隐藏且未拖到零），与视图菜单的勾选同一判断。 */
 const layoutButtons = computed(() => ({
     sidebar: {pressed: props.layout.actions.partVisible("sidebar"), disabled: !state.value.ready},
@@ -218,7 +200,7 @@ function selectContainer(part: ViewLocation, containerId: string): void {
 const idPrefix = useId();
 const panelTabs = computed(() => presentation.value.parts.panel.switcher.map((item) => ({
     value: item.containerId,
-    attrs: {"data-switcher-entry": item.containerId, "data-drag-container": item.containerId, "aria-description": text(TEXT.dragHint)},
+    attrs: {"data-switcher-entry": item.containerId, "data-drag-container": item.containerId, "aria-description": message('shell.drag.hint')},
     label: text(item.title),
     iconClass: item.icon,
     id: switcherTabId(idPrefix, "panel", item.containerId),
@@ -241,7 +223,7 @@ function moveMenuOf(viewId: string): {groups: MoveTargetGroup[]; source: string;
             createLabel: text(newContainerLabel(group.part)),
         })),
         source: targets.sourceContainerId,
-        resetLabel: targets.canReset ? text(TEXT.resetLocation) : null,
+        resetLabel: targets.canReset ? message('views.resetLocation') : null,
         // 菜单目标身份：视图、来源容器、容器模式、交付状态与实例代际任一变化，已打开的菜单就关闭。
         identity: `${viewId}|${targets.sourceContainerId}|${container?.mode ?? ""}|${props.views.delivery(viewId).kind}|${String(generations.value.get(viewId) ?? 0)}`,
     };
@@ -254,7 +236,7 @@ const instanceOf = (viewId: string): ViewInstanceRef | null => {
 };
 
 /** 视图的标题动作（docs/specs/workbench/views.md 输出 10、11）；Lab 里没有命令服务（没有 chrome）时没有。 */
-const viewActionsOf = (viewId: string): TitleActionsModel => props.chrome?.viewActions(viewId, state.value.catalog.get(viewId)?.actions ?? [], props.locale, instanceOf(viewId)) ?? NO_TITLE_ACTIONS;
+const viewActionsOf = (viewId: string): TitleActionsModel => props.chrome?.viewActions(viewId, state.value.catalog.get(viewId)?.actions ?? [], resolver, instanceOf(viewId)) ?? NO_TITLE_ACTIONS;
 
 const hasViewActions = (viewId: string): boolean => {
     const model = viewActionsOf(viewId);
@@ -393,19 +375,19 @@ const dropFeedback = computed(() => {
     if (preview === null) return {preview: null, label: "", kind: "", count: 0};
     const kind = decision!.kind === "commit" ? decision!.intent.kind : "noop";
     if (decision!.kind === "commit" && decision!.reveal !== undefined) {
-        return {preview: {areaRect: preview.areaRect, entryRect: null, indicator: null, orientation: preview.orientation}, label: text(formatText(TEXT.dropReveal, {part: text(PART_LABELS[decision!.reveal])})), kind, count: preview.count};
+        return {preview: {areaRect: preview.areaRect, entryRect: null, indicator: null, orientation: preview.orientation}, label: message('shell.drop.reveal', {part: text(PART_LABELS[decision!.reveal])}), kind, count: preview.count};
     }
     // 收起分栏前后的插入位：提示说放在谁前后，贴在插入线的末端，不盖住下一行的标题。
     const near = preview.insertion;
     const nearTitle = near === undefined ? undefined : state.value.catalog.get(near.viewId)?.title;
     if (decision!.kind === "commit" && near !== undefined && nearTitle !== undefined) {
-        const label = text(formatText(near.side === "before" ? TEXT.dropBefore : TEXT.dropAfter, {title: text(nearTitle)}));
+        const label = message(near.side === "before" ? "shell.drop.before" : "shell.drop.after", {title: text(nearTitle)});
         return {preview: {areaRect: null, entryRect: null, indicator: preview.indicator, orientation: preview.orientation, labelAt: "line-end" as const}, label, kind, count: preview.count};
     }
-    const label = kind === "move-view" ? text(TEXT.dropMoveView)
-        : kind === "detach-view" ? text(TEXT.dropDetachView)
-            : kind === "move-container" ? text(TEXT.dropMoveContainer)
-                : kind === "merge-container" ? text(formatText(TEXT.dropMergeContainer, {count: preview.count}))
+    const label = kind === "move-view" ? message('shell.drop.moveView')
+        : kind === "detach-view" ? message('shell.drop.detachView')
+            : kind === "move-container" ? message('shell.drop.moveContainer')
+                : kind === "merge-container" ? message('shell.drop.mergeContainer', {count: preview.count})
                     : "";
     return {preview: {areaRect: preview.areaRect, entryRect: null, indicator: preview.indicator, orientation: preview.orientation}, label, kind, count: preview.count};
 });
@@ -430,12 +412,11 @@ const dropFeedback = computed(() => {
         <template #titlebar>
             <WorkbenchTitleBar
                 v-if="chrome !== undefined"
-                :locale="locale"
                 :project="project"
                 :menus="titleMenus"
                 :search-shortcut="chrome.searchShortcut()"
                 :layout="layoutButtons"
-                :items="chrome.titleEntries(locale)"
+                :items="chrome.titleEntries(resolver)"
                 @run="(command, args) => run(command, {...args})"
                 @search="run(OPEN_COMMANDS_ID)"
                 @toggle-part="togglePart"
@@ -449,13 +430,11 @@ const dropFeedback = computed(() => {
         </template>
         <template #activitybar>
             <WorkbenchActivityBar
-                :label="text(TEXT.activityBar)"
+                :label="message('shell.activityBar')"
                 :containers="activityContainers"
                 :selected="presentation.parts.sidebar.selected"
                 :sidebar-visible="sidebarVisible"
-                :drag-hint="text(TEXT.dragHint)"
-                :more-label="text(TEXT.more)"
-                :items="chrome?.activityEntries(locale) ?? []"
+                :items="chrome?.activityEntries(resolver) ?? []"
                 @select="selectSidebarContainer"
                 @run-item="(id) => chrome?.runItem(id)"
             />
@@ -465,20 +444,17 @@ const dropFeedback = computed(() => {
                 :part="part"
                 :presentation="presentation.parts[part]"
                 :selected="selectedOf(part)"
-                :locale="locale"
                 :label="text(PART_LABELS[part])"
-                :empty-text="text(TEXT.emptyPart)"
+                :empty-text="message('shell.empty.part')"
                 :id-prefix="idPrefix"
-                :drag-label="text(TEXT.dragLabel)"
-                :drag-hint="text(TEXT.dragHint)"
                 @select="(id) => selectContainer(part, id)"
                 @target="(element) => setPartTarget(part, element)"
             >
                 <template #actions="{container}">
-                    <TitleActions v-if="singleViewOf(container) !== null && hasViewActions(singleViewOf(container)!)" :model="viewActionsOf(singleViewOf(container)!)" :identity="viewActionsIdentity(singleViewOf(container)!)" :more-label="text(TEXT.moreActions)" @run="(key) => runViewAction(singleViewOf(container)!, key)" />
+                    <TitleActions v-if="singleViewOf(container) !== null && hasViewActions(singleViewOf(container)!)" :model="viewActionsOf(singleViewOf(container)!)" :identity="viewActionsIdentity(singleViewOf(container)!)" :more-label="message('shell.moreActions')" @run="(key) => runViewAction(singleViewOf(container)!, key)" />
                     <WorkbenchMoveViewMenu
                         v-if="singleViewOf(container) !== null && moveMenuOf(singleViewOf(container)!) !== null"
-                        :label="text(TEXT.moveTo)"
+                        :label="message('shell.moveTo')"
                         :view-id="singleViewOf(container)!"
                         :source-container-id="moveMenuOf(singleViewOf(container)!)!.source"
                         :groups="moveMenuOf(singleViewOf(container)!)!.groups"
@@ -498,18 +474,18 @@ const dropFeedback = computed(() => {
             </div>
         </template>
         <template #panel="{collapsed}">
-            <WorkbenchPanelSurface :title="text(TEXT.panel)" :collapsed="collapsed" :actions="frameActions" @action="run">
+            <WorkbenchPanelSurface :title="message('shell.panel')" :collapsed="collapsed" :actions="frameActions" @action="run">
                 <template #nav>
-                    <Tabs v-if="panelTabs.length > 0" class="workbench-shell__panel-tabs" size="sm" overflow="adapt" :max-item-width="96" :more-label="text(TEXT.more)" :baseline="false" :model-value="presentation.parts.panel.selected ?? ''" :items="panelTabs" :aria-label="text(TEXT.panel)" @update:model-value="(id: string) => selectContainer('panel', id)" />
+                    <Tabs v-if="panelTabs.length > 0" class="workbench-shell__panel-tabs" size="sm" overflow="adapt" :max-item-width="96" :more-label="message('common.more')" :baseline="false" :model-value="presentation.parts.panel.selected ?? ''" :items="panelTabs" :aria-label="message('shell.panel')" @update:model-value="(id: string) => selectContainer('panel', id)" />
                     <!--
                         标签带里的工具区：不起拖、不接收投递（外壳三输出 19 行为表最后一行）。条件写在包装上：槽里什么都没渲染时
                         面板要回落显示标题，常驻的空包装会挡掉回落。
                     -->
                     <span v-if="selectedOf('panel') !== null && singleViewOf(selectedOf('panel')!) !== null && (moveMenuOf(singleViewOf(selectedOf('panel')!)!) !== null || hasViewActions(singleViewOf(selectedOf('panel')!)!))" class="workbench-shell__panel-tools" data-no-drag data-hover-actions>
-                        <TitleActions v-if="hasViewActions(singleViewOf(selectedOf('panel')!)!)" :model="viewActionsOf(singleViewOf(selectedOf('panel')!)!)" :identity="viewActionsIdentity(singleViewOf(selectedOf('panel')!)!)" :more-label="text(TEXT.moreActions)" @run="(key) => runViewAction(singleViewOf(selectedOf('panel')!)!, key)" />
+                        <TitleActions v-if="hasViewActions(singleViewOf(selectedOf('panel')!)!)" :model="viewActionsOf(singleViewOf(selectedOf('panel')!)!)" :identity="viewActionsIdentity(singleViewOf(selectedOf('panel')!)!)" :more-label="message('shell.moreActions')" @run="(key) => runViewAction(singleViewOf(selectedOf('panel')!)!, key)" />
                         <WorkbenchMoveViewMenu
                             v-if="moveMenuOf(singleViewOf(selectedOf('panel')!)!) !== null"
-                            :label="text(TEXT.moveTo)"
+                            :label="message('shell.moveTo')"
                             :view-id="singleViewOf(selectedOf('panel')!)!"
                             :source-container-id="moveMenuOf(singleViewOf(selectedOf('panel')!)!)!.source"
                             :groups="moveMenuOf(singleViewOf(selectedOf('panel')!)!)!.groups"
@@ -524,12 +500,9 @@ const dropFeedback = computed(() => {
                     part="panel"
                     :presentation="presentation.parts.panel"
                     :selected="selectedOf('panel')"
-                    :locale="locale"
-                    :label="text(PART_LABELS.panel)"
-                    :empty-text="text(TEXT.emptyPart)"
+                        :label="text(PART_LABELS.panel)"
+                    :empty-text="message('shell.empty.part')"
                     :id-prefix="idPrefix"
-                    :drag-label="text(TEXT.dragLabel)"
-                    :drag-hint="text(TEXT.dragHint)"
                     @select="(id) => selectContainer('panel', id)"
                     @target="(element) => setPartTarget('panel', element)"
                 />
@@ -537,12 +510,11 @@ const dropFeedback = computed(() => {
         </template>
         <template #statusbar>
             <WorkbenchStatusBar
-                :locale="locale"
                 :project="project"
                 :panel-hidden="panelHidden"
                 :panel-toggle-disabled="!state.ready"
                 :problems="state.problems"
-                :items="chrome?.statusEntries(locale) ?? []"
+                :items="chrome?.statusEntries(resolver) ?? []"
                 @run-item="(id) => chrome?.runItem(id)"
                 @toggle-panel="run(SET_PANEL_HIDDEN_COMMAND, {hidden: !panelHidden})"
                 @retry="(record) => layout.actions.retry(record as 'side' | 'panelSize' | 'customizations')"
@@ -557,16 +529,15 @@ const dropFeedback = computed(() => {
         :shown-parts="shownParts"
         :memory="memory"
         :root="hostEl"
-        :locale="locale"
         :disabled="!state.ready"
         @intent="(intent) => layout.actions.applyView(intent)"
         @generations="(next) => (generations = next)"
     >
         <template #view-actions="{viewId}">
-            <TitleActions v-if="hasViewActions(viewId)" :model="viewActionsOf(viewId)" :identity="viewActionsIdentity(viewId)" :more-label="text(TEXT.moreActions)" @run="(key) => runViewAction(viewId, key)" />
+            <TitleActions v-if="hasViewActions(viewId)" :model="viewActionsOf(viewId)" :identity="viewActionsIdentity(viewId)" :more-label="message('shell.moreActions')" @run="(key) => runViewAction(viewId, key)" />
             <WorkbenchMoveViewMenu
                 v-if="moveMenuOf(viewId) !== null"
-                :label="text(TEXT.moveTo)"
+                :label="message('shell.moveTo')"
                 :view-id="viewId"
                 :source-container-id="moveMenuOf(viewId)!.source"
                 :groups="moveMenuOf(viewId)!.groups"
@@ -577,7 +548,7 @@ const dropFeedback = computed(() => {
             />
         </template>
         <template #empty>
-            <div class="workbench-shell__empty">{{ text(TEXT.emptyContainer) }}</div>
+            <div class="workbench-shell__empty">{{ message('shell.empty.container') }}</div>
         </template>
     </WorkbenchViewInstances>
     <WorkbenchDragFeedback :ghost="dragGhost" :zones="revealZones" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :count="dropFeedback.count" @settled="settle = null" />

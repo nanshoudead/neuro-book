@@ -23,15 +23,15 @@ import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import type {RemoteContract, RemoteEventSpec, RemoteMethodSpec, RemoteProviderLocation, RemoteProvision} from "@notnotype/nb-runtime/remote";
 import type {ResolveOptions, ResolveResult, ServiceDependency, ServiceKey} from "@notnotype/nb-runtime/services";
 
-import type {LocalizedText} from "nbook/shared/localized-text";
+import type {Text} from "@notnotype/nb-ui/text";
+
 import {DESCRIPTOR_CHECK} from "nbook/plugin-platform/shared/descriptor-check";
 
-/** 界面文字：一个字符串时两种界面语言显示同一句。 */
-export type Text = string | LocalizedText;
-
-export function localizedText(text: Text): LocalizedText {
-    return typeof text === "string" ? {"zh-CN": text, "en-US": text} : text;
-}
+/**
+ * 界面文字（docs/specs/ui/i18n.md）：字符串是不翻译的字面文字，语言映射按界面语言取，文字引用查插件自己的目录。助手的文字
+ * 字段原样写进声明；省略的标题由宿主登记时补成约定键。
+ */
+export type {Text};
 
 declare const boundPoint: unique symbol;
 

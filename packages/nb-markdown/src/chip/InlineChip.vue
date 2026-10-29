@@ -1,17 +1,17 @@
 <script setup lang="ts">
 /**
  * 行内小块（同名 .md）：外观的判断在 `chip.ts`，与编辑器、展示器的普通 DOM 共用。宿主的目标分类与文件图标经属性 `env` 给，
- * 不 inject：调用它的组件（PromptEditor 的节点视图、PromptTextView）从宿主取了再传下来。
+ * 不 inject 宿主：调用它的组件（PromptEditor 的节点视图、PromptTextView）从宿主取了再传下来。悬停提示的文字读翻译端口
+ * （`useMarkdownText`）。
  */
 import {computed, ref, watchPostEffect} from "vue";
 
-import type {MarkdownLocale} from "../locale";
+import {useMarkdownText} from "../host/text";
 import {chipView, defaultChipEnv, renderChipIcon} from "./chip";
 import type {ChipEnv, InlineChipKind} from "./chip";
 
 const props = withDefaults(defineProps<{
     kind: InlineChipKind;
-    locale: MarkdownLocale;
     env?: ChipEnv;
     label?: string;
     target?: string;
@@ -40,7 +40,8 @@ const emit = defineEmits<{
     (e: "hover", active: boolean): void;
 }>();
 
-const view = computed(() => chipView({kind: props.kind, label: props.label, target: props.target, base: props.base, number: props.number, state: props.state, error: props.error, locale: props.locale}, props.env));
+const {port} = useMarkdownText();
+const view = computed(() => chipView({kind: props.kind, label: props.label, target: props.target, base: props.base, number: props.number, state: props.state, error: props.error, translate: (text) => port.t(text)}, props.env));
 
 /** 宿主画的图标（文件图标）是一个元素，渲染之后挂进这个不占位的 span；换了图标就换元素。 */
 const iconHost = ref<HTMLElement | null>(null);

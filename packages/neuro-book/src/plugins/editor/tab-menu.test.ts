@@ -24,6 +24,15 @@ import type {EditorArea} from "./web/area";
 import {copyTabPath} from "./web/commands";
 import {createEditorTabMenu} from "./web/tab-menu";
 import type {TabMenuEntry} from "./web/tab-menu";
+import {diagnosticText} from "nbook/shared/localized-text";
+import {testTextPort} from "nbook/shared/testing/text-port";
+import {editorText} from "./shared/text";
+import type {EditorTextKey} from "./shared/text";
+import {editorCatalogs} from "./web/text";
+
+/** 窗口同款的翻译端口，登记了编辑器的目录（严格模式：缺键直接抛错）；断言里的界面文字经它从目录取。 */
+const zh = testTextPort("zh-CN", {"nbook.editor": editorCatalogs});
+const shown = (key: EditorTextKey): string => zh.t(editorText(key));
 
 let tmp = "";
 let counter = 0;
@@ -95,12 +104,12 @@ describe("Spec workbench.editor 输出 57：标签的右键菜单", () => {
         const {area, menu} = await world([{id: "acme.count", declaration: {section: "1", command: ACME, extensions: [".md"], context: "resource"}}], false);
         area.open("project://b.md", {mode: "permanent"});
         const b = tabOf(area, "project://b.md");
-        expect(labels(menu.entries(b, "zh-CN"))).toEqual(["关闭", "关闭其他", "关闭右侧", "关闭已保存", "---", "固定", "---", "向右拆分", "向下拆分", "---", "复制路径", "复制相对路径", "在资源管理器中显示（禁用）", "---", ACME]);
+        expect(labels(menu.entries(b, zh))).toEqual([shown("tabMenu.close"), shown("tabMenu.closeOthers"), shown("tabMenu.closeToRight"), shown("tabMenu.closeSaved"), "---", shown("tabMenu.pin"), "---", shown("tabMenu.splitRight"), shown("tabMenu.splitDown"), "---", shown("tabMenu.copyPath"), shown("tabMenu.copyRelativePath"), `${shown("tabMenu.reveal")}（禁用）`, "---", ACME]);
         area.setPinned(b, true);
-        expect(labels(menu.entries(b, "zh-CN"))).toContain("取消固定");
+        expect(labels(menu.entries(b, zh))).toContain(shown("tabMenu.unpin"));
         const page = area.openPage("nbook.projects.welcome");
-        if (!page.ok) throw new Error(page.reason);
-        expect(labels(menu.entries(page.tabId, "zh-CN"))).toEqual(["关闭", "关闭其他", "关闭右侧", "关闭已保存"]);
+        if (!page.ok) throw new Error(diagnosticText(page.reason));
+        expect(labels(menu.entries(page.tabId, zh))).toEqual([shown("tabMenu.close"), shown("tabMenu.closeOthers"), shown("tabMenu.closeToRight"), shown("tabMenu.closeSaved")]);
     });
 
     it("作用于被右击的标签、不先激活它：活动的是另一组里的页面时，右击 B 拆分、复制路径、贡献的项都作用于 B", async () => {
@@ -110,7 +119,7 @@ describe("Spec workbench.editor 输出 57：标签的右键菜单", () => {
         const a = tabOf(area, "project://notes/a.md");
         expect(area.split("right")).toEqual({ok: true});
         const page = area.openPage("nbook.projects.welcome");
-        if (!page.ok) throw new Error(page.reason);
+        if (!page.ok) throw new Error(diagnosticText(page.reason));
         menu.run(a, "own:copy-relative-path");
         menu.run(a, "own:copy-path");
         menu.run(a, "acme.count");
@@ -138,6 +147,6 @@ describe("Spec workbench.editor 输出 57：标签的右键菜单", () => {
         expect(menu.identity(b)).not.toBe(moved);
         expect(await area.close(b)).toBe("closed");
         expect(menu.identity(b)).toBeNull();
-        expect(menu.entries(b, "zh-CN")).toBeNull();
+        expect(menu.entries(b, zh)).toBeNull();
     });
 });

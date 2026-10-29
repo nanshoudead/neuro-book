@@ -119,6 +119,16 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - `Kbd`：实体键盘键帽快捷键展示组件（`sm` / `md` / `lg`）。
 - `Table` / `Spinner` / `Skeleton` / `EmptyState`：数据表格与异步骨架/空状态指示。
 
+## Interface text
+
+界面文字的值与翻译端口，行为合同见 [`ui/i18n`](../../docs/specs/ui/i18n.md)：
+
+- `@notnotype/nb-ui/text`：`Text`、`TextRef`、`LocaleMap` 与判别、`resolveLocaleMap`、参数整理。纯 TS，不引 Vue，服务端也能用。
+- `@notnotype/nb-ui/text-port`：`TEXT_PORT_KEY`、`useText()`、`defaultTextPort()`、`provideDefaultText(locale)` 与 `registerDefaultCatalog(ns, catalogs, source?)`。宿主在每个 Vue 根上注入自己的端口；没有注入时得到 nb-ui 的缺省端口（`zh-CN`，最小实现），目录是所有已导入的共享包登记的：nb-ui、nb-agent-ui、nb-form、nb-markdown 的 Vue 层在导入时各自登记，所以几个共享包嵌在一起、上面没有宿主时都翻得出来。共享包的根组件调用 `provideDefaultText(locale)`：上面有注入的端口就用它，没有时按 `locale` 建一个缺省端口给子树（合法的语言标签取规范写法，不合法的按 `zh-CN`）。登记表挂在 `globalThis` 上（`Symbol.for("nb-ui.default-catalogs")`），出现两份 nb-ui 模块时也共用一张。
+- `@notnotype/nb-ui/locales`：nb-ui 自带的目录（命名空间 `nb-ui`），宿主在引导时登记。写成 `.ts` 模块，消费方不需要开 `resolveJsonModule`。
+
+组件的缺省文案（未传属性时的读屏名称、空态与按钮文字，例如 `Dialog` 的 `closeLabel`、`NumberInput` 的 `incrementLabel`、`Table` 的 `emptyText`）走翻译端口，取自这份目录：宿主注入了端口就跟着端口的语言，换语言不重新挂载；没有宿主时是中文。调用方显式传属性时以属性为准，宿主要给某处不同的文案，传属性即可。这些组件在同名 `.md` 里标 `state:inject`。组件内部用 `useUiText()`（`@notnotype/nb-ui/text-port`）取，键类型从中文目录推出，写错键编译不过。
+
 ## Styles in the host app
 
 nb-ui is styled with Tailwind v4 and ships no precompiled CSS. The host's CSS imports Tailwind first,

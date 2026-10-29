@@ -95,8 +95,8 @@ type PromptEditorToken =
 interface PromptEditorProps {
     /** 必填，受控：只在版本号变化时读入。 */
     draft: PromptEditorDraft;
-    /** 必填：界面语言，决定按钮、提示与说明的文字；换了随即换文字，正文不变。 */
-    locale: MarkdownLocale;
+    /** 界面语言：只在上面没有注入翻译端口时起作用，决定按钮、提示与说明的文字；换了随即换文字，正文不变。缺省 zh-CN。 */
+    locale?: MarkdownLocale;
     /** 空正文时的提示，也是可访问名称的兜底；默认空字符串。 */
     placeholder?: string;
     /** 默认空字符串。 */
@@ -191,6 +191,7 @@ interface PromptEditorExpose {
 - **菜单画在外框之外**：外框的祖先在菜单所在方向上不能裁剪（`overflow: hidden`）。放在滚动容器里时用 `menuPlacement: "below"`，菜单会撑出滚动内容而不是被裁掉。
 - **`attachments` 要覆盖发出过的每个 `localId`**，直到它就绪或收到 `attachment-remove`；缺了的项按“上传中”显示。
 - **未就绪的附件不在文字里**：宿主不能拿 `change` 的文字判断附件是否都已就绪，要看 `attachments`。
+- **界面文字**：界面文字读宿主注入的翻译端口（nb-ui 的 `TEXT_PORT_KEY`，宿主要登记本包的目录 `@notnotype/nb-markdown/locales`），语言以端口为准；上面没有注入时按 `locale`（缺省 zh-CN）建缺省端口，提供给子组件与嵌套的 nb-ui 控件（[README](../../README.md#界面文字)）。节点视图（小块、粘贴块）经编辑内核拿到同一个端口。
 - **编号只在一次编辑里稳定**：重新读入文字时，没有编号的旧图片按顺序补号；删掉的号留下的空缺在下次读入时不会被填上，也不会被重排。
 
 ## 不支持
@@ -202,4 +203,4 @@ interface PromptEditorExpose {
 - [`PromptAttachmentStrip`](PromptAttachmentStrip.md)：附件条。
 - nb-ui 的 `SuggestionMenu`：候选菜单与输入历史搜索；正文区的 `aria-activedescendant` 用 nb-ui 导出的 `suggestionOptionId`。
 - [`PromptTokenView`](PromptTokenView.md)、[`PromptPasteBlockView`](PromptPasteBlockView.md)：小块与粘贴块的节点视图；粘贴块的外框是 [`PromptPasteFrame`](PromptPasteFrame.md)，与 [`PromptTextView`](PromptTextView.md) 共用。
-- 文字写法在 `prompt-text.ts`，编辑内核的扩展在 `prompt-editor-extensions.ts`，附件簿记在 `prompt-attachments.ts`，界面文字在 `prompt-labels.ts`。
+- 文字写法在 `prompt-text.ts`，编辑内核的扩展在 `prompt-editor-extensions.ts`，附件簿记在 `prompt-attachments.ts`，界面文字在本包的目录（`../locales`）。

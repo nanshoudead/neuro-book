@@ -12,10 +12,13 @@ import {lstat} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
+import {catalogFile} from "@notnotype/nb-runtime/plugin-manifest";
+import type {ManifestFormat} from "@notnotype/nb-runtime/plugin-manifest";
 
 import {errno} from "nbook/backend/locked-replace";
-import {parsePluginFilePath} from "nbook/plugin-platform/shared/plugin-files";
+import {parsePluginCatalogPath, parsePluginFilePath} from "nbook/plugin-platform/shared/plugin-files";
 
+import {manifestOfInstalled} from "./installed";
 import type {InstalledPlugin} from "./installed";
 
 const SECURITY_HEADERS = {"cross-origin-resource-policy": "same-origin", "x-content-type-options": "nosniff"} as const;
@@ -68,5 +71,38 @@ export function pluginFileHandler(installed: ReadonlyArray<InstalledPlugin>, rec
         }
         const body = Bun.file(file.path);
         return new Response(body, {headers: {"content-type": body.type, "cache-control": "public, max-age=31536000, immutable", ...SECURITY_HEADERS}});
+    };
+}
+
+/**
+ * 消息目录端点（docs/specs/runtime/plugin-code-loading.md 的目录端点）：只读清单 `l10n.locales` 列出的 `locales/<语言>.json`，
+ * 原样返回，不执行插件代码、不检查内容（窗口用与安装相同的规则检查，坏了记为该插件的目录问题）。服务本次启动有效安装的全部
+ * 插件，包括没有浏览器入口、不在浏览器登记的：它们的文字也要在窗口里显示。地址带版本目录的摘要，与插件文件端点同一种缓存。
+ */
+export function pluginCatalogHandler(installed: ReadonlyArray<InstalledPlugin>, format: ManifestFormat, record: (input: DiagnosticInput) => void): (pathname: string) => Promise<Response> {
+    const served = new Map<string, {readonly plugin: InstalledPlugin; readonly locales: ReadonlySet<string>}>();
+    for (const plugin of installed) {
+        const read = manifestOfInstalled(plugin, format);
+        if (!read.ok) {
+            // 启动时已校验过；读不了说明两处规则不一致。不提供它的目录，窗口那边得到 404。
+            record({level: "warn", event: "plugins.catalogs.manifest-unreadable", message: `插件 ${plugin.id} 的清单读不了，不提供它的消息目录`, data: {plugin: plugin.id, detail: read.detail}});
+            continue;
+        }
+        if (read.manifest.l10n !== null) served.set(plugin.id, {plugin, locales: new Set(read.manifest.l10n.locales)});
+    }
+    return async (pathname) => {
+        const parsed = parsePluginCatalogPath(pathname);
+        if (parsed === null) return failure(400, "消息目录的路径不合法");
+        const {plugin, digest, locale} = parsed;
+        const current = served.get(plugin);
+        if (current === undefined || current.plugin.digest !== digest) return failure(404, "没有这份消息目录：插件没有有效安装、没有目录，或地址里的内容摘要不是当前的");
+        if (!current.locales.has(locale)) return failure(404, "没有这份消息目录：清单 l10n.locales 里没有这种语言");
+        const file = await regularFile(current.plugin.root, catalogFile(locale).split("/"));
+        if (file === "missing") return failure(404, "没有这份消息目录");
+        if ("error" in file) {
+            record({level: "warn", event: "plugins.catalogs.read-failed", message: `读不了插件 ${plugin} 的消息目录`, data: {plugin, locale}, error: file.error});
+            return failure(500, "读不了这份消息目录");
+        }
+        return new Response(Bun.file(file.path), {headers: {"content-type": "application/json; charset=utf-8", "cache-control": "public, max-age=31536000, immutable", ...SECURITY_HEADERS}});
     };
 }

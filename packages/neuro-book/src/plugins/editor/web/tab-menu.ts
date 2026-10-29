@@ -9,13 +9,14 @@
 import {arrangeMenu} from "nbook/plugins/commands/shared/contracts";
 import type {CommandService, KeyPlatform} from "nbook/plugins/commands/shared/contracts";
 import type {PublicStateService} from "nbook/plugins/state/shared/contracts";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
-import {localize} from "nbook/shared/localized-text";
+import {diagnosticText} from "nbook/shared/localized-text";
+import type {DisplayText, TextResolver} from "nbook/shared/localized-text";
 
 import type {EditorTabContextItemDeclaration} from "../shared/contracts";
+import {editorText} from "../shared/text";
 import type {ActionResult, EditorArea} from "./area";
 import type {EditorTab} from "./groups/groups";
-import {nameOf} from "./messages";
+import {nameOf} from "./documents/address";
 
 /** 资源管理器的“在资源管理器中显示”（docs/specs/workbench/files-explorer.md）：命令 id 是公开接口，不引它的插件代码。 */
 const REVEAL_COMMAND = "nbook.files.reveal";
@@ -28,7 +29,7 @@ type MenuArea = Pick<EditorArea, "groups" | "close" | "closeOthers" | "closeToRi
 
 interface OwnAction {
     readonly key: string;
-    readonly label: LocalizedText;
+    readonly label: DisplayText;
     /** 这个标签有没有这一项（页面标签没有路径与拆分）。 */
     readonly shown: (tab: EditorTab) => boolean;
     readonly run: (area: MenuArea, tab: EditorTab, copy: (tab: EditorTab, relative: boolean) => Promise<ActionResult>) => Promise<ActionResult> | ActionResult;
@@ -37,7 +38,7 @@ interface OwnAction {
 const file = (tab: EditorTab): boolean => tab.kind === "file";
 const pinned = (tab: EditorTab): boolean => tab.kind === "file" && tab.pinned === true;
 const always = (): boolean => true;
-const batch = async (result: Promise<{readonly ok: boolean; readonly reason?: string}>): Promise<ActionResult> => {
+const batch = async (result: Promise<{readonly ok: boolean; readonly reason?: DisplayText}>): Promise<ActionResult> => {
     const settled = await result;
     return settled.ok ? {ok: true} : {ok: false, reason: settled.reason ?? ""};
 };
@@ -45,26 +46,26 @@ const batch = async (result: Promise<{readonly ok: boolean; readonly reason?: st
 /** 编辑器自己的项，按节排。 */
 const OWN: ReadonlyArray<ReadonlyArray<OwnAction>> = [
     [
-        {key: "own:close", label: {"zh-CN": "关闭", "en-US": "Close"}, shown: always, run: async (area, tab) => {
+        {key: "own:close", label: editorText("tabMenu.close"), shown: always, run: async (area, tab) => {
             // 用户在询问里取消不是失败。
             await area.close(tab.id);
             return {ok: true};
         }},
-        {key: "own:close-others", label: {"zh-CN": "关闭其他", "en-US": "Close Others"}, shown: always, run: (area, tab) => batch(area.closeOthers(tab.id))},
-        {key: "own:close-to-right", label: {"zh-CN": "关闭右侧", "en-US": "Close to the Right"}, shown: always, run: (area, tab) => batch(area.closeToRight(tab.id))},
-        {key: "own:close-saved", label: {"zh-CN": "关闭已保存", "en-US": "Close Saved"}, shown: always, run: (area, tab) => batch(area.closeSaved(tab.id))},
+        {key: "own:close-others", label: editorText("tabMenu.closeOthers"), shown: always, run: (area, tab) => batch(area.closeOthers(tab.id))},
+        {key: "own:close-to-right", label: editorText("tabMenu.closeToRight"), shown: always, run: (area, tab) => batch(area.closeToRight(tab.id))},
+        {key: "own:close-saved", label: editorText("tabMenu.closeSaved"), shown: always, run: (area, tab) => batch(area.closeSaved(tab.id))},
     ],
     [
-        {key: "own:pin", label: {"zh-CN": "固定", "en-US": "Pin"}, shown: (tab) => file(tab) && !pinned(tab), run: (area, tab) => area.setPinned(tab.id, true)},
-        {key: "own:unpin", label: {"zh-CN": "取消固定", "en-US": "Unpin"}, shown: pinned, run: (area, tab) => area.setPinned(tab.id, false)},
+        {key: "own:pin", label: editorText("tabMenu.pin"), shown: (tab) => file(tab) && !pinned(tab), run: (area, tab) => area.setPinned(tab.id, true)},
+        {key: "own:unpin", label: editorText("tabMenu.unpin"), shown: pinned, run: (area, tab) => area.setPinned(tab.id, false)},
     ],
     [
-        {key: "own:split-right", label: {"zh-CN": "向右拆分", "en-US": "Split Right"}, shown: file, run: (area, tab) => area.split("right", tab.id)},
-        {key: "own:split-down", label: {"zh-CN": "向下拆分", "en-US": "Split Down"}, shown: file, run: (area, tab) => area.split("down", tab.id)},
+        {key: "own:split-right", label: editorText("tabMenu.splitRight"), shown: file, run: (area, tab) => area.split("right", tab.id)},
+        {key: "own:split-down", label: editorText("tabMenu.splitDown"), shown: file, run: (area, tab) => area.split("down", tab.id)},
     ],
     [
-        {key: "own:copy-path", label: {"zh-CN": "复制路径", "en-US": "Copy Path"}, shown: file, run: (_area, tab, copy) => copy(tab, false)},
-        {key: "own:copy-relative-path", label: {"zh-CN": "复制相对路径", "en-US": "Copy Relative Path"}, shown: file, run: (_area, tab, copy) => copy(tab, true)},
+        {key: "own:copy-path", label: editorText("tabMenu.copyPath"), shown: file, run: (_area, tab, copy) => copy(tab, false)},
+        {key: "own:copy-relative-path", label: editorText("tabMenu.copyRelativePath"), shown: file, run: (_area, tab, copy) => copy(tab, true)},
     ],
 ];
 const REVEAL_KEY = "own:reveal";
@@ -74,7 +75,7 @@ const NONE: ReadonlySet<string> = new Set();
 
 export interface EditorTabMenu {
     /** 标签的菜单；标签已不在为 null。响应式：在 computed 或渲染函数里读。 */
-    entries(tabId: string, locale: DisplayLocale): ReadonlyArray<TabMenuEntry> | null;
+    entries(tabId: string, text: TextResolver): ReadonlyArray<TabMenuEntry> | null;
     /** 菜单身份：组、地址与编辑器，任一变化（或标签已关）时打开着的菜单关闭。 */
     identity(tabId: string): string | null;
     /** 点了一项：按 key 找回动作，带这个标签执行；标签已不在时不执行。 */
@@ -96,21 +97,21 @@ export function createEditorTabMenu(options: {
     const find = (tabId: string) => options.area()?.groups.find(tabId) ?? null;
     const execute = (command: string, args: Record<string, unknown>): void => {
         void options.commands.execute(command, args, {source: "user"}).then((result) => {
-            if (!result.ok) options.report(command, `${result.code}：${result.reason}`);
+            if (!result.ok) options.report(command, `${result.code}：${diagnosticText(result.reason)}`);
         });
     };
     return {
-        entries: (tabId, locale) => {
+        entries: (tabId, text) => {
             const found = find(tabId);
             if (found === null) return null;
             const {tab} = found;
-            const own = OWN.map((section) => section.filter((action) => action.shown(tab)).map((action): TabMenuEntry => ({kind: "item", key: action.key, label: localize(action.label, locale), disabled: false, reason: null, shortcut: null})));
+            const own = OWN.map((section) => section.filter((action) => action.shown(tab)).map((action): TabMenuEntry => ({kind: "item", key: action.key, label: text.t(action.label), disabled: false, reason: null, shortcut: null})));
             // “在资源管理器中显示”是资源管理器的命令：可用与否照它自己的 `when`（资源管理器还没就绪时禁用）。
             const reveal = options.commands.get(REVEAL_COMMAND);
             if (file(tab) && reveal.ok) {
                 const enabled = options.commands.isEnabled(REVEAL_COMMAND);
-                const label = localize({"zh-CN": "在资源管理器中显示", "en-US": "Reveal in Explorer"}, locale);
-                own[own.length - 1]?.push({kind: "item", key: REVEAL_KEY, label, disabled: !(enabled.ok && enabled.value), reason: enabled.ok ? (enabled.value ? null : label) : enabled.reason, shortcut: null});
+                const label = text.t(editorText("tabMenu.reveal"));
+                own[own.length - 1]?.push({kind: "item", key: REVEAL_KEY, label, disabled: !(enabled.ok && enabled.value), reason: enabled.ok ? (enabled.value ? null : label) : text.t(enabled.reason), shortcut: null});
             }
             const address = tab.kind === "file" ? tab.address : null;
             const contributed = arrangeMenu(options.items(), {
@@ -123,7 +124,7 @@ export function createEditorTabMenu(options: {
                     const read = options.state.read(key);
                     return read.status === "ready" && read.value === true;
                 },
-                locale,
+                text,
                 platform: options.platform,
                 current: address === null ? null : [nameOf(address)],
                 contexts: address === null ? NONE : RESOURCE,
@@ -147,7 +148,7 @@ export function createEditorTabMenu(options: {
             const own = OWN.flat().find((action) => action.key === key);
             if (own !== undefined) {
                 void Promise.resolve(own.run(area, found.tab, options.copy)).then((result) => {
-                    if (!result.ok) options.report(key, result.reason);
+                    if (!result.ok) options.report(key, diagnosticText(result.reason));
                 });
                 return;
             }

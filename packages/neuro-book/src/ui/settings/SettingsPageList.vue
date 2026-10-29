@@ -5,12 +5,12 @@
  *
  * 值永远由调用方改：点一行发 `update:modelValue(id)`，返回发 `update:modelValue(null)`，组件自己不记“打开了哪一项”。
  */
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, onBeforeUnmount, ref, watch} from "vue";
 
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
-
 import {usePageChrome} from "./page-chrome";
+import {settingsUiText} from "./text";
+import type {SettingsUiKey} from "./text";
 
 /** 状态文字的色调：成功、警告、出错各取对应的状态色，淡色（缺省）取次要文字色。 */
 export type SettingsPageListTone = "success" | "warning" | "error" | "muted";
@@ -30,15 +30,13 @@ export interface SettingsPageListItem {
 
 defineOptions({name: "SettingsPageList"});
 
-const props = withDefaults(defineProps<{
+const props = defineProps<{
     items: ReadonlyArray<SettingsPageListItem>;
     /** 打开的项的 id；`null` 是列表。 */
     modelValue: string | null;
     /** 列表的可访问名称。 */
     label: string;
-    /** 显示语言，只用于“返回”“有改动”两处固定文字；缺省简体中文。 */
-    locale?: DisplayLocale;
-}>(), {locale: "zh-CN"});
+}>();
 
 const emit = defineEmits<{
     (event: "update:modelValue", id: string | null): void;
@@ -49,11 +47,9 @@ defineSlots<{
     default?(props: {item: SettingsPageListItem}): unknown;
 }>();
 
-const TEXT = {
-    back: {"zh-CN": "返回", "en-US": "Back"},
-    modified: {"zh-CN": "有改动", "en-US": "Modified"},
-} satisfies Record<string, LocalizedText>;
-const text = (template: LocalizedText): string => localize(formatText(template, {}), props.locale);
+/** “返回”“有改动”两处固定文字在 `nbook.settings` 的目录里，经宿主注入的翻译端口翻译。 */
+const port = useText();
+const text = (key: SettingsUiKey): string => port.t(settingsUiText(key));
 
 const chrome = usePageChrome();
 const root = ref<HTMLElement | null>(null);
@@ -113,7 +109,7 @@ async function goBack(): Promise<void> {
                     <span class="settings-page-list__text">
                         <span class="settings-page-list__title">
                             <span class="settings-page-list__title-text">{{ item.title }}</span>
-                            <span v-if="item.modified === true" class="settings-page-list__dot" role="img" :aria-label="text(TEXT.modified)" data-settings-page-list-modified></span>
+                            <span v-if="item.modified === true" class="settings-page-list__dot" role="img" :aria-label="text('pageList.modified')" data-settings-page-list-modified></span>
                         </span>
                         <span v-if="item.description !== undefined" class="settings-page-list__description">{{ item.description }}</span>
                     </span>
@@ -126,7 +122,7 @@ async function goBack(): Promise<void> {
             <!-- 在设置窗口里返回在标题区；没有窗口（例如 Lab 单独渲染）时详情上方自己画一行。 -->
             <button v-if="chrome === null" type="button" class="settings-page-list__back nb-ui-focus-ring" data-settings-page-list-back @click="goBack">
                 <span class="i-lucide-chevron-left" aria-hidden="true"></span>
-                <span>{{ text(TEXT.back) }}</span>
+                <span>{{ text('pageList.back') }}</span>
             </button>
             <slot :item="opened" />
         </div>

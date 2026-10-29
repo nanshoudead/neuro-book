@@ -1,5 +1,5 @@
 ---
-标签: [env:timer]
+标签: [state:inject, env:timer]
 ---
 
 # NotificationStack
@@ -28,7 +28,7 @@ type NotificationPosition = "bottom-center" | "bottom-right" | "top-right";
 interface NotificationStackProps {
     /** 通知堆叠位置；默认 "bottom-center"。 */
     position?: NotificationPosition;
-    /** 每条通知关闭按钮的可访问名称与 title；默认 "关闭通知"。 */
+    /** 每条通知关闭按钮的可访问名称与 title；不给则每条通知按界面语言取缺省（中文 "关闭通知"）。 */
     closeLabel?: string;
     /** 显示哪份队列；默认 `useNotification()` 的缺省队列。挂载时取定，之后换 prop 不生效，换队列应换一个视口实例。 */
     queue?: NotificationQueue;
@@ -43,7 +43,7 @@ interface NotificationStackSlots {}
 ## 状态与边界
 
 - 空队列：容器内没有通知。
-- 有通知：按队列顺序堆叠；通知的 tone、标题、消息、动作、进度和时长来自队列里的 `NotificationItem`。
+- 有通知：按队列顺序堆叠；通知的 tone、标题、消息、动作、进度和时长来自队列里的 `NotificationItem`，其中标题、消息与动作名是文字值，渲染时按当前语言翻译。
 - 视口强制每条通知 `dismissible: true`，所以视口中总有关闭按钮。
 - 本组件没有禁用、只读、加载或错误状态。
 
@@ -55,3 +55,5 @@ interface NotificationStackSlots {}
 ## 隐藏通道理由
 
 `env:timer`：自动关闭计时器由队列管理，视口在悬停时暂停、离开时恢复该计时器。计时与通知队列生命周期相同，集中在队列里处理。
+
+`state:inject`（翻译端口）：队列里通知的标题、消息与动作名是文字值（字符串、语言映射或文字引用），本组件在渲染时经注入的翻译端口翻成当前语言，切换语言后已显示的通知跟着换文字；字符串原样显示。关闭按钮的缺省名称由 `Notification` 经翻译端口取（见 [`Notification.md`](Notification.md) 的隐藏通道理由）。`closeLabel` 给了就原样传给每条通知，不给则不传。

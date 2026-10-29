@@ -22,6 +22,8 @@ export async function browserHostModules(): Promise<Readonly<Record<BrowserShare
         "typebox/value": () => import("typebox/value"),
         "typebox/compile": () => import("typebox/compile"),
         "@notnotype/nb-plugin-sdk": () => import("../../src/sdk/index"),
+        "@notnotype/nb-plugin-sdk/text": () => import("../../src/sdk/text"),
+        "@notnotype/nb-plugin-sdk/text/browser": () => import("../../src/sdk/text-browser"),
         "@notnotype/nb-plugin-sdk/state": () => import("../../src/sdk/state"),
         "@notnotype/nb-plugin-sdk/storage": () => import("../../src/sdk/storage"),
         "@notnotype/nb-plugin-sdk/settings": () => import("../../src/sdk/settings"),
@@ -34,14 +36,20 @@ export async function browserHostModules(): Promise<Readonly<Record<BrowserShare
 }
 
 /**
+ * 宿主模块表的取法。缺省是上面的 `browserHostModules`（Bun 里可用，组件入口是空对象）；在 happy-dom 里要渲染产物的组件时，
+ * 传窗口真正用的表（`src/web/host/plugin-modules.ts` 的 `hostModules`），组件与注入键都是宿主那一份。
+ */
+export type HostModules = () => Promise<Readonly<Record<string, unknown>>>;
+
+/**
  * 装载浏览器产物，返回脚本登记的工厂。装载器自己用宿主模块表执行一次工厂并核对导出了 `activate`；工厂本身经全局登记对象的
  * 等待取得：同一 URL 的每个等待者都收到登记，这里与装载器一样是一个等待者，不写那个全局属性。每次一个新页面，产物的基址是
  * 那个页面的目录。
  */
-export async function registeredFactory(code: string): Promise<ModuleFactory> {
+export async function registeredFactory(code: string, modules: HostModules = browserHostModules): Promise<ModuleFactory> {
     const page = fakePage(NEUROBOOK_PROFILE.registryGlobal);
     page.serve("browser.js", {kind: "runs", code});
-    const host = createPluginCodeHost({document: page.document, registryGlobal: NEUROBOOK_PROFILE.registryGlobal, modules: browserHostModules});
+    const host = createPluginCodeHost({document: page.document, registryGlobal: NEUROBOOK_PROFILE.registryGlobal, modules});
     const registry = (globalThis as unknown as Record<string, {wait(url: string, waiter: (factory: unknown) => void): () => void}>)[NEUROBOOK_PROFILE.registryGlobal]!;
     let factory: unknown = null;
     const stop = registry.wait(new URL("browser.js", page.baseURI).href, (registered) => {
@@ -61,8 +69,8 @@ export async function registeredFactory(code: string): Promise<ModuleFactory> {
  * 执行期间的 require：构建产物把外部模块的 require 提到模块顶层，`activate` 里懒取的模块要调了 `activate` 才记得到。
  * 引用了不共享的模块，构建预设自己的纯度检查先拦下（plugin-code-loading 输出 5）。
  */
-export async function runFactory(factory: ModuleFactory): Promise<{readonly exports: Record<string, unknown>; readonly required: ReadonlyArray<string>}> {
-    const table = await browserHostModules();
+export async function runFactory(factory: ModuleFactory, modules: HostModules = browserHostModules): Promise<{readonly exports: Record<string, unknown>; readonly required: ReadonlyArray<string>}> {
+    const table = await modules();
     const required: string[] = [];
     const module = {exports: {} as Record<string, unknown>};
     factory(module, module.exports, (id) => {

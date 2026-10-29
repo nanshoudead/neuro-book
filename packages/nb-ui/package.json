@@ -1,6 +1,6 @@
 {
     "name": "@notnotype/nb-ui",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "Shared Vue/Nuxt UI primitives for NeuroBook-derived projects.",
     "license": "AGPL-3.0-only",
     "repository": {
@@ -22,6 +22,10 @@
         "./notifications": "./src/composables/useNotification.ts",
         "./lab-sources": "./src/lab/sources.ts",
         "./colorway": "./src/colorway/index.ts",
+        "./text": "./src/text/index.ts",
+        "./text/minimal": "./src/text/minimal.ts",
+        "./text-port": "./src/text-port/index.ts",
+        "./locales": "./src/locales/index.ts",
         "./colorway-contract": "./src/colorway/colorway-contract.ts",
         "./theme": "./src/theme/index.ts",
         "./themes/*": "./themes/*/index.ts",

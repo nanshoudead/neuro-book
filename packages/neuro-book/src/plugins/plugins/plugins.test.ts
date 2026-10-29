@@ -100,13 +100,20 @@ describe("nbook.plugins/registry", () => {
         expect(await registry.uninstall({id: "example.hello"})).toMatchObject({ok: true, value: {plugin: {state: "uninstalling", pending: [{kind: "uninstall"}]}}});
     });
 
-    it("业务失败按失败码到达窗口：清单无效带出错字段，其余只带说明", async () => {
+    it("业务失败按失败码到达窗口：清单无效与目录无效带逐条问题，其余只带说明", async () => {
         const {base, registry} = await world();
         const source = join(base, "broken");
         await mkdir(source, {recursive: true});
         await writeFile(join(source, "package.json"), JSON.stringify({publisher: "example", name: "Broken", version: "1.0.0", engines: {neurobook: ">=0.1.0"}}));
+        const catalogs = join(base, "catalogs");
+        await mkdir(join(catalogs, "locales"), {recursive: true});
+        await writeFile(join(catalogs, "package.json"), JSON.stringify({publisher: "example", name: "catalogs", version: "1.0.0", engines: {neurobook: ">=0.1.0"}, l10n: {source: "zh-CN", locales: ["zh-CN"]}}));
+        await writeFile(join(catalogs, "locales", "zh-CN.json"), JSON.stringify({title: 1}));
 
         expect(await registry.install({path: source})).toMatchObject({ok: false, code: "manifest-invalid", detail: {problems: [expect.stringMatching(/^name：/u)]}});
+        for (const result of [await registry.inspect({path: catalogs}), await registry.install({path: catalogs})]) {
+            expect(result).toMatchObject({ok: false, code: "catalog-invalid", detail: {problems: [expect.stringMatching(/^locales\/zh-CN\.json：title：/u)]}});
+        }
         expect(await registry.install({path: join(base, "nothing")})).toMatchObject({ok: false, code: "path-rejected", detail: {detail: expect.any(String)}});
         expect(await registry.enable({id: "nbook.plugins"})).toMatchObject({ok: false, code: "builtin-fixed"});
         expect(await registry.uninstall({id: "example.none"})).toMatchObject({ok: false, code: "not-installed"});

@@ -1,0 +1,193 @@
+{
+    "settingsPages": {
+        "installed": {
+            "title": "Plugins",
+            "description": "Install and manage third-party plugins"
+        }
+    },
+    "page": {
+        "restartNote": "Installing, uninstalling, upgrading, enabling and disabling take effect the next time NeuroBook starts.",
+        "pendingNote": "Some changes are pending. Restart NeuroBook to apply them.",
+        "safeMode": "Safe mode: third-party plugins are not loaded. You can disable or uninstall them here.",
+        "problemsSnapshot": "Server status is as of opening this page; this window's status updates live.",
+        "loading": "Loading plugins…",
+        "retry": "Retry"
+    },
+    "install": {
+        "pathLabel": "Plugin folder on the server",
+        "pathPlaceholder": "/home/me/plugins/hello",
+        "start": "Install…"
+    },
+    "groups": {
+        "thirdParty": "Third-party plugins",
+        "builtin": "Built-in plugins",
+        "noThirdParty": "No third-party plugins installed."
+    },
+    "row": {
+        "builtin": "Built-in",
+        "toggle": "Enable {{id}}",
+        "uninstall": "Uninstall",
+        "uninstallNamed": "Uninstall {{id}}",
+        "entryProblems_one": "{{count}} entry point not running",
+        "entryProblems_other": "{{count}} entry points not running",
+        "rejectedProblems_one": "{{count}} contribution rejected",
+        "rejectedProblems_other": "{{count}} contributions rejected",
+        "catalogProblems_one": "Text missing for {{count}} language",
+        "catalogProblems_other": "Text missing for {{count}} languages",
+        "pending": {
+            "install": "Installs on restart",
+            "uninstall": "Uninstalls on restart",
+            "enable": "Enabled on restart",
+            "disable": "Disabled on restart",
+            "upgrade": "Upgrade to {{version}} on restart",
+            "downgrade": "Downgrade to {{version}} on restart"
+        },
+        "notLoaded": {
+            "manifest-invalid": "Invalid manifest",
+            "entry-missing": "Entry file missing",
+            "unreadable": "Install directory unreadable",
+            "incompatible-engine": "Incompatible",
+            "safe-mode": "Not loaded in safe mode"
+        }
+    },
+    "problems": {
+        "entryFailed": "Entry {{entry}} ({{location}}) failed to activate: {{reason}}",
+        "entryBlocked": "Entry {{entry}} ({{location}}) is blocked: {{reason}}",
+        "contributionRejected": "{{id}} for {{capability}} was rejected: {{reason}}",
+        "catalogUnavailable": "Text for {{locale}} could not be loaded: {{reason}}",
+        "withDetail": "{{reason}} ({{detail}})",
+        "blockedReasons": {
+            "missing-service": "the service {{key}} it needs is not provided",
+            "location-mismatch": "the service {{key}} it needs is not provided at this location",
+            "provider-blocked": "the plugin providing {{key}} is blocked",
+            "provider-failed": "the plugin providing {{key}} failed to activate",
+            "dependency-cycle": "its dependencies form a cycle ({{key}})",
+            "version-mismatch": "the version of {{key}} is outside the required range"
+        },
+        "catalogReasons": {
+            "not-found": "the server does not have this catalog",
+            "invalid": "the catalog content is invalid",
+            "fetch-failed": "loading failed"
+        },
+        "rejectedReasons": {
+            "invalid-declaration": "the declaration is invalid",
+            "implementation-required": "this contribution point needs an implementation; declare it in an entry",
+            "implementation-not-accepted": "this contribution point takes declarations only",
+            "duplicate-contribution": "another plugin uses the same id"
+        }
+    },
+    "preview": {
+        "install": {
+            "title": "Install plugin",
+            "confirm": "Install"
+        },
+        "upgrade": {
+            "title": "Upgrade plugin",
+            "confirm": "Upgrade"
+        },
+        "downgrade": {
+            "title": "Downgrade plugin",
+            "confirm": "Downgrade"
+        },
+        "downgradeWarning": "After a downgrade the plugin may read data already migrated by the newer version.",
+        "blockedTitle": "After the restart, parts of these plugins will be unavailable:",
+        "blockedReasons": {
+            "version-mismatch": "{{plugin}} ({{entries}}): requires version {{range}}",
+            "missing-service": "{{plugin}} ({{entries}}): the service {{service}} it needs will no longer be provided",
+            "dependency-cycle": "{{plugin}} ({{entries}}): its dependencies form a cycle",
+            "provider-blocked": "{{plugin}} ({{entries}}): a plugin it depends on will be unavailable"
+        },
+        "unchecked": "These installed plugins could not be checked: {{plugins}}",
+        "trust": "Plugins are fully trusted: once installed, a plugin can access all books, the server and local resources. Only install plugins you trust."
+    },
+    "uninstall": {
+        "title": "Uninstall plugin",
+        "body": "Uninstall {{id}}? Its install folder is removed after restart; its settings and private data are kept. This cannot be undone before the restart."
+    },
+    "dialog": {
+        "cancel": "Cancel"
+    },
+    "errors": {
+        "manifest-invalid": "The plugin manifest is invalid",
+        "catalog-invalid": "The plugin's message catalogs are invalid",
+        "incompatible-engine": "The plugin is not compatible with this version of NeuroBook",
+        "already-installed": "This version is already installed or waiting for the restart",
+        "uninstall-pending": "The plugin is being uninstalled; restart first",
+        "path-rejected": "This path cannot be used",
+        "entry-missing": "The plugin is missing entry files",
+        "copy-failed": "Copying the plugin files failed",
+        "not-installed": "This plugin is no longer installed",
+        "builtin-fixed": "Built-in plugins cannot be changed",
+        "registry-failed": "Reading or writing the plugin registry failed"
+    },
+    "remoteErrors": {
+        "unavailable": "The server is unreachable",
+        "timeout": "The server did not answer in time",
+        "unknown-outcome": "It is unknown whether the operation completed; the list was reloaded"
+    },
+    "failures": {
+        "unknown": "The operation did not complete"
+    },
+    "builtin": {
+        "nbook-commands": {
+            "name": "Commands",
+            "description": "Registers and runs commands; the command palette and keybindings run the commands registered here."
+        },
+        "nbook-editor": {
+            "name": "Editor",
+            "description": "Editor tabs and groups; opening and saving documents."
+        },
+        "nbook-explorer": {
+            "name": "Explorer",
+            "description": "The file tree of your book in the sidebar."
+        },
+        "nbook-files": {
+            "name": "Files",
+            "description": "Reads and writes files and folders in your book."
+        },
+        "nbook-html-preview": {
+            "name": "HTML Preview",
+            "description": "Previews HTML files in a sandbox."
+        },
+        "nbook-http": {
+            "name": "Local Server",
+            "description": "The local HTTP server for pages and APIs."
+        },
+        "nbook-image-viewer": {
+            "name": "Image Viewer",
+            "description": "Views images in your book."
+        },
+        "nbook-markdown": {
+            "name": "Markdown",
+            "description": "Markdown for your book: reading and writing rules, editor extensions and rendering."
+        },
+        "nbook-plugins": {
+            "name": "Plugin Manager",
+            "description": "Installs, enables, disables and uninstalls plugins."
+        },
+        "nbook-projects": {
+            "name": "Books",
+            "description": "The bookshelf; creating and opening books."
+        },
+        "nbook-settings": {
+            "name": "Settings",
+            "description": "The settings window and setting values."
+        },
+        "nbook-state": {
+            "name": "Public State",
+            "description": "UI state shared between plugins."
+        },
+        "nbook-storage": {
+            "name": "Storage",
+            "description": "Records and preferences for plugins."
+        },
+        "nbook-workbench": {
+            "name": "Workbench",
+            "description": "The workbench shell: sidebars, panel, title bar and status bar."
+        },
+        "runtime-diagnostics": {
+            "name": "Diagnostics",
+            "description": "Runtime logs and diagnostic records."
+        }
+    }
+}

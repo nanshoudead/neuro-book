@@ -8,13 +8,13 @@ import type {SegmentedControlValue} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 
 import {optionKey} from "../../options";
-import {resolveText} from "../../text";
 import type {ChoiceState} from "../choices";
-import {messagesFor} from "../messages";
+import {useFormText} from "../text";
 import type {ControlProps} from "./control";
 
 const props = defineProps<ControlProps & {readonly choices: ChoiceState}>();
 const emit = defineEmits<{(event: "update:modelValue", value: unknown): void}>();
+const text = useFormText();
 
 const selectedKey = computed(() => {
     const value = props.modelValue;
@@ -27,8 +27,8 @@ const options = computed(() => props.choices.items.map((item) => ({
     disabled: item.disabled,
 })));
 const placeholder = computed(() => {
-    if (props.choices.status === "loading") return messagesFor(props.locale).loading;
-    return resolveText(props.node.hints.placeholder, props.locale);
+    if (props.choices.status === "loading") return text.t("loading");
+    return text.text(props.node.hints.placeholder);
 });
 
 function onSelect(key: string): void {
@@ -62,7 +62,7 @@ function onSelect(key: string): void {
         :model-value="selectedKey"
         :options="options"
         :placeholder="placeholder"
-        :empty-text="messagesFor(props.locale).noMatch"
+        :empty-text="text.t('noMatch')"
         :readonly="props.readonly"
         :disabled="props.disabled"
         :invalid="props.invalid"

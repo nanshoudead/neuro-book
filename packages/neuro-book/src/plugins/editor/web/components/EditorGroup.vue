@@ -5,8 +5,7 @@ import type {BannerTone, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 
-import {localize} from "nbook/shared/localized-text";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import {useText} from "@notnotype/nb-ui/text-port";
 import NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
 import TitleActions from "nbook/ui/menus/TitleActions.vue";
 import {buttonBudget} from "nbook/ui/menus/title-actions";
@@ -20,12 +19,12 @@ import {EDITOR_TITLE_MAX_BUTTONS, EDITOR_TITLE_TAB_RESERVE} from "../title-actio
 import type {TabMenuEntry} from "../tab-menu";
 import {pageIdOf} from "../pages";
 import type {EditorPageSource} from "../pages";
-import {editorText, nameOf} from "../messages";
+import {useEditorText} from "../text";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 
 import {formatResource} from "nbook/plugins/files/shared/contracts";
 
-import {resourceOf} from "../documents/address";
+import {nameOf, resourceOf} from "../documents/address";
 import {tabHints} from "../tab-hints";
 import {tabLabel} from "../tab-label";
 import EditorBreadcrumbs from "./EditorBreadcrumbs.vue";
@@ -36,7 +35,6 @@ import type {TabItem} from "./EditorTabBar.vue";
 const props = withDefaults(defineProps<{
     area: EditorArea;
     groupId: string;
-    locale: DisplayLocale;
     /** 编辑器此刻的组件：不在、未交付或已交付（docs/specs/workbench/editor.md 输出 40）。 */
     control: (editor: string) => EditorState;
     pages?: EditorPageSource | null;
@@ -53,6 +51,8 @@ const props = withDefaults(defineProps<{
     /** 作品名（面包屑的第一段）；未绑定作品时为 null，写“作品”。 */
     workTitle?: string | null;
 }>(), {pages: null, emptyTips: () => [], titleActions: null, tabMenu: null, wrapTabs: true, breadcrumbs: true, workTitle: null});
+const port = useText();
+const t = useEditorText();
 
 /** 点了空态里的一条提示：交出它的命令，由宿主执行（组件不执行命令）。点了标题动作、标签菜单的一项：交出它的 key。 */
 const emit = defineEmits<{(event: "run-tip", command: string): void; (event: "title-action", key: string): void; (event: "tab-menu", tabId: string, key: string): void}>();
@@ -106,11 +106,11 @@ const binding = computed(() => props.area.binding(props.groupId));
 const active = computed(() => props.area.groups.activeGroup.value === props.groupId);
 
 const tabs = computed((): TabItem[] => {
-    const shown = (group.value?.tabs ?? []).map((tab) => ({tab, page: pageIdOf(tab.address), label: tabLabel(props.area, tab, props.locale, props.pages)}));
+    const shown = (group.value?.tabs ?? []).map((tab) => ({tab, page: pageIdOf(tab.address), label: tabLabel(props.area, tab, port, props.pages)}));
     // 同名提示只看文件标签（输出 56）。
     const hints = tabHints(shown.flatMap(({tab, page, label}) => (page === null && tab.kind === "file" ? [{id: tab.id, label, address: tab.address, editor: tab.editor}] : [])), {
-        root: (scheme) => editorText(props.locale, scheme === "project" ? "rootProject" : "rootUser"),
-        editor: (id) => localize(props.area.editors.declaration(id)?.title ?? {"zh-CN": id, "en-US": id}, props.locale),
+        root: (scheme) => t(scheme === "project" ? "root.project" : "root.user"),
+        editor: (id) => port.t(props.area.editors.declaration(id)?.title ?? id),
     });
     return shown.map(({tab, page, label}): TabItem => ({
         id: tab.id,
@@ -132,7 +132,7 @@ const crumbs = computed((): {segments: BreadcrumbSegment[]; parent: string | nul
     const {scheme, path} = resourceOf(tab.address);
     const parts = path.split("/");
     const root = formatResource({scheme, path: ""});
-    const segments: BreadcrumbSegment[] = [{kind: "root", label: scheme === "project" ? (props.workTitle ?? editorText(props.locale, "rootProject")) : editorText(props.locale, "rootUser"), address: root}];
+    const segments: BreadcrumbSegment[] = [{kind: "root", label: scheme === "project" ? (props.workTitle ?? t("root.project")) : t("root.user"), address: root}];
     for (let index = 0; index < parts.length - 1; index += 1) segments.push({kind: "dir", label: parts[index] as string, address: formatResource({scheme, path: parts.slice(0, index + 1).join("/")})});
     segments.push({kind: "file", label: parts.at(-1) ?? "", address: tab.address, icon: fileIconForName(parts.at(-1) ?? "")});
     return {segments, parent: segments.at(-2)?.address ?? null};
@@ -159,32 +159,31 @@ type GroupBanner = {readonly tone: BannerTone; readonly text: string; readonly a
 const banner = computed((): GroupBanner | null => {
     const current = file.value;
     if (current === null) return null;
-    const t = (key: Parameters<typeof editorText>[1], values?: Readonly<Record<string, string>>): string => editorText(props.locale, key, values);
     if (binding.value?.kind === "text" && binding.value.unresolved()) {
-        return {tone: "warning", text: t("unresolved"), actions: [
-            {id: "adopt", label: t("adopt"), run: () => props.area.resolve(props.groupId, "adopt-current")},
-            {id: "keep", label: t("keep"), run: () => props.area.resolve(props.groupId, "keep-view")},
+        return {tone: "warning", text: t("banner.unresolved"), actions: [
+            {id: "adopt", label: t("banner.adopt"), run: () => props.area.resolve(props.groupId, "adopt-current")},
+            {id: "keep", label: t("banner.keep"), run: () => props.area.resolve(props.groupId, "keep-view")},
         ]};
     }
     const blocked = binding.value?.kind === "text" ? current.blocked.value.get(binding.value.token) : undefined;
     if (blocked !== undefined) {
-        const excerpt = blocked.excerpt === "" ? "" : t("unrepresentableExcerpt", {excerpt: blocked.excerpt});
-        return {tone: "error", text: t("unrepresentable", {index: String(blocked.index), excerpt}), actions: [
-            {id: "locate", label: t("locate"), run: () => props.area.locate(props.groupId)},
-            {id: "adopt", label: t("adopt"), run: () => props.area.unblock(props.groupId)},
+        const excerpt = blocked.excerpt === "" ? "" : t("banner.unrepresentableExcerpt", {excerpt: blocked.excerpt});
+        return {tone: "error", text: t("banner.unrepresentable", {index: blocked.index, excerpt}), actions: [
+            {id: "locate", label: t("banner.locate"), run: () => props.area.locate(props.groupId)},
+            {id: "adopt", label: t("banner.adopt"), run: () => props.area.unblock(props.groupId)},
         ]};
     }
     if (current.conflict.value !== null) {
-        return {tone: "error", text: t("conflict"), actions: [
-            {id: "reload", label: t("reload"), run: () => void props.area.revert()},
-            {id: "overwrite", label: t("overwrite"), run: () => void props.area.overwrite()},
+        return {tone: "error", text: t("banner.conflict"), actions: [
+            {id: "reload", label: t("banner.reload"), run: () => void props.area.revert()},
+            {id: "overwrite", label: t("banner.overwrite"), run: () => void props.area.overwrite()},
         ]};
     }
-    if (current.ended.value !== null) return {tone: "error", text: t("ended", {reason: current.ended.value}), actions: []};
-    if (current.status.value === "deleted") return {tone: "warning", text: current.dirty.value ? t("deleted") : t("deletedClean"), actions: []};
-    if (current.diskChanged.value) return {tone: "warning", text: t("diskChanged"), actions: [{id: "reload", label: t("reload"), run: () => void props.area.revert()}]};
+    if (current.ended.value !== null) return {tone: "error", text: t("banner.ended", {reason: current.ended.value}), actions: []};
+    if (current.status.value === "deleted") return {tone: "warning", text: current.dirty.value ? t("banner.deleted") : t("banner.deletedClean"), actions: []};
+    if (current.diskChanged.value) return {tone: "warning", text: t("banner.diskChanged"), actions: [{id: "reload", label: t("banner.reload"), run: () => void props.area.revert()}]};
     const problem = current.saveProblem.value;
-    if (problem !== null) return {tone: "error", text: problem.code === "unknown-outcome" ? t("saveUnknown") : t("saveFailed", {reason: problem.detail || problem.code}), actions: []};
+    if (problem !== null) return {tone: "error", text: problem.code === "unknown-outcome" ? t("banner.saveUnknown") : t("banner.saveFailed", {reason: problem.detail || problem.code}), actions: []};
     return null;
 });
 
@@ -192,10 +191,10 @@ const banner = computed((): GroupBanner | null => {
 const failure = computed((): {readonly text: string; readonly retry: boolean} | null => {
     const current = document.value;
     if (current === null || current.status.value !== "failed") return null;
-    if (current.failure.value?.code === "not-text") return {text: editorText(props.locale, "notText", {name: nameOf(current.target.value.path)}), retry: false};
+    if (current.failure.value?.code === "not-text") return {text: t("document.notText", {name: nameOf(current.target.value.path)}), retry: false};
     // 与保存失败的提示一样给文件服务的说明，没有说明时才给失败码。
     const problem = current.failure.value;
-    return {text: editorText(props.locale, "openFailed", {name: nameOf(current.target.value.path), reason: problem?.detail || problem?.code || ""}), retry: true};
+    return {text: t("document.openFailed", {name: nameOf(current.target.value.path), reason: problem?.detail || problem?.code || ""}), retry: true};
 });
 
 const onReady = (editor: string, handle: EditorControlHandle | null): void => props.area.registerHandle(props.groupId, editor, handle);
@@ -247,7 +246,7 @@ export interface EditorGroupTitleActions {
         ref="section"
         class="flex h-full min-h-0 w-full min-w-0 flex-col bg-[var(--panel-surface)]"
         :class="active ? '' : 'opacity-[0.98]'"
-        :aria-label="editorText(locale, 'areaLabel')"
+        :aria-label="t('area.label')"
         :data-editor-group="groupId"
         :data-editor-group-active="active ? '' : undefined"
         @focusin="area.focusGroup(groupId)"
@@ -258,11 +257,11 @@ export interface EditorGroupTitleActions {
             <EditorTabBar
                 class="editor-group__tabs"
                 :tabs="tabs"
-                :label="editorText(locale, 'tabsLabel')"
-                :close-label="(name: string) => editorText(locale, 'closeTab', {name})"
-                :unpin-label="(name: string) => editorText(locale, 'unpinTab', {name})"
-                :unsaved-label="editorText(locale, 'unsaved')"
-                :pinned-label="editorText(locale, 'pinned')"
+                :label="t('area.tabsLabel')"
+                :close-label="(name: string) => t('tab.close', {name})"
+                :unpin-label="(name: string) => t('tab.unpin', {name})"
+                :unsaved-label="t('tab.unsaved')"
+                :pinned-label="t('tab.pinned')"
                 :wrap="wrapTabs"
                 :group-active="active"
                 @activate="(id: string) => area.activate(id)"
@@ -278,7 +277,7 @@ export interface EditorGroupTitleActions {
                 class="editor-group__title-actions"
                 :model="titleModel!"
                 :identity="titleActions!.identity"
-                :more-label="editorText(locale, 'moreActions')"
+                :more-label="t('area.moreActions')"
                 data-editor-title-actions
                 @run="(key: string) => emit('title-action', key)"
             />
@@ -290,7 +289,6 @@ export interface EditorGroupTitleActions {
             :parent="crumbs.parent"
             :outline="outline"
             :list="listCrumb"
-            :locale="locale"
             :focus-seq="crumbFocus"
             @open="(address: string) => void area.open(address, {mode: 'preview', group: groupId})"
             @reveal="(binding: string, version: number, id: string) => void area.handleOf(groupId)?.revealHeading?.(binding, version, id)"
@@ -300,7 +298,7 @@ export interface EditorGroupTitleActions {
             <div v-if="area.progress(groupId)" class="editor-group__progress absolute inset-y-0 w-1/3 bg-[var(--accent-main)]" data-editor-progress></div>
         </div>
         <!-- 进度条本身只是装饰：同一时刻给读屏一句可播报的“正在读取”。 -->
-        <p v-if="area.progress(groupId)" class="sr-only" role="status">{{ editorText(locale, "loading") }}</p>
+        <p v-if="area.progress(groupId)" class="sr-only" role="status">{{ t("area.loading") }}</p>
         <Banner v-if="banner !== null" class="shrink-0" :tone="banner.tone" :message="banner.text" data-editor-banner>
             <template v-if="banner.actions.length > 0" #actions>
                 <Button v-for="action in banner.actions" :key="action.id" size="sm" variant="secondary" :data-editor-banner-action="action.id" @click="action.run()">{{ action.label }}</Button>
@@ -318,19 +316,19 @@ export interface EditorGroupTitleActions {
                 </div>
             </div>
             <div v-else-if="unavailable === 'binary' || unavailable === 'gone'" class="flex flex-col items-start gap-2 p-6 text-sm" role="alert" :data-editor-unavailable="unavailable">
-                <p>{{ editorText(locale, unavailable === "binary" ? "binary" : "editorGone", {name: activeTab === null ? "" : nameOf(activeTab.address)}) }}</p>
-                <Button v-if="unavailable === 'gone'" size="sm" variant="secondary" data-editor-reopen-default @click="area.reopenWithDefault()">{{ editorText(locale, "reopenDefault") }}</Button>
+                <p>{{ t(unavailable === "binary" ? "document.binary" : "document.editorGone", {name: activeTab === null ? "" : nameOf(activeTab.address)}) }}</p>
+                <Button v-if="unavailable === 'gone'" size="sm" variant="secondary" data-editor-reopen-default @click="area.reopenWithDefault()">{{ t("document.reopenDefault") }}</Button>
             </div>
             <!-- 编辑器还没交付：800 毫秒内空白，之后才说明（与读取的进度条同一规则，输出 6、40）。 -->
-            <p v-else-if="unavailable === 'pending'" class="editor-group__pending" role="status" data-editor-pending>{{ editorText(locale, "editorLoading") }}</p>
+            <p v-else-if="unavailable === 'pending'" class="editor-group__pending" role="status" data-editor-pending>{{ t("document.editorLoading") }}</p>
             <div v-else-if="failure !== null" class="flex flex-col items-start gap-2 p-6 text-sm" role="alert" data-editor-failure>
                 <p>{{ failure.text }}</p>
-                <Button v-if="failure.retry" size="sm" variant="secondary" @click="document !== null && area.documents.retry(document)">{{ editorText(locale, "retry") }}</Button>
+                <Button v-if="failure.retry" size="sm" variant="secondary" @click="document !== null && area.documents.retry(document)">{{ t("document.retry") }}</Button>
             </div>
             <!-- 页面标签：渲染页面贡献的组件；贡献方停了时说明，不显示别的。 -->
             <div v-if="pageId !== null" class="absolute inset-0 overflow-auto" :data-editor-page="pageId">
                 <component :is="pageComponent" v-if="pageComponent !== null" :context="pages!.context" />
-                <p v-else class="flex h-full items-center justify-center px-6 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]" data-editor-page-missing>{{ editorText(locale, "pageMissing") }}</p>
+                <p v-else class="flex h-full items-center justify-center px-6 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]" data-editor-page-missing>{{ t("page.missing") }}</p>
             </div>
             <template v-for="mounted in controls" :key="mounted.editor">
                 <div v-show="binding !== null && binding.editor === mounted.editor" class="absolute inset-0" :data-editor-kind="mounted.editor">
@@ -341,7 +339,7 @@ export interface EditorGroupTitleActions {
                         :readonly="!area.viewWritable(groupId)"
                         :visible="binding !== null && binding.editor === mounted.editor"
                         :label="activeTab === null ? '' : nameOf(activeTab.address)"
-                        :locale="locale"
+                        :locale="port.locale.value"
                         @ready="(handle: EditorControlHandle | null) => onReady(mounted.editor, handle)"
                         @focus="(focused: boolean) => (area.focused.value = focused)"
                     />

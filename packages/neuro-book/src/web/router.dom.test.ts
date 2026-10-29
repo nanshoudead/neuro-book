@@ -8,12 +8,16 @@ import {describe, expect, it} from "vitest";
 import {defineComponent, h} from "vue";
 import {RouterView, createMemoryHistory} from "vue-router";
 
+import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
+
+import {createHostTextEngine} from "./host/text-engine";
 import {createPageRouter} from "./router";
 
 const pageComponent = (name: string) => defineComponent({setup: () => () => h("main", {"data-page": name})});
 
-async function openAt(path: string) {
+async function openAt(path: string, locale = "zh-CN") {
     const navigations: string[] = [];
+    const engine = createHostTextEngine({locale, strict: true});
     const router = createPageRouter({
         pages: [
             {path: "/", title: "NeuroBook", load: async () => pageComponent("home")},
@@ -21,8 +25,9 @@ async function openAt(path: string) {
         ],
         history: createMemoryHistory(),
         navigateDocument: (href) => navigations.push(href),
+        text: engine.port,
     });
-    const view = mount(RouterView, {global: {plugins: [router]}});
+    const view = mount(RouterView, {global: {plugins: [router], provide: {[TEXT_PORT_KEY as symbol]: engine.port}}});
     await router.push(path);
     await flushPromises();
     return {router, view, navigations};
@@ -34,6 +39,13 @@ describe("页面路由", () => {
         expect(view.get("[data-page-not-found]").attributes("data-page-rendered")).toBe("");
         expect(view.text()).toContain("/nope");
         expect(document.title).toBe("页面不存在");
+    });
+
+    it("界面语言是 en-US：“页面不存在”页与文档标题显示英文", async () => {
+        const {view} = await openAt("/nope", "en-US");
+        expect(view.get("h1").text()).toBe("Page Not Found");
+        expect(view.get("a").text()).toBe("Back to Workbench");
+        expect(document.title).toBe("Page Not Found");
     });
 
     it("进入 Lab 是应用内导航，标题随页面", async () => {

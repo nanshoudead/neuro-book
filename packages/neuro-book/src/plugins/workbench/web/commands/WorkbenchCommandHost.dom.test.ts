@@ -5,17 +5,23 @@
 
 import {mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {nextTick, ref} from "vue";
+import {nextTick} from "vue";
 
 import {Type} from "typebox";
 
 import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import {provideText} from "nbook/shared/testing/text-port";
 
 import type {NotificationInput} from "../../shared/contracts";
+import {workbenchText} from "../../shared/text";
+import {completedCommand} from "../../testing/declarations";
+import {failureText, workbenchTestText} from "../../testing/text";
 import {OPEN_COMMANDS_DECLARATION, OPEN_COMMANDS_ID, PaletteSlot} from "./open-commands";
 import WorkbenchCommandHost from "./WorkbenchCommandHost.vue";
+
+/** 通知标题是文字引用，视口显示时才翻：按给定语言翻出标题来比对；正文原样留着（有的用例要核对引用本身）。 */
+const titled = (locale: "zh-CN" | "en-US") => (notice: NotificationInput) => ({...notice, title: workbenchTestText(locale).t(notice.title ?? "")});
 
 afterEach(() => {
     document.body.innerHTML = "";
@@ -32,12 +38,13 @@ describe("WorkbenchCommandHost", () => {
         const reported: string[] = [];
         const registry = createCommandRegistry({contextKeys: contextTable({}), report: (error) => reported.push(error.message)});
         const slot = new PaletteSlot();
-        const registered = registry.register({id: OPEN_COMMANDS_ID, source: "nbook.workbench", declaration: OPEN_COMMANDS_DECLARATION, run: () => slot.command.run({})});
+        const registered = registry.register({id: OPEN_COMMANDS_ID, source: "nbook.workbench", declaration: completedCommand(OPEN_COMMANDS_ID, OPEN_COMMANDS_DECLARATION), run: () => slot.command.run({})});
         expect(registered.ok).toBe(true);
 
         const wrapper = mount(WorkbenchCommandHost, {
-            props: {commands: registry, attach: (host) => slot.attach(host), report: (error: Error) => reported.push(error.message), locale: ref<DisplayLocale>("zh-CN")},
+            props: {commands: registry, attach: (host) => slot.attach(host), report: (error: Error) => reported.push(error.message)},
             attachTo: document.body,
+            global: {provide: provideText(workbenchTestText("zh-CN"))},
         });
         await nextTick();
         expect(shortcut().defaultPrevented).toBe(true);
@@ -47,7 +54,10 @@ describe("WorkbenchCommandHost", () => {
         await nextTick();
         expect(document.body.querySelector('[role="combobox"]')).toBeNull();
         expect(shortcut().defaultPrevented).toBe(false);
-        expect(await registry.execute(OPEN_COMMANDS_ID)).toEqual({ok: false, code: "unavailable", reason: "当前页面没有命令面板"});
+        const detached = await registry.execute(OPEN_COMMANDS_ID);
+        expect(detached).toMatchObject({ok: false, code: "unavailable"});
+        expect(failureText(detached, "zh-CN")).toBe("当前页面没有命令面板");
+        expect(failureText(detached, "en-US")).toBe("This page has no command palette");
         expect(reported).toEqual([]);
     });
 
@@ -60,13 +70,14 @@ describe("WorkbenchCommandHost", () => {
         const reported: string[] = [];
         const slot = new PaletteSlot();
         const wrapper = mount(WorkbenchCommandHost, {
-            props: {commands: registry, attach: (host) => slot.attach(host), report: (error: Error) => reported.push(error.message), locale: ref<DisplayLocale>("zh-CN"), notify: (input: NotificationInput) => notices.push(input)},
+            props: {commands: registry, attach: (host) => slot.attach(host), report: (error: Error) => reported.push(error.message), notify: (input: NotificationInput) => notices.push(input)},
             attachTo: document.body,
+            global: {provide: provideText(workbenchTestText("zh-CN"))},
         });
         await nextTick();
         document.body.dispatchEvent(new KeyboardEvent("keydown", {key: "J", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true}));
         document.body.dispatchEvent(new KeyboardEvent("keydown", {key: "K", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true}));
-        await vi.waitFor(() => expect(notices).toEqual([{tone: "warning", title: "坏命令没有完成", message: "磁盘满了"}]));
+        await vi.waitFor(() => expect(notices.map(titled("zh-CN"))).toEqual([{tone: "warning", title: "坏命令没有完成", message: "磁盘满了"}]));
         // 诊断照记，两条失败都在。
         expect(reported).toHaveLength(2);
         wrapper.unmount();
@@ -75,7 +86,7 @@ describe("WorkbenchCommandHost", () => {
     it("面板执行的命令失败：同样记诊断并弹警告；invalid-args 照原因写（命令自己返回的不一定是缺参数）", async () => {
         const registry = createCommandRegistry({contextKeys: contextTable({}), report: () => undefined});
         const slot = new PaletteSlot();
-        registry.register({id: OPEN_COMMANDS_ID, source: "nbook.workbench", declaration: OPEN_COMMANDS_DECLARATION, run: () => slot.command.run({})});
+        registry.register({id: OPEN_COMMANDS_ID, source: "nbook.workbench", declaration: completedCommand(OPEN_COMMANDS_ID, OPEN_COMMANDS_DECLARATION), run: () => slot.command.run({})});
         registry.register({
             id: "nbook.app.count",
             source: "nbook.test",
@@ -85,15 +96,68 @@ describe("WorkbenchCommandHost", () => {
         const notices: NotificationInput[] = [];
         const reported: string[] = [];
         const wrapper = mount(WorkbenchCommandHost, {
-            props: {commands: registry, attach: (host) => slot.attach(host), report: (error: Error) => reported.push(error.message), locale: ref<DisplayLocale>("zh-CN"), notify: (input: NotificationInput) => notices.push(input)},
+            props: {commands: registry, attach: (host) => slot.attach(host), report: (error: Error) => reported.push(error.message), notify: (input: NotificationInput) => notices.push(input)},
             attachTo: document.body,
+            global: {provide: provideText(workbenchTestText("zh-CN"))},
         });
         await nextTick();
         shortcut();
         await vi.waitFor(() => expect(document.body.querySelector('[role="option"][id$="-option-nbook.app.count"]')).not.toBeNull());
         document.body.querySelector('[role="combobox"]')?.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
-        await vi.waitFor(() => expect(notices).toEqual([{tone: "warning", title: "统计没有完成", message: "选区里没有文字"}]));
-        expect(reported).toEqual(["命令 nbook.app.count 执行失败：选区里没有文字"]);
+        await vi.waitFor(() => expect(notices.map(titled("zh-CN"))).toEqual([{tone: "warning", title: "统计没有完成", message: "选区里没有文字"}]));
+        expect(reported).toEqual(["Command nbook.app.count failed: 选区里没有文字"]);
+        wrapper.unmount();
+    });
+
+    it("命令给的原因是文字引用：通知正文原样交出，由视口按当前语言翻；诊断写成键名", async () => {
+        const registry = createCommandRegistry({contextKeys: contextTable({}), report: () => undefined});
+        const reason = workbenchText("palette.unavailable");
+        registry.register({
+            id: "nbook.app.broken",
+            source: "nbook.test",
+            declaration: {title: {"zh-CN": "坏命令", "en-US": "Broken"}, description: "broken", args: Type.Object({}, {additionalProperties: false}), effect: "read", keybinding: "Mod+Shift+K"},
+            run: () => ({ok: false, code: "unavailable", reason}),
+        });
+        const notices: NotificationInput[] = [];
+        const reported: string[] = [];
+        const slot = new PaletteSlot();
+        const wrapper = mount(WorkbenchCommandHost, {
+            props: {commands: registry, attach: (host) => slot.attach(host), report: (error: Error) => reported.push(error.message), notify: (input: NotificationInput) => notices.push(input)},
+            attachTo: document.body,
+            global: {provide: provideText(workbenchTestText("en-US"))},
+        });
+        await nextTick();
+        document.body.dispatchEvent(new KeyboardEvent("keydown", {key: "K", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true}));
+        await vi.waitFor(() => expect(notices.map(titled("en-US"))).toEqual([{tone: "warning", title: "Broken did not complete", message: reason}]));
+        // 同一条通知按中文显示：标题的框架换成中文，代入的命令名停在发通知时的语言。
+        expect(titled("zh-CN")(notices[0]!).title).toBe("Broken没有完成");
+        expect(workbenchTestText("zh-CN").t(notices[0]!.message)).toBe("当前页面没有命令面板");
+        expect(workbenchTestText("en-US").t(notices[0]!.message)).toBe("This page has no command palette");
+        expect(reported).toEqual(["Command nbook.app.broken failed: nbook.workbench:palette.unavailable"]);
+        wrapper.unmount();
+    });
+
+    it("面板的失败通知随界面语言：英文界面写 “did not complete”", async () => {
+        const registry = createCommandRegistry({contextKeys: contextTable({}), report: () => undefined});
+        const slot = new PaletteSlot();
+        registry.register({id: OPEN_COMMANDS_ID, source: "nbook.workbench", declaration: completedCommand(OPEN_COMMANDS_ID, OPEN_COMMANDS_DECLARATION), run: () => slot.command.run({})});
+        registry.register({
+            id: "nbook.app.count",
+            source: "nbook.test",
+            declaration: {title: {"zh-CN": "统计", "en-US": "Count"}, description: "count", args: Type.Object({}, {additionalProperties: false}), effect: "read"},
+            run: () => ({ok: false, code: "invalid-args", reason: "no text selected"}),
+        });
+        const notices: NotificationInput[] = [];
+        const wrapper = mount(WorkbenchCommandHost, {
+            props: {commands: registry, attach: (host) => slot.attach(host), report: () => undefined, notify: (input: NotificationInput) => notices.push(input)},
+            attachTo: document.body,
+            global: {provide: provideText(workbenchTestText("en-US"))},
+        });
+        await nextTick();
+        shortcut();
+        await vi.waitFor(() => expect(document.body.querySelector('[role="option"][id$="-option-nbook.app.count"]')).not.toBeNull());
+        document.body.querySelector('[role="combobox"]')?.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
+        await vi.waitFor(() => expect(notices.map(titled("en-US"))).toEqual([{tone: "warning", title: "Count did not complete", message: "no text selected"}]));
         wrapper.unmount();
     });
 });

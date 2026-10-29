@@ -5,6 +5,7 @@ import type * as Monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
+import {editorText} from "../../shared/text";
 import type {EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../area";
 import {editorLanguagesKey} from "../code/languages";
 import {loadMonaco, modelUri} from "../code/load-monaco";
@@ -246,8 +247,8 @@ const handle: EditorControlHandle = {
         getLineCount: () => editor?.getModel()?.getLineCount() ?? null,
         revealLine: (line) => {
             const model = editor?.getModel();
-            if (editor === null || model === null || model === undefined) return {ok: false, reason: "编辑器尚未就绪"};
-            if (line < 1 || line > model.getLineCount()) return {ok: false, reason: `行号超出范围：${String(line)}`};
+            if (editor === null || model === null || model === undefined) return {ok: false, reason: editorText("refusal.notReady")};
+            if (line < 1 || line > model.getLineCount()) return {ok: false, reason: editorText("refusal.lineOutOfRange", {line})};
             editor.setPosition({lineNumber: line, column: 1});
             editor.revealLineInCenter(line);
             editor.focus();

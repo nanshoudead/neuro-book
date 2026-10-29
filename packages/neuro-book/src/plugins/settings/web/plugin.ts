@@ -13,11 +13,11 @@ import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {Type} from "typebox";
 
-import {computed} from "@vue/reactivity";
+import {computed, effect} from "@vue/reactivity";
 import {defineComponent, h} from "vue";
 
 import {COMMANDS_POINT, menuImplementations} from "nbook/plugins/commands/shared/contracts";
-import type {CommandDeclaration} from "nbook/plugins/commands/shared/contracts";
+import type {WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {notificationsKey, quickPickKey, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_OVERLAYS_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
@@ -25,7 +25,11 @@ import type {ActivityBarItemDeclaration, OverlayDeclaration, TitlebarMenuItemDec
 import type {ActivityBarItemImplementation, WorkbenchOverlayImplementation} from "nbook/plugins/workbench/web/contracts";
 
 import {clockKey, windowConnectionKey, windowPluginsKey} from "nbook/shared/host";
+import type {Written} from "nbook/shared/convention-keys";
+import {HOST_LOCALES, hostLocaleSchema} from "nbook/shared/host-locales";
 import {windowProjectKey} from "nbook/shared/projects";
+import {resolverFor} from "nbook/shared/localized-text";
+import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 import type {SettingLayer} from "nbook/shared/settings";
 
@@ -34,6 +38,7 @@ import {displayLocale, localeSetting, OPEN_SETTINGS_COMMAND, projectSettingsCont
 import type {SettingsChoicesDeclaration, SettingsPageDeclaration, SettingsSectionDeclaration} from "../shared/contracts";
 import {createSettingsInstance, FIRST_SNAPSHOT_MS, provideSettings, recordTo} from "../shared/instance";
 import {acceptedSettings, choicesPoint, pagesPoint, sectionsPoint, settingsPoint} from "../shared/point";
+import {settingsText} from "../shared/text";
 import {remoteLayerEditor, remoteLayerFile, remoteLayerLink} from "../shared/remote-link";
 import {ChoiceSourceRegistry} from "./choices";
 import {SettingsSectionRegistry} from "./sections";
@@ -50,11 +55,10 @@ const LOCALE_MENU_ITEMS: ReadonlyArray<{readonly id: string; readonly declaratio
 ];
 
 /** 写用户层（界面语言只允许用户层）；Agent 带参数即可切换，plan、discuss 模式下按命令系统的规则只读。 */
-export const SWITCH_LOCALE_DECLARATION: CommandDeclaration = {
-    title: {"zh-CN": "切换界面语言", "en-US": "Change Display Language"},
-    category: {"zh-CN": "设置", "en-US": "Settings"},
+export const SWITCH_LOCALE_DECLARATION: WrittenCommandDeclaration = {
+    category: settingsText("commands.category"),
     description: "Change the display language of all windows. Without arguments, the user picks one; with { locale }, it is set directly.",
-    args: Type.Object({locale: Type.Optional(Type.Union([Type.Literal("zh-CN"), Type.Literal("en-US")]))}, {additionalProperties: false}),
+    args: Type.Object({locale: Type.Optional(hostLocaleSchema())}, {additionalProperties: false}),
     effect: "write",
     expose: {agent: "auto"},
 };
@@ -63,9 +67,8 @@ export const SWITCH_LOCALE_DECLARATION: CommandDeclaration = {
  * 打开设置窗口（settings-window.md 输出 15）。只读：打开窗口不改数据；不对 Agent 开放，它是给人看的窗口。分区不在左栏里为
  * `invalid-args`、窗口没有绑定作品却要本作品标签为 `unavailable`，两种都不打开。
  */
-export const OPEN_SETTINGS_DECLARATION: CommandDeclaration = {
-    title: {"zh-CN": "打开设置", "en-US": "Open Settings"},
-    category: {"zh-CN": "设置", "en-US": "Settings"},
+export const OPEN_SETTINGS_DECLARATION: WrittenCommandDeclaration = {
+    category: settingsText("commands.category"),
     description: "Open the settings window of this page, or focus it when it is already open. { section } jumps to a section id; { layer: \"user\" | \"project\" } switches between user and book settings.",
     args: Type.Object({
         section: Type.Optional(Type.String()),
@@ -78,7 +81,7 @@ export const OPEN_SETTINGS_DECLARATION: CommandDeclaration = {
 
 /** 设置窗口的公开状态；限定名即 `SETTINGS_WINDOW_OPEN_KEY`。 */
 export const settingsWindowState = definePublicState(descriptor.id, {
-    windowOpen: {type: "boolean", unready: false, reason: {"zh-CN": "设置窗口没有打开", "en-US": "The settings window is not open"}},
+    windowOpen: {type: "boolean", unready: false, reason: settingsText("state.windowOpen.reason")},
 });
 
 /**
@@ -86,8 +89,7 @@ export const settingsWindowState = definePublicState(descriptor.id, {
  * 书架右上角的齿轮是书架自己画的，执行同一条命令、读同一个公开键。
  */
 export const SETTINGS_GEAR_ITEM = "nbook.settings";
-const GEAR_DECLARATION: ActivityBarItemDeclaration = {
-    title: {"zh-CN": "设置", "en-US": "Settings"},
+const GEAR_DECLARATION: Written<ActivityBarItemDeclaration, "title"> = {
     icon: "i-lucide-settings",
     order: 1000,
     command: {id: OPEN_SETTINGS_COMMAND},
@@ -108,14 +110,14 @@ export const settingsWindowEntry = defineEntry({
     id: "window",
     location: "browser",
     activationEvents: ["onStartup"],
-    dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: settingsWindowSourceKey}, {key: notificationsKey}, {key: storageKey}, {key: windowProjectKey}],
+    dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: settingsWindowSourceKey}, {key: notificationsKey}, {key: storageKey}, {key: windowProjectKey}, {key: windowTextKey, required: false}],
     contributions: [
         {capability: COMMANDS_POINT, id: OPEN_SETTINGS_COMMAND, declaration: OPEN_SETTINGS_DECLARATION},
         {capability: WORKBENCH_ACTIVITYBAR_ITEMS_POINT, id: SETTINGS_GEAR_ITEM, declaration: GEAR_DECLARATION},
         {capability: WORKBENCH_OVERLAYS_POINT, id: SETTINGS_WINDOW_OVERLAY, declaration: OVERLAY_DECLARATION},
         ...settingsWindowState.contributions,
     ],
-    activate: (context) => {
+    activate: async (context) => {
         const diagnostics = context.services.require(diagnosticsKey);
         const settings = context.services.require(settingsKey);
         const storage = context.services.require(storageKey);
@@ -131,6 +133,7 @@ export const settingsWindowEntry = defineEntry({
             // 窗口的显示名：书名，没有书名时是目录原名（nbook/shared/projects 的 WindowProject）。
             projectTitle: project?.title ?? null,
             locale: computed(() => displayLocale(settings)),
+            text: resolverFor(() => displayLocale(settings), await windowTextPort(context.services, () => displayLocale(settings))),
             size: {remembered, remember: (next) => size().remember(next)},
             notify: (input) => void notifications.notify(input),
             report: (message) => diagnostics.record({level: "warn", event: "settings.window", message, source: {plugin: descriptor.id}}),
@@ -227,24 +230,45 @@ export const settingsBrowserPlugin: PluginDefinition = {
         location: "browser",
         // 命令随贡献方入口激活才进命令表（还没有按命令触发的激活事件），启动即激活。
         activationEvents: ["onStartup"],
-        dependencies: [{key: settingsKey}, {key: quickPickKey}],
+        dependencies: [{key: settingsKey}, {key: quickPickKey}, {key: windowTextKey, required: false}],
         contributions: [
             {capability: COMMANDS_POINT, id: SWITCH_LOCALE_COMMAND, declaration: SWITCH_LOCALE_DECLARATION},
             ...LOCALE_MENU_ITEMS.map(({id, declaration}) => ({capability: WORKBENCH_TITLEBAR_MENU_POINT, id, declaration})),
         ],
-        activate: (context) => {
+        activate: async (context) => {
             const settings = context.services.require(settingsKey);
             const quickPick = context.services.require(quickPickKey);
+            const text = resolverFor(() => displayLocale(settings), await windowTextPort(context.services, () => displayLocale(settings)));
             const run = (args: unknown) => switchSetting({
                 settings,
                 quickPick,
                 setting: localeSetting,
-                value: (args as {readonly locale?: "zh-CN" | "en-US"}).locale,
+                value: (args as {readonly locale?: string}).locale,
                 // 语言名用它自己的语言写，换到看不懂的语言后也找得回来。
-                choices: [{id: "zh-CN", label: "简体中文"}, {id: "en-US", label: "English"}],
-                title: SWITCH_LOCALE_DECLARATION.title,
+                choices: HOST_LOCALES.map((locale) => ({id: locale.tag, label: locale.name})),
+                title: settingsText("commands.switch-locale.title"),
+                text,
             });
             return {contributions: {[COMMANDS_POINT]: {[SWITCH_LOCALE_COMMAND]: {run}}, [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(LOCALE_MENU_ITEMS)}};
+        },
+    }), defineEntry({
+        id: "locale",
+        location: "browser",
+        // 窗口的界面语言只有这一个来源：把设置里的值推给窗口的翻译引擎（docs/specs/ui/i18n.md“时序与寿命”）。启动即激活，
+        // 不依赖工作台，没有工作台的窗口也跟随设置。值来自用户层时让宿主记下，下次启动在设置快照到达前就用它；缺省值不记。
+        activationEvents: ["onStartup"],
+        // 翻译引擎是窗口能力；只装插件、不建窗口宿主的测试场地没有它，这时本入口什么都不做。
+        dependencies: [{key: settingsKey}, {key: windowTextKey, required: false}],
+        activate: async (context) => {
+            const settings = context.services.require(settingsKey);
+            const text = await context.services.resolve(windowTextKey);
+            if (text.status !== "resolved") return {};
+            const runner = effect(() => {
+                const inspected = settings.inspect(localeSetting);
+                text.instance.setLocale(inspected.value, {remember: inspected.source !== "default"});
+            });
+            context.scope.register({kind: "settings-locale", label: `${descriptor.id} locale`, value: runner, release: (value) => value.effect.stop()});
+            return {};
         },
     }), settingsWindowEntry],
 };

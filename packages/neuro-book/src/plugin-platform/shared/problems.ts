@@ -9,14 +9,17 @@ import type {ContributionState, PluginCatalog} from "@notnotype/nb-runtime/plugi
 
 import type {PluginProblem} from "./types";
 
-const KIND_ORDER: Readonly<Record<PluginProblem["kind"], number>> = {"entry-failed": 0, "entry-blocked": 1, "contribution-rejected": 2};
+const KIND_ORDER: Readonly<Record<PluginProblem["kind"], number>> = {"entry-failed": 0, "entry-blocked": 1, "contribution-rejected": 2, "catalog-unavailable": 3};
 
 function rejected(plugin: string, location: RuntimeLocation, contribution: ContributionState): PluginProblem | null {
     if (contribution.validation.status !== "rejected") return null;
     return {kind: "contribution-rejected", plugin, entry: contribution.entry, location, capability: contribution.capability, id: contribution.id, reason: contribution.validation.reason, detail: contribution.validation.detail};
 }
 
-/** 这个运行位置上各插件的问题：入口激活失败与受阻、被拒的贡献；按插件、种类、入口、贡献点与 id 排好。 */
+/**
+ * 这个运行位置上各插件的问题：入口激活失败与受阻、被拒的贡献；按插件、种类、入口、贡献点与 id 排好。消息目录的问题不在内核的插件
+ * 目录里，由窗口另外并入，同样按 `comparePluginProblems` 排。
+ */
 export function pluginProblems(catalog: PluginCatalog, location: RuntimeLocation): PluginProblem[] {
     const problems: PluginProblem[] = [];
     for (const plugin of catalog.plugins) {
@@ -38,6 +41,17 @@ export function pluginProblems(catalog: PluginCatalog, location: RuntimeLocation
             }
         }
     }
-    const key = (problem: PluginProblem): string => [problem.plugin, String(KIND_ORDER[problem.kind]), problem.entry ?? "", problem.kind === "contribution-rejected" ? `${problem.capability}\u0000${problem.id}` : ""].join("\u0001");
-    return problems.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
+    return problems.sort(comparePluginProblems);
+}
+
+function sortKey(problem: PluginProblem): string {
+    const position = problem.kind === "catalog-unavailable" ? problem.locale : (problem.entry ?? "");
+    return [problem.plugin, String(KIND_ORDER[problem.kind]), position, problem.kind === "contribution-rejected" ? `${problem.capability}\u0000${problem.id}` : ""].join("\u0001");
+}
+
+/** 问题的排列顺序：插件、种类、入口（目录问题是语言）、贡献点与 id。 */
+export function comparePluginProblems(a: PluginProblem, b: PluginProblem): number {
+    const left = sortKey(a);
+    const right = sortKey(b);
+    return left < right ? -1 : left > right ? 1 : 0;
 }

@@ -1,4 +1,9 @@
 <script setup lang="ts">
+import {defaultTextPort} from "@notnotype/nb-ui/text-port";
+import type {Text} from "@notnotype/nb-ui/text";
+
+/** Lab 场景固定显示中文。 */
+const labText = (text: Text): string => defaultTextPort().t(text);
 /**
  * 外壳二与外壳三的集成场景（docs/specs/ui/workbench-shell.md），登记为 WorkbenchShellLayout 的 views 系列场景：真实的外壳
  * 布局、活动栏、工具区域、面板框架、两层实例与拖放会话，落位、呈现、意图合成与落点判定用产品的纯模型；外壳的尺寸与面板状态是场景输入
@@ -159,7 +164,7 @@ function menuOf(viewId: string) {
     if (targets === null) return null;
     const container = presentation.value.containers.get(targets.sourceContainerId);
     return {
-        groups: targets.groups.map((group) => ({part: group.part, label: PART_LABELS[group.part], targets: group.targets.map((target) => ({id: target.containerId, label: target.title["zh-CN"], icon: target.icon})), createLabel: `新建容器（在${PART_LABELS[group.part]}）`})),
+        groups: targets.groups.map((group) => ({part: group.part, label: PART_LABELS[group.part], targets: group.targets.map((target) => ({id: target.containerId, label: labText(target.title), icon: target.icon})), createLabel: `新建容器（在${PART_LABELS[group.part]}）`})),
         source: targets.sourceContainerId,
         resetLabel: targets.canReset ? "重置位置" : null,
         identity: `${viewId}|${targets.sourceContainerId}|${container?.mode ?? ""}|${source.delivery(viewId).kind}|${String(generations.value.get(viewId) ?? 0)}`,
@@ -185,7 +190,7 @@ const dragGhost = computed(() => {
     if (current === null) return null;
     const title = current.source.kind === "view" ? catalog.value.get(current.source.viewId)?.title : presentation.value.containers.get(current.source.containerId)?.title;
     const icon = current.source.kind === "view" ? catalog.value.get(current.source.viewId)?.icon : presentation.value.containers.get(current.source.containerId)?.icon;
-    return title === undefined ? null : {label: title["zh-CN"], icon: icon ?? "", x: current.point.x, y: current.point.y};
+    return title === undefined ? null : {label: labText(title), icon: icon ?? "", x: current.point.x, y: current.point.y};
 });
 const DROP_LABELS: Readonly<Record<string, string>> = {"move-view": "移到这里", "detach-view": "新建容器", "move-container": "移动容器", "merge-container": "并入视图"};
 const dropFeedback = computed(() => {
@@ -198,8 +203,8 @@ const dropFeedback = computed(() => {
 
 const singleViewOf = (container: ContainerPresentation | null): string | null => (container?.mode === "single" ? (container.views[0]?.id ?? null) : null);
 
-const activityContainers = computed(() => presentation.value.parts.sidebar.switcher.map((item) => ({id: item.containerId, label: item.title["zh-CN"], icon: item.icon})));
-const panelTabs = computed(() => presentation.value.parts.panel.switcher.map((item) => ({value: item.containerId, label: item.title["zh-CN"], iconClass: item.icon, id: switcherTabId("lab-views", "panel", item.containerId), controls: switcherPanelId("lab-views", "panel"), attrs: {"data-switcher-entry": item.containerId, "data-drag-container": item.containerId, "aria-description": "按空格拿起并拖动"}})));
+const activityContainers = computed(() => presentation.value.parts.sidebar.switcher.map((item) => ({id: item.containerId, label: labText(item.title), icon: item.icon})));
+const panelTabs = computed(() => presentation.value.parts.panel.switcher.map((item) => ({value: item.containerId, label: labText(item.title), iconClass: item.icon, id: switcherTabId("lab-views", "panel", item.containerId), controls: switcherPanelId("lab-views", "panel"), attrs: {"data-switcher-entry": item.containerId, "data-drag-container": item.containerId, "aria-description": "按空格拿起并拖动"}})));
 
 const positions = [{value: "bottom", label: "底部"}, {value: "left", label: "左侧"}, {value: "right", label: "右侧"}];
 const position = computed({get: () => panel.value.position, set: (value: string | number | boolean) => {
@@ -224,10 +229,10 @@ const position = computed({get: () => panel.value.position, set: (value: string 
                 <div class="flex h-full items-center px-3 text-xs text-[var(--text-secondary)]">NeuroBook · 视图场景</div>
             </template>
             <template #activitybar>
-                <WorkbenchActivityBar label="活动栏" :containers="activityContainers" :selected="presentation.parts.sidebar.selected" :sidebar-visible="sidebarVisible" drag-hint="按空格拿起并拖动" @select="selectSidebar" />
+                <WorkbenchActivityBar label="活动栏" :containers="activityContainers" :selected="presentation.parts.sidebar.selected" :sidebar-visible="sidebarVisible" @select="selectSidebar" />
             </template>
             <template v-for="part in (['sidebar', 'auxiliarybar'] as const)" :key="part" #[part]>
-                <WorkbenchToolPartHost :part="part" :presentation="presentation.parts[part]" :selected="selectedOf(part)" locale="zh-CN" :label="PART_LABELS[part]" empty-text="将视图拖动到此处显示" id-prefix="lab-views" drag-label="拖动 {title}" drag-hint="按空格拿起并拖动" @select="(id) => apply({kind: 'select-container', part, containerId: id})" @target="(element) => setTarget(part, element)">
+                <WorkbenchToolPartHost :part="part" :presentation="presentation.parts[part]" :selected="selectedOf(part)" :label="PART_LABELS[part]" empty-text="将视图拖动到此处显示" id-prefix="lab-views" @select="(id) => apply({kind: 'select-container', part, containerId: id})" @target="(element) => setTarget(part, element)">
                     <template #actions="{container}">
                         <WorkbenchMoveViewMenu v-if="singleViewOf(container) !== null && menuOf(singleViewOf(container)!) !== null" label="移动到" :view-id="singleViewOf(container)!" :source-container-id="menuOf(singleViewOf(container)!)!.source" :groups="menuOf(singleViewOf(container)!)!.groups" :reset-label="menuOf(singleViewOf(container)!)!.resetLabel" :identity="menuOf(singleViewOf(container)!)!.identity" @move="move" @reset="(viewId) => apply({kind: 'reset-view', viewId})" />
                     </template>
@@ -242,14 +247,14 @@ const position = computed({get: () => panel.value.position, set: (value: string 
                         <Tabs v-if="panelTabs.length > 0" class="min-w-0 flex-1" size="sm" :model-value="presentation.parts.panel.selected ?? ''" :items="panelTabs" aria-label="面板" @update:model-value="(id: string) => apply({kind: 'select-container', part: 'panel', containerId: id})" />
                         <WorkbenchMoveViewMenu v-if="singleViewOf(selectedOf('panel')) !== null && menuOf(singleViewOf(selectedOf('panel'))!) !== null" label="移动到" :view-id="singleViewOf(selectedOf('panel'))!" :source-container-id="menuOf(singleViewOf(selectedOf('panel'))!)!.source" :groups="menuOf(singleViewOf(selectedOf('panel'))!)!.groups" :reset-label="menuOf(singleViewOf(selectedOf('panel'))!)!.resetLabel" :identity="menuOf(singleViewOf(selectedOf('panel'))!)!.identity" @move="move" @reset="(viewId) => apply({kind: 'reset-view', viewId})" />
                     </template>
-                    <WorkbenchToolPartHost part="panel" :presentation="presentation.parts.panel" :selected="selectedOf('panel')" locale="zh-CN" label="面板" empty-text="将视图拖动到此处显示" id-prefix="lab-views" drag-label="拖动 {title}" drag-hint="按空格拿起并拖动" @select="(id) => apply({kind: 'select-container', part: 'panel', containerId: id})" @target="(element) => setTarget('panel', element)" />
+                    <WorkbenchToolPartHost part="panel" :presentation="presentation.parts.panel" :selected="selectedOf('panel')" label="面板" empty-text="将视图拖动到此处显示" id-prefix="lab-views" @select="(id) => apply({kind: 'select-container', part: 'panel', containerId: id})" @target="(element) => setTarget('panel', element)" />
                 </WorkbenchPanelSurface>
             </template>
             <template #statusbar>
                 <div class="flex h-full items-center px-3 text-xs text-[var(--text-secondary)]">状态栏</div>
             </template>
         </WorkbenchShellLayout>
-        <WorkbenchViewInstances :presentation="presentation" :source="source" :part-targets="partTargets" :shown-parts="shownParts" :memory="memory" :root="hostEl" locale="zh-CN" @intent="apply" @generations="(next) => (generations = next)">
+        <WorkbenchViewInstances :presentation="presentation" :source="source" :part-targets="partTargets" :shown-parts="shownParts" :memory="memory" :root="hostEl" @intent="apply" @generations="(next) => (generations = next)">
             <template #view-actions="{viewId}">
                 <WorkbenchMoveViewMenu v-if="menuOf(viewId) !== null" label="移动到" :view-id="viewId" :source-container-id="menuOf(viewId)!.source" :groups="menuOf(viewId)!.groups" :reset-label="menuOf(viewId)!.resetLabel" :identity="menuOf(viewId)!.identity" @move="move" @reset="(id) => apply({kind: 'reset-view', viewId: id})" />
             </template>

@@ -1,5 +1,5 @@
 ---
-标签: [env:timer]
+标签: [state:inject, env:timer]
 别名: ["案头"]
 ---
 
@@ -19,7 +19,6 @@
 
 ```ts
 type Props = {
-    locale: DisplayLocale;
     items: ReadonlyArray<ShelfItem>;
     /** 相对时间按它算（ISO）。 */
     now: string;
@@ -35,3 +34,5 @@ type Emits = {
 ## 隐藏通道理由
 
 `env:timer`：看板娘的循环动画与跟随鼠标由品牌成品的脚本驱动（见 `NeuroBookMood`）。
+
+`state:inject`：经 `useText()` 取宿主注入的翻译端口，界面文字都在本插件的目录（命名空间 `nbook.projects`，`../../locales/`）；语言随端口切换，不重新挂载。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。

@@ -7,6 +7,8 @@ export {default as SchemaField} from "./SchemaField.vue";
 export {default as SchemaForm} from "./SchemaForm.vue";
 export {widgetLayout} from "./layout";
 export {describeIssues} from "./order";
+export {useFormText} from "./text";
+export type {FormTextApi} from "./text";
 export type {WidgetLayout} from "./layout";
 export type {CommitMode, DraftState, FieldState, FormMode, FormOptionSources} from "./scope";
 export {defineFormWidgets, FormWidgetError} from "./widgets";

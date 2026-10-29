@@ -4,6 +4,7 @@
  * 错误）在这里画。
  */
 import {CollapsibleCard, Spinner} from "@notnotype/nb-ui/components";
+import type {Text} from "@notnotype/nb-ui/text";
 import type {AgentConversationContext, AgentConversationServices} from "../../types";
 import type {AgentViewRegistry, ToolRendererEntry} from "../../registry";
 import type {ToolStep, TurnBlock, TurnStatus} from "../../conversation-turns";
@@ -40,9 +41,9 @@ const renderers = useAgentRenderers();
 const openSet = useOpenSet();
 
 /** 分隔线的正文只是把标签重说一遍时不值得点开。 */
-function dividerHasBody(message: {label: string; text: string}): boolean {
+function dividerHasBody(message: {label: Text; text: string}): boolean {
     const body = message.text.trim();
-    return body !== "" && body !== message.label.trim();
+    return body !== "" && body !== text(message.label).trim();
 }
 
 /** 步骤只带调用本身，渲染器按工具名向注册表查。 */
@@ -126,7 +127,7 @@ function nodeSubtitle(step: ToolStep): string {
             @click="openSet.set(props.block.id, !openSet.isOpen(props.block.id))"
         >
             <span class="i-lucide-info acv-notice__icon" aria-hidden="true" />
-            <span class="acv-notice__label">{{ props.block.message.label }}</span>
+            <span class="acv-notice__label">{{ text(props.block.message.label) }}</span>
             <span v-if="!openSet.isOpen(props.block.id)" class="acv-notice__text">{{ renderers.markdownPreview(props.block.message.text) }}</span>
             <span class="i-lucide-chevron-right acv-notice__chevron" aria-hidden="true" />
         </button>
@@ -143,9 +144,9 @@ function nodeSubtitle(step: ToolStep): string {
                 :aria-expanded="openSet.isOpen(props.block.id)"
                 @click="openSet.set(props.block.id, !openSet.isOpen(props.block.id))"
             >
-                {{ props.block.message.label }}<span class="i-lucide-chevron-right acv-notice__chevron" aria-hidden="true" />
+                {{ text(props.block.message.label) }}<span class="i-lucide-chevron-right acv-notice__chevron" aria-hidden="true" />
             </button>
-            <template v-else>{{ props.block.message.label }}</template>
+            <template v-else>{{ text(props.block.message.label) }}</template>
         </p>
         <AgentMarkdown v-if="openSet.isOpen(props.block.id)" class="acv-divider__body" :text="props.block.message.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
     </div>
@@ -167,7 +168,7 @@ function nodeSubtitle(step: ToolStep): string {
         />
     </div>
 
-    <p v-else class="acv-block acv-bubble" data-error>{{ props.block.message }}</p>
+    <p v-else class="acv-block acv-bubble" data-error>{{ text(props.block.message) }}</p>
 </template>
 
 <style scoped>

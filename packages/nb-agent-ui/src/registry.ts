@@ -7,8 +7,11 @@
  *
  * 对插件稳定的形状要等插件运行时（`runtime.plugins`）定型后再确认，在此之前可以随内置需要调整。
  */
+import type {Text} from "@notnotype/nb-ui/text";
 import type {Component} from "vue";
-import type {AgentConversationContext, AgentConversationServices, AgentLocale, AgentViewAction, AssistantMessageView, MessageAnnotationView, MessageView, SystemMessageSource, ToolCallView, ViewText} from "./types";
+
+import {agentRef} from "./text";
+import type {AgentConversationContext, AgentConversationServices, AgentLocale, AgentViewAction, AssistantMessageView, MessageAnnotationView, MessageView, SystemMessageSource, ToolCallView} from "./types";
 import type {CodeLine} from "./tool-detail-lines";
 
 /** 所有登记项共有的字段。 */
@@ -51,7 +54,7 @@ type ToolRendererBase = RegistryEntryBase & {
     /** 图标 class。 */
     icon: string;
     /** 工具的动作名，例如“读取”。 */
-    label: ViewText;
+    label: Text;
     /**
      * 单行摘要，通常是操作对象，例如文件路径；没有合适的对象时返回空串。调用出错时也会调用，可以写出失败原因（`call.error` 可能为空：运行结束时还没有结果的调用也算出错）。
      * 同一句用在步骤行、工具组的明细与详情的代码块标签上。
@@ -92,7 +95,7 @@ export type ToolRendererEntry =
          * 按时间顺序，含出错与运行中的：只想说成功的要自己按 `call.status` 过滤；运行中的参数可能是半截（用 argString 等读），
          * 短语会随之变化。一组至少两次调用才成形，但同一渲染器在组里可能只有一次。
          */
-        groupPhrase: (calls: readonly ToolCallView[]) => ViewText;
+        groupPhrase: (calls: readonly ToolCallView[]) => Text;
     })
     | (ToolRendererBase & {category: "mutate" | "interact" | "other"; groupPhrase?: never});
 
@@ -121,7 +124,7 @@ export type HostComponentEmits = {action: [action: AgentViewAction]};
  */
 export type RoleEntry = RegistryEntryBase & {
     icon: string;
-    label: ViewText;
+    label: Text;
     /** 头像与气泡的色调：`accent` 用强调色，`neutral` 用中性色。 */
     tone: "accent" | "neutral";
 };
@@ -158,7 +161,7 @@ export type MessageActionEntry = RegistryEntryBase & {
     /** 按单条消息判断是否显示，例如尚未确认送达的用户消息不能编辑或分支；缺省对所有匹配类型的消息显示。 */
     appliesTo?: (message: MessageView) => boolean;
     icon: string;
-    label: ViewText;
+    label: Text;
     toAction: (message: MessageView, target: MessageActionTarget) => AgentViewAction;
 };
 
@@ -167,7 +170,7 @@ export type MessageActionTarget = {outcomeCallId: string | null};
 
 export type HeaderActionEntry = RegistryEntryBase & {
     icon: string;
-    label: ViewText;
+    label: Text;
     /** 角标数；0 或 null 时不显示。 */
     badge?: (ctx: AgentConversationContext) => number | null;
     /** 点击后发出 action，或打开某个已登记的面板。 */
@@ -188,8 +191,8 @@ export type StatusItemEntry = RegistryEntryBase & {component: Component};
 export type ComposerCommandEntry = RegistryEntryBase & {
     /** 命令名，不含 `/`。 */
     name: string;
-    description: ViewText;
-    argsHint?: ViewText;
+    description: Text;
+    argsHint?: Text;
 };
 
 export type ComposerTriggerEntry = RegistryEntryBase & {
@@ -203,7 +206,7 @@ export type ComposerTriggerEntry = RegistryEntryBase & {
  */
 export type ToolbarButtonEntry = RegistryEntryBase & {
     icon: string;
-    label: ViewText;
+    label: Text;
     placement?: "leading" | "trailing";
 } & ({action: AgentViewAction; trigger?: never} | {trigger: string; action?: never});
 
@@ -279,7 +282,7 @@ export const GENERIC_TOOL_RENDERER: ToolRendererEntry = {
     id: "generic",
     category: "other",
     icon: "i-lucide-wrench",
-    label: {key: "tool.generic"},
+    label: agentRef("tool.generic"),
     summary: (call) => call.name,
     presentation: "card",
 };
@@ -313,7 +316,7 @@ function guardTool(entry: ToolRendererEntry): ToolRendererEntry {
         ...(diff === undefined ? {} : {diff: guarded("diff", diff, () => null)}),
     };
     if (entry.category === "explore") {
-        return {...entry, ...common, groupPhrase: guarded("groupPhrase", entry.groupPhrase, (calls: readonly ToolCallView[]): ViewText => ({key: "toolGroup.generic", params: {count: calls.length}}))};
+        return {...entry, ...common, groupPhrase: guarded("groupPhrase", entry.groupPhrase, (calls: readonly ToolCallView[]): Text => (agentRef("toolGroup.generic", {count: calls.length})))};
     }
     return {...entry, ...common};
 }

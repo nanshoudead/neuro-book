@@ -1,0 +1,35 @@
+{
+    "manifest": {
+        "displayName": "__DISPLAY_NAME__"
+    },
+    "settingsSections": {
+        "main": {
+            "title": "__DISPLAY_NAME__",
+            "groups": {
+                "basic": {
+                    "title": "Basic"
+                }
+            }
+        }
+    },
+    "settings": {
+        "greeting": {
+            "title": "Greeting"
+        }
+    },
+    "views": {
+        "hello": {
+            "title": "__DISPLAY_NAME__"
+        }
+    },
+    "commands": {
+        "say-hello": {
+            "title": "__DISPLAY_NAME__: Say hello"
+        }
+    },
+    "hello": {
+        "count_one": "Said hello {{count}} time",
+        "count_other": "Said hello {{count}} times",
+        "sayHello": "Say hello"
+    }
+}

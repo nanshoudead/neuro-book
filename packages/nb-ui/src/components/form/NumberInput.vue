@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {computed} from "vue";
+import {useUiText} from "../../text-port";
 import {useFieldContext} from "./field-context";
 
 export type NumberInputSize = "default" | "sm";
@@ -32,8 +33,6 @@ const props = withDefaults(defineProps<{
     disabled: false,
     readonly: false,
     invalid: false,
-    incrementLabel: "增加",
-    decrementLabel: "减少",
     required: false,
     autofocus: false,
     min: undefined,
@@ -49,6 +48,9 @@ const emit = defineEmits<{
 }>();
 
 const field = useFieldContext();
+const text = useUiText();
+const incrementText = computed(() => props.incrementLabel ?? text("numberInput.increase"));
+const decrementText = computed(() => props.decrementLabel ?? text("numberInput.decrease"));
 const isInvalid = computed(() => props.invalid || field?.invalid.value === true);
 const controlSizeClass = computed(() => props.size === "sm" ? "nb-ui-control-h-sm px-[calc(var(--control-px)*0.75)] text-[length:var(--text-xs)]" : "nb-ui-control-h-md nb-ui-control-px text-[length:var(--text-sm)]");
 const stepAmount = computed(() => {
@@ -151,8 +153,8 @@ function decimalPlaces(value: string): number {
         <div class="flex flex-col items-center justify-center border-l border-[color-mix(in_srgb,var(--text-main)_12%,transparent)] pl-1 -mr-1 shrink-0 select-none">
             <button
                 type="button"
-                :aria-label="props.incrementLabel"
-                :title="props.incrementLabel"
+                :aria-label="incrementText"
+                :title="incrementText"
                 tabindex="-1"
                 class="flex h-3.5 w-5 items-center justify-center rounded-[3px] text-[var(--text-muted)] hover:bg-[color-mix(in_srgb,var(--text-main)_12%,transparent)] hover:text-[var(--text-main)] not-disabled:active:scale-95 not-disabled:active:bg-[color-mix(in_srgb,var(--text-main)_20%,transparent)] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:transform-none cursor-pointer transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)]"
                 :disabled="props.disabled || props.readonly"
@@ -162,8 +164,8 @@ function decimalPlaces(value: string): number {
             </button>
             <button
                 type="button"
-                :aria-label="props.decrementLabel"
-                :title="props.decrementLabel"
+                :aria-label="decrementText"
+                :title="decrementText"
                 tabindex="-1"
                 class="flex h-3.5 w-5 items-center justify-center rounded-[3px] text-[var(--text-muted)] hover:bg-[color-mix(in_srgb,var(--text-main)_12%,transparent)] hover:text-[var(--text-main)] not-disabled:active:scale-95 not-disabled:active:bg-[color-mix(in_srgb,var(--text-main)_20%,transparent)] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:transform-none cursor-pointer transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)]"
                 :disabled="props.disabled || props.readonly"

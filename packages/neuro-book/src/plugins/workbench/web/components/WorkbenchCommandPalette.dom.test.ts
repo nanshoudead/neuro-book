@@ -6,16 +6,18 @@
 import {mount} from "@vue/test-utils";
 import {Type} from "typebox";
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {nextTick, ref, shallowRef} from "vue";
+import {nextTick, shallowRef} from "vue";
 
 import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import type {ContextValues} from "nbook/plugins/commands/shared/context-keys";
 import type {CommandDeclaration, CommandExecutionEvent, CommandResult} from "nbook/plugins/commands/shared/contracts";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import {provideText} from "nbook/shared/testing/text-port";
+import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import {createPaletteHost} from "../commands/palette-host";
 import type {PaletteHost} from "../commands/palette-host";
+import {workbenchCatalogs} from "../text";
 import WorkbenchCommandPalette from "./WorkbenchCommandPalette.vue";
 
 const target = {workspaceKey: "lab", generation: 1, documentId: "doc", path: "lab/doc.txt"};
@@ -38,13 +40,15 @@ function harness() {
     });
     const executed: CommandExecutionEvent[] = [];
     registry.onDidExecute((event) => executed.push(event));
-    const locale = ref<DisplayLocale>("zh-CN");
+    // 与窗口同款的引擎：测试里用 setLocale 切换显示语言，端口随之换文字。
+    const text = createHostTextEngine({locale: "zh-CN", strict: true});
+    text.register("nbook.workbench", workbenchCatalogs.catalogs, workbenchCatalogs.source);
     const failures: string[] = [];
-    const host = createPaletteHost({commands: registry, locale, onFailure: (id, failure) => failures.push(`${id}:${failure.code}`)});
+    const host = createPaletteHost({commands: registry, onFailure: (id, failure) => failures.push(`${id}:${failure.code}`)});
     const opener = document.createElement("button");
     opener.textContent = "打开前的焦点";
     document.body.append(opener);
-    const wrapper = mount(WorkbenchCommandPalette, {props: {host}, attachTo: document.body});
+    const wrapper = mount(WorkbenchCommandPalette, {props: {host}, global: {provide: provideText(text.port)}, attachTo: document.body});
     cleanups.push(() => {
         wrapper.unmount();
         host.dispose();
@@ -53,7 +57,7 @@ function harness() {
         const result = registry.register({id, source: "nbook.test", declaration: {title: {"zh-CN": id, "en-US": id}, description: id, args: NO_ARGS, effect: "read", ...declaration}, run});
         if (!result.ok) throw new Error(result.reason);
     };
-    return {host, context, executed, failures, opener, register, locale};
+    return {host, context, executed, failures, opener, register, setLocale: (tag: "zh-CN" | "en-US") => text.setLocale(tag)};
 }
 
 async function open(host: PaletteHost, mode: "commands" | "line" = "commands"): Promise<void> {
@@ -323,7 +327,7 @@ describe("WorkbenchCommandPalette", () => {
         const chosen = selected();
         expect(chosen).not.toBeNull();
 
-        app.locale.value = "en-US";
+        app.setLocale("en-US");
         await nextTick();
         expect(document.body.textContent).toContain("Change Theme");
         expect(document.body.textContent).toContain("current");
@@ -339,7 +343,7 @@ describe("WorkbenchCommandPalette", () => {
         // 命令模式的面板文案同样按当前语言。
         await open(app.host);
         expect(input()?.placeholder).toBe("Type a command, or : to go to a line");
-        app.locale.value = "zh-CN";
+        app.setLocale("zh-CN");
         await nextTick();
         expect(input()?.placeholder).toBe("输入命令，或输入 : 跳到某一行");
     });

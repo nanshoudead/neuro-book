@@ -19,9 +19,9 @@ import type {Ref} from "vue";
 
 import type {FieldNode} from "../model";
 import type {FieldPath} from "../path";
-import {messagesFor} from "./messages";
 import type {FormScope} from "./scope";
 import {issuesAt, sameContent} from "./scope";
+import {useFormText} from "./text";
 
 export const FOLD_LIMIT = 50;
 export const PAGE_SIZE = 50;
@@ -37,7 +37,6 @@ export interface ListHooks {
 export interface ListOptions {
     readonly node: () => FieldNode;
     readonly value: () => unknown;
-    readonly locale: () => string;
     readonly scope: FormScope;
     readonly editable: () => boolean;
     /** 提交新的数组。 */
@@ -86,6 +85,7 @@ interface Pending {
 }
 
 export function useList(options: ListOptions) {
+    const formText = useFormText();
     const items = computed<ReadonlyArray<unknown>>(() => {
         const value = options.value();
         return Array.isArray(value) ? value : [];
@@ -110,7 +110,7 @@ export function useList(options: ListOptions) {
         if (before !== null && sameContent(next, before.array)) {
             ids.value = before.ids;
             pending = [];
-            announce(messages.value.notApplied);
+            announce(formText.t("notApplied"));
             return;
         }
         if (next.length === ids.value.length && options.scope.emittedRecently(options.node().path, next)) return;
@@ -125,7 +125,6 @@ export function useList(options: ListOptions) {
     };
     const expanded = ref(false);
     const page = ref(0);
-    const messages = computed(() => messagesFor(options.locale()));
     const schema = computed(() => options.node().schema);
     const minItems = computed(() => (typeof schema.value.minItems === "number" ? schema.value.minItems : 0));
     const maxItems = computed(() => (typeof schema.value.maxItems === "number" ? schema.value.maxItems : Number.POSITIVE_INFINITY));
@@ -191,7 +190,7 @@ export function useList(options: ListOptions) {
         const index = items.value.length;
         const next = [...items.value, options.blank()];
         const hooks = options.hooks?.add?.(index) ?? {};
-        submit(next, [...ids.value, id], messages.value.added(next.length), hooks.focus ?? (() => firstControl(id)?.focus()), () => {
+        submit(next, [...ids.value, id], formText.t("added", {position: next.length}), hooks.focus ?? (() => firstControl(id)?.focus()), () => {
             showItem(index);
             hooks.adopt?.();
         });
@@ -202,7 +201,7 @@ export function useList(options: ListOptions) {
         const nextIds = ids.value.filter((_, at) => at !== index);
         const neighbourIndex = index < nextIds.length ? index : index - 1;
         const hooks = options.hooks?.remove?.(index) ?? {};
-        submit(items.value.filter((_, at) => at !== index), nextIds, messages.value.removed(index + 1), hooks.focus ?? (() => {
+        submit(items.value.filter((_, at) => at !== index), nextIds, formText.t("removed", {position: index + 1}), hooks.focus ?? (() => {
             const neighbour = nextIds[neighbourIndex];
             (neighbour === undefined ? addButton() : actionIn(neighbour, "remove") ?? itemElement(neighbour))?.focus();
         }), () => {
@@ -224,7 +223,7 @@ export function useList(options: ListOptions) {
         const id = ids.value[index] as string;
         const active = document.activeElement;
         const hooks = options.hooks?.move?.(index, delta) ?? {};
-        submit(swap(items.value), swap(ids.value), messages.value.moved(index + 1, target + 1), hooks.focus ?? (() => {
+        submit(swap(items.value), swap(ids.value), formText.t("moved", {from: index + 1, to: target + 1}), hooks.focus ?? (() => {
             // 焦点跟着被移动的项：原来就在这一项里的元素还在就留在它上面（`v-for` 移动节点时可能丢焦点），否则落到同一个
             // 按钮上；它到了边界停用了，落到另一个方向的按钮上。
             if (active instanceof HTMLElement && itemElement(id)?.contains(active) && active.isConnected && !active.hasAttribute("disabled")) {

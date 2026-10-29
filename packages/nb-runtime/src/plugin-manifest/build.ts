@@ -15,7 +15,7 @@ import {isBuiltinId, portabilityProblems} from "../plugins/plugins";
 import {readManifest} from "./read";
 import type {ReadContext} from "./read";
 import {byPath, contractSchemas, ENTRY_ID, ENTRY_ID_RULE, joinPath} from "./schema";
-import type {ManifestContract, ManifestContributionPoint, ManifestProblem, PluginManifest} from "./schema";
+import type {ManifestContract, ManifestContributionPoint, ManifestL10n, ManifestProblem, PluginManifest} from "./schema";
 
 /** 生成清单的输入：插件描述、它在各运行位置的代码定义与清单里只能由作者给的字段。 */
 export interface ManifestSource {
@@ -35,6 +35,8 @@ export interface ManifestSource {
     readonly mainOf?: (entry: PluginEntryDefinition) => string;
     /** 浏览器要加载的样式表；没有样式时不写。 */
     readonly style?: string;
+    /** 消息目录的语言；没有目录时不写。目录文件本身由调用方复制，这里只写清单字段。 */
+    readonly l10n?: ManifestL10n;
 }
 
 export type ManifestBuildResult =
@@ -153,6 +155,9 @@ export function buildManifest(source: ManifestSource, context: ReadContext): Man
             if (point.validate !== undefined && !builtin) {
                 addOnce(at, "写了 validate 函数：函数进不了清单，宿主里不会运行；用 schema 与 idPrefix 写声明的规则，跨条目的规则放在接收者里");
             }
+            if (point.complete !== undefined && !builtin) {
+                addOnce(at, "写了 complete 函数：函数进不了清单，宿主里不会运行；第三方贡献点的声明按写下的原样交给接收者");
+            }
             // 有问题的 schema 不序列化（清单本来就不会生成）：其中进不了 JSON 的值会让序列化抛错。
             const schemaText = point.schema === undefined || portable.length > 0 ? null : JSON.stringify(point.schema);
             if (known !== undefined) {
@@ -191,6 +196,7 @@ export function buildManifest(source: ManifestSource, context: ReadContext): Man
         ...(source.pluginVersions === undefined || Object.keys(source.pluginVersions).length === 0 ? {} : {pluginVersions: {...source.pluginVersions}}),
         ...(contracts.size === 0 ? {} : {contracts: Object.fromEntries([...contracts.values()].map(({contract}) => [contract.id, contractJson(contract)]))}),
         ...(source.style === undefined ? {} : {style: source.style}),
+        ...(source.l10n === undefined ? {} : {l10n: {source: source.l10n.source, locales: [...source.l10n.locales]}}),
     };
     const read = readManifest(json, context);
     return read.status === "valid" ? {status: "valid", json, manifest: read.manifest} : read;

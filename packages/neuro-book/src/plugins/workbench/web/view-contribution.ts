@@ -11,20 +11,20 @@ import type {Component} from "vue";
 import {boundComponent} from "nbook/ui/bound-component";
 
 import {WORKBENCH_VIEWS_POINT} from "../shared/views";
-import type {ViewDeclaration} from "../shared/views";
+import type {WrittenViewDeclaration} from "../shared/views";
 import type {ViewImplementation} from "./contracts";
 
 export interface ViewContribution<Id extends string> {
     readonly id: Id;
-    /** 写进入口的 `contributions`。 */
-    readonly contribution: {readonly capability: typeof WORKBENCH_VIEWS_POINT; readonly id: Id; readonly declaration: ViewDeclaration};
+    /** 写进入口的 `contributions`；`title` 省略时登记处补成约定键（docs/specs/workbench/views.md 的“约定键”）。 */
+    readonly contribution: {readonly capability: typeof WORKBENCH_VIEWS_POINT; readonly id: Id; readonly declaration: WrittenViewDeclaration};
     /** 激活时交出的实现，放在 `contributions[WORKBENCH_VIEWS_POINT][id]`；`props` 在渲染时求值、作为视图组件的属性，读响应式的值时视图随之更新。 */
     implementation(props?: () => Readonly<Record<string, unknown>>): ViewImplementation;
 }
 
 export function viewContribution<const Id extends string>(options: {
     readonly id: Id;
-    readonly declaration: ViewDeclaration;
+    readonly declaration: WrittenViewDeclaration;
     readonly load: () => Promise<Component | {readonly default: Component}>;
 }): ViewContribution<Id> {
     return {

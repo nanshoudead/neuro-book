@@ -1,5 +1,5 @@
 ---
-标签: [state:local]
+标签: [state:local, state:inject]
 ---
 
 # Slider
@@ -27,7 +27,7 @@ interface SliderProps {
     orientation?: "horizontal" | "vertical"; // 方向；默认 "horizontal"。
     size?: SliderSize; // 轨道与滑块尺寸；默认 "md"。
     name?: string; // 原生表单字段名；默认 undefined。
-    ariaLabel?: string; // 所有 thumb 的无障碍名称；默认 undefined，回退为“滑块 N”。
+    ariaLabel?: string; // 所有 thumb 的无障碍名称；默认 undefined，回退为按界面语言取的“滑块 N”（中文）。
 }
 
 interface SliderEmits {
@@ -50,3 +50,7 @@ interface SliderSlots {} // 不提供插槽。
 ## 上游边界
 
 滑块角色与 ARIA 数值、手势、键盘步进、thumb 间约束、值夹取和提交时机来自 Reka UI Slider。本组件承诺数值形态的归一化/回传、方向尺寸样式和 props/emits；上游约束行为与 DOM 细节不属于本组件承诺，升级可能变化。
+
+## 隐藏通道理由
+
+`state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取滑块的缺省可访问名称（“滑块 N”），语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `ariaLabel` 时以属性为准，不读端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。

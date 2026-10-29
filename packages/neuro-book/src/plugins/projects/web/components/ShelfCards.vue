@@ -1,17 +1,15 @@
 <script setup lang="ts">
 /** 卡片视图（同名 .md）：书卡网格的列表框语义与键盘；有作品时网格末尾一张“新建作品”占位，空书架时是两张“待写的书”。 */
+
 import {computed, ref, watch} from "vue";
 
-import {localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
-
 import type {ShelfItem} from "../../shared/shelf";
+import {useProjectsText} from "../text";
 import BookCard from "./BookCard.vue";
 
 defineOptions({name: "ShelfCards"});
 
 const props = defineProps<{
-    locale: DisplayLocale;
     items: ReadonlyArray<ShelfItem>;
     activeId: string | null;
     now: string;
@@ -31,17 +29,7 @@ const emit = defineEmits<{
     (event: "add-existing"): void;
 }>();
 
-const TEXT = {
-    label: {"zh-CN": "书架", "en-US": "Bookshelf"},
-    create: {"zh-CN": "新建作品", "en-US": "New Book"},
-    createText: {"zh-CN": "起一个书名，NeuroBook 会在作品目录里为它建一个文件夹。", "en-US": "Give it a title and NeuroBook creates a folder for it in your library."},
-    createWhere: {"zh-CN": "放在 {library}", "en-US": "In {library}"},
-    open: {"zh-CN": "打开已有作品", "en-US": "Open an Existing Book"},
-    openText: {"zh-CN": "把已经写了一些的作品文件夹（例如从别的电脑同步来的）加到书架上。", "en-US": "Add a book folder you already have, for example one synced from another computer."},
-    openWhere: {"zh-CN": "选一个文件夹", "en-US": "Choose a folder"},
-} satisfies Record<string, LocalizedText>;
-
-const text = (value: LocalizedText): string => localize(value, props.locale);
+const text = useProjectsText();
 
 const grid = ref<HTMLElement | null>(null);
 const optionId = (id: string): string => `book-card-${id}`;
@@ -124,7 +112,7 @@ function onPick(id: string): void {
         class="shelf-cards"
         role="listbox"
         tabindex="0"
-        :aria-label="text(TEXT.label)"
+        :aria-label="text('shelfCards.label')"
         :aria-activedescendant="createActive ? CREATE_OPTION : activeIndex === -1 ? undefined : optionId(items[activeIndex]!.id)"
         data-shelf-cards
         @focus="onFocus"
@@ -134,7 +122,6 @@ function onPick(id: string): void {
             v-for="item in items"
             :key="item.id"
             :option-id="optionId(item.id)"
-            :locale="locale"
             :item="item"
             :now="now"
             :cover-src="coverSrc(item)"
@@ -150,9 +137,9 @@ function onPick(id: string): void {
         <div :id="CREATE_OPTION" role="option" aria-selected="false" class="shelf-ghost" :class="{'shelf-ghost--active': createActive}" data-shelf-create-card @click="emit('create')">
             <span class="shelf-ghost__slot" aria-hidden="true"><span class="shelf-ghost__plus">+</span></span>
             <span class="shelf-ghost__text">
-                <span class="shelf-ghost__title">{{ text(TEXT.create) }}</span>
-                <span class="shelf-ghost__blurb">{{ text(TEXT.createText) }}</span>
-                <span class="shelf-ghost__foot">{{ text(TEXT.createWhere).replace("{library}", library) }}</span>
+                <span class="shelf-ghost__title">{{ text('shelfCards.create') }}</span>
+                <span class="shelf-ghost__blurb">{{ text('shelfCards.createText') }}</span>
+                <span class="shelf-ghost__foot">{{ text('shelfCards.createWhere', {library}) }}</span>
             </span>
         </div>
     </div>
@@ -161,17 +148,17 @@ function onPick(id: string): void {
         <button type="button" class="shelf-ghost" data-shelf-create @click="emit('create')">
             <span class="shelf-ghost__slot" aria-hidden="true"><span class="shelf-ghost__plus">+</span></span>
             <span class="shelf-ghost__text">
-                <span class="shelf-ghost__title">{{ text(TEXT.create) }}</span>
-                <span class="shelf-ghost__blurb">{{ text(TEXT.createText) }}</span>
-                <span class="shelf-ghost__foot">{{ text(TEXT.createWhere).replace("{library}", library) }}</span>
+                <span class="shelf-ghost__title">{{ text('shelfCards.create') }}</span>
+                <span class="shelf-ghost__blurb">{{ text('shelfCards.createText') }}</span>
+                <span class="shelf-ghost__foot">{{ text('shelfCards.createWhere', {library}) }}</span>
             </span>
         </button>
         <button type="button" class="shelf-ghost" data-shelf-add @click="emit('add-existing')">
             <span class="shelf-ghost__slot" aria-hidden="true"><span class="i-lucide-folder shelf-ghost__folder"></span></span>
             <span class="shelf-ghost__text">
-                <span class="shelf-ghost__title">{{ text(TEXT.open) }}</span>
-                <span class="shelf-ghost__blurb">{{ text(TEXT.openText) }}</span>
-                <span class="shelf-ghost__foot">{{ text(TEXT.openWhere) }}</span>
+                <span class="shelf-ghost__title">{{ text('shelfCards.open') }}</span>
+                <span class="shelf-ghost__blurb">{{ text('shelfCards.openText') }}</span>
+                <span class="shelf-ghost__foot">{{ text('shelfCards.openWhere') }}</span>
             </span>
         </button>
     </div>

@@ -1,0 +1,299 @@
+{
+    "settings": {
+        "theme": {
+            "title": "主题",
+            "description": "界面的形状、字体与配色",
+            "choices": {
+                "nbook": {
+                    "title": "NeuroBook"
+                },
+                "macos": {
+                    "title": "macOS"
+                }
+            }
+        },
+        "appearance": {
+            "title": "明暗",
+            "choices": {
+                "light": {
+                    "title": "浅色"
+                },
+                "dark": {
+                    "title": "深色"
+                },
+                "system": {
+                    "title": "跟随系统"
+                }
+            }
+        }
+    },
+    "titlebar": {
+        "groups": {
+            "file": "文件",
+            "edit": "编辑",
+            "view": "视图",
+            "help": "帮助"
+        },
+        "label": "标题栏",
+        "menuButton": "菜单",
+        "search": "搜索命令",
+        "searchWithShortcut": "搜索命令（{{shortcut}}）",
+        "openProject": "打开项目…",
+        "projectButton": "项目：{{name}}",
+        "toggle": {
+            "sidebar": "切换侧栏",
+            "panel": "切换面板",
+            "auxiliarybar": "切换右栏"
+        },
+        "menuItems": {
+            "sidebar": "侧栏",
+            "auxiliarybar": "右栏",
+            "activitybar": "活动栏",
+            "panel": "面板"
+        },
+        "nativeEditing": "焦点在输入框里时由它自己撤销"
+    },
+    "categories": {
+        "view": "视图",
+        "help": "帮助",
+        "settings": "设置"
+    },
+    "commands": {
+        "nbook": {
+            "quick-open": {
+                "open-commands": {
+                    "title": "命令面板"
+                }
+            },
+            "app": {
+                "reload": {
+                    "title": "重新载入"
+                }
+            },
+            "help": {
+                "documentation": {
+                    "title": "文档"
+                }
+            },
+            "view": {
+                "set-panel-position": {
+                    "title": "面板位置"
+                },
+                "set-panel-alignment": {
+                    "title": "面板对齐"
+                },
+                "set-panel-hidden": {
+                    "title": "隐藏/显示面板"
+                },
+                "set-panel-collapsed": {
+                    "title": "收起为标题头"
+                },
+                "toggle-panel-maximized": {
+                    "title": "最大化/还原面板"
+                },
+                "set-part-hidden": {
+                    "title": "切换区域显隐"
+                },
+                "open": {
+                    "title": "打开视图"
+                },
+                "move-view": {
+                    "title": "移动视图"
+                }
+            },
+            "settings": {
+                "switch-theme": {
+                    "title": "切换主题"
+                },
+                "switch-appearance": {
+                    "title": "切换明暗"
+                }
+            }
+        }
+    },
+    "appCommands": {
+        "blocked": "浏览器拦截了新标签页；请允许本站打开弹出窗口后再试"
+    },
+    "layout": {
+        "notOpen": "工作台布局没有打开（这个窗口没有显示外壳）"
+    },
+    "palette": {
+        "title": "命令面板",
+        "placeholder": "输入命令，或输入 : 跳到某一行",
+        "empty": "没有匹配的命令",
+        "pickEmpty": "没有匹配的项",
+        "linePrompt": "输入行号（1–{{max}}）",
+        "goToLine": "跳转到第 {{line}} 行",
+        "lineInvalid": "行号无效：{{text}}",
+        "lineOutOfRange": "行号超出范围：{{line}}（共 {{total}} 行）",
+        "noEditor": "没有活动编辑器",
+        "editorGone": "原编辑器已关闭或切换",
+        "lineUnsupported": "当前编辑器不支持行号跳转",
+        "editorNotReady": "编辑器尚未就绪",
+        "commandFailed": "{{title}}没有完成",
+        "unavailable": "当前页面没有命令面板"
+    },
+    "panelCommands": {
+        "positions": {
+            "bottom": "底部",
+            "top": "顶部",
+            "left": "左侧",
+            "right": "右侧"
+        },
+        "alignments": {
+            "center": "居中（只在编辑器下）",
+            "left": "靠左（含侧栏）",
+            "right": "靠右（含右栏）",
+            "justify": "两端（含左右侧栏）"
+        },
+        "current": "当前",
+        "placeholder": "选中后立即生效"
+    },
+    "partCommands": {
+        "parts": {
+            "sidebar": "侧栏",
+            "auxiliarybar": "右栏",
+            "activitybar": "活动栏"
+        },
+        "visible": "显示中",
+        "hidden": "已隐藏",
+        "placeholder": "选中后立即切换"
+    },
+    "themeCommands": {
+        "appearances": {
+            "light": "浅色",
+            "dark": "深色",
+            "system": "跟随系统"
+        }
+    },
+    "viewCommands": {
+        "parts": {
+            "sidebar": "侧栏",
+            "auxiliarybar": "右栏",
+            "panel": "面板"
+        },
+        "pickView": "选择要移动的视图",
+        "pickOpen": "选择要打开的视图",
+        "noOpenable": "没有可以打开的视图",
+        "unknownView": "没有这个视图（没有已接受的声明）：{{viewId}}",
+        "unplaced": "视图不在布局里：{{viewId}}",
+        "pickTarget": "移动到",
+        "noViews": "没有可以移动的视图",
+        "partial": "要么都不给，要么给 viewId、sourceContainerId 和 targetContainerId、newContainerIn 中的一个",
+        "stale": "视图已经不在发起时的容器里，没有移动",
+        "newContainer": {
+            "sidebar": "新建容器（在侧栏）",
+            "auxiliarybar": "新建容器（在右栏）",
+            "panel": "新建容器（在面板）"
+        }
+    },
+    "views": {
+        "resetLocation": "重置位置",
+        "collapse": "收起视图",
+        "expand": "展开视图"
+    },
+    "common": {
+        "more": "更多",
+        "retry": "重试"
+    },
+    "shell": {
+        "welcome": {
+            "noProject": "工作台已就绪。没有打开项目。",
+            "withProject": "工作台已就绪。当前项目：{{name}}"
+        },
+        "panel": "面板",
+        "empty": {
+            "part": "将视图拖动到此处显示",
+            "container": "容器里的视图都已隐藏"
+        },
+        "activityBar": "活动栏",
+        "moveTo": "移动到",
+        "drag": {
+            "label": "拖动 {{title}}",
+            "hint": "按空格拿起并拖动"
+        },
+        "drop": {
+            "moveView": "移到这里",
+            "detachView": "新建容器",
+            "moveContainer": "移动容器",
+            "mergeContainer_other": "并入 {{count}} 个视图",
+            "reveal": "放到{{part}}",
+            "before": "放在“{{title}}”前",
+            "after": "放在“{{title}}”后"
+        },
+        "moreActions": "更多操作"
+    },
+    "viewFrame": {
+        "declared": "正在等待视图所属的插件启动",
+        "blocked": "视图所属的插件无法启动：{{reason}}",
+        "failed": "视图所属的插件启动失败：{{reason}}",
+        "stopped": "视图所属的插件已停止（{{reason}}）",
+        "loading": "正在加载视图",
+        "loadFailed": "视图加载失败：{{reason}}",
+        "renderFailed": "视图出错：{{reason}}",
+        "reload": "重新加载"
+    },
+    "viewActions": {
+        "instanceLoading": "视图还没加载好"
+    },
+    "statusBar": {
+        "label": "状态栏",
+        "noProject": "未打开项目",
+        "showPanel": "显示面板",
+        "hidePanel": "隐藏面板",
+        "unsaved": "布局未保存：{{reason}}",
+        "unread": "布局未读取，正在用默认布局（{{reason}}）",
+        "discard": "放弃",
+        "reasons": {
+            "unavailable": "存储暂时不可用",
+            "conflict": "与别的窗口的修改冲突",
+            "unknown-outcome": "不确定是否已保存",
+            "io-error": "读写出错",
+            "corrupt": "记录已损坏",
+            "unsupported-version": "记录的版本不支持",
+            "provider-stopped": "存储服务已停止"
+        }
+    },
+    "editorArea": {
+        "loading": "正在加载编辑器…",
+        "failed": "编辑器加载失败：{{reason}}"
+    },
+    "items": {
+        "broken": "这个条目出错了：{{message}}",
+        "titled": "{{title}}：{{text}}"
+    },
+    "activityItems": {
+        "profile": {
+            "title": "个人资料尚未开放"
+        }
+    },
+    "state": {
+        "layoutReady": {
+            "reason": "布局还在读取"
+        },
+        "nonCompact": {
+            "reason": "窗口太窄，正在用紧凑布局"
+        },
+        "panelHorizontal": {
+            "reason": "面板不在底部或顶部"
+        },
+        "panelMaximizable": {
+            "reason": "面板要显示着，并在左右两侧或底部、顶部居中"
+        },
+        "panelVisible": {
+            "reason": "面板已隐藏或拖到零"
+        },
+        "sidebarVisible": {
+            "reason": "侧栏已隐藏或拖到零"
+        },
+        "auxiliaryBarVisible": {
+            "reason": "右栏已隐藏或拖到零"
+        },
+        "activityBarVisible": {
+            "reason": "活动栏已隐藏"
+        },
+        "panelMaximized": {
+            "reason": "面板没有最大化"
+        }
+    }
+}

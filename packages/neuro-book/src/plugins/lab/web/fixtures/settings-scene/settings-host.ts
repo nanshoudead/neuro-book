@@ -4,6 +4,7 @@
  * 由场景给出，触发激活事件时交给场景处理（例如收到后交付）。场景之间互不影响，卸载时一起释放。Lab 与设置窗口的组件测试共用。
  */
 
+import type {TextPort} from "@notnotype/nb-ui/text-port";
 import {ref} from "vue";
 import type {Component, MaybeRefOrGetter} from "vue";
 
@@ -16,8 +17,13 @@ import type {ContributionDescriptor, ContributionHandle, EntryState, RevokeReaso
 import {SETTINGS_CHOICES_POINT, SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT} from "nbook/plugins/settings/shared/contracts";
 import type {SettingsChoicesDeclaration, SettingsPageDeclaration, SettingsSectionDeclaration} from "nbook/plugins/settings/shared/contracts";
 import {createSettingsInstance} from "nbook/plugins/settings/shared/instance";
+import {completeSectionDeclaration} from "nbook/plugins/settings/shared/sections";
+import type {WrittenSettingsSectionDeclaration} from "nbook/plugins/settings/shared/sections";
+import {acceptedSettingOf} from "nbook/plugins/settings/shared/point";
 import type {SettingsInstance} from "nbook/plugins/settings/shared/instance";
-import type {DeclaredSetting} from "nbook/plugins/settings/shared/layers";
+import type {AcceptedSetting} from "nbook/plugins/settings/shared/layers";
+import {settingsCatalogs} from "nbook/plugins/settings/web/text";
+import {workbenchCatalogs} from "nbook/plugins/workbench/web/text";
 import {ChoiceSourceRegistry} from "nbook/plugins/settings/web/choices";
 import type {SettingsChoicesImplementation, SettingsPageImplementation} from "nbook/plugins/settings/web/contracts";
 import {SettingsSectionRegistry} from "nbook/plugins/settings/web/sections";
@@ -26,8 +32,10 @@ import type {SettingsWindow, SettingsWindowSize} from "nbook/plugins/settings/we
 import {choiceReferences, createSettingsWindowSource} from "nbook/plugins/settings/web/window-source";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import type {WindowPluginRetry, WindowPlugins} from "nbook/shared/host";
+import {resolverFor} from "nbook/shared/localized-text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 import type {SettingDefinition, SettingsService} from "nbook/shared/settings";
+import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import {memoryConnection, memoryLayer} from "./memory-layers";
 import type {MemoryLayer} from "./memory-layers";
@@ -44,7 +52,7 @@ export interface HostLayer {
 
 /** 场景里的分区：list 来自 `settings.sections`，page 来自 `settings.pages`。 */
 export type HostSection =
-    | {readonly id: string; readonly plugin: string; readonly kind: "list"; readonly declaration: SettingsSectionDeclaration}
+    | {readonly id: string; readonly plugin: string; readonly kind: "list"; readonly declaration: WrittenSettingsSectionDeclaration}
     | {readonly id: string; readonly plugin: string; readonly kind: "page"; readonly declaration: SettingsPageDeclaration};
 
 export interface SettingsHostOptions {
@@ -60,6 +68,8 @@ export interface SettingsHostOptions {
     readonly project?: HostLayer;
     readonly projectTitle?: string;
     readonly locale?: DisplayLocale;
+    /** 翻译端口严格模式：缺键、缺插值参数抛错（组件测试用）。 */
+    readonly strict?: boolean;
     readonly notify: (input: NotificationInput) => void;
     readonly report: (message: string) => void;
 }
@@ -72,6 +82,8 @@ export interface SettingsHost {
     readonly instance: SettingsInstance;
     readonly user: MemoryLayer;
     readonly project: MemoryLayer | null;
+    /** 窗口与它里面的零件共用的翻译端口：宿主引擎加 `nbook.settings` 的目录；夹具和测试把它注入后代组件。 */
+    readonly text: TextPort;
     /** 按插件取配置服务（页面用自己插件的）。 */
     service(plugin: string): SettingsService;
     /** 交付一个 page 分区的实现：入口转为可用，句柄发布；已有句柄时先撤回它（入口换了一代）。 */
@@ -95,7 +107,8 @@ export interface SettingsHost {
 const consumer = (plugin: string): ConsumerIdentity => ({instanceId: "lab", location: "browser", client: "lab", plugin, entry: "browser", generation: 1, via: null});
 
 export function createSettingsHost(options: SettingsHostOptions): SettingsHost {
-    const declarations = new Map<string, DeclaredSetting>(options.settings.map((setting) => [setting.definition.key, {plugin: setting.plugin, declaration: setting.definition.declaration}]));
+    // Lab 不经插件宿主登记：照登记时那样补全并校验（`acceptedSettingOf`），与产品里经登记得到的声明相同。
+    const declarations = new Map<string, AcceptedSetting>(options.settings.map((setting) => [setting.definition.key, acceptedSettingOf(setting.plugin, setting.definition)]));
     const connection = memoryConnection();
     const user = memoryLayer({layer: "user", declarations, connection, ...options.user});
     const project = options.project === undefined ? null : memoryLayer({layer: "project", declarations, connection, ...options.project});
@@ -131,7 +144,12 @@ export function createSettingsHost(options: SettingsHostOptions): SettingsHost {
 
     const abort = new AbortController();
     // 同产品：list 分区是顶层声明（没有入口），page 分区是浏览器入口的贡献。
-    const lists: ContributionDescriptor<SettingsSectionDeclaration>[] = options.sections.flatMap((section) => section.kind === "list" ? [{capability: SETTINGS_SECTIONS_POINT, id: section.id, plugin: section.plugin, entry: null, location: "browser", declaration: section.declaration}] : []);
+    // 省略的标题在产品里由贡献点补成约定键；局部宿主不经内核，自己补。
+    const lists: ContributionDescriptor<SettingsSectionDeclaration>[] = options.sections.flatMap((section) => {
+        if (section.kind !== "list") return [];
+        const written = {capability: SETTINGS_SECTIONS_POINT, id: section.id, plugin: section.plugin, entry: null, location: "browser", declaration: section.declaration} as const;
+        return [{...written, declaration: completeSectionDeclaration(written) as SettingsSectionDeclaration}];
+    });
     const pages: ContributionDescriptor<SettingsPageDeclaration>[] = options.sections.flatMap((section) => section.kind === "page" ? [{capability: SETTINGS_PAGES_POINT, id: section.id, plugin: section.plugin, entry: "browser", location: "browser", declaration: section.declaration}] : []);
     // 触发激活事件交给场景；内核的“已触发”结果在这里只用作诊断，场景自己决定交付。
     const trigger = async (event: string): Promise<TriggerActivationResult> => {
@@ -165,12 +183,18 @@ export function createSettingsHost(options: SettingsHostOptions): SettingsHost {
         return found;
     };
     const size = ref<SettingsWindowSize | null>(null);
+    const locale = ref(options.locale ?? "zh-CN");
+    const engine = createHostTextEngine({locale: locale.value, ...(options.strict === true ? {strict: true} : {})});
+    engine.register("nbook.settings", settingsCatalogs.catalogs, settingsCatalogs.source);
+    // 场景里的主题、明暗两项是 nbook.workbench 的配置项，标题与选项的文字在它的目录里。
+    engine.register("nbook.workbench", workbenchCatalogs.catalogs, workbenchCatalogs.source);
     const settingsWindow = createSettingsWindow({
         source,
         settings: service("nbook.settings"),
         bound: project !== null,
         projectTitle: project === null ? null : options.projectTitle ?? null,
-        locale: ref(options.locale ?? "zh-CN"),
+        locale,
+        text: resolverFor(() => locale.value, engine.port),
         size: {remembered: size, remember: (next) => {
             size.value = next;
         }},
@@ -214,6 +238,7 @@ export function createSettingsHost(options: SettingsHostOptions): SettingsHost {
         instance,
         user,
         project,
+        text: engine.port,
         service,
         publish: (sectionId, load) => {
             const section = options.sections.find((candidate) => candidate.id === sectionId);

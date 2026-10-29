@@ -6,7 +6,8 @@
  * 纯数据、不导入任何东西：Vite 配置、构建脚本与平台档案都读它。每加一个子路径都是 `engines.neurobook` 兼容范围内的承诺。
  *
  * 分法：根入口是插件框架，其余按内置插件各占一个子路径，从导入路径就看得出在用哪个内置插件。要 Vue 的部分：整个内置插件
- * 只在浏览器里有意义的（工作台）占一个只给浏览器的子路径；两端都要的（设置）把浏览器部分放在 `/<插件>/browser`。
+ * 只在浏览器里有意义的（工作台）占一个只给浏览器的子路径；两端都要的（设置）把浏览器部分放在 `/<插件>/browser`。界面文字
+ * 不属于哪个内置插件（翻译端口是宿主给的），照同样的两端分法占 `/text` 与 `/text/browser`。
  */
 
 export const SDK_NAME = "@notnotype/nb-plugin-sdk";
@@ -14,6 +15,10 @@ export const SDK_NAME = "@notnotype/nb-plugin-sdk";
 export const SDK_ENTRIES = [
     /** 插件框架：`definePlugin`、内核的入口、服务、远程服务、诊断与宿主能力。 */
     {specifier: "@notnotype/nb-plugin-sdk", subpath: ".", file: "index.ts", server: true},
+    /** 界面文字的值与插件自己的文字引用（`pluginText`）；纯数据。 */
+    {specifier: "@notnotype/nb-plugin-sdk/text", subpath: "./text", file: "text.ts", server: true},
+    /** 组件里取当前语言的文字（`useText`、`usePluginText`）：读宿主注入的翻译端口，要 Vue。 */
+    {specifier: "@notnotype/nb-plugin-sdk/text/browser", subpath: "./text/browser", file: "text-browser.ts", server: false},
     /** `nbook.state`：插件状态与公开状态。 */
     {specifier: "@notnotype/nb-plugin-sdk/state", subpath: "./state", file: "state.ts", server: true},
     /** `nbook.storage`：私有存储。 */

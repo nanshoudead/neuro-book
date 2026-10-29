@@ -226,6 +226,8 @@ interface PluginRecord {
     contributions: ReadonlyArray<ContributionRecord>;
 }
 
+type Completion = {readonly status: "completed"; readonly declaration: unknown} | {readonly status: "failed"; readonly detail: string};
+
 interface ContributionRecord {
     readonly key: string;
     readonly plugin: PluginRecord;
@@ -301,6 +303,11 @@ export class PluginHostImpl implements PluginHost {
             return accepted.sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
         },
     };
+    /**
+     * 贡献点 `complete` 的结果，每条登记对每个贡献点对象只算一次：反复推导校验、交付句柄、查询声明拿到同一个对象；
+     * 拥有者重新登记换了贡献点对象时重算。
+     */
+    readonly #completions = new WeakMap<ContributionRecord, {readonly point: ContributionPointDefinition; readonly completion: Completion}>();
     readonly #connections = new Map<string, ReceiverConnection>();
     /** 代次跨登记单调递增：重新启用得到新代次，旧代次身份不复用。 */
     readonly #generations = new Map<string, number>();
@@ -850,13 +857,36 @@ export class PluginHostImpl implements PluginHost {
         return this.#plugins.get(record.plugin.id) === record.plugin && isAlive(record.plugin.scope);
     }
 
-    #descriptorOf(contribution: ContributionRecord): ContributionDescriptor {
+    #descriptorOf(contribution: ContributionRecord, declaration: unknown = this.#declarationOf(contribution)): ContributionDescriptor {
         return {
             ...contribution.definition,
+            declaration,
             plugin: contribution.plugin.id,
             entry: contribution.entry?.definition.id ?? null,
             location: contribution.location,
         };
+    }
+
+    /** 接收者看到的声明：贡献点 `complete` 补过的那一份；贡献点还没登记、或补的时候抛出（这一条已被拒）时是写下的原样。 */
+    #declarationOf(contribution: ContributionRecord): unknown {
+        const point = this.#pointFor(contribution);
+        if (point === null) return contribution.definition.declaration;
+        const completion = this.#completion(contribution, point);
+        return completion.status === "completed" ? completion.declaration : contribution.definition.declaration;
+    }
+
+    #completion(contribution: ContributionRecord, point: ContributionPointDefinition): Completion {
+        if (point.complete === undefined) return {status: "completed", declaration: contribution.definition.declaration};
+        const cached = this.#completions.get(contribution);
+        if (cached?.point === point) return cached.completion;
+        let completion: Completion;
+        try {
+            completion = {status: "completed", declaration: point.complete(this.#descriptorOf(contribution, contribution.definition.declaration))};
+        } catch (error) {
+            completion = {status: "failed", detail: summarizeFailure(error).message};
+        }
+        this.#completions.set(contribution, {point, completion});
+        return completion;
     }
 
     /** 按此刻的存活登记推导一条贡献的校验结果；只看这一条声明与同 id 是否重复，不缓存。 */
@@ -878,15 +908,19 @@ export class PluginHostImpl implements PluginHost {
             const detail = this.#idPrefixProblem(contribution.plugin.id, contribution.definition.id);
             if (detail !== null) return {status: "rejected", reason: "invalid-declaration", detail};
         }
+        const completion = this.#completion(contribution, point);
+        if (completion.status === "failed") {
+            return {status: "rejected", reason: "invalid-declaration", detail: completion.detail};
+        }
         if (point.schema !== undefined) {
-            const detail = schemaProblem(point.schema, contribution.definition.declaration);
+            const detail = schemaProblem(point.schema, completion.declaration);
             if (detail !== null) {
                 return {status: "rejected", reason: "invalid-declaration", detail};
             }
         }
         if (point.validate !== undefined) {
             try {
-                const detail = point.validate(this.#descriptorOf(contribution));
+                const detail = point.validate(this.#descriptorOf(contribution, completion.declaration));
                 if (detail !== null) {
                     return {status: "rejected", reason: "invalid-declaration", detail};
                 }
@@ -1187,7 +1221,7 @@ export class PluginHostImpl implements PluginHost {
                 entry,
                 generation,
                 kind: "entry",
-                declaration: contribution.definition.declaration,
+                declaration: this.#declarationOf(contribution),
                 implementation,
                 isAlive: () => isAlive(scope),
             });
@@ -1375,7 +1409,7 @@ export class PluginHostImpl implements PluginHost {
                 entry: null,
                 generation: 0,
                 kind: "plugin",
-                declaration: contribution.definition.declaration,
+                declaration: this.#declarationOf(contribution),
                 implementation: undefined,
                 isAlive: () => isAlive(contribution.plugin.scope),
             });
@@ -1773,6 +1807,7 @@ export class PluginHostImpl implements PluginHost {
             entry: contribution.entry?.definition.id ?? null,
             location: contribution.location,
             kind: contribution.kind,
+            // 检查视图给插件写下的原样，便于对照清单；贡献点补过的那份经声明查询与句柄交给接收者。
             declaration: contribution.definition.declaration,
             validation,
             delivery: this.#deliveryState(contribution),

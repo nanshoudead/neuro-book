@@ -1,5 +1,5 @@
 ---
-标签: [state:local, state:shared-read, state:shared-write, io:mutate]
+标签: [state:local, state:inject, state:shared-read, state:shared-write, io:mutate]
 别名: ["工作台外壳", "Workbench"]
 ---
 
@@ -47,8 +47,6 @@ type Props = {
     chrome?: ShellChrome;
     /** 当前项目的显示名；没有绑定项目为 null。 */
     project: string | null;
-    /** 当前显示语言。 */
-    locale: DisplayLocale;
 };
 ```
 
@@ -59,6 +57,7 @@ type Props = {
 - `state:shared-read`、`state:shared-write`：布局 store 是工作台布局的唯一写者，外壳是把用户操作接到它的宿主；store 以 prop 传入（不经注入），读写都经它的只读视图与 action。
 - `io:mutate`：执行面板命令。命令系统是这些动作的唯一入口（命令面板、Agent、按钮共用），外壳在这里执行而不是把命令 id 传给零件：零件不认识命令。
 - `state:local`：没有自己的持久状态，只有派生的按钮列表。
+- `state:inject`：经 `useText()` 取宿主注入的翻译端口，欢迎文字、空态、拖放提示、视图位置菜单与面板命令选项等界面文字都在本插件的目录（命名空间 `nbook.workbench`，`../../locales/`）；语言随端口响应式切换，组件没有语言属性。没有宿主注入时得到 nb-ui 的缺省端口，那里没有本插件的目录，只显示键名，所以测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口。
 
 ## 不支持
 

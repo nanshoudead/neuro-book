@@ -10,6 +10,7 @@ import {definePlugin, remoteService} from "@notnotype/nb-plugin-sdk";
 import type {RemoteResult, RemoteSubscribeOptions, RemoteSubscription} from "@notnotype/nb-plugin-sdk";
 import {section, setting} from "@notnotype/nb-plugin-sdk/settings";
 import {command} from "@notnotype/nb-plugin-sdk/commands";
+import {pluginText} from "@notnotype/nb-plugin-sdk/text";
 
 /**
  * 插件的身份（读法见 `../../clock/shared/contracts.ts`）。专注计时：服务端记着进行中的一次专注与今天完成的次数，窗口里有
@@ -17,8 +18,17 @@ import {command} from "@notnotype/nb-plugin-sdk/commands";
  */
 export const plugin = definePlugin({id: "example.focus", version: "0.1.0", locations: ["server", "browser"]});
 
+/**
+ * 界面文字写在本插件的消息目录（`../locales/<语言>.json`）里，宿主在窗口里按界面语言翻译（docs/specs/ui/i18n.md）。下面的
+ * 声明都不写 `title`：宿主登记时补成约定键 `<短名>.<本地 id>.<字段>`（同一 Spec 的“约定键”），例如分区是
+ * `settingsSections.main.title`、它的小组是 `settingsSections.main.groups.timer.title`、命令 `example.focus.start` 是
+ * `commands.start.title`。可选的 `description` 省略就是没有，要显示就用 `text` 写一个引用；`text` 是纯函数，服务端也读这份
+ * 声明，所以从 `/text` 取（详见 `../../snippets/shared/contracts.ts`）。
+ */
+const text = pluginText<typeof import("../locales/zh-CN.json")>(plugin.id);
+
 /** 设置窗口左栏的分区（list 分区：设置项按声明画成表单，不用写页面）；`category` 缺省 `plugins`。 */
-export const mainSection = section(plugin, {name: "main", title: {"zh-CN": "专注计时", "en-US": "Focus timer"}, icon: "i-lucide-timer", groups: [{id: "timer", title: {"zh-CN": "计时", "en-US": "Timer"}}]});
+export const mainSection = section(plugin, {name: "main", icon: "i-lucide-timer", groups: [{id: "timer"}]});
 
 /**
  * 一次专注多少分钟。只放在用户层：开始计时的是服务端，服务端只读得到缺省值与用户层（作品层属于项目，项目实例才读得到），
@@ -28,8 +38,7 @@ export const minutesSetting = setting(plugin, {
     name: "minutes",
     schema: Type.Integer({minimum: 1, maximum: 120}),
     default: 25,
-    title: {"zh-CN": "专注时长（分钟）", "en-US": "Focus length (minutes)"},
-    description: {"zh-CN": "下一次开始时生效；进行中的那次不变", "en-US": "Applies from the next start; a running session keeps its length"},
+    description: text("settings.minutes.description"),
     layers: ["user"],
     applies: "now",
     // 收分区助手本身，`group` 只能是它的组。
@@ -96,10 +105,10 @@ const focusCommandBase = {effect: "write", expose: {agent: "never"}} as const;
  *
  * 直接调用 `command`，不包一层泛型函数：短名的核对（只用小写）要看到字面量，包在 `<Name extends string>` 的函数里推不出来。
  */
-export const startCommand = command(plugin, {...focusCommandBase, name: "start", title: {"zh-CN": "专注计时：开始", "en-US": "Focus timer: Start"}, description: "Start a focus session of the configured length"});
-export const cancelCommand = command(plugin, {...focusCommandBase, name: "cancel", title: {"zh-CN": "专注计时：放弃", "en-US": "Focus timer: Give up"}, description: "Give up the running focus session without counting it"});
+export const startCommand = command(plugin, {...focusCommandBase, name: "start", description: "Start a focus session of the configured length"});
+export const cancelCommand = command(plugin, {...focusCommandBase, name: "cancel", description: "Give up the running focus session without counting it"});
 /** 状态栏条目的命令是静态的一条，所以要一条“切换”命令，而不是开始、放弃各挂一个。 */
-export const toggleCommand = command(plugin, {...focusCommandBase, name: "toggle", title: {"zh-CN": "专注计时：开始或放弃", "en-US": "Focus timer: Start or give up"}, description: "Start a focus session, or give up the running one"});
+export const toggleCommand = command(plugin, {...focusCommandBase, name: "toggle", description: "Start a focus session, or give up the running one"});
 
 export const START_COMMAND = startCommand.id;
 export const CANCEL_COMMAND = cancelCommand.id;

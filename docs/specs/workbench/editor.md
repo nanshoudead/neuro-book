@@ -269,6 +269,10 @@ owners:
     - 打出的网址与邮箱是文字，不自动变成链接（写回时按 [workspace.markdown-dialect](../workspace/markdown-dialect.md) 输出 4 转义）。
     输入法上屏的字与键盘打的字相同。
 
+### 约定键
+
+页面与编辑器声明里的 `title` 是界面文字值（[`ui.i18n`](../ui/i18n.md)），不写时登记时补成贡献方插件目录里的键：页面（`editor.pages`）取 `editorPages.<本地 id>.title`，编辑器（`editor.editors`）取 `editors.<本地 id>.title`（规则见 [`ui.i18n`](../ui/i18n.md) 的“约定键”）。本地 id 是贡献 id 去掉开头的 `<插件 id>.`。编辑区标题与编辑器标签右键两处菜单位置没有约定键，只按 [`workbench.menus`](menus.md) 输出 9 补命名空间。
+
 ## 状态与转换
 
 | 文档状态 | 进入 | 离开 |
