@@ -10,6 +10,9 @@ import {describe, expect, it} from "vitest";
 import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
 import type {TextPort} from "@notnotype/nb-ui/text-port";
 
+import {editorText} from "nbook/plugins/editor/shared/text";
+import {editorCatalogs} from "nbook/plugins/editor/web/text";
+
 import FailurePage from "./FailurePage.vue";
 import {createHostTextEngine} from "./host/text-engine";
 
@@ -79,6 +82,18 @@ describe("宿主页", () => {
         expect(page.findAll("button").map((button) => button.text())).toEqual(["刷新页面", "复制正文", "复制正文"]);
         const plain = mountPage({state: {status: "server-restarted", reason: "boot changed"}});
         expect(plain.find("[data-host-rescued]").exists()).toBe(false);
+    });
+
+    it("未保存正文的说明是文字值时经端口翻译：编辑器的“格式丢了”说明按当前语言显示，切换语言后原地换成英文", async () => {
+        // 编辑器的目录在窗口引擎里登记后不撤销，所以终态的页面照样翻得出编辑器给的说明。
+        const engine = createHostTextEngine({locale: "zh-CN", strict: true});
+        engine.register("nbook.editor", editorCatalogs.catalogs, editorCatalogs.source);
+        const rescued = [{path: "project://a.md", text: "正文", note: editorText("rescue.lostFormat")}];
+        const page = mountPage({state: {status: "server-restarted", reason: "boot changed", rescued}}, engine.port);
+        expect(page.get("[data-host-rescued-note]").text()).toBe("这个视图有写不回 Markdown 的块，那些块只留下了文字（格式丢了）");
+        engine.setLocale("en-US");
+        await page.vm.$nextTick();
+        expect(page.get("[data-host-rescued-note]").text()).toBe("This view has blocks that cannot be written back as Markdown; only their text was kept (the formatting is lost)");
     });
 
     it("启动中：与静态加载页同一个样子，没有动作，按状态播报；引导给出书名后显示书名与“正在打开”", async () => {

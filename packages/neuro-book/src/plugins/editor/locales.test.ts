@@ -4,7 +4,10 @@
  * 第一条防止迁移改错文字：`LEGACY` 是迁移前（提交 660293339）代码里的双语字面量，按迁移后的键原样抄下，占位符还是旧的
  * `{name}` 写法。目录里的每个键都要在表里、表里的每个键都要在目录里，值换成 `{{name}}` 后逐字相同；数字参数（字数、
  * 个数、行列）旧代码按界面语言的千分位格式化后再填，迁移后写成 `{{name, number}}`，由引擎格式化，所以这几个键的占位符
- * 换成 `{{name, number}}`。数量键的各复数形都与旧文字相同。以后有意改文字时，同一次改动里同步改这张表。
+ * 换成 `{{name, number}}`。数量键的各复数形都与旧文字相同。以后有意改文字时，同一次改动里同步改这张表。`RUNTIME` 是
+ * 提交 4aabb5ae7 时只有中文、或由代码拼接的运行期文字（编辑器区的提示与各动作、命令的失败原因）：中文是旧代码显示的整句
+ * （拼接的写成代入前的模板，`refusal.current*`、`refusal.target*` 是“当前视图”“目标组”代入后的整句），英文是迁入目录时新写的；
+ * 数量键英文的单数形另列在 `RUNTIME_ONE`。
  */
 
 import {describe, expect, it} from "bun:test";
@@ -177,12 +180,75 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "tabMenu.reveal": {"zh-CN": "在资源管理器中显示", "en-US": "Reveal in Explorer"},
 };
 
+const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US": string}>> = {
+    "notice.lastEditMissing": {"zh-CN": "上次编辑的片段已不在原处：{address}", "en-US": "The passage you last edited is no longer where it was: {address}"},
+    "notice.unresolved": {"zh-CN": "有未裁决的输入：先在组顶部选择采用当前正文或保留本视图的内容", "en-US": "This view has unresolved input: first choose Use Current Text or Keep This View's Text at the top of the group"},
+    "notice.unrepresentable": {"zh-CN": "这个视图有一块写不回 Markdown：先在组顶部定位并修改它，或采用当前正文", "en-US": "A block in this view cannot be written back as Markdown: first use Show Block at the top of the group and change it, or choose Use Current Text"},
+    "notice.continueOutsideProject": {"zh-CN": "不能打开 {address}：继续写作只能打开项目里的文件", "en-US": "Cannot open {address}: only files in the project can be opened to continue writing"},
+    "refusal.currentUnresolved": {"zh-CN": "当前视图有未裁决的输入", "en-US": "The current view has unresolved input"},
+    "refusal.currentUnrepresentable": {"zh-CN": "当前视图有一块写不回 Markdown", "en-US": "A block in the current view cannot be written back as Markdown"},
+    "refusal.targetUnresolved": {"zh-CN": "目标组有未裁决的输入", "en-US": "The target group has unresolved input"},
+    "refusal.targetUnrepresentable": {"zh-CN": "目标组有一块写不回 Markdown", "en-US": "A block in the target group cannot be written back as Markdown"},
+    "refusal.disposed": {"zh-CN": "编辑器已关闭", "en-US": "The editor is closed"},
+    "refusal.unsavedBeforeBytes": {"zh-CN": "有未保存的修改：先保存或放弃修改，再换成按字节显示的编辑器", "en-US": "There are unsaved changes: save or discard them before switching to an editor that shows bytes"},
+    "refusal.batchRunning": {"zh-CN": "正在关闭编辑器", "en-US": "Editors are already being closed"},
+    "refusal.batchCancelled": {"zh-CN": "关了 {count} 个，在 {address} 处取消", "en-US": "Closed {count} editors, cancelled at {address}"},
+    "refusal.batchSaveFailed": {"zh-CN": "关了 {count} 个，{address} 保存失败", "en-US": "Closed {count} editors; saving {address} failed"},
+    "refusal.tabClosed": {"zh-CN": "标签已关闭", "en-US": "The tab is closed"},
+    "refusal.groupClosed": {"zh-CN": "编辑组已关闭", "en-US": "The editor group is closed"},
+    "refusal.saveFailed": {"zh-CN": "保存失败", "en-US": "Save failed"},
+    "refusal.cancelled": {"zh-CN": "已取消", "en-US": "Cancelled"},
+    "refusal.samePlace": {"zh-CN": "位置没有变化", "en-US": "The position did not change"},
+    "refusal.pageAddress": {"zh-CN": "页面用 nbook.editor.open-page 打开", "en-US": "Pages are opened with nbook.editor.open-page"},
+    "refusal.noPreview": {"zh-CN": "活动标签的文件没有预览", "en-US": "The active tab's file has no preview"},
+    "refusal.notFileTab": {"zh-CN": "活动的不是文件标签", "en-US": "The active tab is not a file tab"},
+    "refusal.pagePin": {"zh-CN": "页面标签不能固定", "en-US": "Page tabs cannot be pinned"},
+    "refusal.cannotSplit": {"zh-CN": "不能再拆分", "en-US": "Cannot split any further"},
+    "refusal.noActiveTab": {"zh-CN": "没有活动标签", "en-US": "There is no active tab"},
+    "refusal.pageSplit": {"zh-CN": "页面只开一个，不能拆分", "en-US": "A page opens only once and cannot be split"},
+    "refusal.pageEditor": {"zh-CN": "页面不是文件，不能换编辑器", "en-US": "A page is not a file, so its editor cannot be changed"},
+    "refusal.noActiveFileTab": {"zh-CN": "没有活动的文件标签", "en-US": "There is no active file tab"},
+    "refusal.noActiveDocument": {"zh-CN": "没有活动文档", "en-US": "There is no active document"},
+    "refusal.saveUnrepresentable": {"zh-CN": "有视图写不回 Markdown，没有保存：先在组顶部定位并修改，或采用当前正文", "en-US": "A view cannot be written back as Markdown, so nothing was saved: first use Show Block at the top of the group and change it, or choose Use Current Text"},
+    "refusal.noEditor": {"zh-CN": "没有编辑器 {editor}", "en-US": "There is no editor {editor}"},
+    "refusal.editorCannotOpen": {"zh-CN": "编辑器 {editor} 不能打开 {name}", "en-US": "Editor {editor} cannot open {name}"},
+    "refusal.notReady": {"zh-CN": "编辑器尚未就绪", "en-US": "The editor is not ready yet"},
+    "refusal.pageNoPath": {"zh-CN": "页面标签没有路径", "en-US": "Page tabs have no path"},
+    "refusal.noClipboard": {"zh-CN": "剪贴板不可用", "en-US": "The clipboard is not available"},
+    "refusal.realPathFailed": {"zh-CN": "取不到 {address} 的绝对路径：{code}", "en-US": "Cannot get the absolute path of {address}: {code}"},
+    "refusal.clipboardFailed": {"zh-CN": "写剪贴板失败：{message}", "en-US": "Writing to the clipboard failed: {message}"},
+    "refusal.undoUnsupported": {"zh-CN": "当前编辑器不支持撤销", "en-US": "The current editor does not support undo"},
+    "refusal.redoUnsupported": {"zh-CN": "当前编辑器不支持重做", "en-US": "The current editor does not support redo"},
+    "refusal.noPage": {"zh-CN": "没有页面 {id}，或贡献它的插件还没就绪", "en-US": "There is no page {id}, or the plugin that provides it is not ready yet"},
+    "refusal.closeCancelled": {"zh-CN": "用户取消了关闭", "en-US": "The user cancelled closing"},
+    "refusal.noPicker": {"zh-CN": "没有选择服务，请给出 {arg} 参数", "en-US": "There is no picker; give the {arg} argument"},
+    "refusal.areaChanged": {"zh-CN": "选择期间编辑器区已经换了", "en-US": "The editor area changed while picking"},
+    "refusal.tabChanged": {"zh-CN": "选择期间活动标签已经换了", "en-US": "The active tab changed while picking"},
+    "refusal.noLanguage": {"zh-CN": "活动的编辑器不分语言", "en-US": "The active editor has no language mode"},
+    "refusal.unknownLanguage": {"zh-CN": "没有登记语言 {language}", "en-US": "Language {language} is not registered"},
+    "refusal.nothingToFocus": {"zh-CN": "当前没有可聚焦的编辑器", "en-US": "There is no editor to focus"},
+    "refusal.noActiveEditor": {"zh-CN": "当前没有活动编辑器", "en-US": "There is no active editor"},
+    "refusal.targetChanged": {"zh-CN": "目标编辑器已关闭或切换", "en-US": "The target editor was closed or switched"},
+    "refusal.lineUnsupported": {"zh-CN": "当前编辑器不支持行号跳转", "en-US": "The active editor does not support line navigation"},
+    "refusal.lineOutOfRangeOf": {"zh-CN": "行号超出范围：{line}（共 {total} 行）", "en-US": "Line {line} is out of range ({total} lines)"},
+    "refusal.lineOutOfRange": {"zh-CN": "行号超出范围：{line}", "en-US": "Line {line} is out of range"},
+    "rescue.lostFormat": {"zh-CN": "这个视图有写不回 Markdown 的块，那些块只留下了文字（格式丢了）", "en-US": "This view has blocks that cannot be written back as Markdown; only their text was kept (the formatting is lost)"},
+};
+
+/** 运行期数量键英文的单数形（`RUNTIME` 里写的是复数形）。 */
+const RUNTIME_ONE: Readonly<Record<string, string>> = {
+    "refusal.batchCancelled_one": "Closed {count} editor, cancelled at {address}",
+    "refusal.batchSaveFailed_one": "Closed {count} editor; saving {address} failed",
+};
+
+const EXPECTED = {...LEGACY, ...RUNTIME};
+
 const CATALOGS = {"zh-CN": zhCN, "en-US": enUS} as const;
 
 /** 旧代码里先按界面语言格式化成字符串再填的数字参数，迁移后由 `{{name, number}}` 格式化。 */
 const NUMBER_KEYS: ReadonlySet<string> = new Set(["status.unsaved", "status.more", "status.words", "status.cursor"]);
 /** 数量键（带 `count` 参数、按复数选形）。 */
-const PLURAL_KEYS = ["status.unsaved", "status.more", "status.words"];
+const PLURAL_KEYS = ["status.unsaved", "status.more", "status.words", "refusal.batchCancelled", "refusal.batchSaveFailed"];
 
 /** 复数形 `<键>_<类别>` 归到 `<键>`。 */
 const baseKey = (key: string): string => key.replace(/_(?:zero|one|two|few|many|other)$/u, "");
@@ -191,12 +257,13 @@ const baseKey = (key: string): string => key.replace(/_(?:zero|one|two|few|many|
 const migrated = (key: string, legacy: string): string => legacy.replace(/\{(\w+)\}/gu, NUMBER_KEYS.has(key) ? "{{$1, number}}" : "{{$1}}");
 
 describe("nbook.editor 的目录", () => {
-    it("每个键的文字与迁移前的字面量逐字相同（占位符从 {name} 换成 {{name}}），两边的键一一对应", () => {
+    it("每个键的文字与迁移前的字面量逐字相同（占位符从 {name} 换成 {{name}}），运行期文字按 RUNTIME，两边的键一一对应", () => {
         for (const [locale, catalog] of Object.entries(CATALOGS)) {
             const flat = flattenCatalog(catalog);
-            expect({locale, keys: [...new Set(Object.keys(flat).map(baseKey))].sort()}).toEqual({locale, keys: Object.keys(LEGACY).sort()});
+            expect({locale, keys: [...new Set(Object.keys(flat).map(baseKey))].sort()}).toEqual({locale, keys: Object.keys(EXPECTED).sort()});
             for (const [key, value] of Object.entries(flat)) {
-                const legacy = migrated(baseKey(key), LEGACY[baseKey(key)]![locale as keyof typeof CATALOGS]);
+                const written = (locale === "en-US" ? RUNTIME_ONE[key] : undefined) ?? EXPECTED[baseKey(key)]![locale as keyof typeof CATALOGS];
+                const legacy = migrated(baseKey(key), written);
                 expect({locale, key, value}).toEqual({locale, key, value: legacy});
             }
         }
@@ -218,6 +285,16 @@ describe("nbook.editor 的目录", () => {
         expect(en.t(editorText("status.words", {count: 1234567}))).toBe("1,234,567 words");
         expect(en.t(editorText("status.unsaved", {count: 1}))).toBe("1 unsaved");
         expect(zh.t(editorText("status.cursor", {line: 1200, column: 3}))).toBe("第 1,200 行，第 3 列");
+    });
+
+    it("批量关闭停下时的原因：英文一个用单数、多个用复数，中文同一句", () => {
+        const zh = testTextPort("zh-CN", {"nbook.editor": editorCatalogs});
+        const en = testTextPort("en-US", {"nbook.editor": editorCatalogs});
+        expect(en.t(editorText("refusal.batchCancelled", {count: 1, address: "project://a.md"}))).toBe("Closed 1 editor, cancelled at project://a.md");
+        expect(en.t(editorText("refusal.batchCancelled", {count: 2, address: "project://a.md"}))).toBe("Closed 2 editors, cancelled at project://a.md");
+        expect(en.t(editorText("refusal.batchSaveFailed", {count: 0, address: "project://a.md"}))).toBe("Closed 0 editors; saving project://a.md failed");
+        expect(zh.t(editorText("refusal.batchCancelled", {count: 1, address: "project://a.md"}))).toBe("关了 1 个，在 project://a.md 处取消");
+        expect(zh.t(editorText("refusal.batchSaveFailed", {count: 2, address: "project://a.md"}))).toBe("关了 2 个，project://a.md 保存失败");
     });
 
     it("文字引用的命名空间就是插件 id", () => {

@@ -84,7 +84,7 @@ const copy = async (index: number, text: string): Promise<void> => {
                     <code>{{ item.path }}</code>
                     <button type="button" @click="copy(index, item.text)">{{ t(hostText(copied === index ? 'failure.rescued.copied' : 'failure.rescued.copy')) }}</button>
                 </div>
-                <p v-if="item.note !== undefined" data-host-rescued-note>{{ item.note }}</p>
+                <p v-if="item.note !== undefined" data-host-rescued-note>{{ t(item.note) }}</p>
                 <textarea readonly :value="item.text" :aria-label="t(hostText('failure.rescued.textLabel', {path: item.path}))" rows="6" />
             </div>
         </section>

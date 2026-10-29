@@ -24,6 +24,7 @@ import type {EditorArea} from "./web/area";
 import {copyTabPath} from "./web/commands";
 import {createEditorTabMenu} from "./web/tab-menu";
 import type {TabMenuEntry} from "./web/tab-menu";
+import {diagnosticText} from "nbook/shared/localized-text";
 import {testTextPort} from "nbook/shared/testing/text-port";
 import {editorText} from "./shared/text";
 import type {EditorTextKey} from "./shared/text";
@@ -107,7 +108,7 @@ describe("Spec workbench.editor 输出 57：标签的右键菜单", () => {
         area.setPinned(b, true);
         expect(labels(menu.entries(b, zh))).toContain(shown("tabMenu.unpin"));
         const page = area.openPage("nbook.projects.welcome");
-        if (!page.ok) throw new Error(page.reason);
+        if (!page.ok) throw new Error(diagnosticText(page.reason));
         expect(labels(menu.entries(page.tabId, zh))).toEqual([shown("tabMenu.close"), shown("tabMenu.closeOthers"), shown("tabMenu.closeToRight"), shown("tabMenu.closeSaved")]);
     });
 
@@ -118,7 +119,7 @@ describe("Spec workbench.editor 输出 57：标签的右键菜单", () => {
         const a = tabOf(area, "project://notes/a.md");
         expect(area.split("right")).toEqual({ok: true});
         const page = area.openPage("nbook.projects.welcome");
-        if (!page.ok) throw new Error(page.reason);
+        if (!page.ok) throw new Error(diagnosticText(page.reason));
         menu.run(a, "own:copy-relative-path");
         menu.run(a, "own:copy-path");
         menu.run(a, "acme.count");

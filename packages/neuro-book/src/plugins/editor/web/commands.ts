@@ -119,18 +119,18 @@ export const EDITOR_COMMAND_DECLARATIONS: Readonly<Record<string, WrittenCommand
 const unavailable = (reason: DisplayText): CommandResult<unknown> => ({ok: false, code: "unavailable", reason});
 /** 把文件标签的路径写进剪贴板（docs/specs/workbench/editor.md 输出 57）：绝对路径取自 Files 的 `realPath`，相对路径是相对所在根的路径。 */
 export async function copyTabPath(sources: Pick<EditorCommandSources, "files" | "clipboard">, tab: EditorTab, relative: boolean): Promise<ActionResult> {
-    if (tab.kind === "page") return {ok: false, reason: "页面标签没有路径"};
-    if (sources.clipboard === null) return {ok: false, reason: "剪贴板不可用"};
+    if (tab.kind === "page") return {ok: false, reason: editorText("refusal.pageNoPath")};
+    if (sources.clipboard === null) return {ok: false, reason: editorText("refusal.noClipboard")};
     let text = resourceOf(tab.address).path;
     if (!relative) {
         const real = await sources.files.realPath(tab.address);
-        if (!real.ok) return {ok: false, reason: `取不到 ${tab.address} 的绝对路径：${real.code}`};
+        if (!real.ok) return {ok: false, reason: editorText("refusal.realPathFailed", {address: tab.address, code: real.code})};
         text = real.value;
     }
     try {
         await sources.clipboard.writeText(text);
     } catch (error) {
-        return {ok: false, reason: `写剪贴板失败：${error instanceof Error ? error.message : String(error)}`};
+        return {ok: false, reason: editorText("refusal.clipboardFailed", {message: error instanceof Error ? error.message : String(error)})};
     }
     return {ok: true};
 }
@@ -157,7 +157,7 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, so
     const run = (action: (current: EditorArea, args: unknown) => CommandResult<unknown> | Promise<CommandResult<unknown>>): CommandImplementation => ({
         run: (args) => {
             const current = area.value;
-            if (current === null) return unavailable("编辑器尚未就绪");
+            if (current === null) return unavailable(editorText("refusal.notReady"));
             return action(current, args);
         },
     });
@@ -168,14 +168,14 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, so
     };
     const onTab = (action: (current: EditorArea, tab: EditorTab) => CommandResult<unknown> | Promise<CommandResult<unknown>>): CommandImplementation => run((current, args) => {
         const tab = targetOf(current, args);
-        return tab === null ? unavailable((args as Static<typeof TAB_ARGS>).tabId === undefined ? "没有活动标签" : "标签已关闭") : action(current, tab);
+        return tab === null ? unavailable(editorText((args as Static<typeof TAB_ARGS>).tabId === undefined ? "refusal.noActiveTab" : "refusal.tabClosed")) : action(current, tab);
     });
     const copyPath = async (tab: EditorTab, relative: boolean): Promise<CommandResult<unknown>> => fromAction(await copyTabPath(sources, tab, relative));
     /** 写入类动作前后各交出一次缓冲输入：文档立刻看到撤销后的正文，而不是等编辑器自己的防抖。 */
     const edit = (current: EditorArea, name: "undo" | "redo"): CommandResult<unknown> => {
         const handle = current.activeHandle.value;
         const method = handle?.[name];
-        if (handle === null || method === undefined) return unavailable(name === "undo" ? "当前编辑器不支持撤销" : "当前编辑器不支持重做");
+        if (handle === null || method === undefined) return unavailable(editorText(name === "undo" ? "refusal.undoUnsupported" : "refusal.redoUnsupported"));
         handle.flushPendingChange();
         method.call(handle);
         handle.flushPendingChange();
@@ -188,13 +188,13 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, so
         }),
         [OPEN_PAGE_COMMAND]: run((current, args) => {
             const {id} = args as Static<typeof OPEN_PAGE_ARGS>;
-            if (!pages.available(id)) return unavailable(`没有页面 ${id}，或贡献它的插件还没就绪`);
+            if (!pages.available(id)) return unavailable(editorText("refusal.noPage", {id}));
             return fromAction(current.openPage(id));
         }),
         [SAVE_COMMAND]: run(async (current) => fromAction(await current.save())),
         [SAVE_ALL_COMMAND]: run(async (current) => fromAction(await current.saveAll())),
         [REVERT_COMMAND]: run(async (current) => fromAction(await current.revert())),
-        [CLOSE_COMMAND]: onTab(async (current, tab) => ((await current.close(tab.id)) === "closed" ? {ok: true, value: null} : unavailable("用户取消了关闭"))),
+        [CLOSE_COMMAND]: onTab(async (current, tab) => ((await current.close(tab.id)) === "closed" ? {ok: true, value: null} : unavailable(editorText("refusal.closeCancelled")))),
         [CLOSE_OTHERS_COMMAND]: onTab(async (current, tab) => fromBatch(await current.closeOthers(tab.id))),
         [CLOSE_TO_RIGHT_COMMAND]: onTab(async (current, tab) => fromBatch(await current.closeToRight(tab.id))),
         [CLOSE_SAVED_COMMAND]: onTab(async (current, tab) => fromBatch(await current.closeSaved(tab.id))),
@@ -207,9 +207,9 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, so
         [REOPEN_WITH_COMMAND]: run(async (current, args) => {
             const given = (args as Static<typeof REOPEN_ARGS>).editor;
             const tab = current.groups.activeTab();
-            if (tab === null || tab.kind === "page") return unavailable("没有活动的文件标签");
+            if (tab === null || tab.kind === "page") return unavailable(editorText("refusal.noActiveFileTab"));
             if (given !== undefined) return fromAction(current.reopenWith(given));
-            if (sources.pick === null) return unavailable("没有选择服务，请给出 editor 参数");
+            if (sources.pick === null) return unavailable(editorText("refusal.noPicker", {arg: "editor"}));
             // 当前的那个也列出（标“当前”），选它等于不换。
             const ids = candidatesFor(sources.editors, tab.address);
             const picked = await sources.pick.pick({
@@ -220,22 +220,22 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, so
             if (picked.kind === "unavailable") return unavailable(picked.reason);
             if (picked.kind !== "item") return {ok: true, value: null};
             // 选择期间编辑器区可能已经换了（窗口换绑项目）、活动标签可能已经换了：只对发起时的那个标签生效。
-            if (area.value !== current) return {ok: false, code: "stale-target", reason: "选择期间编辑器区已经换了"};
+            if (area.value !== current) return {ok: false, code: "stale-target", reason: editorText("refusal.areaChanged")};
             const still = current.groups.activeTab();
-            if (still?.id !== tab.id || still.kind === "page" || still.editor !== tab.editor) return {ok: false, code: "stale-target", reason: "选择期间活动标签已经换了"};
+            if (still?.id !== tab.id || still.kind === "page" || still.editor !== tab.editor) return {ok: false, code: "stale-target", reason: editorText("refusal.tabChanged")};
             return fromAction(picked.id === tab.editor ? {ok: true} : current.reopenWith(picked.id));
         }),
         [CHANGE_LANGUAGE_COMMAND]: run(async (current, args) => {
             const given = (args as Static<typeof CHANGE_LANGUAGE_ARGS>).language;
             const tab = current.groups.activeTab();
             const shown = current.activeHandle.value?.language?.value ?? null;
-            if (tab === null || tab.kind === "page" || shown === null) return unavailable("活动的编辑器不分语言");
+            if (tab === null || tab.kind === "page" || shown === null) return unavailable(editorText("refusal.noLanguage"));
             if (given !== undefined) {
-                if (!sources.languages.has(given)) return unavailable(`没有登记语言 ${given}`);
+                if (!sources.languages.has(given)) return unavailable(editorText("refusal.unknownLanguage", {language: given}));
                 current.groups.setLanguage(tab.id, given);
                 return {ok: true, value: null};
             }
-            if (sources.pick === null) return unavailable("没有选择服务，请给出 language 参数");
+            if (sources.pick === null) return unavailable(editorText("refusal.noPicker", {arg: "language"}));
             const picked = await sources.pick.pick({
                 title: editorText("quickPick.changeLanguage.title"),
                 placeholder: editorText("quickPick.changeLanguage.placeholder"),
@@ -244,9 +244,9 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, so
             if (picked.kind === "unavailable") return unavailable(picked.reason);
             if (picked.kind !== "item") return {ok: true, value: null};
             // 选择期间编辑器区可能已经换了（窗口换绑项目）、活动标签可能已经换了：只对发起时的那个标签生效。
-            if (area.value !== current) return {ok: false, code: "stale-target", reason: "选择期间编辑器区已经换了"};
+            if (area.value !== current) return {ok: false, code: "stale-target", reason: editorText("refusal.areaChanged")};
             const still = current.groups.activeTab();
-            if (still?.id !== tab.id || still.kind === "page" || still.editor !== tab.editor) return {ok: false, code: "stale-target", reason: "选择期间活动标签已经换了"};
+            if (still?.id !== tab.id || still.kind === "page" || still.editor !== tab.editor) return {ok: false, code: "stale-target", reason: editorText("refusal.tabChanged")};
             current.groups.setLanguage(tab.id, picked.id);
             return {ok: true, value: null};
         }),
@@ -254,7 +254,7 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, so
         [FOCUS_BREADCRUMBS_COMMAND]: run((current) => fromAction(current.focusBreadcrumbs())),
         [FOCUS_COMMAND]: run((current) => {
             const handle = current.activeHandle.value;
-            if (handle === null) return unavailable("当前没有可聚焦的编辑器");
+            if (handle === null) return unavailable(editorText("refusal.nothingToFocus"));
             handle.focus();
             return {ok: true, value: null};
         }),
@@ -264,14 +264,14 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, so
             const {target, line} = args as Static<typeof GO_TO_LINE_ARGS>;
             const document = current.activeDocument.value;
             const handle = current.activeHandle.value;
-            if (document === null || handle === null) return unavailable("当前没有活动编辑器");
+            if (document === null || handle === null) return unavailable(editorText("refusal.noActiveEditor"));
             const active = document.target.value;
-            if (active.workspaceKey !== target.workspaceKey || active.generation !== target.generation || active.documentId !== target.documentId || active.path !== target.path) return {ok: false, code: "stale-target", reason: "目标编辑器已关闭或切换"};
+            if (active.workspaceKey !== target.workspaceKey || active.generation !== target.generation || active.documentId !== target.documentId || active.path !== target.path) return {ok: false, code: "stale-target", reason: editorText("refusal.targetChanged")};
             const navigation = handle.navigation;
-            if (navigation === undefined) return unavailable("当前编辑器不支持行号跳转");
+            if (navigation === undefined) return unavailable(editorText("refusal.lineUnsupported"));
             const total = navigation.getLineCount();
-            if (total === null) return unavailable("编辑器尚未就绪");
-            if (line > total) return {ok: false, code: "invalid-args", reason: `行号超出范围：${String(line)}（共 ${String(total)} 行）`};
+            if (total === null) return unavailable(editorText("refusal.notReady"));
+            if (line > total) return {ok: false, code: "invalid-args", reason: editorText("refusal.lineOutOfRangeOf", {line, total})};
             const revealed = navigation.revealLine(line);
             return revealed.ok ? {ok: true, value: revealed.value} : unavailable(revealed.reason);
         }),

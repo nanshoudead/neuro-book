@@ -12,6 +12,7 @@ import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import type {EditorPageContext} from "nbook/plugins/editor/web/pages";
 import type {FilesService} from "nbook/plugins/files/shared/contracts";
+import {diagnosticText} from "nbook/shared/localized-text";
 import type {TextResolver} from "nbook/shared/localized-text";
 
 import type {projectsRemoteContract, ShelfStats} from "../shared/contracts";
@@ -89,7 +90,7 @@ export function createWelcomeHost(options: WelcomeHostOptions): Component {
 
             const execute = (command: string, args: Record<string, unknown>): void => {
                 void options.commands.execute(command, args, {source: "user"}).then((result) => {
-                    if (!result.ok) options.report(`${command} 执行失败：${result.reason}`);
+                    if (!result.ok) options.report(`${command} 执行失败：${diagnosticText(result.reason)}`);
                 });
             };
 

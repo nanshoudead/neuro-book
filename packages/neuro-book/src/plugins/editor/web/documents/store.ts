@@ -15,12 +15,14 @@ import {computed, ref, shallowRef} from "@vue/reactivity";
 import type {ComputedRef, Ref, ShallowRef} from "@vue/reactivity";
 
 import type {Baseline, FilesService, Scheme, WatchMessage} from "nbook/plugins/files/shared/contracts";
+import type {DisplayText} from "nbook/shared/localized-text";
 
 import type {AffectedDocument, DocumentCoordinator, DocumentLease, LeaseResult, SettleState} from "../../shared/contracts";
+import {editorText} from "../../shared/text";
 import {isWithin, rebase, schemeOf, textHash} from "./address";
 
-/** 写不出的视图交出的抢救正文的说明（输出 61）。 */
-const LOST_FORMAT = "这个视图有写不回 Markdown 的块，那些块只留下了文字（格式丢了）";
+/** 写不出的视图交出的抢救正文的说明（输出 61）：文字引用，终态页按当时的界面语言翻译。 */
+const LOST_FORMAT = editorText("rescue.lostFormat");
 
 /** 空正文的 SHA-256：删除后重建时排他新建的空文件就是这个基线。 */
 export const EMPTY_HASH = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
@@ -126,7 +128,7 @@ export interface DocumentStore {
     retry(document: TextDocument): void;
     readonly coordinator: DocumentCoordinator;
     /** 未保存的正文、未裁决输入与写不出的视图的抢救正文（终态页）；同步返回。 */
-    rescue(): ReadonlyArray<{readonly path: string; readonly text: string; readonly note?: string}>;
+    rescue(): ReadonlyArray<{readonly path: string; readonly text: string; readonly note?: DisplayText}>;
     subscribe(listener: (event: StoreEvent) => void): () => void;
     dispose(): void;
 }
@@ -834,7 +836,7 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
         },
         coordinator,
         rescue: () => {
-            const found: Array<{path: string; text: string; note?: string}> = [];
+            const found: Array<{path: string; text: string; note?: DisplayText}> = [];
             for (const entry of entries.values()) {
                 flush(entry);
                 if (isDirty(entry)) found.push({path: entry.address, text: entry.text.value});

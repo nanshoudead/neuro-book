@@ -7,6 +7,9 @@
  *
  * 执行审计转成 Lab 的 `command` 事件（事件 tab 可见），失败另写入 `failure`，由命令检视区唯一的 `role="alert"`
  * 显示。这里不写任何偏好或存储。
+ *
+ * 失败原因是文字值，可能是工作台或编辑器目录里的文字引用：Lab 窗口的端口不登记这两份目录，场景自己建一个宿主引擎
+ * （语言固定为 Lab 的显示语言），失败与夹具里的执行结果都经它翻译，不显示键名（docs/specs/workbench/commands.md 验收 10）。
  */
 
 import {Type} from "typebox";
@@ -14,6 +17,7 @@ import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue"
 import type {ComputedRef, Ref, ShallowRef} from "vue";
 
 import {defaultTextPort} from "@notnotype/nb-ui/text-port";
+import type {TextPort} from "@notnotype/nb-ui/text-port";
 
 import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import type {ContextValues} from "nbook/plugins/commands/shared/context-keys";
@@ -25,7 +29,10 @@ import {createKeymapDispatcher} from "nbook/plugins/workbench/web/commands/keyma
 import type {KeymapDispatcher} from "nbook/plugins/workbench/web/commands/keymap";
 import {createPaletteHost} from "nbook/plugins/workbench/web/commands/palette-host";
 import type {PaletteHost} from "nbook/plugins/workbench/web/commands/palette-host";
-import {diagnosticText, resolverFor} from "nbook/shared/localized-text";
+import {editorCatalogs} from "nbook/plugins/editor/web/text";
+import {workbenchCatalogs} from "nbook/plugins/workbench/web/text";
+import {resolverFor} from "nbook/shared/localized-text";
+import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import {LAB_LOCALE} from "../../lab-locale";
 import {useLabEventSink} from "../../lab-event-sink";
@@ -60,6 +67,8 @@ export interface LabCommandScene {
     /** 最近一次命令失败（登记被拒或执行失败）；空串表示没有待看的失败。 */
     readonly failure: Ref<string>;
     readonly confirmation: LabCommandConfirmation;
+    /** 翻译命令结果里的文字值（登记了工作台与编辑器的目录，语言是 Lab 的显示语言）。 */
+    readonly text: TextPort;
     patchContext(patch: ContextValues): void;
 }
 
@@ -68,6 +77,10 @@ const NO_ARGS = Type.Object({}, {additionalProperties: false});
 
 export function useLabCommandScene(): LabCommandScene {
     const emitLabEvent = useLabEventSink();
+    const engine = createHostTextEngine({locale: LAB_LOCALE});
+    engine.register("nbook.workbench", workbenchCatalogs.catalogs, workbenchCatalogs.source);
+    engine.register("nbook.editor", editorCatalogs.catalogs, editorCatalogs.source);
+    const text = engine.port;
     const failure = ref("");
     const context = shallowRef<ContextValues>({});
     const agentMode = ref<AgentMode>("normal");
@@ -155,7 +168,7 @@ export function useLabCommandScene(): LabCommandScene {
             reason: event.result.ok ? null : event.result.reason,
             durationMs: event.durationMs,
         });
-        if (!event.result.ok) failure.value = `${event.id}：${diagnosticText(event.result.reason)}`;
+        if (!event.result.ok) failure.value = `${event.id}：${text.t(event.result.reason)}`;
     });
 
     const releasePaletteCommands = registerPaletteCommands(registry, palette, (reason) => {
@@ -201,6 +214,7 @@ export function useLabCommandScene(): LabCommandScene {
         activeEditor,
         failure,
         confirmation: {visible, pending, title, args, destructive, settle, onOpenChange, onClosed},
+        text,
         patchContext,
     };
 }

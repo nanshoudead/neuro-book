@@ -20,6 +20,8 @@ import {createLinkTap} from "nbook/plugins/files/testing/tap";
 import type {LinkTap} from "nbook/plugins/files/testing/tap";
 
 import {CODE_EDITOR, MARKDOWN_EDITOR} from "./shared/contracts";
+import {editorText} from "./shared/text";
+import {editorTestText, reasonText} from "./testing/text";
 import {createEditorArea} from "./web/area";
 import {BINARY_TAB_EDITOR, completedBuiltinEditors, catalogOf} from "./web/editors";
 import type {EditorCatalog} from "./web/editors";
@@ -32,6 +34,12 @@ import type {GroupsSnapshot} from "./web/groups/groups";
 const textBinding = (area: Pick<EditorArea, "binding">, groupId: string): TextEditorBinding | null => {
     const binding = area.binding(groupId);
     return binding?.kind === "text" ? binding : null;
+};
+
+/** 组顶部提示按某种语言显示的整句；没有提示为 null。 */
+const noticeText = (area: Pick<EditorArea, "notice">, locale: "zh-CN" | "en-US" = "zh-CN"): string | null => {
+    const notice = area.notice.value;
+    return notice === null ? null : editorTestText(locale).t(notice);
 };
 
 let tmp = "";
@@ -188,12 +196,21 @@ describe("Spec workbench.editor 输出 6–8：打开与切换", () => {
         if (right === null || left === null) throw new Error("没有绑定");
         right.block({reason: "段首的 HTML", from: 1, to: 4, index: 1, excerpt: "A", fallback: "A"});
         expect(right.blocked()).toBe(true);
-        expect(at.area.open("project://b.md", {mode: "preview"})).toEqual({ok: false, reason: "当前视图有一块写不回 Markdown"});
-        expect(at.area.notice.value).toContain("写不回");
-        expect(at.area.reopenWith(CODE_EDITOR)).toEqual({ok: false, reason: "当前视图有一块写不回 Markdown"});
+        const opened = at.area.open("project://b.md", {mode: "preview"});
+        expect(opened).toMatchObject({ok: false});
+        expect(reasonText(opened)).toBe("当前视图有一块写不回 Markdown");
+        expect(reasonText(opened, "en-US")).toBe("A block in the current view cannot be written back as Markdown");
+        expect(noticeText(at.area)).toBe("这个视图有一块写不回 Markdown：先在组顶部定位并修改它，或采用当前正文");
+        expect(noticeText(at.area, "en-US")).toBe("A block in this view cannot be written back as Markdown: first use Show Block at the top of the group and change it, or choose Use Current Text");
+        const reopened = at.area.reopenWith(CODE_EDITOR);
+        expect(reopened).toMatchObject({ok: false});
+        expect(reasonText(reopened)).toBe("当前视图有一块写不回 Markdown");
         left.commit(left.revision.value, "左");
         expect(right.blocked()).toBe(true);
-        expect(await at.area.save()).toMatchObject({ok: false, reason: expect.stringContaining("写不回")});
+        const saved = await at.area.save();
+        expect(saved).toMatchObject({ok: false});
+        expect(reasonText(saved)).toBe("有视图写不回 Markdown，没有保存：先在组顶部定位并修改，或采用当前正文");
+        expect(reasonText(saved, "en-US")).toBe("A view cannot be written back as Markdown, so nothing was saved: first use Show Block at the top of the group and change it, or choose Use Current Text");
         at.area.unblock(groupId(at));
         expect(right.blocked()).toBe(false);
         expect(at.area.open("project://b.md", {mode: "preview"})).toMatchObject({ok: true});
@@ -382,7 +399,10 @@ describe("Spec workbench.editor 输出 35：打开到指定的组", () => {
         at.area.resolve(rightGroup, "keep-view");
         expect(at.area.open("project://c.md", {mode: "permanent", group: "side"})).toMatchObject({ok: true});
         expect(at.area.groups.activeGroup.value).toBe(rightGroup);
-        expect(at.area.open("project://a.md", {mode: "permanent", group: "g-gone"})).toEqual({ok: false, reason: "编辑组已关闭"});
+        const opened = at.area.open("project://a.md", {mode: "permanent", group: "g-gone"});
+        expect(opened).toMatchObject({ok: false});
+        expect(reasonText(opened)).toBe("编辑组已关闭");
+        expect(reasonText(opened, "en-US")).toBe("The editor group is closed");
     });
 });
 
@@ -592,8 +612,14 @@ describe("Spec workbench.editor 输出 33：页面标签", () => {
         expect(at.area.activeDocument.value).toBeNull();
         // 公开键 activeDocument 只给文件的地址：页面不是资源管理器能揭示的东西。
         expect(editorStateValues(shallowRef(at.area)).activeDocument.value).toBe("");
-        expect(at.area.split("right")).toEqual({ok: false, reason: "页面只开一个，不能拆分"});
-        expect(at.area.reopenWith(CODE_EDITOR)).toEqual({ok: false, reason: "页面不是文件，不能换编辑器"});
+        const split = at.area.split("right");
+        expect(split).toMatchObject({ok: false});
+        expect(reasonText(split)).toBe("页面只开一个，不能拆分");
+        expect(reasonText(split, "en-US")).toBe("A page opens only once and cannot be split");
+        const reopened = at.area.reopenWith(CODE_EDITOR);
+        expect(reopened).toMatchObject({ok: false});
+        expect(reasonText(reopened)).toBe("页面不是文件，不能换编辑器");
+        expect(reasonText(reopened, "en-US")).toBe("A page is not a file, so its editor cannot be changed");
         expect(at.area.open("page://nbook.test.welcome", {mode: "permanent"})).toMatchObject({ok: false});
         expect(at.opened).toEqual(["project://a.md"]);
         expect(at.saved.at(-1)?.groups[0]?.tabs.map((saved) => saved.address)).toEqual(["project://a.md"]);
@@ -831,9 +857,11 @@ describe("Spec workbench.editor 输出 29：继续写作", () => {
         const at = await world();
         at.area.open("project://missing.md", {mode: "permanent", reveal: "end"});
         await until(at, "读取失败后提示", () => at.area.notice.value !== null);
-        expect(at.area.notice.value).toBe("上次编辑的片段已不在原处：project://missing.md");
-        at.area.notify("不能打开 user://x.md：继续写作只能打开项目里的文件");
-        expect(at.area.notice.value).toContain("只能打开项目里的文件");
+        expect(noticeText(at.area)).toBe("上次编辑的片段已不在原处：project://missing.md");
+        expect(noticeText(at.area, "en-US")).toBe("The passage you last edited is no longer where it was: project://missing.md");
+        at.area.notify(editorText("notice.continueOutsideProject", {address: "user://x.md"}));
+        expect(noticeText(at.area)).toBe("不能打开 user://x.md：继续写作只能打开项目里的文件");
+        expect(noticeText(at.area, "en-US")).toBe("Cannot open user://x.md: only files in the project can be opened to continue writing");
     });
 });
 
@@ -918,7 +946,10 @@ describe("Spec workbench.editor 输出 49–51：移动、固定与批量关闭"
         at.area.activate(tabId(at, 0, "a.html"));
         const closing = at.area.closeOthers(tabId(at, 0, "a.html"));
         await until(at, "问", () => at.area.dialog.value !== null);
-        expect(await at.area.closeToRight(tabId(at, 0, "a.md"))).toEqual({ok: false, closed: 0, reason: "正在关闭编辑器"});
+        const busy = await at.area.closeToRight(tabId(at, 0, "a.md"));
+        expect(busy).toMatchObject({ok: false, closed: 0});
+        expect(reasonText(busy)).toBe("正在关闭编辑器");
+        expect(reasonText(busy, "en-US")).toBe("Editors are already being closed");
         at.area.answer("cancel");
         expect(await closing).toMatchObject({ok: false, closed: 2});
         expect(names(at, 0)).toEqual(["a.md", "c.json", "a.html"]);

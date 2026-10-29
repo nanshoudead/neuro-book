@@ -10,6 +10,7 @@ import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import type {PluginProblem} from "nbook/plugin-platform/shared/types";
+import type {DisplayText} from "nbook/shared/localized-text";
 
 /** 服务端的状态根。宿主拥有根的位置，根下的布局归各插件（例如 Storage 的 `storage/user.sqlite`）。 */
 export interface StateRoot {
@@ -96,8 +97,11 @@ export interface WindowPlugins {
 export interface RescuedText {
     readonly path: string;
     readonly text: string;
-    /** 这份正文与用户看到的不完全一样时的说明（例如有一块只留下了文字）；没有为 undefined。 */
-    readonly note?: string;
+    /**
+     * 这份正文与用户看到的不完全一样时的说明（例如有一块只留下了文字）；没有为 undefined。文字值：终态页经窗口的翻译端口
+     * 翻译，插件的目录在终态时仍登记着。
+     */
+    readonly note?: DisplayText;
 }
 
 /**

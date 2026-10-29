@@ -38,7 +38,7 @@ interface OwnAction {
 const file = (tab: EditorTab): boolean => tab.kind === "file";
 const pinned = (tab: EditorTab): boolean => tab.kind === "file" && tab.pinned === true;
 const always = (): boolean => true;
-const batch = async (result: Promise<{readonly ok: boolean; readonly reason?: string}>): Promise<ActionResult> => {
+const batch = async (result: Promise<{readonly ok: boolean; readonly reason?: DisplayText}>): Promise<ActionResult> => {
     const settled = await result;
     return settled.ok ? {ok: true} : {ok: false, reason: settled.reason ?? ""};
 };
@@ -148,7 +148,7 @@ export function createEditorTabMenu(options: {
             const own = OWN.flat().find((action) => action.key === key);
             if (own !== undefined) {
                 void Promise.resolve(own.run(area, found.tab, options.copy)).then((result) => {
-                    if (!result.ok) options.report(key, result.reason);
+                    if (!result.ok) options.report(key, diagnosticText(result.reason));
                 });
                 return;
             }

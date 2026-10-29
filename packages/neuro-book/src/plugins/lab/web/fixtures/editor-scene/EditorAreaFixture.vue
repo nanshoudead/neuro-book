@@ -158,7 +158,7 @@ const emptyTips: ReadonlyArray<EmptyTip> = [
 ];
 const onIntent = (intent: string): void => {
     record("intent", intent);
-    if (intent === "save") void area.save().then((result) => record("save", result.ok ? "ok" : result.reason));
+    if (intent === "save") void area.save().then((result) => record("save", result.ok ? "ok" : text.t(result.reason)));
     if (intent === "close") {
         const tab = area.groups.activeTab();
         if (tab !== null) void area.close(tab.id);

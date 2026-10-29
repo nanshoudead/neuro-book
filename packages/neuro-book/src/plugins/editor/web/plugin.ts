@@ -30,6 +30,7 @@ import {bindingsOf} from "nbook/shared/store/public";
 import {descriptor} from "../plugin";
 import {CODE_EDITOR, completeEditorDeclaration, completeEditorPageDeclaration, documentCoordinatorKey, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT, EDITOR_PAGES_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT, MARKDOWN_EDITOR, validateEditorContribution, validateEditorPageContribution, validateEditorTabContextItem, validateEditorTitleItem, validateLanguageContribution} from "../shared/contracts";
 import type {EditorImplementation, EditorTabContextItemDeclaration, EditorTitleItemDeclaration} from "../shared/contracts";
+import {editorText} from "../shared/text";
 import {editorLanguagesKey, LanguageRegistry, monacoLanguageImplementation} from "./code/languages";
 import {codeEditorOptionsKey} from "./code/options";
 import type {CodeEditorOptions} from "./code/options";
@@ -148,12 +149,12 @@ export const editorBrowserPlugin: PluginDefinition = {
                     if (area === null || done) return;
                     done = true;
                     if (project === null || !request.address.startsWith("project://")) {
-                        area.notify(`不能打开 ${request.address}：继续写作只能打开项目里的文件`);
+                        area.notify(editorText("notice.continueOutsideProject", {address: request.address}));
                         diagnostics.record({level: "warn", event: "editor.continue", message: `地址参数指向的不是项目里的资源：${request.address}`, source: {plugin: descriptor.id}});
                         return;
                     }
                     const opened = area.open(request.address, {mode: "permanent", ...(request.reveal === null ? {} : {reveal: request.reveal})});
-                    if (!opened.ok) diagnostics.record({level: "warn", event: "editor.continue", message: `按地址参数打开失败：${opened.reason}`, source: {plugin: descriptor.id}});
+                    if (!opened.ok) diagnostics.record({level: "warn", event: "editor.continue", message: `按地址参数打开失败：${diagnosticText(opened.reason)}`, source: {plugin: descriptor.id}});
                 }, {immediate: true});
                 if (done) stop();
                 else context.signal.addEventListener("abort", () => stop(), {once: true});
@@ -168,7 +169,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                         if (opened.has(id)) continue;
                         opened.add(id);
                         const result = session.area.value?.openPage(id);
-                        if (result !== undefined && !result.ok) diagnostics.record({level: "warn", event: "editor.page", message: `自动打开页面 ${id} 失败：${result.reason}`, source: {plugin: descriptor.id}});
+                        if (result !== undefined && !result.ok) diagnostics.record({level: "warn", event: "editor.page", message: `自动打开页面 ${id} 失败：${diagnosticText(result.reason)}`, source: {plugin: descriptor.id}});
                     }
                 }, {immediate: true});
                 context.signal.addEventListener("abort", () => stopFirst(), {once: true});

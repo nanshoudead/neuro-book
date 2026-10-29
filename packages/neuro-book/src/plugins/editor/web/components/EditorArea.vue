@@ -129,7 +129,7 @@ const dialog = computed(() => props.area.dialog.value);
         @focusout="onFocusOut"
     >
         <p v-if="area.notice.value !== null" class="flex items-center gap-2 border-b border-[color:var(--divider)] px-3 py-1.5 text-xs text-[var(--status-warning)]" role="status" data-editor-notice>
-            <span class="min-w-0 flex-1">{{ area.notice.value }}</span>
+            <span class="min-w-0 flex-1">{{ port.t(area.notice.value) }}</span>
             <Button size="sm" variant="ghost" @click="area.dismissNotice()">{{ t("area.dismiss") }}</Button>
         </p>
         <NestedGrid

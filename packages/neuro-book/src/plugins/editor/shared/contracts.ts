@@ -20,7 +20,7 @@ import {MENU_BUTTON, MENU_EXTENSIONS, menuItemValidator, menuLocation} from "nbo
 import type {MenuItemDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {conventionCompleter} from "nbook/shared/convention-keys";
 import {TextSchema} from "nbook/shared/text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/localized-text";
 
 /** 需要结算的文档此刻的状态：dirty、在保存、有未裁决输入、有视图写不出（输出 61）、磁盘冲突。 */
 export type SettleState = "dirty" | "saving" | "unresolved" | "unrepresentable" | "conflict";
@@ -304,7 +304,8 @@ export interface EditorControlHandle {
     readonly position?: Readonly<Ref<{readonly line: number; readonly column: number} | null>>;
     navigation?: {
         getLineCount(): number | null;
-        revealLine(line: number): {ok: true; value: {line: number}} | {ok: false; reason: string};
+        /** 失败的 `reason` 是文字值（控件给文字引用即可，不必收翻译器），由显示命令结果的一方翻译。 */
+        revealLine(line: number): {ok: true; value: {line: number}} | {ok: false; reason: DisplayText};
     };
     /** 把光标放到文档末尾并聚焦（继续写作，输出 29）。 */
     revealEnd?(): void;

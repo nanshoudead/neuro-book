@@ -5,10 +5,13 @@
  * 这里是纯函数，组模型与测试直接用；交付的组件在 `editor-registry.ts`。
  */
 
+import type {TextRef} from "@notnotype/nb-ui/text";
+
 import type {Written} from "nbook/shared/convention-keys";
 
 import {CODE_EDITOR, completeEditorDeclaration, MARKDOWN_EDITOR} from "../shared/contracts";
 import type {EditorDeclaration} from "../shared/contracts";
+import {editorText} from "../shared/text";
 
 /**
  * 编辑器区自己的两个编辑器的声明：插件定义与测试里的目录用同一份。`title` 省略，登记时补成约定键 `editors.<本地 id>.title`，
@@ -120,12 +123,12 @@ export function candidatesFor(catalog: EditorCatalog, address: string): Readonly
 
 /**
  * 指定的编辑器能不能打开这个文件（输出 38）：要有已接受的声明；按字节显示的编辑器只能打开它认领的文件，文本编辑器可以
- * 打开任何文本。不行时给出原因。
+ * 打开任何文本。不行时给出原因（文字引用，显示方翻译）。
  */
-export function editorRefusal(catalog: EditorCatalog, editor: string, address: string): string | null {
+export function editorRefusal(catalog: EditorCatalog, editor: string, address: string): TextRef | null {
     const declaration = catalog.declaration(editor);
-    if (declaration === null) return `没有编辑器 ${editor}`;
-    if (declaration.input === "bytes" && selectorScore(declaration, address) === 0) return `编辑器 ${editor} 不能打开 ${fileName(address)}`;
+    if (declaration === null) return editorText("refusal.noEditor", {editor});
+    if (declaration.input === "bytes" && selectorScore(declaration, address) === 0) return editorText("refusal.editorCannotOpen", {editor, name: fileName(address)});
     return null;
 }
 
