@@ -279,6 +279,7 @@ describe("消息目录（catalog-invalid）", () => {
             ["source", {"locales/en-US.json": GOOD["locales/en-US.json"]}, /^locales\/zh-CN\.json：清单 l10n\.locales 列出了这种语言，但没有这个文件/u],
             ["colon", {...GOOD, "locales/zh-CN.json": JSON.stringify({"menu:open": "打开"})}, /^locales\/zh-CN\.json：menu:open：键不能含 :/u],
             ["nesting", {...GOOD, "locales/zh-CN.json": JSON.stringify({open: "见 $t(other)"})}, /^locales\/zh-CN\.json：open：值不能含 \$t\(/u],
+            ["proto", {...GOOD, "locales/zh-CN.json": "{\"menu\":{\"__proto__\":\"x\"}}"}, /^locales\/zh-CN\.json：menu\.__proto__：键不能是 __proto__/u],
         ];
         for (const [name, files, problem] of cases) {
             const source = await w.source(name, manifest("1.0.0", L10N), files);
@@ -302,6 +303,30 @@ describe("消息目录（catalog-invalid）", () => {
         expect(await exists(join(w.root, "plugins.json"))).toBe(false);
         expect(await exists(join(w.root, "example.hello"))).toBe(false);
         expect(await namesIn(join(w.root, ".staging"))).toEqual([]);
+    });
+});
+
+describe("消息目录的读取边界（catalog-invalid）", () => {
+    const L10N = {l10n: {source: "zh-CN", locales: ["zh-CN"]}};
+
+    it("目录文件不是合法 UTF-8：预览与安装都拒绝，不把坏字节换成 U+FFFD 后放行", async () => {
+        const w = await world();
+        const source = await w.source("bad-utf8", manifest("1.0.0", L10N), {"locales/zh-CN.json": "x"});
+        await writeFile(join(source, "locales", "zh-CN.json"), Buffer.from([0x7b, 0x22, 0x78, 0x22, 0x3a, 0x22, 0xff, 0x22, 0x7d]));
+        for (const result of [await w.inventory.inspect(source), await w.inventory.install(source)]) {
+            expect(result).toMatchObject({ok: false, code: "catalog-invalid"});
+            expect(result.ok ? [] : result.problems).toEqual(["locales/zh-CN.json：不是合法的 UTF-8"]);
+        }
+    });
+
+    it("locales 本身是指向插件目录之外的符号链接：预览与安装都归为 catalog-invalid", async () => {
+        const w = await world();
+        const source = await w.source("linked", manifest("1.0.0", L10N), {"other/zh-CN.json": JSON.stringify({a: "b"})});
+        await symlink(join(source, "other"), join(source, "locales"));
+        for (const result of [await w.inventory.inspect(source), await w.inventory.install(source)]) {
+            expect(result).toMatchObject({ok: false, code: "catalog-invalid"});
+            expect(result.ok ? [] : result.problems).toEqual(["locales：是符号链接"]);
+        }
     });
 });
 

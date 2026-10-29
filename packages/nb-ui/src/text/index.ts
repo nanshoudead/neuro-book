@@ -97,7 +97,8 @@ export interface Catalog {
 
 /** 把嵌套目录展开成点号路径的扁平表。 */
 export function flattenCatalog(catalog: Catalog, prefix = ""): Readonly<Record<string, string>> {
-    const result: Record<string, string> = {};
+    // 无原型：键名可以是任何字符串（含 `constructor`），不会碰到对象自带的属性。
+    const result: Record<string, string> = Object.create(null) as Record<string, string>;
     for (const [key, value] of Object.entries(catalog)) {
         const path = prefix === "" ? key : `${prefix}.${key}`;
         if (typeof value === "string") result[path] = value;

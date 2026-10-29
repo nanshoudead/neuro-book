@@ -49,7 +49,7 @@ function describeValue(value: unknown): string {
 }
 
 /**
- * 目录内容的问题：根要是对象；每个值是字符串或嵌套的对象；键不含 `:`；字符串不含 `$t(`。问题的 `path` 是目录里的点号键路径
+ * 目录内容的问题：根要是对象；每个值是字符串或嵌套的对象；键不含 `:` 且不是 `__proto__`；字符串不含 `$t(`。问题的 `path` 是目录里的点号键路径
  * （根为空串），调用方前面加上文件名。按对象自身的键序逐层检查，同一输入总是同一结果。
  *
  * 用显式的栈而不是递归：目录来自第三方插件与网络，嵌套极深的 JSON 照样能解析出来，递归会让调用方得到一个栈溢出。
@@ -62,6 +62,8 @@ export function catalogProblems(value: unknown): ManifestProblem[] {
         const current = pending.shift()!;
         for (const [key, item] of Object.entries(current.value)) {
             const path = current.path === "" ? key : `${current.path}.${key}`;
+            // `JSON.parse` 把 `__proto__` 当自有键；之后的展开与合并按普通赋值会改写对象原型而不是写入这个键。
+            if (key === "__proto__") problems.push({path, message: "键不能是 __proto__"});
             if (key.includes(":")) problems.push({path, message: "键不能含 :（会被当成命名空间分隔）"});
             if (typeof item === "string") {
                 if (item.includes("$t(")) problems.push({path, message: "值不能含 $t(（不支持跨键引用）"});

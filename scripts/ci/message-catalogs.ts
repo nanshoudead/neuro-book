@@ -153,6 +153,11 @@ export function messageCatalogFailures(repoRoot: string, directories: ReadonlyAr
         if (Object.keys(catalogs).length === locales.length) failures.push(...catalogFailures({label: set.directory, source: set.source, catalogs, ...(set.closedCodes === undefined ? {} : {closedCodes: set.closedCodes})}));
     }
     for (const file of files) {
+        // `locales/` 只能是一层 `<语言>.json`（SDK 构建预设同样拒绝）；子目录里的文件不进语言集合，单独报。
+        if (file.startsWith("packages/") && /\/locales\/[^/]+\/.+\.json$/u.test(file) && !SKIPPED_ROOTS.some((root) => file.startsWith(root))) {
+            failures.push(`${file}：locales/ 下不能有子目录（目录文件只能是 locales/<语言>.json 一层）`);
+            continue;
+        }
         if (!file.startsWith("packages/") || !/\/locales\/[^/]+\.json$/u.test(file) || covered.has(file)) continue;
         failures.push(`${file}：目录没有登记（插件清单写 l10n，或登记进 scripts/ci/message-catalogs.ts 的 CATALOG_DIRECTORIES）`);
     }

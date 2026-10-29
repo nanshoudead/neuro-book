@@ -111,6 +111,15 @@ describe("消息目录检查", () => {
         ]);
     });
 
+    it("locales/ 下的子目录：里面的 json 不进语言集合，单独报一条", async () => {
+        const root = await repositoryWith({
+            "packages/notes/package.json": {name: "notes", l10n: {source: "zh-CN", locales: ["zh-CN"]}},
+            "packages/notes/locales/zh-CN.json": GOOD["zh-CN"],
+            "packages/notes/locales/nested/en-US.json": {},
+        });
+        expect(messageCatalogFailures(root, [])).toEqual(["packages/notes/locales/nested/en-US.json：locales/ 下不能有子目录（目录文件只能是 locales/<语言>.json 一层）"]);
+    });
+
     it("作者目录的 package.json 只写 l10n.source：按 locales/ 里的文件查；l10n 写错形状报一条", async () => {
         const root = await repositoryWith({
             "packages/author/package.json": {name: "author", l10n: {source: "zh-CN"}},

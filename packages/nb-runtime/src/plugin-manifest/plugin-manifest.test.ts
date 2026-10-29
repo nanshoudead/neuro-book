@@ -406,6 +406,8 @@ describe("消息目录（l10n 与目录内容）", () => {
     it("目录内容：叶子是字符串或嵌套对象，键不含冒号，值不含 $t(；问题的路径是点号键路径", () => {
         expect(catalogProblems({manifest: {displayName: "笔记"}, errors: {"not-found": "没有 {{name}}"}})).toEqual([]);
         expect(catalogProblems({a: 1, b: {c: null, d: ["x"]}, "ns:key": "x", e: {f: "见 $t(other.key)"}}).map((problem) => problem.path)).toEqual(["a", "ns:key", "b.c", "b.d", "e.f"]);
+        // `JSON.parse` 把 __proto__ 当自有键，后续展开会改写原型：目录里不允许。
+        expect(catalogProblems(JSON.parse('{"a":{"__proto__":"x"}}'))).toEqual([{path: "a.__proto__", message: expect.stringContaining("__proto__")}]);
         expect(catalogProblems(["x"])).toEqual([{path: "", message: expect.stringContaining("数组")}]);
         expect(catalogProblems("x")).toEqual([{path: "", message: expect.stringContaining("string")}]);
     });
