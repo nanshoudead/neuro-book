@@ -72,6 +72,13 @@ nb-harness、nb-profile、nb-session 本 Task 没改，版本不动。
 
 已跑的发布前检查（合入 master 之前的 Work 分支上，未发布）：`bun run release:check` 通过；`bun run release:smoke` 通过（本地打包：nbstory 与查看器、Vite 宿主导入 8 个公开入口、`bun add -g` 后 nbook 打开书架、`bunx -p` SDK 生成插件并构建、`nbook plugin install` 后重启已加载）。发布后还要在发布用的提交上跑 `release:smoke --from registry`。
 
+## 收口（2026-10-29）
+
+- 全量 e2e：`neuro-book` 269 过；`lab-agent-ui.e2e.ts` 的一例在 `beforeAll` 里等 `[dev] backend-ready` 超过 30 秒失败，连带 24 个未运行，单独重跑该文件 25 过（启动慢，不是断言失败）。nb-story 的 `test:e2e`（先重建 `dist/web`）54 过，单语中文的页面文字没变。Lab 截图对照没有单独跑，中文文字由逐键“文字不变”测试保证，外观由 e2e 与 Lab 场景覆盖。
+- master 合入：Work 分支落后 211 个提交，合入时 3 处冲突（插件页内置名称表、书架 `return false`、`bun.lock`），已解决；合入带来的内置名称双语表已迁入 plugins 目录。
+- `explorer/browse.test.ts` “展开的目录改名”间歇失败的根因：父目录的刷新先于 `renamed` 事件到达时，选择里旧地址的行已不在，被可见行 prune 清空；随后的路径跟随作用在空选择上。与 i18n 无关，没有修；真要修需让 prune 认得“刚改名的子树”，记入 explorer 的后续清单。
+- 实现审查：后端（omp）与前端（Sonnet）各一份，报告在 `/tmp/w00028-t03/review-impl/`，处理见下一节。
+
 ## 下一步
 
-交付片（版本表、`release:check`、`release:smoke`、体积预算、Spec 晋升；发布要开发者授权）；然后实现审查与收口（全量 e2e、Lab 截图、explorer 间歇失败排查）。
+实现审查报告回来后处理；发布与版本改动等开发者授权；`ui.i18n` Spec 晋升待开发者批准。
