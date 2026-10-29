@@ -31,7 +31,7 @@
 Work 与 Task 的记录（README、`artifacts/`、`walkthroughs/`、`evidences/`）只放主工作区 `master` 的 `.agents/works/`，只有这一份。Agent 会话是临时的，记录是持久的：任何会话都从这里读到目标、状态、决定、产物与答复，不依赖当初写它的会话还在。
 
 - 在实现 worktree 里工作时，读写主工作区里的记录（`<主工作区>/.agents/works/<workId>/…`），在主工作区用路径限定提交（`git commit -- <路径>`；主工作区的暂存区里常有别人的改动）。
-- 实现分支只带代码、测试、Spec 与文档的改动，不改 `.agents/works/` 下的 Work 目录；worktree 里的 Work 目录是分出时的旧副本，不读不改。本目录的 `README.md`、`AGENTS.md` 是治理规则，不是记录，按治理文档的流程修改。`governance:context` 默认读它所在 checkout，在 worktree 里查记录时加 `--repo-root <主工作区>`。
+- 实现分支只带代码、测试与组件文档的改动，不改 `.agents/works/` 下的 Work 目录，也不改 `docs/specs/`、`docs/proposals/`（Spec、提案与 Task 记录都在主工作区的 `master` 上更新，与根 `AGENTS.md` 一致，开发者 2026-10-29 定）；worktree 里这些目录是分出时的旧副本，不读不改。本目录的 `README.md`、`AGENTS.md` 是治理规则，不是记录，按治理文档的流程修改。`governance:context` 默认读它所在 checkout，在 worktree 里查记录时加 `--repo-root <主工作区>`。
 - 本节 2026-10-12 起生效。已在实现分支上维护记录的 Work，迁到主工作区之前照旧在原处维护，迁移见 [w00022 的 t05](w00022-dev-panel/tasks/t05-migrate-records/README.md)；这类 Work 新建 Task 也一律经 `nbdev task new` 写进 `master`，不在分支上建。
 
 ### 编号分配
