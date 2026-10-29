@@ -1,0 +1,260 @@
+# w00032 t20 事件模型设计审查第二轮（插件作者与 Profile 作者视角，Opus）
+
+审查对象：spike 第二版（worktree `.worktree/w00032-t20-review-r2`，提交 0f60470ca）的 `api.ts`、`examples/`、`typetest.ts`、`kernel.ts`、`core.ts`、`template.ts`，与提案第三稿 `docs/proposals/agent-harness-event-model.md`。实验代码在 `/tmp/review-w00032-t20-design/r2/lab-opus/`。条目按核实顺序追加。
+
+## 第一轮核对
+
+| 第一轮条目 | 结论 | 依据或还差什么 |
+|---|---|---|
+| 1 隐式“接着做” | 已解决 | `Reaction` 加 `continue`（`api.ts` 209），`kernel.ts` 803 只看 `continueBy`；角色卡变体（助手回复提到也注入、不写 `continue`）一次运行只调 1 次模型，卡片在下一轮的历史里出现；要求接着做时有带扩展 id 的 `continue` 诊断 |
+| 2 事件名可伪造内核事件、拼错不报 | 已解决（留一个缝） | `kernel.ts` 283-287 拒绝不以 `<id>/` 开头的类型，反应里写错整批不写并给 `bad-event` 诊断；`seed` 的 `on` 是 `KernelType \| \`${string}/${string}\``，`"session_create"` 是编译错误。缝：扩展 id 本身不校验，id 含 `/` 时前缀检查能被绕过（见新发现 7）；别的扩展的事件名仍可写成字符串（`examples/profiles.tsx` 66 的 `"nbook.history/fileChanged"`），拼错不报 |
+| 3 类型全 `any` | 部分解决 | `typetest.ts` 7 处都报错（已复跑）；`ctx.mine`、`e.data`、`ctx.read` 都有推断，块体忘写 `return` 的 `reduce` 也是编译错误。还差：Profile 侧仍是 `any`：`state.own()` 返回 `any`、`settings` 是 `Record<string, any>`、`payload`/`initial` 是 `unknown`、`ProfileDef.render` 的 `e.data` 是 `any`；`ctx.own` 不在 `BaseCtx` 类型上；`sample` 失败时类型说有值（见新发现 3、5） |
+| 4 各入口读到的状态时刻不一致 | 部分解决 | 叶子的问题解决：拦截器读被预览的叶子（场景 11）、`ctx.now` 去掉、`Entry.at` 加上、提案第 5 节有表。还差：预览过去的请求时 session 片与设置用的是“现在”的值，改过设置后预览第一次请求，模型从 `main` 变成 `big`、人设从“活泼”变成“严肃”（见新发现 4） |
+| 5 相邻 user 合并、缓存诊断报反 | 已解决 | 内容是块（`api.ts` 146-157），内核不再拼接；大纲 Profile（会变的槽在 `<Input />` 前）第二、四次请求重算 633、373 token 并给出 `cache-miss`；缺省布局两种轮次重算都是 0 |
+| 6 每次请求现取的外部数据没有写法 | 已解决（有两处缺口） | `sample` + 会变的槽，额度插件写法 B 4 行；记进 `model_started`，预览过去的请求不再去取（实测 0 次）。缺口：`sample` 没有时限、中止也解不开（见新发现 2）；失败时值是 `undefined` 而类型说是 `number`（见新发现 5） |
+| 7 `seed` 与 `HistorySet` 不等价、结构化输入无处放 | 已解决 | `UserInput {text, payload}`、`session_created.initial`、`seed.messages(e, ctx)`、输入拦截 `{reject}` 都有；写手的调用上下文按 payload 变了才写，9 行（第一版 23 行）。类型上 payload 仍是 `unknown`（并入新发现 5） |
+| 8 一个扩展一片状态 | 已解决 | 多片各有作用域（`api.ts` 124-131、`reduce` 每片一个函数带兄弟片）；写手的两份预设与“送达到哪了”在一个扩展里三片；工作区焦点不再拆两个扩展。`own` 只在 `prompt` 的类型上（见第 3 行） |
+| 9 槽的声明与缺省 | 已解决 | `contribute: {名字: {volatile?, value}}` 一处写；没有“未声明的槽”；`*` 不写档位抛模板错误；会变的槽进系统提示词有 `volatile-in-system`（`template.ts` 124）。新问题：槽名是全局的，两个插件同名时静默拼成一块（见新发现 6） |
+| 10 `render` 三处 | 已解决 | 节点上写 `render` 抛错并提示写到 Profile 上（`template.ts` 74）；剩扩展与 Profile 两处 |
+| 11 辅助函数事件名外泄 | 部分解决 | `reminder()` 返回值有 `ev.reminder.type`，名字不再是 `…/reminder/reminder`。还差：`ProfileDef.render` 的键是任意字符串，spike 自己的主创仍手写 `"nbook.agent.mode/reminder"`；键拼成 `remider` 时覆盖静默失效、零诊断（实测） |
+| 12 出错信息 | 部分解决 | 诊断结构化 `{level, code, ext, entry, request, message}`；反应抛错与超时写 `react-failed` 并继续，工具拦截出错缺省拒绝。还差：`reduce` 抛错会让日志分叉损坏、会话再也打不开（见新发现 1）；模型拦截、`contribute` 抛错让整次运行失败且诊断里没有扩展 id（见新发现 3）；`sample` 没有时限（见新发现 2） |
+| 13 模板空行 | 已解决 | `<Tag>` 里 `默认叙事人称：{…}` 渲染成 `默认叙事人称：第一人称`，容器里段落之间空一行（实测写手系统提示词） |
+| 14 提案与 spike 对不上 | 部分解决 | `render` 签名、`contribute` 的 `view`、`slots` 并进 `contribute`、`Message.origin` 改成块、`ProfileDef.render` 都已对齐。还差：提案第 8 节说 `ctx` 给 `own`，`BaseCtx` 没有（插件 `react` 里调用是运行时错误）；提案第 5 节 `UserInput` 有 `attachments`，`api.ts` 没有；提案说 `sample` 与拦截有时限，内核只给反应实现了时限 |
+| 15 全局扩展进单轮模板 | 部分解决 | 提案第 8 节写明单轮模板“应写 `\"none\"`”，`inline.editor` 照写；但缺省仍收全部全局扩展，没有 `<History>` 的 Profile 收到别人的持久消息时也没有诊断，忘写的后果与第一轮相同 |
+| 16 概念数量 | 部分解决 | `pathState`/`sessionState`/`.extension`/`.loader`/`.load` 五个成员换成 `path`/`session` + `ctx.set`；作者不再写 `cls`。“读文件放进请求”现在是 `sample` + `contribute` + `<Slot>` 三个概念 12 行（第一版 30 行）。但新增了 `ext`/`conv`、`ev` 句柄、`sample`、`own`/`read` 之分、声明合并 + `ExportsOf`、`dependsOn`、`key`、`continue`、`onFailure`、`timeoutMs`，总概念数没有下降（数字见末尾） |
+| 17 与旧版比 Profile 变长 | 已解决（写手）/部分解决（提案没更新） | 写手从 79 行降到 61 行（非空非注释），大纲从 30 行降到 21 行；提案第 11 节仍写“没有重新改写计数”“按推断”，可以换成实测数字 |
+
+更正：上表第 17 行的行数按“非空非注释”重数为：写手 65 行（其中 5 行是为 `core.history` 选择器补的声明合并，见新发现 5；不计这 5 行是 60 行），大纲 23 行（不是 21 行）。第 16 行的“12 行”指大纲里扩展本身（`defineExtension` 到 `})` 共 5 行代码）加 Profile 的模板；整文件 23 行。
+
+## 新发现
+
+### 1. `reduce` 抛错时，事件已经进了日志、叶子没有前进：对话树分叉损坏，之后每次请求协议不合法，重新打开会话直接失败
+
+- 严重程度：阻断
+- 类别：API / 诊断
+- 位置：`kernel.ts` 290-316 `append`（先 `entries.push`，再 `apply`）、318-334 `apply`、234-252 `reduceInto`（没有 try/catch）、344-361 `load`；spike 自己的例子 `examples/plugins.ts` 62（`todo` 的归约里 `JSON.parse(e.data.text)`）
+- 现象（`lab-opus/exp.ts` 第 2 段、`exp2.ts`）：用 spike 自带的 `todo` 插件，让 `todo` 工具返回一条错误文字“参数错误”（`isError: true`）。`todo` 的归约对它 `JSON.parse` 抛错：
+  - `send` 以 `JSON Parse error` reject，`diagnostics` 为空，不说是哪个扩展；
+  - 日志里 `e7:tool_result` 已经写下，但 `apply` 在 `this.leaf = e.id` 之前抛出，于是 `e8:run_ended` 的父节点是 `e6`，当前路径是 `e1…e6,e8`，工具结果不在路径上；
+  - 下一次 `send("再试")` 以 `ProtocolError missing-tool-result`（“之前有工具调用没有结果：t1”）失败，这条路径上以后每次都如此；
+  - 用同一份日志新建会话 `load()`：在同一条事件上再次抛错，会话打不开。
+- 为什么是问题：第二版把“反应、`sample`、工具拦截出错”都隔离了，唯独最常写的 `reduce` 没有失败语义，而一个扩展的一处 bug 让整个会话永久损坏，换掉或修好插件都救不回来（`load` 照日志从头归约，坏事件永远在）。`JSON.parse`、`e.data.x.y` 这类会抛错的代码在归约里很自然，spike 自己的例子就有一处。插件作者从文档里只能知道“返回 undefined 表示不变”，不知道抛错会这样。
+- 建议改法：内核按扩展隔离归约错误：某个扩展的某一片在某条事件上抛错，这一片对这条事件按“不变”处理、写诊断 `{code: "reduce-failed", ext, entry, slice}`，其余扩展照常归约，事件照常推进叶子；`load` 与重新归约用同样的规则，所以坏插件不会让会话打不开。写日志与归约的顺序也要保证“写下了就一定推进叶子”。在 `check.ts` 补一个“归约抛错”的场景：会话继续可用、重新打开成功、诊断带扩展 id。提案第 3 节加一句：“归约抛错按不变处理并写诊断，不影响别的扩展与日志”。
+
+  ```ts
+  // reduceInto 里
+  try { value = reduceFn(cur[name], e, x.def.ev, cur); }
+  catch (err) { this.diag({level: "error", code: "reduce-failed", ext: x.def.id, entry: e.id, message: `${x.def.id} 的片 ${name} 在 ${e.id}（${e.type}）上归约失败：${err.message}；按不变处理`}); value = undefined; }
+  ```
+
+### 2. `sample` 没有时限、中止也解不开；失败时值是 `undefined`，类型却说有值
+
+- 严重程度：重要
+- 类别：API / 类型 / 诊断
+- 位置：`kernel.ts` 574-587（`await fn(ctx)` 没有超时，也没有 `raceAbort`）；`api.ts` 229 `SampleValues`（`Awaited<R>`，不含 `undefined`）、249-250；提案第 5 节“失败”一条（“扩展的反应、`sample`、拦截有时限（缺省 30 秒）”）
+- 现象（`lab-opus/exp.ts` 第 4、5 段）：
+  - 一个 `sample` 返回永远不 settle 的 Promise，会话设了 `reactTimeoutMs: 100`：`send` 1.5 秒后仍未完成，模型一次没调；`s.abort()` 之后 0.5 秒仍未完成。会话一直是 `running`，再 `send` 只会抛“正在运行”。
+  - 额度服务抛错：诊断 `sample-failed` 带扩展 id（好）；但 `view.sample.balance` 的类型是 `number`，照类型写 `${v.sample.balance}` 时模型收到“剩余额度：undefined”；写 `v.sample.balance.toFixed(0)` 时 `contribute` 抛错，整次运行失败（见第 3 条）。
+- 为什么是问题：`sample` 是第二版为“外部服务”专门加的入口，外部服务慢、挂、出错是常态。提案说它有时限、`ctx.signal` 贯穿它，作者会依赖这两条；现在一个不理 `signal` 的 `sample` 能让会话永远卡住，连用户点“停止”都没用。失败时缺值是合理的，但类型不说，作者就不会处理。
+- 建议改法：
+  - 内核对每个 `sample` 套 `timeoutMs` 与 `raceAbort`，超时与中止都按失败处理；
+  - 类型改成 `view.sample.balance: number | undefined`（`SampleValues` 里加 `| undefined`），或者让作者声明缺省值：
+
+    ```ts
+    sample: {balance: {get: (ctx) => svc.balance(ctx.signal), fallback: null}},
+    contribute: {quota: {volatile: true, value: (_m, v) => v.sample.balance === null ? null : `剩余额度：${v.sample.balance}`}},
+    ```
+  - `check.ts` 补“`sample` 挂起与抛错”的场景：运行能收口、能中止。
+
+### 3. 出错隔离只覆盖了反应、`sample`、工具拦截；`contribute`、`render`、`prompt`、输入拦截、模型拦截抛错都让整次运行失败，诊断里没有扩展 id
+
+- 严重程度：重要
+- 类别：诊断 / API
+- 位置：`kernel.ts` 605-614（`contribute` 直接调用）、621（`prompt`）、`template.ts` 129-131（`render`）、`kernel.ts` 761-771（输入拦截）、658-671（模型拦截）；提案第 5 节“失败”只写了反应、`sample` 与工具拦截
+- 现象（`lab-opus/exp.ts` 第 3 段、`exp4.ts`），五种情况结果相同：`send` reject、`run_ended` 是 `error`、`diagnostics` 为空：
+
+  | 抛错的地方 | 结果 |
+  |---|---|
+  | 扩展的 `render` | 运行失败；预览也失败 |
+  | 扩展的 `contribute` | 运行失败；`s.preview()` 同样 reject |
+  | Profile 的 `prompt` | 运行失败 |
+  | 输入拦截 | 运行失败，用户输入没写进日志 |
+  | 模型拦截在 `next` 之后抛错 | 模型已经回复（花了钱），回复丢弃，写 `model_failed` 后运行失败 |
+
+  `run_ended.detail` 里只有异常文字（例如“索引没连上”），不知道是哪个扩展；界面能拿到的只有 `send` 的 reject。
+- 为什么是问题：作者看到的规则是“反应出错丢弃、工具拦截出错拒绝”，自然以为其余入口也被兜住。其中 `contribute` 与 `render` 是全局插件最常写的两样，任何一个插件的一处空值访问都会让所有 Profile 的所有运行失败，而且出错信息不指向插件，用户只能逐个停用插件来找。
+- 建议改法：给每个入口定失败语义，写成提案第 5 节里的一张表，并在内核里统一包一层（带扩展 id、入口名、事件或请求序号）：
+
+  | 入口 | 出错时 |
+  |---|---|
+  | `reduce` | 这一片按不变处理（第 1 条） |
+  | `contribute` | 这个扩展的这个槽这次不交内容 |
+  | 扩展 `render` | 这条事件改用缺省渲染（`<system-reminder>` 包 JSON），并写诊断 |
+  | Profile `prompt`、Profile `render` | Profile 自己的错，运行失败，诊断写 Profile id |
+  | 输入拦截 | 缺省拒绝这次输入并带理由（与工具拦截一致），可设 `onFailure.input: "ignore"` |
+  | 模型拦截 | 缺省跳过这一层（`next` 之前）；`next` 之后出错时保留内层的回复 |
+
+  诊断统一 `{code: "<入口>-failed", ext, entry?, request?}`。
+
+### 4. 预览过去的请求：session 片与设置用的是“现在”的值，改过设置后预览与当时发出的请求不同
+
+- 严重程度：重要
+- 类别：API / 文档
+- 位置：`kernel.ts` 430-432 `pairAt`（`session: this.sessionSnap`，总是当前）、588 `view` 里 `const settings = this.settings`、633 `model: settings.model`、676-677 `preview` 只取回 `now` 与 `samples`；提案第 5 节“各入口读到的是哪一刻的状态”表；`check.ts` 场景 11、36
+- 现象（`lab-opus/exp.ts` 第 6 段）：一个插件把人设放在 session 片里（`changeSettings` 时 `ctx.set`），发一轮后改设置 `{model: "big", persona: "严肃"}`，再预览第一次请求：
+
+  ```text
+  当时： main  S:你是助手。 ‖ S:人设：活泼 ‖ user:一
+  预览： big   S:你是助手。 ‖ S:人设：严肃 ‖ user:一
+  ```
+
+  场景 11、36 能过，是因为两次之间没有改设置、没有 session 事件。另外，会话开始时的设置来自 `SessionOptions.settings`，不在日志里，重启时传入不同的初始设置，过去请求的预览同样会变（从代码推断）。
+- 为什么是问题：提案的表写“`sample`、`contribute`、`prompt`、模型拦截：这次请求所在的叶子；预览时就是被预览的叶子”，场景 36 的名字是“结果与当时相同”，作者与界面都会把“预览过去的请求”当作“这次请求当时是怎么来的”。session 片（人设、库结构、工作区焦点）与设置（模型、模式）恰恰是最常变、最常被问“当时为什么这样”的部分。主创的人设就是 session 片（`examples/profiles.tsx` 62）。
+- 建议改法：两条路选一条，并在表里写明：
+  - 预览过去的请求用当时的 session 状态：`model_started` 记下它的 `seq`，预览时把 session 片归约到那个 `seq` 为止（session 事件是全序的，代价是一次重放或按检查点取），设置同理；初始设置写进 `session_created`；
+  - 或者承认“只有 path 片与 `now`、`samples` 是当时的”，表里把 session 片与设置单列为“现在的值”，场景 36 改名，界面在预览过去的请求时提示“设置与会话级状态是现在的”。
+
+### 5. 类型推断停在扩展里：Profile 一侧（`own`、设置、`payload`、`initial`、`render`）仍是 `any`/`unknown`；`core.history` 的选择器登记放在例子文件里，没登记时报错是“不能赋给 never”
+
+- 严重程度：重要
+- 类别：类型
+- 位置：`api.ts` 305-315 `ProfileDef`（`render: Record<string, (e: Entry<string, any>) => …>`、`prompt` 参数 `own(extId: string): any`）、189 与 204 `settings: Record<string, any>`、177 `payload?: unknown`、38 `initial: unknown`、180-197 `BaseCtx`（没有 `own`）；`examples/plugins.ts` 161-167（`core.history` 的声明合并）；`core.ts` 没有登记
+- 现象：
+  - `lab-opus/solo/a.tsx`：`state.own("p").refrence`（片名拼错）与 `settings.narativePerson`（设置名拼错）`tsc` 都不报；运行时前者渲染成空的 `<ref>\n\n</ref>`，后者什么也不出，没有诊断。
+  - 写手 Profile 里 2 处 `e.data.payload as Payload`（反应与工具拦截各一处），`state.own("writer")` 返回 `any`；spike 自己的 Profile 里还有 3 处 `(e.data as {…})`（`profiles.tsx` 66、83、156）。旧版写手是 `ProfilePrepareContext<Initial, Payload, Settings>`，三样都有类型（来自 `initialSchema`、`payloadSchema`、`settingsForm`），这一点新版比旧版退步。
+  - 插件 `react` 里写 `ctx.own(…)` 是编译错误（`BaseCtx` 上没有），提案第 8 节却说 `ctx` 给 `own`；运行时插件调用它报“状态是私有的”，Profile 自带扩展调用能用，但只能写 `(ctx as any).own`。
+  - 写手的工具拦截读 `ctx.read("core.history", "input")`：不 import `examples/plugins.ts` 时报 `Argument of type '"core.history"' is not assignable to parameter of type 'never'`；同一个项目里恰好有别的插件登记过时，报错变成“不能赋给 `"lab.cards"`”（第一次写写手时就是这样）。作者看不出是“没登记”。我只好在写手里自己补 5 行声明合并。
+- 为什么是问题：第一轮第 3 条要的是“作者写错时编译器能拦住”。扩展一侧做到了，Profile 一侧（写手、主创这类最常被改写的文件）还是靠记忆；`own` 的值、设置、调用参数恰好是 Profile 模板里用得最多的三样。
+- 建议改法：
+  - `defineProfile` 带泛型：`settings`、`initial`、`payload` 各给一个 TypeBox schema（旧版已有 `initialSchema`、`payloadSchema`、`settingsForm`），推断进 `prompt` 的参数、`ctx.settings` 与 `is(e, K.user)` 之后的 `e.data.payload`；
+  - `own` 改成按扩展对象取：`state.own(writerCore)` 返回 `Mine<typeof writerCore.state>`，名字拼错与类型都有检查；`BaseCtx` 上同样提供，Profile 自带扩展之外调用是编译错误（可以只在 `defineProfile` 的 `extensions` 里推断出来时才有）；
+  - `ProfileDef.render` 的键限制为已知事件类型（内核事件与 `extensions` 里扩展的 `ev.*.type`），全局插件的事件用它导出的句柄：`render: {[modeReminder.ev.reminder.type]: …}`；装配时对不认识的键写诊断（同时补上第一轮第 11 条剩下的部分）；
+  - `core.history` 的登记放进 `core.ts`（产品里放进 SDK 入口），作者不必知道它；`Reader.read` 的第一个参数在没有登记时给出可读的提示类型（例如 `"请先用 declare module 登记 ExtensionExports"`）。
+
+### 6. 槽名是全局命名空间：两个插件交同名的槽时静默拼成一块，来源只剩第一个扩展
+
+- 严重程度：建议
+- 类别：API / 诊断
+- 位置：`kernel.ts` 604-614（按槽名合并，只在稳定与会变不一致时写诊断）；`template.ts` 125（`origin: slot:<名字>`）；提案第 4 节“同一个槽有几个扩展交内容时按扩展顺序拼接”
+- 现象（`lab-opus/exp.ts` 第 8 段）：`vendor-a.clock` 与 `vendor-b.timezone` 各交一个叫 `time` 的会变槽，请求末条是一块 `{"text": "<time>10:00</time>\n\n时区：Europe/London", "origin": "slot:time"}`，零诊断；Profile 没法把两者摆在不同位置，预览里“这块是谁加的”只能看出槽名。我写额度插件时两种写法都随手叫了 `quota`，同一个现象（`run.ts` 输出“剩余额度：约 50000 token⏎⏎剩余额度：9900”）。
+- 为什么是问题：第二版把事件名按扩展 id 加了前缀，正是为了“撞不了别人的名字”；槽名是同一类问题，却还是全局的短名（`time`、`quota`、`context`、`outline` 很容易撞）。共享一个槽是有意的设计，但现在“有意共享”和“无意撞名”在行为上分不出来。
+- 建议改法：槽名缺省按扩展 id 限定（`<Slot name="nbook.sql/schema" />`，`*` 照旧按档位收）；确实要共享的槽由一方声明、别的扩展经 `dependsOn` 显式交给它，或者在 `contribute` 里写 `shared: true`；块的 `origin` 带上扩展 id（`slot:time@vendor-b.timezone`），同一个槽的不同扩展各成一块。
+
+### 7. 扩展 id 不校验格式：id 含 `/` 时，前缀检查会放过另一个扩展写它的事件
+
+- 严重程度：建议
+- 类别：API
+- 位置：`kernel.ts` 283-287 `check`（`out.type.startsWith(\`${source}/\`)`）、190-195（只查重复）；`api.ts` 287 `defineExtension`
+- 现象（`lab-opus/exp.ts` 第 9 段）：扩展 `lab/inner` 声明事件 `ping`（类型 `lab/inner/ping`）；另一个扩展 `lab` 的反应返回 `{type: "lab/inner/ping"}`，通过检查写进日志，`lab/inner` 的归约照单全收，零诊断。第一轮 spike 的辅助函数就用过 `writer/seed` 这种带 `/` 的 id。
+- 为什么是问题：第二版的“扩展写不出别人前缀的事件”依赖“id 里没有 `/`”这个没写出来的约定。
+- 建议改法：装配时校验 id（例如 `/^[a-z0-9][a-z0-9.-]*$/`），带 `/` 直接拒绝；`check` 改成比较 `type` 的最后一个 `/` 之前的部分是否等于 `source`。
+
+### 8. “值没变就不写”要作者自己比：`ctx.set` 写入与当前值相同的值也会落一条日志
+
+- 严重程度：建议
+- 类别：好用程度
+- 位置：`kernel.ts` 438-442 `set`、245（相同值不改状态，但事件已写）；`examples/profiles.tsx` 24、68，`examples/plugins.ts` 104；我的写手 `lab-opus/writer.profile.tsx` 的预设两行、`delivered` 一行
+- 现象（`lab-opus/exp5.ts`）：对每次用户发言 `ctx.set("p", "活泼")`（值不变），5 轮写了 5 条 `lab.p/$set`（31 条日志里的 5 条）。所以 spike 的写手、主创、工作区焦点，以及我的写手（3 处）都手写 `x === ctx.mine.x ? [] : [ctx.set(…)]`；写手读两份预设要写成 `[...(style === ctx.mine.style ? [] : [ctx.set("style", style)]), ...]` 这种展开。
+- 为什么是问题：“值没变不写事件”是提案第 11 节明确要的行为（“人设……值没变不写”），每个用 `ctx.set` 的地方都要重复同一个比较，忘了就是日志膨胀，长会话里每轮多几条。
+- 建议改法：内核在写入 `$set` 前与反应看到的那一刻的值比较（结构相等），相同就不写；作者直接 `return [ctx.set("style", style), ctx.set("reference", reference)]`。
+
+### 9. session 片的归约只收到 session 作用域的事件：对 `user`、`session_created` 写的归约静默不生效
+
+- 严重程度：重要
+- 类别：API / 类型 / 文档
+- 位置：`kernel.ts` 234-252 `reduceInto(snap, e, scope)`（只归约 `spec.scope === e.scope` 的片）、318-325 `apply`、336-338 `kernel()` 缺省 `scope: "path"`（`session_created`、`run_started`、`user`、`assistant` 都是 path）；`api.ts` 242-246 注释只说“看不到别的作用域的兄弟片”
+- 现象（`lab-opus/exp6.ts`）：一个扩展三片：`total: session(0)` 数 `K.user`，`initial: session(null)` 取 `K.sessionCreated` 的 `initial`，`here: path(0)` 数 `K.user`。两轮之后：`total=0 initial=null here=2`，零诊断，`tsc` 也不报。日志里出现过的内核事件作用域全是 path（`session_created:path, run_started:path, user:path, model_started:path, assistant:path, run_ended:path`）；只有 `settings_changed`、`leaf_changed`、`profile_changed` 与扩展声明成 session 的事件会到 session 片。
+- 为什么是问题：作者选 `session(…)` 的理由是“这个值不随回退变”（提案第 3 节的原话），而“整个会话里发言过几次”“会话创建时的 initial”正是这类值；他会自然地在 session 片的归约里认内核事件，结果永远是初值。规则本身有道理（session 片若归约 path 事件，回退后再走一遍就会重复计数，值也就不确定了），但它没写在提案或类型里，写错的后果是静默的。我写写手的预设时用 session 片 + 反应里 `ctx.set` 才是对的写法，是读了 `reduceInto` 才知道的。
+- 建议改法：
+  - 提案第 3 节与 `reduce` 的注释写明：session 片的归约只收到 session 作用域的事件（列出是哪几种内核事件）；要从 path 事件得到 session 的值，在反应里 `ctx.set`；
+  - 类型上把 `reduce` 的事件参数按片的作用域收窄（session 片的归约拿到的是 `Entry<SessionKernelType | 自己声明成 session 的事件>`），`is(e, K.user)` 在 session 片里就是编译错误；
+  - 或者装配时对“session 片的归约函数体里引用了 path 事件守卫”做不到静态检查时，至少在开发模式下发现“某个 session 片从没变过、却声明了归约”时给一条提示。
+
+### 10. 有意把会变的内容放在输入前的 Profile 没法说“我知道”，每轮都得到 `cache-miss` 警告；警告只写新请求一侧的来源
+
+- 严重程度：建议
+- 类别：诊断
+- 位置：`kernel.ts` 701-714 `record`（`firstDiff = cur[i].o`，阈值是 `SessionOptions.cacheWarnTokens`）
+- 现象（`run.ts` 大纲一段，3 轮、第二轮有工具）：四次请求重算 `[0, 633, 0, 373]` token，第二、四次各一条 `cache-miss`：“这次请求要重算上一次的 633 token，从 e3 开始变了”。实际变化是上一次的 `slot:outline` 那一块挪走了、`e3` 顶到了它的位置；诊断只说了新请求一侧的 `e3`，看不出起因是大纲槽。阈值是会话选项，Profile 无法声明“这是有意的布局”，作者明知道要损失缓存（这正是这个 Profile 的需求），也只能看着每轮一条警告。
+- 为什么是问题：警告要么被作者有意忽略，要么被调低阈值关掉，两种都会让真正的缓存问题一起看不见。
+- 建议改法：诊断同时写两侧：“上一次的 `slot:outline`（第 2 块）处，这一次是 `e3`：会变的槽 `outline` 放在本轮输入前面，下一轮整段失效一次”；Profile 能对某个槽声明“接受缓存损失”，诊断降为 `info`：
+
+  ```tsx
+  <Slot name="outline" cacheCost="accepted" />
+  ```
+
+### 11. 读文件放进请求，最短的写法是 `sample`，而它把整份内容写进每一条 `model_started`
+
+- 严重程度：建议
+- 类别：好用程度 / 文档
+- 位置：`kernel.ts` 785（`model_started` 带 `samples`）；提案第 4 节“每次请求现取的数据”、待定项 9
+- 现象：大纲 Profile 用 `sample` 读大纲文件，扩展 5 行；3 轮 4 次请求，`model_started` 里 `samples` 共 2,540 字（大纲本身约 640 字，每次请求一份）。换成“反应里读、`ctx.set` 写进 path 片”的写法，同样的数据只在变化时写一次，但扩展要多写 6 到 8 行（要列出何时重读）。整章正文、设定集这类大一点的文件，一次 ReAct 运行 20 次请求就是 20 份。
+- 为什么是问题：API 让最短的写法同时是日志最大的写法；提案只在待定项 9 里把它当“值很大时”的问题，作者从文档里看不出两种写法的取舍（“要跟着路径走、能回退的用反应”说的是语义，不是体积）。
+- 建议改法：`samples` 按内容寻址记录（同一个值只存一次，`model_started` 里只放哈希），这样两种写法在体积上没有差别，作者只按语义选；提案第 4 节在 `sample` 下面写一句取舍：“值在两次请求之间多半不变、而且要能回退的，用反应加片；每次请求都可能不同、只对这一次有效的，用 `sample`”。
+
+### 12. 空的用户输入原样成为一个空文字块进请求，内核校验不拦
+
+- 严重程度：建议
+- 类别：API
+- 位置：`kernel.ts` 643-656 `validate`（只查工具调用与结果、工具名）；`template.ts` 129-136 `renderEntry`
+- 现象（`run.ts` 写手一段第三次调用）：写手被以空的 `invoke.message` 调用（旧版专门为此写了条件提醒），请求里出现 `[user:e31]` 一条 `content: [{text: ""}]` 的消息，后面才是调用上下文与提醒。
+- 为什么是问题：有的服务商拒绝空文字块（Anthropic 的 Messages API 要求文字块非空，从服务商规则推断，未在 spike 里验证），这类错误会在适配器里才暴露，离写手 Profile 很远。旧版写手把“没有收到消息”当成正常情况处理，新版作者不会想到它在请求层面是个空块。
+- 建议改法：`validate` 把空文字块当作协议问题（与工具名一样，在预览里就报出来），或者投影时丢掉空块并写 `info` 诊断；`<Input />` 遇到空输入时由 Profile 的 `render` 决定写什么。
+
+更正：第 11 条里“扩展要多写 6 到 8 行”按实际写法应为约 4 行（片 1 行、反应里判断何时重读 1 行、读文件 1 行、值没变不写 1 行；`contribute` 改读 `m.text` 不增行）。
+
+## 第二版写起来的别扭之处（汇总）
+
+写的时候卡住、要回头查实现、或者写错了才发现的地方，按出现顺序：
+
+1. 写手的工具拦截里 `ctx.read("core.history", "input")` 第一次编译失败，报“不能赋给 `"lab.cards"`”；查到 `core.history` 的登记在 `examples/plugins.ts`，自己补了 5 行声明合并（新发现 5）。
+2. 角色卡的“一轮”边界要认 `K.runStarted`：要去 `kernel.ts` 336 确认 `run_started` 是 path 作用域、path 片的归约收得到它；顺带发现 session 片的归约收不到任何 path 事件（新发现 9）。
+3. 写手两份预设：先想写成 session 片的归约（对 `settings_changed` 读文件），才想起归约不能 I/O，改成反应里 `ctx.set`；“值没变不写”三处手写比较（新发现 8）。
+4. 额度插件两种写法的槽都叫 `quota`，输出被拼成一块才发现槽名是全局的（新发现 6）。
+5. `sample` 失败时 `view.sample.balance` 类型是 `number`、值是 `undefined`，模型看到“剩余额度：undefined”（新发现 2）。
+6. `state.own("writer")` 返回 `any`，片名拼错在模板里渲染成空标签（新发现 5）。
+7. 大纲 Profile 每轮两条 `cache-miss`，诊断说“从 e3 开始变了”，要自己推出是大纲槽挪了位置（新发现 10）。
+
+与第一版比：
+
+| 项目 | 第一版 | 第二版 |
+|---|---|---|
+| 四样东西合计（非空非注释行） | 200 行 | 130 行 |
+| 其中要手写 `as` 断言 | 4 处 | 2 处（都是 `payload as Payload`），另有 1 处 `own` 返回 `any` |
+| 写错后 `tsc` 能拦住的（`typetest` 七类） | 0 / 6 | 7 / 7；Profile 侧的片名、设置名、`render` 键仍拦不住 |
+| 各样东西要同时用到的概念数（构造函数、字段与 `ctx` 成员按个数） | 角色卡 8、额度 5、写手约 15、大纲 6 | 角色卡 8、额度 3、写手约 16、大纲 4 |
+| 公开 API 的名字（扩展字段、`ctx`/视图成员、构造函数、辅助函数、模板节点、Profile 字段） | 约 56 | 约 77 |
+
+第二版每样东西写起来更短、更不容易错，但要学的总面积变大了：新增的 `sample`、`ev` 句柄、`continue`、`dependsOn`、`key`、`onFailure`、`timeoutMs`、`own` 与 `read` 之分、声明合并，多数是为了堵第一轮的坑，单看都合理；文档首屏需要一条“先学这 10 个”的路径（`defineExtension`、`path`/`session`、`events`、`reduce`、`react`、`ctx.set`、`contribute`、`render`、`intercept.tool`、`defineProfile`），其余按需查。
+
+## 四样东西的行数对比（第一版 → 第二版）
+
+| 文件 | 第一版总行数 / 非空非注释 | 第二版总行数 / 非空非注释 | 说明 |
+|---|---|---|---|
+| `cards.ts`（角色卡插件，含“助手回复也注入”变体） | 53 / 47 | 30 / 27 | 变体从 17 行的包装缩成一个选项；含 6 行导出选择器与声明合并（可选） |
+| `quota.ts`（剩余额度，从日志算 + 外部服务） | 54 / 44（三种写法） | 20 / 15（两种写法） | 外部服务从“没有好写法”变成 `sample` 4 行 |
+| `writer.profile.tsx`（写手结构） | 94 / 79 | 75 / 65 | 含 5 行 `core.history` 声明合并；调用上下文 23 行 → 9 行；工具拦截 10 行不变 |
+| `outline.profile.tsx`（大纲在输入前） | 34 / 30 | 27 / 23 | `sample` + 会变的槽 + `<Slot>` |
+
+四样都能跑（`bun run.ts`），用 spike 的编译选项跑 `tsc` 无错误（`exp.ts` 第 1 段是故意写错的，见下）。实验脚本：`run.ts`（四样）、`exp.ts`（新发现 1 到 8 的大部分）、`exp2.ts`（归约抛错之后的日志与下一次请求）、`exp4.ts`（各入口抛错）、`exp5.ts`（`ctx.set` 同值）、`exp6.ts`（session 片的归约）、`solo/a.tsx`（Profile 侧类型）、`typecheck-own.ts`（`ctx.own` 不在类型上）。
+
+`tsc` 在 lab 目录里只有 3 处错误，都是故意写的：`exp.ts` 22（块体归约忘写 `return`，第二版能拦住，第一轮第 12 条的“忘了原样返回”因此不会再发生）、`solo/a.tsx` 11（误把 `intercept` 写到 Profile 上，能拦住）、`typecheck-own.ts` 3（`ctx.own` 不在类型上，新发现 5）。`solo/` 另有自己的 `tsconfig.json`，单独编译时还多一处“`"core.history"` 不能赋给 `never`”（新发现 5）。
+
+## 未发现问题的方面
+
+- 回退：角色卡插件只写了归约，回退到第一句之前再发“沈澜出场”，路径上只有沈澜的卡；写手的“送达到哪了”是 path 片，回退后自动重新送达。作者不写任何回退代码。
+- “接着做”显式化：对最终回复补卡片、不写 `continue`，不多调模型；写手的“不到 3000 字接着写”一行 `{events, continue: true}`，诊断带扩展 id 与次数。
+- 事件句柄：`ctx.ev.card({…})`、`ev.card.is(e)` 之后 `e.data` 收窄，`render` 的键按 `events` 推断；写别人的前缀或内核事件在反应里被整批拒绝并写 `bad-event`。
+- 多片：写手一个扩展三片（两份 session 预设 + 一个 path 的“送达到哪了”），读写都在一处；第一版要拆扩展、导出恒等选择器的写法都不需要了。
+- 结构化输入：`send({text, payload})`，`is(e, K.user)` 之后读 `e.data.payload`；写手的调用上下文、目标限制都直接从这条事件来，不再需要“先发外部事件再 send”的约定。
+- 块与来源：相邻 user 消息不再拼接，每块带来源；缓存比对对缺省布局两种轮次都报 0，对槽在输入前的布局能报出来。
+- `sample` 的回放：预览过去的请求用记下的值，额度服务实测没有被再次调用；预览当前叶子会再取一次，符合预期。
+- 模板文字：`<Tag>` 里文字与表达式相连，容器里段落空一行，与提案一致。
+- 工具拦截：写手按 payload 目标挡写入、按参数挡 `world.execute` 的写模式，各一行；拒绝结果进日志，模型看得到原因。
+- 扩展 id 重复、插件写 `replaces`、`<History render>`、`<Slot name="*" />` 不写档位：都在装配或渲染时直接报错，报错文字说清了该怎么改。
+
+## 按影响排序的索引
+
+- 阻断：1 `reduce` 抛错让对话树损坏、会话打不开
+- 重要：2 `sample` 没有时限与中止、失败值与类型不符；3 `contribute`、`render`、`prompt`、输入与模型拦截出错没有隔离、诊断没有扩展 id；4 预览过去的请求用现在的 session 片与设置；5 Profile 一侧类型仍是 `any`、`core.history` 登记位置；9 session 片的归约收不到 path 事件
+- 建议：6 槽名全局撞名；7 扩展 id 不校验；8 `ctx.set` 同值也写；10 有意的缓存损失无法声明、诊断只写一侧；11 `sample` 每次请求记整份值；12 空输入成为空文字块

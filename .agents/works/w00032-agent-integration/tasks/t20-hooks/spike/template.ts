@@ -49,7 +49,7 @@ export interface RenderInput {
     input: Entry | null;
     transcript: Entry[];
     renders: Record<string, (e: Entry) => string | null>;
-    slots: Map<string, {volatile: boolean; ext: string; texts: string[]}>;
+    slots: Map<string, {volatile: boolean; ext: string; parts: {ext: string; text: string}[]}>;
     tools: string[];
 }
 
@@ -75,7 +75,7 @@ function nodeProps(n: Node): void {
     if (n.type === Slot && n.props.name === "*" && !n.props.stable && !n.props.volatile) throw new Error(`<Slot name="*" /> 要写 stable 或 volatile`);
 }
 
-export function renderTemplate(tree: Child, ri: RenderInput): {system: Block[]; messages: Message[]; diagnostics: Diagnostic[]} {
+export function renderTemplate(tree: Child, ri: RenderInput): {system: Block[]; messages: Message[]; diagnostics: Diagnostic[]; hasHistory: boolean; acceptedSlots: Set<string>} {
     const diagnostics: Diagnostic[] = [];
     const tops: Top[] = [];
     for (const c of expand(tree, ri.tools)) {
@@ -113,6 +113,16 @@ export function renderTemplate(tree: Child, ri: RenderInput): {system: Block[]; 
     };
     walk(tops.flatMap((t) => ("children" in t ? t.children : [])));
     for (const t of tops) if (t.kind === "slot" && t.name !== "*") named.add(t.name);
+    // <Slot cacheCost="accepted" />：Profile 明知这个槽会让缓存失效（例如放在本轮输入前面），诊断降为 info
+    const acceptedSlots = new Set<string>();
+    const walkAccepted = (cs: Child[]) => {
+        for (const x of expand(cs, ri.tools)) {
+            if (typeof x !== "object" || x === null || Array.isArray(x)) continue;
+            if (x.type === Slot && x.props.cacheCost === "accepted") acceptedSlots.add(x.props.name);
+            walkAccepted(x.children);
+        }
+    };
+    walkAccepted(expand(tree, ri.tools));
     const placed = new Set<string>();
     const slotBlocks = (name: string, stable: boolean | undefined, volatile: boolean | undefined, inSystem: boolean): Block[] => {
         const names = name === "*" ? [...ri.slots.keys()].filter((n) => !named.has(n) && (volatile ? ri.slots.get(n)!.volatile : stable && !ri.slots.get(n)!.volatile)) : [name];
@@ -122,14 +132,17 @@ export function renderTemplate(tree: Child, ri: RenderInput): {system: Block[]; 
             if (!s) continue;
             placed.add(n);
             if (inSystem && s.volatile) diagnostics.push({level: "warn", code: "volatile-in-system", ext: s.ext, message: `${s.ext} 的槽 ${n} 每次请求都会变，被放进了系统提示词：整段缓存失效`});
-            if (s.texts.length) out.push({text: s.texts.join("\n\n"), origin: `slot:${n}`});
+            // 每个扩展交的内容各成一块，来源写到扩展：同名的槽也分得清是谁加的
+            for (const part of s.parts) out.push({text: part.text, origin: `slot:${n}@${part.ext}`});
         }
         return out;
     };
     const renderEntry = (e: Entry): Message | null => {
         const r = ri.renders[e.type];
-        const text = r ? r(e) : defaultText(e);
+        let text = r ? r(e) : defaultText(e);
+        if (text === undefined) text = defaultText(e);   // 渲染出错时内核给的是 undefined：退回缺省
         if (text === null) return null;
+        if (text === "" && e.type !== "assistant") return null;   // 空文字块不进请求（有的服务商拒绝空块）
         const block = {text, origin: e.id};
         if (e.type === "assistant") return {role: "assistant", content: [block], ...((e.data as any).toolCalls?.length ? {toolCalls: (e.data as any).toolCalls} : {})};
         if (e.type === "tool_result") return {role: "tool", content: [block], callId: (e.data as any).callId};
@@ -190,8 +203,8 @@ export function renderTemplate(tree: Child, ri: RenderInput): {system: Block[]; 
             }
         }
     }
-    for (const [n, s] of ri.slots) if (!placed.has(n) && s.texts.length) diagnostics.push({level: "warn", code: "slot-unplaced", ext: s.ext, message: `Profile 没留槽 ${n}（${s.volatile ? "会变" : "稳定"}），${s.ext} 交的内容被丢弃`});
-    return {system, messages, diagnostics};
+    for (const [n, s] of ri.slots) if (!placed.has(n) && s.parts.length) diagnostics.push({level: "warn", code: "slot-unplaced", ext: s.ext, message: `Profile 没留槽 ${n}（${s.volatile ? "会变" : "稳定"}），${s.ext} 交的内容被丢弃`});
+    return {system, messages, diagnostics, hasHistory: tops.some((t) => t.kind === "history"), acceptedSlots};
 }
 
 function defaultText(e: Entry): string {

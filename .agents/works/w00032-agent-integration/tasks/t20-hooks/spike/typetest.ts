@@ -39,3 +39,18 @@ export const typed = defineExtension({
         count: {volatile: true, value: (m) => m.n},
     },
 });
+
+// Profile 一侧（R2-5）：自带扩展的 own 有类型，id 拼错是编译错误
+import {defineProfile} from "./api.ts";
+export const typedProfile = defineProfile({
+    id: "lab.p",
+    tools: {required: []},
+    extensions: [typed],
+    prompt: ({state}) => {
+        const n: number = state.own("lab.typed").n;
+        void n;
+        // @ts-expect-error 8. 自带扩展的 id 拼错
+        void state.own("lab.typd");
+        return [];
+    },
+});

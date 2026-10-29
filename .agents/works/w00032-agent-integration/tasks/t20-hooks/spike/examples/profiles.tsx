@@ -21,7 +21,7 @@ export const writerCore = defineExtension({
     },
     react(e, ctx) {
         const len = (ctx.file("正文/第3章.md") ?? "").length;
-        if (is(e, K.user) || (is(e, K.toolResult) && e.data.tool === "edit")) return len === ctx.mine.words ? undefined : [ctx.set("words", len)];
+        if (is(e, K.user) || (is(e, K.toolResult) && e.data.tool === "edit")) return [ctx.set("words", len)];   // 值没变内核不写
         if (is(e, K.assistant) && !e.data.toolCalls.length && ctx.mine.words < 3000 && ctx.mine.continues < 3)
             return {events: [ctx.ev.continue({text: `请接着写完（本章 ${ctx.mine.words} 字，不到 3000 字）`})], continue: true};
     },
@@ -64,8 +64,7 @@ export const leaderCore = defineExtension({
         // 人设：会话打开、设置变化、人设文件被改时读一次；值没变不写
         const watched = `profile/${ctx.settings.leaderPersonaPreset}`;
         if (!(is(e, K.sessionOpened) || is(e, K.settingsChanged) || (e.type === "nbook.history/fileChanged" && (e.data as {path: string}).path === watched))) return;
-        const text = ctx.file(watched) ?? "熟悉、活泼、直率。";
-        return text === ctx.mine.persona ? undefined : [ctx.set("persona", text)];
+        return [ctx.set("persona", ctx.file(watched) ?? "熟悉、活泼、直率。")];   // 值没变内核不写
     },
     intercept: {
         // 旧版只能在提示词里说“写作必须交给 writer”；现在能挡住

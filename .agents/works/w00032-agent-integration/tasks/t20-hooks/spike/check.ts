@@ -621,6 +621,133 @@ await check("依赖排序（R1o-32）：插件按依赖排序、同层按 id，�
     assert.throws(() => order([x, y]), /依赖成环/);
 });
 
+// ---------- 第二轮 Opus 审查（R2-<编号>）----------
+
+// 41. 归约出错（R2-1）
+await check("归约出错（R2-1）：todo 的归约在错误文字上 JSON.parse 抛错，叶子照样前进、写诊断；下一次请求合乎协议；同一份日志能重新打开", async () => {
+    const m = scripted({text: "记任务", toolCalls: [{id: "t1", name: "todo", args: {}}]}, {text: "完"}, {text: "好"});
+    const s = session(writer, m.model, {tools: {...tools, todo: () => ({text: "不是 JSON 的错误文字", isError: true})}, files: {"正文/第3章.md": "x".repeat(4000)}});
+    await s.create();
+    await s.send("记一下");
+    assert.ok(s.diagnostics.some((d) => d.code === "reduce-failed" && d.ext === "todo"));
+    assert.equal(s.pathTo(s.leaf).filter((e) => is(e, K.toolResult)).length, 1, "工具结果在当前路径上");
+    await s.send("继续");
+    const s2 = session(writer, scripted().model, {files: {"正文/第3章.md": "x".repeat(4000)}});
+    s2.load(s.entries.map((e) => ({...e})));
+    assert.equal(s2.leaf, s.leaf);
+});
+
+// 42. sample 卡住（R2-2）
+await check("sample 卡住（R2-2）：超过时限这次请求里缺席并写诊断；中止也能解开", async () => {
+    const stuck = defineExtension({id: "lab.stuck", timeoutMs: 30, sample: {v: () => new Promise<number>(() => {})}, contribute: {v: {volatile: true, value: (_m, view) => (view.sample.v === undefined ? "（这次没取到）" : `值 ${view.sample.v}`)}}});
+    const m = scripted({text: "好"});
+    const s = new Session({profile: writer, plugins: [stuck], core: [coreHistory], model: m.model, tools, files: {"正文/第3章.md": "x".repeat(4000)}});
+    await s.create();
+    await s.send("你好");
+    assert.ok(s.diagnostics.some((d) => d.code === "sample-failed" && d.ext === "lab.stuck"));
+    assert.ok(m.seen[0]!.messages.some((x) => text(x).includes("（这次没取到）")));
+    const forever = defineExtension({id: "lab.forever", timeoutMs: 60_000, sample: {v: () => new Promise<number>(() => {})}});
+    const s2 = new Session({profile: writer, plugins: [forever], core: [coreHistory], model: () => ({text: "好"}), tools});
+    await s2.create();
+    const run = s2.send("你好");
+    await Bun.sleep(20);
+    s2.abort();
+    await run;
+    assert.equal((s2.pathTo(s2.leaf).at(-1)!.data as any).reason, "aborted");
+    assert.equal(s2.running, false);
+});
+
+// 43. 出错隔离（R2-3）
+await check("出错隔离（R2-3）：contribute、渲染、输入拦截、模型拦截出错都写带扩展 id 的诊断，运行照常完成；模型拦截在 next 之后出错时用里层的回复", async () => {
+    let modelCalls = 0;
+    const bad = defineExtension({
+        id: "lab.bad",
+        events: {note: conv()},
+        react(e, ctx) {
+            if (is(e, K.user)) return [ctx.ev.note({text: "x"})];
+        },
+        render: {note: () => {
+            throw new Error("渲染 bug");
+        }},
+        contribute: {boom: {volatile: true, value: () => {
+            throw new Error("contribute bug");
+        }}},
+        intercept: {
+            async input() {
+                throw new Error("输入拦截 bug");
+            },
+            async model(req, next) {
+                await next(req);
+                throw new Error("模型拦截 bug");
+            },
+        },
+    });
+    const s = new Session({profile: writer, plugins: [bad], core: [coreHistory], model: () => (modelCalls++, {text: "回复"}), tools, files: {"正文/第3章.md": "x".repeat(4000)}});
+    await s.create();
+    await s.send("你好");
+    const codes = s.diagnostics.filter((d) => d.ext === "lab.bad").map((d) => d.code).sort();
+    assert.deepEqual([...new Set(codes)], ["contribute-failed", "intercept-failed", "render-failed"]);
+    assert.equal(modelCalls, 1, "模型只调了一次");
+    const p = s.pathTo(s.leaf);
+    assert.ok(p.some((e) => is(e, K.assistant) && e.data.text === "回复"));
+    assert.equal((p.at(-1)!.data as any).reason, "completed");
+});
+
+// 44. 预览过去的请求：当时的设置与 session 片（R2-4）
+await check("预览（R2-4）：改过设置之后预览第一次请求，模型与人设仍是当时的", async () => {
+    const s = session(leader, scripted({text: "好"}).model, {files: {"profile/caihui.md": "彩绘", "profile/cool.md": "冷静"}, settings: {leaderPersonaPreset: "caihui.md", model: "main"}});
+    await s.create();
+    await s.send("你好");
+    const first = s.requests[0]!;
+    await s.changeSettings({model: "big", leaderPersonaPreset: "cool.md"});
+    assert.deepEqual(await s.preview(first.leaf), first.request);
+});
+
+// 45. 槽撞名（R2-6）与扩展 id 格式（R2-7）
+await check("槽撞名（R2-6）、扩展 id（R2-7）：两个扩展交同名的槽各成一块、来源到扩展并写诊断；id 带 / 拒绝", async () => {
+    const a = defineExtension({id: "vendor-a.clock", contribute: {time: {volatile: true, value: () => "10:00"}}});
+    const b = defineExtension({id: "vendor-b.timezone", contribute: {time: {volatile: true, value: () => "Europe/London"}}});
+    const m = scripted({text: "好"});
+    const s = new Session({profile: writer, plugins: [a, b], core: [coreHistory], model: m.model, tools, files: {"正文/第3章.md": "x".repeat(4000)}});
+    await s.create();
+    await s.send("你好");
+    const blocks = m.seen[0]!.messages.flatMap((x) => x.content).filter((bk) => bk.origin.startsWith("slot:time"));
+    assert.deepEqual(blocks.map((bk) => bk.origin), ["slot:time@vendor-a.clock", "slot:time@vendor-b.timezone"]);
+    assert.ok(s.diagnostics.some((d) => d.code === "slot-collision"));
+    assert.throws(() => new Session({profile: writer, plugins: [defineExtension({id: "lab/inner"})], core: [coreHistory], model: () => ({text: ""})}), /不合格式/);
+});
+
+// 46. 接受缓存损失（R2-10）与 sample 的体积（R2-11）
+await check("缓存（R2-10）：Profile 写 cacheCost=accepted 的槽，缓存诊断降为 info 并写出两侧；sample（R2-11）的同一个值只存一次", async () => {
+    const outline = defineExtension({id: "lab.outline", sample: {text: () => "第 3 章大纲：" + "情节".repeat(300)}, contribute: {outline: {volatile: true, value: (_m, v) => v.sample.text ?? null}}});
+    const p = defineProfile({id: "outline", tools: {required: ["read"]}, globalExtensions: "none", extensions: [outline], prompt: () => [
+        {type: "system", props: {}, children: ["你是写手。"]},
+        {type: "history", props: {}, children: []},
+        {type: "slot", props: {name: "outline", cacheCost: "accepted"}, children: []},
+        {type: "input", props: {}, children: []},
+    ]});
+    const m = scripted({text: "查", toolCalls: [{id: "o1", name: "read", args: {path: "a"}}]}, {text: "一"}, {text: "二"});
+    const s = new Session({profile: p, core: [coreHistory], model: m.model, tools, cacheWarnTokens: 100});
+    await s.create();
+    await s.send("写第一段");
+    await s.send("写第二段");
+    const miss = s.diagnostics.filter((d) => d.code === "cache-miss");
+    assert.ok(miss.length > 0 && miss.every((d) => d.level === "info"));
+    assert.match(miss[0]!.message, /上一次的 .+ 处，这一次是/);
+    assert.equal(s.entries.filter((e) => e.type === "sample_value").length, 1, "三次请求同一个大纲，只存一次");
+});
+
+// 47. 空输入（R2-12）与 Profile 的 render 键（R2 核对 11）
+await check("空输入（R2-12）：没有文字也没有 payload 的输入不写用户事件、不产生空块；Profile 的 render 键拼错写诊断", async () => {
+    const m = scripted({text: "继续写"});
+    const s = new Session({profile: {...writer, render: {"writer/contineu": () => "x"}}, core: [coreHistory], model: m.model, tools, files: {"正文/第3章.md": "x".repeat(4000)}});
+    await s.create();
+    await s.send("");
+    assert.ok(!s.pathTo(s.leaf).some((e) => is(e, K.user)));
+    assert.ok(!m.seen[0]!.messages.some((x) => x.content.some((bk) => bk.text === "")));
+    assert.ok(s.diagnostics.some((d) => d.code === "render-unknown-type" && d.message.includes("writer/contineu")));
+});
+
 void ({} as Extension);
 let failed = 0;
 for (const r of results) {

@@ -35,6 +35,8 @@ export interface RecordedRequest {
     /** 上一次请求里不在这次前缀里、要重新计算的 token（上一次末尾那段会变的槽不算）。 */
     recomputedTokens: number;
     firstDiff: string | null;
+    /** 这次请求里 Profile 声明接受缓存损失的槽。 */
+    accepted: Set<string>;
 }
 
 interface Loaded {
@@ -48,6 +50,7 @@ type Snap = Record<string, Record<string, unknown>>;
 interface Pair {
     path: Snap;
     session: Snap;
+    settings: Record<string, any>;
 }
 
 type ToolFn = (args: any, files: Map<string, string>, signal: AbortSignal) => ToolResult | Promise<ToolResult>;
@@ -124,7 +127,7 @@ function freezeNew(v: unknown): void {
 }
 
 export interface SessionOptions {
-    profile: ProfileDef;
+    profile: ProfileDef<any>;
     plugins?: Extension[];
     core?: Extension[];
     model: (request: ModelRequest, signal: AbortSignal) => Promise<ModelResponse> | ModelResponse;
@@ -177,8 +180,8 @@ export class Session {
     }
 
     /** 装配扩展：顺序是内置（没被替换的）→ 插件 → Profile 自带；追加事件、拼接槽、拦截链（外到里）都按这个顺序。 */
-    private install(profile: ProfileDef, pluginList: Extension[], core: Extension[]): void {
-        const own = profile.extensions ?? [];
+    private install(profile: ProfileDef<any>, pluginList: Extension[], core: Extension[]): void {
+        const own: Extension[] = [...(profile.extensions ?? [])];
         for (const p of pluginList) if (p.replaces) throw new Error(`插件 ${p.id} 不能替换内置扩展，只有 Profile 自带的扩展能用 replaces`);
         const replaced = new Set(own.map((e) => e.replaces).filter(Boolean) as string[]);
         const g = profile.globalExtensions;
@@ -189,6 +192,7 @@ export class Session {
         for (const o of own) exts.push({def: o, own: true});
         const ids = new Map<string, string>();
         for (const x of exts) {
+            if (!/^[a-z0-9][a-z0-9.-]*$/.test(x.def.id)) throw new Error(`扩展 id ${x.def.id} 不合格式：只能用小写字母、数字、点与连字符`);
             const where = x.own ? `Profile ${profile.id}` : "插件或内置";
             if (ids.has(x.def.id)) throw new Error(`扩展 id 重复：${x.def.id}（${ids.get(x.def.id)} 与 ${where}）`);
             ids.set(x.def.id, where);
@@ -197,6 +201,9 @@ export class Session {
         if (!history) throw new Error("没有历史投影：core.history 或替换它的扩展");
         this.exts = exts;
         this.history = history;
+        // Profile 覆盖的渲染：事件类型拼错时覆盖静默失效，装配时就指出来
+        const known = new Set<string>([...KERNEL_TYPES, ...exts.flatMap((x) => [...Object.keys(x.def.events ?? {}).map((k) => `${x.def.id}/${k}`), `${x.def.id}/message`])]);
+        for (const k of Object.keys(profile.render ?? {})) if (!known.has(k)) this.diag({level: "warn", code: "render-unknown-type", ext: `Profile ${profile.id}`, message: `Profile ${profile.id} 的 render 覆盖了不存在的事件类型 ${k}`});
         this.opts = {...this.opts, profile, plugins: pluginList, core};
         this.volatileSlots = new Set(exts.flatMap((x) => Object.entries(x.def.contribute ?? {}).filter(([, c]) => c.volatile).map(([n]) => n)));
     }
@@ -241,7 +248,15 @@ export class Session {
                 let value: unknown;
                 // ctx.set 写的事件由内核处理，作者不必写
                 if (e.type === `${x.def.id}/$set` && (e.data as any).slice === name) value = (e.data as any).value;
-                else value = (x.def.reduce as any)?.[name]?.(cur[name], e, x.def.ev, cur);
+                else {
+                    // 归约出错不能挡住日志：事件已经写下，叶子必须前进；这一片保持原值，重放时同样出错、同样保持，结果确定
+                    try {
+                        value = (x.def.reduce as any)?.[name]?.(cur[name], e, x.def.ev, cur);
+                    } catch (err) {
+                        this.diag({level: "error", code: "reduce-failed", ext: x.def.id, entry: e.id, message: `${x.def.id} 的片 ${name} 在 ${e.id}（${e.type}）上归约失败：${(err as Error).message}；这一片保持原值`});
+                        value = undefined;
+                    }
+                }
                 if (value !== undefined && value !== cur[name]) (changed ??= {...cur})[name] = value;
             }
             if (changed) (next ??= {...snap})[x.def.id] = changed;
@@ -282,7 +297,7 @@ export class Session {
 
     private check(out: EventOut, source: string): void {
         const ext = this.exts.find((x) => x.def.id === source);
-        if (ext && !out.type.startsWith(`${source}/`)) throw new Error(`${source} 写的事件类型 ${out.type} 不以 ${source}/ 开头`);
+        if (ext && out.type.slice(0, out.type.lastIndexOf("/")) !== source) throw new Error(`${source} 写的事件类型 ${out.type} 不以 ${source}/ 开头`);
         if (!ext && !KERNEL_TYPES.has(out.type)) throw new Error(`内核不认识的事件类型 ${out.type}`);
     }
 
@@ -330,7 +345,8 @@ export class Session {
                 this.leafSnap = snap;
             }
         }
-        this.pairs.set(e, {path: this.leafSnap, session: this.sessionSnap});
+        this.pairs.set(e, {path: this.leafSnap, session: this.sessionSnap, settings: this.settingsCache});
+        if (is(e, K.sampleValue)) this.sampleValues.set(e.data.hash, e.data.value);
     }
 
     private kernel<T extends KernelType>(type: T, data: unknown, source = "kernel", cls: "conv" | "ctrl" = "ctrl", scope: "path" | "session" = "path"): Entry {
@@ -371,7 +387,7 @@ export class Session {
      * Profile 或插件清单变了（t04 方案 D）：换上新的扩展，照日志从头重新归约（新扩展的片也从日志得到，
      * 旧扩展写的事件留在日志里，没有扩展认它们就不起作用），再写 profile_changed 并派发。
      */
-    async reconfigure(profile: ProfileDef, plugins: Extension[] = this.opts.plugins ?? []): Promise<void> {
+    async reconfigure(profile: ProfileDef<any>, plugins: Extension[] = this.opts.plugins ?? []): Promise<void> {
         if (this.running) throw new Error("运行中不能换 Profile：等这次运行收口");
         this.install(profile, plugins, this.opts.core ?? []);
         this.snaps = new Map();
@@ -428,8 +444,9 @@ export class Session {
     }
 
     private pairAt(leaf: string | null): Pair {
-        return {path: this.stateAt(leaf), session: this.sessionSnap};
+        return {path: this.stateAt(leaf), session: this.sessionSnap, settings: this.settingsCache};
     }
+    private readonly sampleValues = new Map<string, unknown>();
 
     private ctxFor(x: Loaded, p: Pair, preview = false): any {
         return {
@@ -447,7 +464,7 @@ export class Session {
                 if (!x.own || !y?.own) throw new Error(`${extId} 的状态是私有的：只有同一个 Profile 自带的扩展之间能读原样`);
                 return this.mine(y, p);
             },
-            settings: this.settings,
+            settings: p.settings,
             tools: this.tools,
             run: {running: this.running},
             preview,
@@ -488,7 +505,7 @@ export class Session {
         for (let depth = 0; batch.length > 0; depth++) {
             const outputs: {x: Loaded; events: EventOut[]; continue: boolean; cause: Entry}[] = [];
             for (const e of batch) {
-                const p = this.pairs.get(e) ?? {path: this.leafSnap, session: this.sessionSnap};
+                const p = this.pairs.get(e) ?? this.pairAt(this.leaf);
                 outputs.push(...(await Promise.all(this.exts.map(async (x) => ({x, ...await this.runReact(x, e, p)})))).map((o) => ({...o, cause: e})));
             }
             for (const o of outputs) if (o.continue) continueBy.push(o.x.def.id);
@@ -501,6 +518,7 @@ export class Session {
                     o.events = [];
                 }
             }
+            for (const o of outputs) o.events = this.dropUnchangedSets(o.x, o.events, this.pairs.get(o.cause) ?? this.pairAt(this.leaf));
             const pending = outputs.flatMap((o) => o.events.map((ev) => ({x: o.x, ev, cause: o.cause})));
             if (depth >= REACT_DEPTH_LIMIT && pending.length) {
                 const r = root ?? written[0]?.id ?? "?";
@@ -518,6 +536,12 @@ export class Session {
         return {continueBy};
     }
 
+    /** ctx.set 写的值与反应看到的当前值相同：不写（作者不必自己比）。 */
+    private dropUnchangedSets(x: Loaded, events: EventOut[], p: Pair): EventOut[] {
+        const mine = this.mine(x, p);
+        return events.filter((ev) => !(ev.type === `${x.def.id}/$set` && JSON.stringify((ev.data as any).value) === JSON.stringify(mine[(ev.data as any).slice])));
+    }
+
     async create(): Promise<void> {
         await this.dispatch([this.kernel(K.sessionCreated, {initial: this.opts.initial ?? null})]);
         await this.open();
@@ -526,10 +550,10 @@ export class Session {
     /** “会话已打开”不进日志：反应照常跑。 */
     async open(): Promise<void> {
         const pseudo: Entry = {id: "runtime", seq: 0, at: (this.opts.clock ?? Date.now)(), parent: null, scope: "path", cls: "ctrl", type: K.sessionOpened, source: "kernel", data: {}};
-        this.pairs.set(pseudo, {path: this.leafSnap, session: this.sessionSnap});
+        this.pairs.set(pseudo, {path: this.leafSnap, session: this.sessionSnap, settings: this.settingsCache});
         const results = await Promise.all(this.exts.map(async (x) => ({x, ...await this.runReact(x, pseudo, this.pairs.get(pseudo)!)})));
         const written: Entry[] = [];
-        for (const r of results) for (const ev of r.events) written.push(this.append(ev, r.x.def.id));
+        for (const r of results) for (const ev of this.dropUnchangedSets(r.x, r.events, this.pairs.get(pseudo)!)) written.push(this.append(ev, r.x.def.id));
         await this.dispatch(written);
     }
 
@@ -567,25 +591,39 @@ export class Session {
     // ---------- 视图 ----------
 
     /** 算一次请求：先并发取 sample，再投影、contribute、模板。预览过去的请求时传入记下的 now 与 samples。 */
-    async view(leaf: string | null, recorded?: {now: number; samples: Record<string, Record<string, unknown>>}, preview = false) {
-        const p = this.pairAt(leaf);
+    /**
+     * 算一次请求：先并发取 sample（有时限、接中止），再投影、contribute、模板。
+     * 预览过去的请求时传入那次请求的 now、samples 与当时的 session 状态与设置（pair）。
+     */
+    async view(leaf: string | null, recorded?: {now: number; samples: Record<string, Record<string, unknown>>; pair?: Pair}, preview = false) {
+        const p = recorded?.pair ? {...recorded.pair, path: this.stateAt(leaf)} : this.pairAt(leaf);
         const now = recorded?.now ?? (this.opts.clock ?? Date.now)();
         const samples: Record<string, Record<string, unknown>> = recorded?.samples ?? {};
         if (!recorded) {
+            const signal = this.controller?.signal ?? NEVER;
             await Promise.all(this.exts.filter((x) => x.def.sample).map(async (x) => {
                 const ctx = this.ctxFor(x, p, preview);
                 const vals: Record<string, unknown> = {};
+                const timeout = x.def.timeoutMs ?? this.opts.reactTimeoutMs ?? 30_000;
                 await Promise.all(Object.entries(x.def.sample!).map(async ([k, fn]) => {
+                    let timer: ReturnType<typeof setTimeout> | undefined;
                     try {
-                        vals[k] = await (fn as (c: unknown) => unknown)(ctx);
+                        vals[k] = await raceAbort(Promise.race([
+                            Promise.resolve((fn as (c: unknown) => unknown)(ctx)),
+                            new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error(`超过 ${timeout} ms`)), timeout))),
+                        ]), signal);
                     } catch (err) {
-                        this.diag({level: "error", code: "sample-failed", ext: x.def.id, message: `${x.def.id} 的 sample ${k} 失败：${(err as Error).message}`});
+                        if (err instanceof AbortedError) throw err;
+                        // 没取到：这次请求里这个值缺席（类型上是可选的），写诊断
+                        this.diag({level: "error", code: "sample-failed", ext: x.def.id, message: `${x.def.id} 的 sample ${k} 失败：${(err as Error).message}；这次请求里它缺席`});
+                    } finally {
+                        clearTimeout(timer);
                     }
                 }));
                 samples[x.def.id] = vals;
             }));
         }
-        const settings = this.settings;
+        const settings = p.settings;
         const reader = {read: (extId: string, selector: string) => this.read(p, extId, selector)};
         const viewFor = (x?: Loaded): ViewInput => ({
             ...reader,
@@ -596,19 +634,35 @@ export class Session {
             model: {id: settings.model ?? "main", capabilities: {vision: !!settings.vision}},
         } as ViewInput);
 
+        // 渲染出错时退回缺省渲染并写诊断：一个扩展的渲染坏了，不挡住整次请求
+        const safe = (owner: string, type: string, f: (e: Entry) => string | null) => (e: Entry) => {
+            try {
+                return f(e);
+            } catch (err) {
+                this.diag({level: "error", code: "render-failed", ext: owner, entry: e.id, message: `${owner} 对 ${type} 的渲染出错：${(err as Error).message}；用缺省渲染`});
+                return undefined as unknown as string;
+            }
+        };
         const renders: Record<string, (e: Entry) => string | null> = {};
-        for (const x of this.exts) Object.assign(renders, Object.fromEntries(Object.entries(x.def.render ?? {}).map(([k, f]) => [`${x.def.id}/${k}`, f as (e: Entry) => string | null])));
+        for (const x of this.exts) for (const [k, f] of Object.entries(x.def.render ?? {})) renders[`${x.def.id}/${k}`] = safe(x.def.id, `${x.def.id}/${k}`, f as (e: Entry) => string | null);
         for (const x of this.exts) renders[`${x.def.id}/message`] ??= (e) => (e.data as any).text;
-        Object.assign(renders, this.opts.profile.render ?? {});
+        for (const [k, f] of Object.entries(this.opts.profile.render ?? {})) renders[k] = safe(`Profile ${this.opts.profile.id}`, k, f);
 
-        const slots = new Map<string, {volatile: boolean; ext: string; texts: string[]}>();
+        const slots = new Map<string, {volatile: boolean; ext: string; shared: boolean; parts: {ext: string; text: string}[]}>();
         for (const x of this.exts) {
             for (const [name, c] of Object.entries(x.def.contribute ?? {})) {
-                const text = c.value(this.mine(x, p) as any, viewFor(x) as any);
+                let text: string | null | undefined;
+                try {
+                    text = c.value(this.mine(x, p) as any, viewFor(x) as any);
+                } catch (err) {
+                    this.diag({level: "error", code: "contribute-failed", ext: x.def.id, message: `${x.def.id} 给槽 ${name} 的内容出错：${(err as Error).message}；这次不交`});
+                    continue;
+                }
                 const cur = slots.get(name);
                 if (cur && cur.volatile !== !!c.volatile) this.diag({level: "warn", code: "slot-volatility", ext: x.def.id, message: `槽 ${name} 在 ${cur.ext} 与 ${x.def.id} 里一个稳定一个会变`});
-                const slot = cur ?? {volatile: !!c.volatile, ext: x.def.id, texts: []};
-                if (text) slot.texts.push(text);
+                if (cur && !(cur.shared && c.shared)) this.diag({level: "warn", code: "slot-collision", ext: x.def.id, message: `${cur.ext} 与 ${x.def.id} 都交了槽 ${name}；要共用就都写 shared: true`});
+                const slot = cur ?? {volatile: !!c.volatile, ext: x.def.id, shared: !!c.shared, parts: []};
+                if (text) slot.parts.push({ext: x.def.id, text});
                 slots.set(name, slot);
             }
         }
@@ -618,7 +672,14 @@ export class Session {
             if (!y?.own) throw new Error(`${extId} 不是这个 Profile 自带的扩展，请用它导出的选择器`);
             return this.mine(y, p);
         };
-        const tree = this.opts.profile.prompt ? this.opts.profile.prompt({...viewFor(), state: {...reader, own}} as any) : defaultLayout(this.opts.profile.system ?? "");
+        let tree: unknown;
+        try {
+            tree = this.opts.profile.prompt ? this.opts.profile.prompt({...viewFor(), state: {...reader, own}} as any) : defaultLayout(this.opts.profile.system ?? "");
+        } catch (err) {
+            // 布局是 Profile 自己的：它出错这次请求就算不出来，运行以 error 收口
+            this.diag({level: "error", code: "prompt-failed", ext: `Profile ${this.opts.profile.id}`, message: `Profile ${this.opts.profile.id} 的 prompt 出错：${(err as Error).message}`});
+            throw err;
+        }
         const hid = this.history.def.id;
         const out = renderTemplate(tree as Parameters<typeof renderTemplate>[0], {
             before: this.read(p, hid, "before") as Entry[],
@@ -629,6 +690,9 @@ export class Session {
             tools: this.tools,
         });
         for (const d of out.diagnostics) this.diag(d);
+        if (!out.hasHistory && this.opts.profile.globalExtensions === undefined && this.exts.some((x) => !x.own && x.def.id !== this.history.def.id))
+            this.diag({level: "info", code: "single-turn-globals", ext: `Profile ${this.opts.profile.id}`, message: `Profile ${this.opts.profile.id} 没有 <History>，像是单轮模板，却收了全部全局扩展；不要的话写 globalExtensions: "none"`});
+        this.acceptedSlots = out.acceptedSlots;
         const request: ModelRequest = {
             model: settings.model ?? "main",
             params: {maxTokens: 8192},
@@ -661,11 +725,24 @@ export class Session {
         const run = (i: number, req: ModelRequest): Promise<ModelResponse> => {
             if (i === layers.length) return terminal(req, modifiedBy);
             const x = layers[i]!;
-            return x.def.intercept!.model!(req, (changed: ModelRequest) => {
+            let inner: ModelResponse | undefined;
+            let innerError: unknown;
+            const next = async (changed: ModelRequest) => {
                 const fields = (["model", "params", "headers", "system", "messages"] as const).filter((f) => JSON.stringify(changed[f]) !== JSON.stringify(req[f]));
                 if (fields.length) modifiedBy.push({ext: x.def.id, fields});
-                return run(i + 1, changed);
-            }, this.ctxFor(x, p, preview));
+                try {
+                    return (inner = await run(i + 1, changed));
+                } catch (err) {
+                    innerError = err;   // 里层（模型或更里的拦截）的失败照常往外传，不当成这一层的错
+                    throw err;
+                }
+            };
+            return Promise.resolve(x.def.intercept!.model!(req, next, this.ctxFor(x, p, preview))).catch((err: unknown) => {
+                if (err === innerError || err instanceof AbortedError) throw err;
+                // 拦截出错：模型已经回复的（在 next 之后出错）用里层的回复，没调到 next 的跳过这一层
+                this.diag({level: "error", code: "intercept-failed", ext: x.def.id, message: `${x.def.id} 的模型拦截失败：${(err as Error).message}；${inner ? "用里层的回复" : "跳过这一层"}`});
+                return inner ?? run(i + 1, req);
+            });
         };
         return {response: await run(0, request), modifiedBy};
     }
@@ -673,8 +750,12 @@ export class Session {
     /** 预览：sample + 视图 + 模型拦截链；最里层不发请求。预览过去的请求时用记下的 now 与 samples。 */
     async preview(leaf: string | null = this.leaf): Promise<ModelRequest> {
         // 这个叶子上发过请求：用日志里 model_started 记下的 now 与 samples（重启后也在）
-        const started = this.entries.find((e) => is(e, K.modelStarted) && e.parent === leaf) as Entry<"model_started", {now: number; samples: Record<string, Record<string, unknown>>}> | undefined;
-        const recorded = started ? {now: started.data.now, samples: started.data.samples} : undefined;
+        const started = this.entries.find((e) => is(e, K.modelStarted) && e.parent === leaf) as Entry<"model_started", {now: number; samples: Record<string, Record<string, string>>}> | undefined;
+        const recorded = started ? {
+            now: started.data.now,
+            samples: Object.fromEntries(Object.entries(started.data.samples).map(([ext, vals]) => [ext, Object.fromEntries(Object.entries(vals).map(([k, h]) => [k, this.sampleValues.get(h)]))])),
+            pair: this.pairs.get(started),
+        } : undefined;
         const {request, pair} = await this.view(leaf, recorded, true);
         let captured: ModelRequest | undefined;
         await this.modelChain(request, pair, async (r) => {
@@ -711,15 +792,33 @@ export class Session {
             if (end < old.length && end > i && old[end - 1]!.o === "user") end--;
             recomputed = old.slice(i, end).reduce((a, x) => a + estimateTokens(x.t), 0);
             const warn = this.opts.cacheWarnTokens ?? 200;
-            if (recomputed > warn) this.diag({level: "warn", code: "cache-miss", request: this.requests.length, message: `这次请求要重算上一次的 ${recomputed} token，从 ${firstDiff} 开始变了`});
+            const oldAt = old[i]?.o ?? "末尾";
+            const accepted = [oldAt, firstDiff ?? ""].some((o) => o.startsWith("slot:") && prev.accepted.has(o.slice(5).split("@")[0]!));
+            if (recomputed > warn) this.diag({level: accepted ? "info" : "warn", code: "cache-miss", request: this.requests.length, message: `这次请求要重算上一次的 ${recomputed} token：上一次的 ${oldAt} 处，这一次是 ${firstDiff ?? "末尾"}${accepted ? "（Profile 声明接受这个槽的缓存损失）" : ""}`});
         }
-        const rec: RecordedRequest = {leaf, now, samples, request, modifiedBy: [], tokens, prefixTokens: prefix, recomputedTokens: recomputed, firstDiff};
+        const rec: RecordedRequest = {leaf, now, samples, request, modifiedBy: [], tokens, prefixTokens: prefix, recomputedTokens: recomputed, firstDiff, accepted: this.acceptedSlots};
         this.requests.push(rec);
         return rec;
     }
 
     private isVolatileOrigin(o: string): boolean {
-        return o.startsWith("slot:") && o.slice(5).split(",").every((n) => this.volatileSlots.has(n));
+        return o.startsWith("slot:") && this.volatileSlots.has(o.slice(5).split("@")[0]!);
+    }
+
+    private acceptedSlots = new Set<string>();
+
+    /** sample 的值按内容寻址：新值写一条 sample_value（session 作用域），model_started 里只放哈希。 */
+    private hashSamples(samples: Record<string, Record<string, unknown>>): Record<string, Record<string, string>> {
+        const out: Record<string, Record<string, string>> = {};
+        for (const [ext, vals] of Object.entries(samples)) {
+            out[ext] = {};
+            for (const [k, v] of Object.entries(vals)) {
+                const h = Bun.hash(JSON.stringify(v ?? null)).toString(16);
+                if (!this.sampleValues.has(h)) this.kernel(K.sampleValue, {hash: h, value: v ?? null}, "kernel", "ctrl", "session");
+                out[ext]![k] = h;
+            }
+        }
+        return out;
     }
 
     // ---------- 压缩 ----------
@@ -754,8 +853,10 @@ export class Session {
         };
         try {
             await this.dispatch([this.kernel(K.runStarted, {})]);
-            if (input !== null) {
+            const empty = input !== null && (typeof input === "string" ? input : input.text).trim() === "" && (typeof input === "string" || input.payload === undefined);
+            if (input !== null && !empty) {
                 const original: UserInput = typeof input === "string" ? {text: input} : input;
+                // 空的输入（没有文字也没有 payload）不写用户事件：这一轮是没有新输入的“继续”
                 let committed = false;
                 const layers = this.exts.filter((x) => x.def.intercept?.input);
                 const run = async (i: number, u: UserInput): Promise<void | {reject: string}> => {
@@ -765,7 +866,16 @@ export class Session {
                         return;
                     }
                     const x = layers[i]!;
-                    return x.def.intercept!.input!(u, async (n: UserInput) => void await run(i + 1, n), this.ctxFor(x, this.pairAt(this.leaf)));
+                    let passed = false;
+                    try {
+                        return await x.def.intercept!.input!(u, async (n: UserInput) => {
+                            passed = true;
+                            await run(i + 1, n);
+                        }, this.ctxFor(x, this.pairAt(this.leaf)));
+                    } catch (err) {
+                        this.diag({level: "error", code: "intercept-failed", ext: x.def.id, message: `${x.def.id} 的输入拦截失败：${(err as Error).message}；跳过这一层`});
+                        if (!passed) return run(i + 1, u);
+                    }
                 };
                 const r = await run(0, original);
                 if (!committed) return await end("input-rejected", (r && "reject" in r ? r.reject : undefined) ?? "被输入拦截拦下");
@@ -782,7 +892,7 @@ export class Session {
                         this.validate(r);
                         rec = this.record(leaf, now, samples, r);
                         // 发出之前落一条：崩溃后知道“请求已发出、结果未知”；视图的输入与修改记录一起记下
-                        this.kernel(K.modelStarted, {request: this.requests.length - 1, hash: Bun.hash(JSON.stringify(r)).toString(16), now, samples, modifiedBy});
+                        this.kernel(K.modelStarted, {request: this.requests.length - 1, hash: Bun.hash(JSON.stringify(r)).toString(16), now, samples: this.hashSamples(samples), modifiedBy});
                         return await raceAbort(this.opts.model(r, signal), signal);
                     }, false);
                     response = out.response;

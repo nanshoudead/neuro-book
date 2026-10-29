@@ -5,7 +5,7 @@
  * 用数组的话每条事件都要整份复制，打开长会话是 O(n²)。链表追加是 O(1)，取数组时再转，转好的按链表节点记住。
  */
 
-import {conv, defineExtension, is, K, path, type BaseCtx, type Entry, type KernelType} from "./api.ts";
+import {conv, defineExtension, is, K, path, type BaseCtx, type Entry, type ExportsOf, type KernelType} from "./api.ts";
 
 type List<T> = {head: T; tail: List<T>; size: number} | null;
 const cons = <T>(head: T, tail: List<T>): List<T> => ({head, tail, size: (tail?.size ?? 0) + 1});
@@ -86,6 +86,13 @@ export function historyExtension<const Id extends string>(o: {id: Id; replaces?:
 }
 
 export const coreHistory = historyExtension({id: "core.history"});
+
+// core.history 的选择器登记在这里：用到 core 的地方都能得到 read("core.history", "input") 的类型
+declare module "./api.ts" {
+    interface ExtensionExports {
+        "core.history": ExportsOf<typeof coreHistory>;
+    }
+}
 
 // ---------- 辅助函数 ----------
 

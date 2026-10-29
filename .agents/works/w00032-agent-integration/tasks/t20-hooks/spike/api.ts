@@ -25,6 +25,7 @@ export const K = {
     modelFailed: "model_failed",
     toolStarted: "tool_started",
     reactionLimit: "reaction_limit",
+    sampleValue: "sample_value",
 } as const;
 export type KernelType = (typeof K)[keyof typeof K];
 
@@ -53,11 +54,13 @@ export interface KernelData {
     profile_changed: {profile: string; extensions: string[]; hash: string};
     /** 发出模型请求之前写：崩溃后据此知道“请求已发出、结果未知”。 */
     /** 视图的输入（now、samples）与修改记录也记下：重启、预览过去的请求时照它重算，不取“现在”。 */
-    model_started: {request: number; hash: string; now: number; samples: Record<string, Record<string, unknown>>; modifiedBy: {ext: string; fields: string[]}[]};
+    model_started: {request: number; hash: string; now: number; samples: Record<string, Record<string, string>>; modifiedBy: {ext: string; fields: string[]}[]};
     model_failed: {request: number; message: string; partial?: string};
     /** 执行工具之前写：崩溃后据此把没有结果的调用结算为“结果未知”。 */
     tool_started: {callId: string; tool: string};
     reaction_limit: {root: string; dropped: string[]};
+    /** sample 取到的值按内容寻址存一次（session 作用域）；model_started 里只放哈希。 */
+    sample_value: {hash: string; value: unknown};
 }
 
 export type EntryClass = "conv" | "ctrl" | "ext";
@@ -175,6 +178,7 @@ export interface ToolResult {
 export interface UserInput {
     text: string;
     payload?: unknown;
+    attachments?: {kind: "image" | "file"; uri: string}[];
 }
 
 export interface BaseCtx<S, E, Id extends string> extends Reader {
@@ -182,8 +186,10 @@ export interface BaseCtx<S, E, Id extends string> extends Reader {
     mine: Mine<S>;
     /** 自己的事件构造与守卫。 */
     ev: Handles<Id, E>;
-    /** 改自己的一片：生成一条内核认识的设置事件。 */
+    /** 改自己的一片：生成一条内核认识的设置事件；值与反应看到的当前值相同时内核不写。 */
     set<k extends keyof S & string>(slice: k, value: ValueOf<S[k]>): EventOut;
+    /** 同一个 Profile 自带的兄弟扩展的原样（只有 Profile 自带的扩展能用）。 */
+    own(extId: string): any;
     /** 注入一条普通的对话消息（类型 `<id>/message`）。 */
     message(text: string): EventOut;
     settings: Record<string, any>;
@@ -226,7 +232,8 @@ export interface CompactionResult {
     firstKept: string | null;
 }
 
-type SampleValues<Sm> = {[k in keyof Sm]: Sm[k] extends (...a: any[]) => infer R ? Awaited<R> : never};
+/** sample 可能失败或超时：值是可选的，作者要处理“这次没取到”。 */
+type SampleValues<Sm> = {[k in keyof Sm]?: Sm[k] extends (...a: any[]) => infer R ? Awaited<R> : never};
 
 export interface ExtensionSpec<Id extends string, S, E, Sm, Ex> {
     id: Id;
@@ -242,6 +249,11 @@ export interface ExtensionSpec<Id extends string, S, E, Sm, Ex> {
      * 每片一个归约函数：看自己那片、这条事件，以及同一扩展里同一作用域的其它片（这条事件之前的值）；
      * 返回 undefined 表示不变。ctx.set 写的值内核自己处理，不必写。看不到别的作用域：path 的片若依赖
      * session 的值，回退时会用到“现在”的 session 值，归约就不确定了。
+     *
+     * 作用域也决定归约收到哪些事件：path 的片收 path 事件（用户消息、回复、工具结果、运行开始与结束、
+     * 会话创建……）；session 的片只收 session 事件（settings_changed、leaf_changed、profile_changed 与
+     * 扩展声明成 session 的事件）。session 的片若归约 path 事件，回退后再走一遍就会重复计数。要从 path 事件
+     * 得到一个不随回退变的值，在反应里 ctx.set 写进 session 的片。
      */
     reduce?: {[k in keyof S]?: (state: ValueOf<S[k]>, e: Entry, ev: Handles<Id, E>, siblings: Partial<Mine<S>>) => ValueOf<S[k]> | undefined};
     exports?: Ex & {[name: string]: (mine: Mine<S>) => unknown};
@@ -249,7 +261,8 @@ export interface ExtensionSpec<Id extends string, S, E, Sm, Ex> {
     /** 每次算视图前取一次（可以 I/O，不能有副作用），值记进请求记录；预览过去的请求用记下的值。 */
     sample?: Sm & {[name: string]: (ctx: BaseCtx<S, E, Id>) => unknown};
     /** 交给槽的内容；声明与内容写在一起。没写 volatile 的是稳定的。 */
-    contribute?: {[slot: string]: {volatile?: boolean; value: (mine: Mine<S>, view: ViewInput<SampleValues<Sm>>) => string | null | undefined}};
+    /** shared：有意与别的扩展共用这个槽名；不写时两个扩展撞名会写诊断。 */
+    contribute?: {[slot: string]: {volatile?: boolean; shared?: boolean; value: (mine: Mine<S>, view: ViewInput<SampleValues<Sm>>) => string | null | undefined}};
     /** 自己的对话事件给模型看的样子；返回 null 不显示。 */
     render?: {[k in keyof E & string]?: (e: Entry<`${Id}/${k}`, DataOf<E[k]>>) => string | null};
     intercept?: Interceptors<BaseCtx<S, E, Id>>;
@@ -275,7 +288,7 @@ export interface AnyExtension {
     exports?: object;
     react?: (...a: any[]) => any;
     sample?: object;
-    contribute?: Record<string, {volatile?: boolean; value: (...a: any[]) => string | null | undefined}>;
+    contribute?: Record<string, {volatile?: boolean; shared?: boolean; value: (...a: any[]) => string | null | undefined}>;
     render?: object;
     intercept?: {input?: (...a: any[]) => any; model?: (...a: any[]) => any; tool?: (...a: any[]) => any; compaction?: (...a: any[]) => any};
     onFailure?: {tool?: "deny" | "ignore"};
@@ -302,14 +315,18 @@ export function makeHandles<Id extends string, E>(id: Id, events: E): Handles<Id
 
 export type TemplateNode = {type: unknown; props: any; children: unknown[]} | unknown[];
 
-export interface ProfileDef {
+/** Profile 自带的某个扩展的各片：own("writer") 的返回类型。 */
+type OwnMine<X extends readonly AnyExtension[], Id> = Extract<X[number], {id: Id}> extends {state?: infer S} ? (S extends Record<string, SliceSpec<any>> ? Mine<S> : Record<string, never>) : never;
+
+export interface ProfileDef<X extends readonly AnyExtension[] = readonly AnyExtension[]> {
     id: string;
     system?: string;
     tools: {required: string[]; optional?: string[]};
     globalExtensions?: {exclude: string[]} | "none";
-    /** 事件给模型看的样子，对 History、Input、Transcript 一律生效；覆盖扩展给的。 */
+    /** 事件给模型看的样子，对 History、Input、Transcript 一律生效；覆盖扩展给的。键拼错时装配写诊断。 */
     render?: Record<string, (e: Entry<string, any>) => string | null>;
-    prompt?: (input: ViewInput & {state: Reader & {own(extId: string): any}}) => TemplateNode;
-    extensions?: AnyExtension[];
+    prompt?: (input: ViewInput & {state: Reader & {own<Id extends X[number]["id"]>(extId: Id): OwnMine<X, Id>}}) => TemplateNode;
+    extensions?: X;
 }
-export const defineProfile = (p: ProfileDef): ProfileDef => p;
+/** 定义 Profile：extensions 的类型被记住，prompt 里 state.own("<自带扩展 id>") 有类型，id 拼错是编译错误。 */
+export const defineProfile = <const X extends readonly AnyExtension[] = []>(p: ProfileDef<X>): ProfileDef<X> => p;

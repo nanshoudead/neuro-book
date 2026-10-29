@@ -4,7 +4,7 @@
  */
 
 import {conv, defineExtension, ext, is, K, path, session, type Entry, type ExportsOf} from "../api.ts";
-import {reminder, type coreHistory} from "../core.ts";
+import {reminder} from "../core.ts";
 
 /** 文件变更感知（nbook.history，t13）：记下没送达的改动，下一次用户发言之后送达。 */
 export const fileNotice = defineExtension({
@@ -101,7 +101,7 @@ export const workspace = defineExtension({
     react(e, ctx) {
         if (!is(e, K.user)) return;
         const now = JSON.stringify(ctx.mine.focus);
-        if (now === ctx.mine.delivered) return;
+        if (now === ctx.mine.delivered) return;   // 这里不能省：没变时连提醒都不写
         const f = ctx.mine.focus;
         const text = ctx.mine.delivered === null ? `当前项目 ${f.project}，选中的文件 ${f.file ?? "无"}` : `用户切换到 ${f.file ?? f.project}`;
         return [ctx.ev.reminder({text}), ctx.set("delivered", now)];
@@ -160,7 +160,6 @@ export const sneaky = defineExtension({
 // 跨扩展的选择器：登记后，ctx.read("nbook.history", "pendingChanges") 的返回类型是 string[]，名字拼错是编译错误
 declare module "../api.ts" {
     interface ExtensionExports {
-        "core.history": ExportsOf<typeof coreHistory>;
         "nbook.history": ExportsOf<typeof fileNotice>;
         "nbook.workspace": ExportsOf<typeof workspace>;
     }
